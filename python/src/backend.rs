@@ -7,15 +7,67 @@ use std::ffi::CString;
 
 use pyo3::exceptions::{PyKeyError, PyRuntimeError};
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
+use pyo3::types::{PyDict, PyList};
 
 use patinae_cmd::CommandExecutor;
 use patinae_mol::AtomIndex;
-use patinae_scene::{Session, SessionAdapter, ViewportImage};
+use patinae_scene::{
+    label_object_view, LabelEntityView, LabelObjectView, Session, SessionAdapter, ViewportImage,
+};
 use patinae_select::select;
 
 use crate::iterate::{apply_locals_to_atom, build_globals, set_atom_locals};
 use crate::mol::PyObjectMolecule;
+
+fn label_entity_to_py<'py>(
+    py: Python<'py>,
+    entity: &LabelEntityView,
+) -> PyResult<Bound<'py, PyDict>> {
+    let anchor = PyDict::new(py);
+    anchor.set_item("object_name", &entity.anchor.object_name)?;
+    anchor.set_item("atom_index", entity.anchor.atom_index)?;
+    anchor.set_item("orphaned", entity.anchor.orphaned)?;
+    anchor.set_item("resolved", entity.anchor.resolved)?;
+
+    let result = PyDict::new(py);
+    result.set_item("anchor", anchor)?;
+    result.set_item("text", &entity.text)?;
+    result.set_item("color", entity.color)?;
+    result.set_item("color_override_index", entity.color_override_index)?;
+    result.set_item("size", entity.size)?;
+    result.set_item("size_override", entity.size_override)?;
+    result.set_item("visible", entity.visible)?;
+    result.set_item("visible_override", entity.visible_override)?;
+    Ok(result)
+}
+
+fn label_object_to_py(py: Python<'_>, label: &LabelObjectView) -> PyResult<Py<PyAny>> {
+    let entities = PyList::empty(py);
+    for entity in &label.entities {
+        entities.append(label_entity_to_py(py, entity)?)?;
+    }
+
+    let revisions = PyDict::new(py);
+    revisions.set_item("geometry", label.revisions.geometry)?;
+    revisions.set_item("material", label.revisions.material)?;
+    revisions.set_item("labels", label.revisions.labels)?;
+
+    let result = PyDict::new(py);
+    result.set_item("name", &label.name)?;
+    result.set_item("enabled", label.enabled)?;
+    result.set_item("color", label.color)?;
+    result.set_item("color_override_index", label.color_override_index)?;
+    result.set_item("size", label.size)?;
+    result.set_item("size_override", label.size_override)?;
+    result.set_item("visible", label.visible)?;
+    result.set_item("visible_override", label.visible_override)?;
+    result.set_item("alignment", &label.alignment)?;
+    result.set_item("alignment_override", &label.alignment_override)?;
+    result.set_item("entities", entities)?;
+    result.set_item("unresolved_count", label.unresolved_count)?;
+    result.set_item("revisions", revisions)?;
+    Ok(result.into_any().unbind())
+}
 
 /// Standalone backend — owns a Session and CommandExecutor.
 ///
@@ -104,6 +156,18 @@ impl StandaloneBackend {
             .collect()
     }
 
+    /// Get a read-only label object snapshot.
+    fn get_label(&self, py: Python<'_>, name: &str) -> PyResult<Py<PyAny>> {
+        let label = label_object_view(
+            &self.session.registry,
+            &self.session.settings,
+            &self.session.named_palette,
+            name,
+        )
+        .ok_or_else(|| PyKeyError::new_err(format!("label object '{}' not found", name)))?;
+        label_object_to_py(py, &label)
+    }
+
     /// Count atoms matching a selection expression.
     #[pyo3(signature = (selection="all"))]
     fn count_atoms(&self, selection: &str) -> PyResult<usize> {
@@ -121,10 +185,7 @@ impl StandaloneBackend {
                 match result {
                     Ok(mask) => total += mask.count(),
                     Err(e) => {
-                        return Err(PyRuntimeError::new_err(format!(
-                            "Selection error: {}",
-                            e
-                        )))
+                        return Err(PyRuntimeError::new_err(format!("Selection error: {}", e)))
                     }
                 }
             }
@@ -231,7 +292,10 @@ impl StandaloneBackend {
                 }
                 py.run(code.as_c_str(), Some(&globals), Some(&locals))?;
                 {
-                    let atom = mol_obj.molecule_mut().get_atom_mut(AtomIndex(idx as u32)).unwrap();
+                    let atom = mol_obj
+                        .molecule_mut()
+                        .get_atom_mut(AtomIndex(idx as u32))
+                        .unwrap();
                     apply_locals_to_atom(&locals, atom)?;
                 }
             }
@@ -252,10 +316,9 @@ impl StandaloneBackend {
             Some(img) => {
                 let h = img.height as usize;
                 let w = img.width as usize;
-                let arr =
-                    Array3::from_shape_vec((h, w, 4), img.data.clone()).map_err(|e| {
-                        PyRuntimeError::new_err(format!("Failed to create array: {}", e))
-                    })?;
+                let arr = Array3::from_shape_vec((h, w, 4), img.data.clone()).map_err(|e| {
+                    PyRuntimeError::new_err(format!("Failed to create array: {}", e))
+                })?;
                 Ok(Some(arr.into_pyarray(py).into_any().unbind()))
             }
             None => Ok(None),
@@ -308,6 +371,8 @@ impl StandaloneBackend {
 
 #[cfg(test)]
 mod tests {
+    use patinae_scene::{AtomAnchor, LabelEntity, LabelObject};
+
     use super::*;
 
     #[test]
@@ -340,12 +405,57 @@ mod tests {
                     .unwrap(),
                 1
             );
-            assert!(
-                dict.get_item("is_playing")
+            assert!(dict
+                .get_item("is_playing")
+                .unwrap()
+                .unwrap()
+                .extract::<bool>()
+                .unwrap());
+        });
+    }
+
+    #[test]
+    fn standalone_label_snapshot_preserves_entities_and_resolution_state() {
+        let mut backend = StandaloneBackend::create();
+        backend.session.registry.add(LabelObject::with_entities(
+            "notes",
+            vec![LabelEntity::new(
+                AtomAnchor::new("missing", AtomIndex(3)),
+                "orphan candidate",
+            )],
+        ));
+
+        Python::attach(|py| {
+            let snapshot = backend.get_label(py, "notes").unwrap();
+            let dict = snapshot.bind(py).cast::<PyDict>().unwrap();
+            assert_eq!(
+                dict.get_item("name")
                     .unwrap()
                     .unwrap()
-                    .extract::<bool>()
+                    .extract::<String>()
+                    .unwrap(),
+                "notes"
+            );
+            assert_eq!(
+                dict.get_item("unresolved_count")
                     .unwrap()
+                    .unwrap()
+                    .extract::<usize>()
+                    .unwrap(),
+                1
+            );
+            let entities_value = dict.get_item("entities").unwrap().unwrap();
+            let entities = entities_value.cast::<PyList>().unwrap();
+            let entity_value = entities.get_item(0).unwrap();
+            let entity = entity_value.cast::<PyDict>().unwrap();
+            assert_eq!(
+                entity
+                    .get_item("text")
+                    .unwrap()
+                    .unwrap()
+                    .extract::<String>()
+                    .unwrap(),
+                "orphan candidate"
             );
         });
     }

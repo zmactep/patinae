@@ -17,7 +17,8 @@ use patinae_render::{
     RenderMemoryProfile, RENDER_COMPUTE_STORAGE_BUFFERS_PER_STAGE,
 };
 use patinae_scene::{
-    expand_pick_to_selection, pick_expression_for_hit, CaptureRenderer, KeyBinding, ViewportImage,
+    bridge::ProjectedAnnotationLabel, expand_pick_to_selection, pick_expression_for_hit,
+    CaptureRenderer, KeyBinding, ViewportImage,
 };
 use patinae_select::build_sele_command;
 use patinae_settings::{
@@ -44,7 +45,9 @@ use crate::native_file_actions::{enqueue_file_action, quote_command_arg, NativeF
 use crate::recent_files::RecentFilesBridge;
 use crate::recent_thumbnails::{RECENT_THUMBNAIL_HEIGHT, RECENT_THUMBNAIL_WIDTH};
 use crate::startup_alert;
-use crate::{AppWindow, LayoutState, MenuState, NotificationState, Theme, ViewportState};
+use crate::{
+    AppWindow, LayoutState, MenuState, NotificationState, Theme, ViewportLabel, ViewportState,
+};
 
 const SIDEBAR_WIDTH_LP: f32 = 48.0;
 // Keep these in sync with `patinae/ui/tokens.slint`; raw winit input is
@@ -554,6 +557,18 @@ impl App {
         for warning in renderer.take_memory_warnings() {
             self.kernel.bus.print_warning(warning);
         }
+        let annotation_labels = if self.kernel.session.viewport_image.is_some() {
+            renderer.clear_annotation_labels();
+            Vec::new()
+        } else {
+            let viewport = (0.0, 0.0, vw as f32, vh as f32);
+            renderer
+                .annotation_labels(&self.kernel.session.camera, viewport)
+                .iter()
+                .map(|label| viewport_label_from_projected(label, sf))
+                .collect()
+        };
+        self.viewport.set_labels(annotation_labels);
         if render_outcome.request_redraw {
             self.kernel.bus.request_redraw();
             app.window().request_redraw();
@@ -1272,6 +1287,34 @@ fn viewport_size_from_parts(
     (width, height)
 }
 
+fn viewport_label_from_projected(
+    label: &ProjectedAnnotationLabel,
+    scale_factor: f32,
+) -> ViewportLabel {
+    let scale_factor = scale_factor.max(f32::EPSILON);
+    let (anchor_x, anchor_y) = label.alignment.anchor_factors();
+    ViewportLabel {
+        x: label.x / scale_factor,
+        y: label.y / scale_factor,
+        text: label.text.clone().into(),
+        color: slint::Color::from_argb_f32(
+            label.color[3],
+            label.color[0],
+            label.color[1],
+            label.color[2],
+        ),
+        // Label sizes are device-independent UI pixels. Slint applies the
+        // window scale factor when it rasterizes the glyphs.
+        size: label.size,
+        anchor_x,
+        anchor_y,
+        alignment: label.alignment.as_str().into(),
+        owner_id: label.owner_id.get().to_string().into(),
+        insertion_ordinal: i32::try_from(label.insertion_ordinal).unwrap_or(i32::MAX),
+        display_order: label.display_order.to_string().into(),
+    }
+}
+
 fn startup_actions(patinaerc: PatinaercPath, argv_files: Vec<PathBuf>) -> VecDeque<StartupAction> {
     let mut actions = VecDeque::new();
 
@@ -1741,7 +1784,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             });
     }
 
-    // Attach objects bridge models to Slint globals + wire callbacks
+    // Attach viewport and objects bridge models to Slint globals + wire callbacks
+    app.borrow().viewport.attach(&window);
     app.borrow().objects.attach(&window);
     crate::bridges::objects::setup_callbacks(app.clone(), &window);
 
@@ -2306,6 +2350,27 @@ mod tests {
     #[test]
     fn viewport_size_clamps_to_one_physical_pixel() {
         assert_eq!(viewport_size_from_parts(10, 10, 2.0, 200.0, 100.0), (1, 1));
+    }
+
+    #[test]
+    fn annotation_font_size_stays_device_independent_on_hidpi() {
+        let projected = patinae_scene::bridge::ProjectedAnnotationLabel {
+            x: 200.0,
+            y: 100.0,
+            text: "6.1 Å".to_string(),
+            color: [0.13, 0.83, 0.93, 1.0],
+            size: 14.0,
+            alignment: patinae_scene::LabelAlignment::Center,
+            owner_id: patinae_scene::RenderObjectId::FIRST,
+            insertion_ordinal: 0,
+            display_order: 0,
+        };
+
+        let label = viewport_label_from_projected(&projected, 2.0);
+
+        assert_eq!(label.x, 100.0);
+        assert_eq!(label.y, 50.0);
+        assert_eq!(label.size, 14.0);
     }
 
     #[test]

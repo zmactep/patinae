@@ -15,7 +15,7 @@ use crate::atom::Atom;
 use crate::bond::{Bond, BondOrder};
 use crate::coordset::{CoordSet, Symmetry};
 use crate::error::{MolError, MolResult};
-use crate::index::{AtomIndex, BondIndex, StateIndex};
+use crate::index::{AtomIndex, AtomRemap, BondIndex, StateIndex};
 use crate::residue::{ChainIterator, ResidueIterator};
 use crate::subchain::{PartitionSubchainIter, SubchainPartition};
 
@@ -122,10 +122,10 @@ impl ObjectMolecule {
         }
     }
 
-    /// Rebuild the `atom_bonds` lookup table from the current bond list.
+    /// Rebuilds derived atom lookup tables.
     ///
-    /// This must be called after deserialization since `atom_bonds` is skipped
-    /// during serialization (it is derived data).
+    /// This must be called after deserialization because bond lookups are
+    /// derived data and skipped during serialization.
     pub fn rebuild_atom_bonds(&mut self) {
         self.atom_bonds = vec![SmallVec::new(); self.atoms.len()];
         for (bi, bond) in self.bonds.iter().enumerate() {
@@ -781,9 +781,9 @@ impl ObjectMolecule {
     /// This removes the specified atoms, any bonds involving those atoms,
     /// and updates all coordinate sets. Remaining atom/bond indices are
     /// compacted so they remain contiguous.
-    pub fn remove_atoms(&mut self, indices: &[AtomIndex]) {
+    pub fn remove_atoms(&mut self, indices: &[AtomIndex]) -> AtomRemap {
         if indices.is_empty() {
-            return;
+            return AtomRemap::identity(self.atoms.len());
         }
 
         let n_atoms = self.atoms.len();
@@ -797,11 +797,11 @@ impl ObjectMolecule {
         }
 
         // Build old→new index mapping (-1 means removed)
-        let mut old_to_new: Vec<Option<u32>> = vec![None; n_atoms];
+        let mut old_to_new = vec![None; n_atoms];
         let mut new_idx = 0u32;
         for old_idx in 0..n_atoms {
             if !remove_set[old_idx] {
-                old_to_new[old_idx] = Some(new_idx);
+                old_to_new[old_idx] = Some(AtomIndex(new_idx));
                 new_idx += 1;
             }
         }
@@ -823,8 +823,8 @@ impl ObjectMolecule {
                 old_to_new[bond.atom2.as_usize()],
             ) {
                 let mut new_bond = bond.clone();
-                new_bond.atom1 = AtomIndex(new_a1);
-                new_bond.atom2 = AtomIndex(new_a2);
+                new_bond.atom1 = new_a1;
+                new_bond.atom2 = new_a2;
                 new_bonds.push(new_bond);
             }
         }
@@ -860,6 +860,7 @@ impl ObjectMolecule {
             *cs = new_cs;
         }
         self.invalidate_subchain_partition();
+        AtomRemap::from_mapping(old_to_new)
     }
 
     /// Reorders atoms so each residue's atoms are contiguous, preserving the
@@ -868,10 +869,10 @@ impl ObjectMolecule {
     ///
     /// Without this, atoms pushed onto the end form separate trailing subchains
     /// because the bond-aware partition keys off contiguous index ranges.
-    pub fn regroup_by_residue(&mut self) {
+    pub fn regroup_by_residue(&mut self) -> AtomRemap {
         let n = self.atoms.len();
         if n == 0 {
-            return;
+            return AtomRemap::identity(0);
         }
         // First original index seen for each residue defines its position.
         let mut first: std::collections::HashMap<(String, i32, char), usize> =
@@ -895,7 +896,7 @@ impl ObjectMolecule {
         };
         let mut order: Vec<usize> = (0..n).collect();
         order.sort_by_key(|&i| (residue_rank(&self.atoms[i]), i));
-        self.apply_atom_permutation(order);
+        self.apply_atom_permutation(order)
     }
 
     /// Like [`regroup_by_residue`](Self::regroup_by_residue), but additionally
@@ -908,10 +909,10 @@ impl ObjectMolecule {
     ///
     /// Chains keep their original first-appearance order; atoms within a
     /// residue keep their original order.
-    pub fn regroup_residues_in_sequence(&mut self) {
+    pub fn regroup_residues_in_sequence(&mut self) -> AtomRemap {
         let n = self.atoms.len();
         if n == 0 {
-            return;
+            return AtomRemap::identity(0);
         }
         // Chain ordering follows first appearance so the overall chain layout
         // is preserved; only residues within a chain are sequence-sorted.
@@ -926,29 +927,32 @@ impl ObjectMolecule {
             let crank = *chain_rank.get(&atom.residue.chain).unwrap_or(&0);
             (crank, atom.residue.resv, atom.residue.inscode, i)
         });
-        self.apply_atom_permutation(order);
+        self.apply_atom_permutation(order)
     }
 
     /// Applies a precomputed atom permutation (`order[new] = old`), remapping
     /// bonds, the per-atom bond index, and every coordinate set, then
     /// invalidates the subchain partition. No-op if `order` is the identity.
-    fn apply_atom_permutation(&mut self, order: Vec<usize>) {
+    fn apply_atom_permutation(&mut self, order: Vec<usize>) -> AtomRemap {
         let n = self.atoms.len();
         if order.iter().enumerate().all(|(new, &old)| new == old) {
-            return; // already in order
+            return AtomRemap::identity(n);
         }
 
-        let mut old_to_new = vec![0u32; n];
+        let mut old_to_new = vec![None; n];
         for (new, &old) in order.iter().enumerate() {
-            old_to_new[old] = new as u32;
+            let new = u32::try_from(new).expect("atom count must fit into AtomIndex");
+            old_to_new[old] = Some(AtomIndex(new));
         }
 
         let new_atoms: Vec<Atom> = order.iter().map(|&old| self.atoms[old].clone()).collect();
         self.atoms = new_atoms;
 
         for bond in &mut self.bonds {
-            bond.atom1 = AtomIndex(old_to_new[bond.atom1.as_usize()]);
-            bond.atom2 = AtomIndex(old_to_new[bond.atom2.as_usize()]);
+            bond.atom1 =
+                old_to_new[bond.atom1.as_usize()].expect("atom permutation must map every atom");
+            bond.atom2 =
+                old_to_new[bond.atom2.as_usize()].expect("atom permutation must map every atom");
         }
         self.atom_bonds = vec![SmallVec::new(); n];
         for (bi, bond) in self.bonds.iter().enumerate() {
@@ -975,6 +979,7 @@ impl ObjectMolecule {
             *cs = new_cs;
         }
         self.invalidate_subchain_partition();
+        AtomRemap::from_mapping(old_to_new)
     }
 
     // =========================================================================
@@ -1116,6 +1121,43 @@ mod tests {
         mol.add_coord_set(cs);
 
         mol
+    }
+
+    #[test]
+    fn atom_remap_tracks_removal_and_compaction() {
+        let mut mol = ObjectMolecule::new("remap");
+        let first = mol.add_atom(Atom::new("A", Element::Carbon));
+        let second = mol.add_atom(Atom::new("B", Element::Carbon));
+        let third = mol.add_atom(Atom::new("C", Element::Carbon));
+
+        let remap = mol.remove_atoms(&[second]);
+
+        assert_eq!(remap.remap(first), Some(AtomIndex(0)));
+        assert_eq!(remap.remap(second), None);
+        assert_eq!(remap.remap(third), Some(AtomIndex(1)));
+        assert_eq!(
+            mol.get_atom(AtomIndex(1)).map(|atom| atom.name.as_ref()),
+            Some("C")
+        );
+    }
+
+    #[test]
+    fn atom_remap_tracks_permutations() {
+        let mut mol = ObjectMolecule::new("permutation");
+        let first = mol.add_atom(Atom::new("A", Element::Carbon));
+        let second = mol.add_atom(Atom::new("B", Element::Carbon));
+        let third = mol.add_atom(Atom::new("C", Element::Carbon));
+
+        let remap = mol.apply_atom_permutation(vec![2, 0, 1]);
+
+        assert_eq!(remap.remap(third), Some(AtomIndex(0)));
+        assert_eq!(remap.remap(first), Some(AtomIndex(1)));
+        assert_eq!(remap.remap(second), Some(AtomIndex(2)));
+        let names = mol
+            .atoms()
+            .map(|atom| atom.name.as_ref())
+            .collect::<Vec<_>>();
+        assert_eq!(names, ["C", "A", "B"]);
     }
 
     #[test]

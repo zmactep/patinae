@@ -141,15 +141,16 @@ polymer and not solvent
 **Structural analysis:**
 
 - Kabsch superposition and CE structural alignment.
-- Distance, angle, and dihedral measurements with visual feedback.
+- First-class distance, angle, dihedral, and atom-label collections with shared
+  native/web rendering.
 - Crystallographic symmetry expansion with all 230 space groups.
 - Secondary-structure assignment from geometry.
 - Electron density map loading and contouring.
 
-**Sessions:** save and load Patinae `.prs` sessions and import legacy `.pse`
-sessions for interoperability. Upgrade PyMOL-RS v0.3.3 or Patinae
-v0.4.0–v0.4.2 sessions with
-`cargo run -p prs-upgrade -- old.prs upgraded.prs`.
+**Sessions:** save and load PRS v3 `.prs` sessions and import legacy `.pse`
+sessions for interoperability. The loader remains compatible with legacy raw
+sessions and PRS v2. Upgrade PyMOL-RS v0.3.3 or Patinae v0.4.0–v0.4.2 sessions
+with `cargo run -p prs-upgrade -- old.prs upgraded.prs`.
 
 **Ray tracing:** the `raytracer` plugin provides offline GPU ray tracing with
 BVH acceleration, shadows, transparency, and edge detection.

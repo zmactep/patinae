@@ -43,7 +43,8 @@ impl SceneStore {
         let n_bonds = input.molecule.bonds().count() as u32;
         let slot_was_new = !self.has_slot(input.object_id);
         let slot = self.ensure_slot(input.object_id, n_atoms, n_bonds);
-        let needs_table_write = slot_was_new || effective_dirty.intersects(DirtyFlags::TOPOLOGY);
+        let needs_table_write =
+            slot_was_new || effective_dirty.intersects(DirtyFlags::COORDS | DirtyFlags::TOPOLOGY);
 
         if effective_dirty.intersects(DirtyFlags::TOPOLOGY) {
             write_atoms_for_object(self, &slot, input);
@@ -99,22 +100,13 @@ impl SceneStore {
                     object_id: input.object_id.0,
                     flags: 0,
                     _pad0: [0; 2],
-                    model_matrix: identity4(),
+                    model_matrix: input.transform,
                 },
             );
         }
 
         slot
     }
-}
-
-fn identity4() -> [[f32; 4]; 4] {
-    [
-        [1.0, 0.0, 0.0, 0.0],
-        [0.0, 1.0, 0.0, 0.0],
-        [0.0, 0.0, 1.0, 0.0],
-        [0.0, 0.0, 0.0, 1.0],
-    ]
 }
 
 /// Populate `atoms[atom_offset .. atom_offset+atom_count]`. Folds in
@@ -568,7 +560,7 @@ fn write_csr_for_object(store: &mut SceneStore, slot: &ObjectSlot, input: &Rende
 mod tests {
     use super::*;
     use crate::picking::ObjectId;
-    use crate::render_input::SceneLod;
+    use crate::render_input::{SceneLod, IDENTITY_TRANSFORM};
     use lin_alg::f32::Vec3;
     use patinae_mol::{Atom, CoordSet, Element, ObjectMolecule};
 
@@ -585,6 +577,7 @@ mod tests {
             object_id: ObjectId(7),
             molecule: mol,
             coord_set: coord,
+            transform: IDENTITY_TRANSFORM,
             visible_reps: RepMask::ALL,
             draw_reps: RepMask::ALL,
             object_settings: None,

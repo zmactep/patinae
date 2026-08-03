@@ -35,6 +35,7 @@ use crate::pipelines::map::{MapParamsLayout, MapPipeline};
 use crate::pipelines::mesh::{MeshParamsLayout, MeshPipeline};
 use crate::pipelines::sphere::{SphereParamsLayout, SpherePipeline};
 use crate::pipelines::stick::{StickParamsLayout, StickPipeline};
+use crate::pipelines::stroke::StrokePipeline;
 use crate::pipelines::surface::{SurfaceParamsLayout, SurfacePipeline};
 use crate::pipelines::wboit_composite::WboitComposite;
 use crate::postprocess::fxaa::FxaaPass;
@@ -201,6 +202,8 @@ impl RenderState {
 
         let map_pipeline = MapPipeline::new(&ctx, &map_params_layout);
 
+        let stroke_pipeline = StrokePipeline::new(&ctx);
+
         let mesh_params_layout = MeshParamsLayout::new(&ctx.device);
 
         let mesh_pipeline = MeshPipeline::new(&ctx, &scene_layout, &mesh_params_layout);
@@ -341,8 +344,11 @@ impl RenderState {
                 scene_store,
                 reps: HashMap::new(),
                 maps: HashMap::new(),
+                strokes: HashMap::new(),
                 draw_order: Vec::new(),
                 map_draw_order: Vec::new(),
+                stroke_draw_order: Vec::new(),
+                stroke_bounds_hash: 0,
                 scene_dirty: true,
                 cull_pass_initialized: false,
                 last_cull_view_proj_hash: 0,
@@ -378,6 +384,7 @@ impl RenderState {
                 dot_pipeline,
                 map_params_layout,
                 map_pipeline,
+                stroke_pipeline,
                 mesh_pipeline,
                 ellipsoid_pipeline,
                 cartoon_pipeline,

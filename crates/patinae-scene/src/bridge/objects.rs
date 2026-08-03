@@ -133,6 +133,7 @@ fn render_molecule_input<'a>(
         object_id: id,
         molecule: mol,
         coord_set: coord,
+        transform: mat4_to_cols(&mol_obj.state().transform),
         visible_reps: mol_obj.visible_reps(),
         draw_reps: mol_obj.draw_reps(),
         object_settings: mol_obj

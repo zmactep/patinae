@@ -345,8 +345,8 @@ fn append_mesh_vertices(
         .map(|v| {
             let owner_atom_id = v.group_id;
             DisplayedMeshVertex {
-                position: v.position,
-                normal: oct_decode(v.normal_oct),
+                position: transform_point(&input.transform, v.position),
+                normal: transform_dir(&input.transform, oct_decode(v.normal_oct)),
                 owner_atom_id,
                 material: material_for_atom(input, scene_settings, rep, owner_atom_id),
                 flags: v.flags,
@@ -374,8 +374,8 @@ fn append_mesh_lines(
         object.primitives.push(DisplayedPrimitive::LineSegment {
             rep: RepKind::Mesh,
             owner_atom_ids: [a.group_id, b.group_id],
-            start: a.position,
-            end: b.position,
+            start: transform_point(&input.transform, a.position),
+            end: transform_point(&input.transform, b.position),
             width_px: 1.0,
             material_start: material_for_atom(input, scene_settings, RepKind::Mesh, a.group_id),
             material_end: material_for_atom(input, scene_settings, RepKind::Mesh, b.group_id),
@@ -443,8 +443,8 @@ fn trace_chunk_from_mesh_lines(
         let a = pair[0];
         let b = pair[1];
         chunk.line_segments.push(TraceLineSegment {
-            start: a.position,
-            end: b.position,
+            start: transform_point(&input.transform, a.position),
+            end: transform_point(&input.transform, b.position),
             width_px: 1.0,
             material_start: TraceMaterial::from_displayed(material_for_atom(
                 input,
@@ -477,8 +477,8 @@ fn trace_vertex_from_std(
     scene_settings: &patinae_settings::ResolvedSettings,
 ) -> TraceVertex {
     TraceVertex {
-        position: vertex.position,
-        normal: oct_decode(vertex.normal_oct),
+        position: transform_point(&input.transform, vertex.position),
+        normal: transform_dir(&input.transform, oct_decode(vertex.normal_oct)),
         material: material_for_atom(input, scene_settings, rep, vertex.group_id),
     }
 }

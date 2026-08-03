@@ -16,7 +16,7 @@ use patinae_plugin::wire::{
     self, WireAtomStreamOpened, WireHostQuery, WireHostQueryResult, WireHostQueryValue,
     WirePollSharedInput, WireViewerAction, WireViewportImageSummary, RUNTIME_WIRE_VERSION,
 };
-use patinae_scene::{parse_key_string, KeyBinding, ViewportImage};
+use patinae_scene::{label_object_view, parse_key_string, KeyBinding, ViewportImage};
 
 use crate::host::{PluginHost, TriggeredHotkey};
 use crate::panic::panic_payload_to_string;
@@ -337,6 +337,15 @@ fn resolve_host_query(
             result: Ok(WireHostQueryValue::ViewportImage(
                 shared.viewport_image.cloned(),
             )),
+        },
+        WireHostQuery::LabelObject { id, name } => WireHostQueryResult {
+            id: *id,
+            result: Ok(WireHostQueryValue::LabelObject(label_object_view(
+                shared.registry,
+                shared.settings,
+                shared.named_palette,
+                name,
+            ))),
         },
         WireHostQuery::OpenAtomStream { id, request } => WireHostQueryResult {
             id: *id,

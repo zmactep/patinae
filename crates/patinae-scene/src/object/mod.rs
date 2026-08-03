@@ -6,16 +6,41 @@
 //! - [`ObjectState`] for per-object visual state
 //! - [`ObjectRegistry`] for managing named objects
 
+mod annotation;
+mod annotation_resolver;
 mod group;
 mod label;
 mod map;
-mod measurement;
+pub(crate) mod measurement;
 mod molecule;
 
+#[doc(inline)]
+pub use annotation::{
+    AnnotationColor, AnnotationPresentationError, AtomAnchor, LabelAlignment,
+    LabelEntityPresentation, LabelObjectPresentation, LabelPresentation, LabelSize, LinePattern,
+    MeasurementEntityPresentation, MeasurementObjectPresentation, MeasurementPresentation,
+    ResolvedStrokePath, StrokePath, StrokeStyle,
+};
+use annotation_resolver::resolve_annotation_bounds_with_options;
+#[doc(inline)]
+pub use annotation_resolver::{
+    resolve_annotation_bundles, resolve_measurement_entity_value, AnnotationColorSummary,
+    AnnotationOwnerKind, AnnotationWarning, ResolvedAnnotationBundle, ResolvedLabelPrimitive,
+};
 pub use group::GroupObject;
-pub use label::{Label, LabelAnchor, LabelObject};
+#[doc(inline)]
+#[expect(deprecated, reason = "public compatibility aliases remain re-exported")]
+pub use label::{
+    label_object_view, Label, LabelAnchor, LabelAnchorView, LabelEntity, LabelEntityView,
+    LabelObject, LabelObjectSnapshot, LabelObjectView, LabelRevisions,
+};
 pub use map::{MapData, MapDisplayMode, MapObject};
-pub use measurement::{Measurement, MeasurementObject, MeasurementType};
+#[doc(inline)]
+pub use measurement::{
+    MeasurementAnchor, MeasurementEntity, MeasurementEntry, MeasurementEntryError, MeasurementKind,
+    MeasurementObject, MeasurementObjectSnapshot, MeasurementResolveOptions, MeasurementRevisions,
+    MeasurementType,
+};
 pub use molecule::MoleculeObject;
 pub use patinae_mol::DirtyFlags;
 
@@ -25,7 +50,7 @@ use std::num::NonZeroU16;
 use ahash::{AHashMap, AHashSet};
 use lin_alg::f32::{Mat4, Vec3};
 use patinae_color::ColorIndex;
-use patinae_mol::RepMask;
+use patinae_mol::{AtomIndex, RepMask};
 use patinae_settings::ObjectOverrides;
 use serde::{Deserialize, Serialize};
 
@@ -123,10 +148,12 @@ pub enum ObjectType {
 impl ObjectType {
     /// Whether objects of this type can be picked (clicked/selected).
     ///
-    /// Map objects (isomesh, isosurface, isodots) are purely visual
-    /// and should not intercept picking rays.
+    /// Maps and annotation primitives are visual and do not intercept picking.
     pub fn is_pickable(&self) -> bool {
-        !matches!(self, ObjectType::Map)
+        !matches!(
+            self,
+            ObjectType::Map | ObjectType::Measurement | ObjectType::Label
+        )
     }
 }
 
@@ -426,9 +453,7 @@ pub struct ObjectRegistry {
 
 /// Serializable snapshot of the object registry.
 ///
-/// Captures molecule, group, and map objects (the types that carry
-/// domain data). Render-only objects (surface, cgo, label) are
-/// omitted because they are transient GPU caches.
+/// Captures persistent molecule, group, map, measurement, and label objects.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ObjectRegistrySnapshot {
     /// Molecule objects (name -> data)
@@ -452,6 +477,18 @@ pub struct ObjectRegistrySnapshot {
     pub next_id: u32,
     /// Generation counter
     pub generation: u64,
+    /// Measurement objects (name -> dynamic atom anchors).
+    ///
+    /// Kept as the final field so legacy positional MessagePack snapshots
+    /// retain the field indices used by PRS v1/v2.
+    #[serde(default)]
+    pub measurements: Vec<(String, MeasurementObjectSnapshot)>,
+    /// Label objects (name -> atom-anchored semantic labels).
+    ///
+    /// This remains the final field so old PRS v3 positional snapshots decode
+    /// with an empty default.
+    #[serde(default)]
+    pub labels: Vec<(String, LabelObjectSnapshot)>,
 }
 
 fn default_next_render_id() -> u32 {
@@ -503,6 +540,8 @@ impl ObjectRegistry {
         let mut molecules = Vec::new();
         let mut groups = Vec::new();
         let mut maps = Vec::new();
+        let mut measurements = Vec::new();
+        let mut labels = Vec::new();
         let mut object_states = Vec::new();
 
         for name in &self.render_order {
@@ -536,6 +575,11 @@ impl ObjectRegistry {
                             overrides: map_obj.overrides().cloned(),
                         },
                     ));
+                } else if let Some(measurement) = Self::object_as::<MeasurementObject>(obj.as_ref())
+                {
+                    measurements.push((name.clone(), measurement.to_snapshot()));
+                } else if let Some(label) = Self::object_as::<LabelObject>(obj.as_ref()) {
+                    labels.push((name.clone(), label.to_snapshot()));
                 }
             }
         }
@@ -554,6 +598,8 @@ impl ObjectRegistry {
             next_render_id: u32::from(self.next_render_id),
             next_id: self.next_id,
             generation: self.generation,
+            measurements,
+            labels,
         }
     }
 
@@ -606,6 +652,22 @@ impl ObjectRegistry {
             registry.objects.insert(name, Box::new(map_obj));
         }
 
+        // Add measurements.
+        for (name, snapshot) in snapshot.measurements {
+            registry.objects.insert(
+                name.clone(),
+                Box::new(MeasurementObject::from_snapshot(name, snapshot)),
+            );
+        }
+
+        // Add semantic label collections.
+        for (name, snapshot) in snapshot.labels {
+            registry.objects.insert(
+                name.clone(),
+                Box::new(LabelObject::from_snapshot(name, snapshot)),
+            );
+        }
+
         // Restore render order (only names that exist)
         registry.render_order = snapshot
             .render_order
@@ -613,6 +675,7 @@ impl ObjectRegistry {
             .filter(|n| registry.objects.contains_key(n))
             .collect();
         registry.restore_render_ids(snapshot.render_ids, snapshot.next_render_id);
+        registry.migrate_atom_local_labels();
 
         registry
     }
@@ -649,18 +712,22 @@ impl ObjectRegistry {
 
     fn allocate_render_id(&mut self) -> Option<RenderObjectId> {
         let mut raw = u32::from(self.next_render_id);
-        while raw <= RenderObjectId::MAX_PICKING_ID {
-            self.next_render_id = Self::normalize_next_render_id(raw.saturating_add(1));
-            let Some(id) = RenderObjectId::new(raw) else {
-                raw = raw.saturating_add(1);
-                continue;
+        if raw > RenderObjectId::MAX_PICKING_ID {
+            raw = RenderObjectId::FIRST.get();
+        }
+        for _ in 0..RenderObjectId::MAX_PICKING_ID {
+            let id = RenderObjectId::new(raw)?;
+            let next = if raw == RenderObjectId::MAX_PICKING_ID {
+                RenderObjectId::FIRST.get()
+            } else {
+                raw + 1
             };
+            self.next_render_id = Self::normalize_next_render_id(next);
             if !self.render_ids.values().any(|existing| *existing == id) {
                 return Some(id);
             }
-            raw = raw.saturating_add(1);
+            raw = next;
         }
-        self.next_render_id = Self::normalize_next_render_id(NEXT_AFTER_MAX_RENDER_ID);
         None
     }
 
@@ -674,6 +741,9 @@ impl ObjectRegistry {
     }
 
     fn insert_named_boxed(&mut self, name: String, obj: Box<dyn Object>) {
+        if self.objects.contains_key(&name) {
+            self.orphan_annotation_anchors(&name);
+        }
         self.render_order.retain(|n| n != &name);
         self.render_order.push(name.clone());
         self.objects.insert(name.clone(), obj);
@@ -758,15 +828,48 @@ impl ObjectRegistry {
             .any(|name| self.get_map(name).is_some_and(MapObject::is_dirty))
     }
 
+    /// Returns whether any measurement has pending render-facing changes.
+    pub fn has_any_dirty_measurement(&self) -> bool {
+        self.names().any(|name| {
+            self.get_measurement(name)
+                .is_some_and(MeasurementObject::is_dirty)
+        })
+    }
+
+    /// Returns whether any label object has pending render-facing changes.
+    pub fn has_any_dirty_label(&self) -> bool {
+        self.names()
+            .any(|name| self.get_label(name).is_some_and(LabelObject::is_dirty))
+    }
+
     /// Mark all molecule objects as fully dirty so representations rebuild.
     pub fn mark_all_dirty(&mut self) {
         self.generation += 1;
-        let names: Vec<String> = self.names().map(|s| s.to_string()).collect();
-        for name in &names {
-            if let Some(mol) = self.get_molecule_mut(name) {
-                mol.invalidate(DirtyFlags::ALL);
-            } else if let Some(map) = self.get_map_mut(name) {
-                map.invalidate();
+        for object in self.objects.values_mut() {
+            match object.object_type() {
+                ObjectType::Molecule => {
+                    if let Some(molecule) = Self::object_as_mut::<MoleculeObject>(object.as_mut()) {
+                        molecule.invalidate(DirtyFlags::ALL);
+                    }
+                }
+                ObjectType::Map => {
+                    if let Some(map) = Self::object_as_mut::<MapObject>(object.as_mut()) {
+                        map.invalidate();
+                    }
+                }
+                ObjectType::Measurement => {
+                    if let Some(measurement) =
+                        Self::object_as_mut::<MeasurementObject>(object.as_mut())
+                    {
+                        measurement.invalidate_material();
+                    }
+                }
+                ObjectType::Label => {
+                    if let Some(label) = Self::object_as_mut::<LabelObject>(object.as_mut()) {
+                        label.invalidate();
+                    }
+                }
+                _ => {}
             }
         }
     }
@@ -776,9 +879,8 @@ impl ObjectRegistry {
     /// host-side flag set by commands so the scene model doesn't perpetually
     /// rebuild (which would destroy panel TouchAreas every frame).
     pub fn clear_all_dirty_molecules(&mut self) {
-        let names: Vec<String> = self.names().map(|s| s.to_string()).collect();
-        for name in &names {
-            if let Some(mol) = self.get_molecule_mut(name) {
+        for object in self.objects.values_mut() {
+            if let Some(mol) = Self::object_as_mut::<MoleculeObject>(object.as_mut()) {
                 mol.clear_dirty();
             }
         }
@@ -786,10 +888,58 @@ impl ObjectRegistry {
 
     /// Clear pending dirty state on every map object.
     pub fn clear_all_dirty_maps(&mut self) {
-        let names: Vec<String> = self.names().map(|s| s.to_string()).collect();
-        for name in &names {
-            if let Some(map) = self.get_map_mut(name) {
+        for object in self.objects.values_mut() {
+            if let Some(map) = Self::object_as_mut::<MapObject>(object.as_mut()) {
                 map.clear_dirty();
+            }
+        }
+    }
+
+    /// Clears pending dirty state on every measurement object.
+    pub fn clear_all_dirty_measurements(&mut self) {
+        for object in self.objects.values_mut() {
+            if let Some(measurement) = Self::object_as_mut::<MeasurementObject>(object.as_mut()) {
+                measurement.clear_dirty();
+            }
+        }
+    }
+
+    /// Clears pending dirty state on every label object.
+    pub fn clear_all_dirty_labels(&mut self) {
+        for object in self.objects.values_mut() {
+            if let Some(label) = Self::object_as_mut::<LabelObject>(object.as_mut()) {
+                label.clear_dirty();
+            }
+        }
+    }
+
+    /// Clears render-facing dirty state for every supported scene object.
+    pub fn clear_all_dirty_objects(&mut self) {
+        for object in self.objects.values_mut() {
+            match object.object_type() {
+                ObjectType::Molecule => {
+                    if let Some(molecule) = Self::object_as_mut::<MoleculeObject>(object.as_mut()) {
+                        molecule.clear_dirty();
+                    }
+                }
+                ObjectType::Map => {
+                    if let Some(map) = Self::object_as_mut::<MapObject>(object.as_mut()) {
+                        map.clear_dirty();
+                    }
+                }
+                ObjectType::Measurement => {
+                    if let Some(measurement) =
+                        Self::object_as_mut::<MeasurementObject>(object.as_mut())
+                    {
+                        measurement.clear_dirty();
+                    }
+                }
+                ObjectType::Label => {
+                    if let Some(label) = Self::object_as_mut::<LabelObject>(object.as_mut()) {
+                        label.clear_dirty();
+                    }
+                }
+                _ => {}
             }
         }
     }
@@ -836,6 +986,9 @@ impl ObjectRegistry {
     ///
     /// Also removes the object from any group that contains it.
     pub fn remove(&mut self, name: &str) -> Option<Box<dyn Object>> {
+        if self.objects.contains_key(name) {
+            self.orphan_annotation_anchors(name);
+        }
         self.remove_from_groups(name);
         self.render_order.retain(|n| n != name);
         let removed = self.objects.remove(name);
@@ -889,6 +1042,16 @@ impl ObjectRegistry {
         self.get_typed_mut(name)
     }
 
+    /// Gets a label object by name.
+    pub fn get_label(&self, name: &str) -> Option<&LabelObject> {
+        self.get_typed(name)
+    }
+
+    /// Gets mutable access to a label object by name.
+    pub fn get_label_mut(&mut self, name: &str) -> Option<&mut LabelObject> {
+        self.get_typed_mut(name)
+    }
+
     /// Get a map object by name
     pub fn get_map(&self, name: &str) -> Option<&MapObject> {
         self.get_typed(name)
@@ -903,7 +1066,19 @@ impl ObjectRegistry {
     ///
     /// Recursively computes the extent including nested groups.
     pub fn group_extent(&self, group_name: &str) -> Option<(Vec3, Vec3)> {
+        self.group_extent_with_options(group_name, MeasurementResolveOptions::default())
+    }
+
+    /// Computes group bounds with explicit measurement resolver options.
+    pub fn group_extent_with_options(
+        &self,
+        group_name: &str,
+        options: MeasurementResolveOptions,
+    ) -> Option<(Vec3, Vec3)> {
         let group = self.get_group(group_name)?;
+        if !group.is_enabled() {
+            return None;
+        }
         let children = group.children().to_vec();
 
         let mut min = Vec3::new(f32::MAX, f32::MAX, f32::MAX);
@@ -913,7 +1088,9 @@ impl ObjectRegistry {
         for child_name in &children {
             // Check if child is a group (recursive)
             if self.get_group(child_name).is_some() {
-                if let Some((child_min, child_max)) = self.group_extent(child_name) {
+                if let Some((child_min, child_max)) =
+                    self.group_extent_with_options(child_name, options)
+                {
                     min.x = min.x.min(child_min.x);
                     min.y = min.y.min(child_min.y);
                     min.z = min.z.min(child_min.z);
@@ -922,16 +1099,16 @@ impl ObjectRegistry {
                     max.z = max.z.max(child_max.z);
                     has_extent = true;
                 }
-            } else if let Some(obj) = self.get(child_name) {
-                if let Some((child_min, child_max)) = obj.extent() {
-                    min.x = min.x.min(child_min.x);
-                    min.y = min.y.min(child_min.y);
-                    min.z = min.z.min(child_min.z);
-                    max.x = max.x.max(child_max.x);
-                    max.y = max.y.max(child_max.y);
-                    max.z = max.z.max(child_max.z);
-                    has_extent = true;
-                }
+            } else if let Some((child_min, child_max)) =
+                self.object_extent_with_options(child_name, options)
+            {
+                min.x = min.x.min(child_min.x);
+                min.y = min.y.min(child_min.y);
+                min.z = min.z.min(child_min.z);
+                max.x = max.x.max(child_max.x);
+                max.y = max.y.max(child_max.y);
+                max.z = max.z.max(child_max.z);
+                has_extent = true;
             }
         }
 
@@ -939,6 +1116,164 @@ impl ObjectRegistry {
             Some((min, max))
         } else {
             None
+        }
+    }
+
+    /// Computes one object's current dynamic extent.
+    pub fn object_extent(&self, name: &str) -> Option<(Vec3, Vec3)> {
+        self.object_extent_with_options(name, MeasurementResolveOptions::default())
+    }
+
+    /// Computes one object's extent with explicit measurement resolver options.
+    pub fn object_extent_with_options(
+        &self,
+        name: &str,
+        options: MeasurementResolveOptions,
+    ) -> Option<(Vec3, Vec3)> {
+        if self.get_measurement(name).is_some() || self.get_label(name).is_some() {
+            return resolve_annotation_bounds_with_options(self, name, options);
+        }
+        self.get(name).and_then(Object::extent)
+    }
+
+    fn orphan_annotation_anchors(&mut self, source_name: &str) {
+        for object in self.objects.values_mut() {
+            if let Some(measurement) = Self::object_as_mut::<MeasurementObject>(object.as_mut()) {
+                measurement.orphan_anchors_to(source_name);
+            } else if let Some(label) = Self::object_as_mut::<LabelObject>(object.as_mut()) {
+                label.orphan_anchors_to(source_name);
+            }
+        }
+    }
+
+    /// Updates annotation anchors after one topology edit.
+    pub fn remap_atom_anchors(&mut self, source_name: &str, remap: &patinae_mol::AtomRemap) {
+        if remap.is_identity() {
+            return;
+        }
+        let mut changed = false;
+        for object in self.objects.values_mut() {
+            if let Some(measurement) = Self::object_as_mut::<MeasurementObject>(object.as_mut()) {
+                changed |= measurement.remap_anchors(source_name, remap);
+            } else if let Some(label) = Self::object_as_mut::<LabelObject>(object.as_mut()) {
+                changed |= label.remap_anchors(source_name, remap);
+            }
+        }
+        if changed {
+            self.generation = self.generation.saturating_add(1);
+        }
+    }
+
+    /// Removes molecule atoms while orphaning dependent annotation anchors.
+    ///
+    /// Removing every atom deletes the source object through the normal
+    /// registry lifecycle. Partial removal preserves the molecule object and
+    /// invalidates all of its derived representations.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `source_name` is not a molecule object.
+    pub fn remove_molecule_atoms(
+        &mut self,
+        source_name: &str,
+        indices: &[AtomIndex],
+    ) -> SceneResult<usize> {
+        let molecule = self
+            .get_molecule(source_name)
+            .ok_or_else(|| SceneError::object_not_found(source_name))?;
+        let atom_count = molecule.molecule().atom_count();
+        let unique_indices = indices
+            .iter()
+            .map(|index| index.as_usize())
+            .collect::<AHashSet<_>>();
+        let removes_every_atom = atom_count != 0
+            && unique_indices.len() == atom_count
+            && unique_indices.iter().all(|&index| index < atom_count);
+        if removes_every_atom {
+            self.remove(source_name);
+            return Ok(indices.len());
+        }
+
+        let remap = {
+            let molecule = self
+                .get_molecule_mut(source_name)
+                .ok_or_else(|| SceneError::object_not_found(source_name))?;
+            let remap = molecule.molecule_mut().remove_atoms(indices);
+            molecule.invalidate(DirtyFlags::ALL);
+            remap
+        };
+        self.remap_atom_anchors(source_name, &remap);
+        Ok(indices.len())
+    }
+
+    fn migrate_atom_local_labels(&mut self) {
+        let source_names = self.render_order.clone();
+        let mut migrated = Vec::new();
+        for source_name in source_names {
+            let Some(molecule) = self.get_molecule(&source_name) else {
+                continue;
+            };
+            let object_labels_visible = molecule.draw_reps().is_visible(RepMask::LABELS);
+            let entities = molecule
+                .molecule()
+                .atoms_indexed()
+                .filter_map(|(index, atom)| {
+                    if atom.repr.label.is_empty() {
+                        return None;
+                    }
+                    let mut presentation = LabelEntityPresentation::default();
+                    presentation.set_visible(
+                        object_labels_visible && atom.repr.visible_reps.is_visible(RepMask::LABELS),
+                    );
+                    Some(LabelEntity::with_presentation(
+                        AtomAnchor::new(source_name.clone(), index),
+                        atom.repr.label.clone(),
+                        presentation,
+                    ))
+                })
+                .collect::<Vec<_>>();
+            if !entities.is_empty() {
+                migrated.push((source_name, entities));
+            }
+        }
+
+        let mut next_label_index = 1;
+        for (source_name, entities) in migrated {
+            let name = self.first_free_label_name_from(&mut next_label_index);
+            self.add(LabelObject::with_entities(name, entities));
+            if let Some(molecule) = self.get_molecule_mut(&source_name) {
+                for atom in molecule.molecule_mut().atoms_mut() {
+                    atom.repr.label.clear();
+                    atom.repr.visible_reps.set_hidden(RepMask::LABELS);
+                }
+                molecule
+                    .state_mut()
+                    .visible_reps
+                    .set_hidden(RepMask::LABELS);
+                molecule.state_mut().draw_reps.set_hidden(RepMask::LABELS);
+            }
+        }
+    }
+
+    /// Returns the first free `labelNN` name in the shared object namespace.
+    ///
+    /// # Panics
+    ///
+    /// Panics if every suffix representable by `u32` is already occupied.
+    pub fn first_free_label_name(&self) -> String {
+        let mut index = 1;
+        self.first_free_label_name_from(&mut index)
+    }
+
+    fn first_free_label_name_from(&self, index: &mut u32) -> String {
+        loop {
+            let name = format!("label{index:02}");
+            *index = index
+                .checked_add(1)
+                .expect("label object name space exhausted");
+            if !self.objects.contains_key(&name) {
+                return name;
+            }
         }
     }
 
@@ -1110,6 +1445,29 @@ impl ObjectRegistry {
         Ok(())
     }
 
+    /// Sets enabled state for every semantic label object.
+    ///
+    /// Returns the number of label objects and advances registry generation at
+    /// most once when at least one state changes.
+    pub fn set_label_objects_enabled(&mut self, enabled: bool) -> usize {
+        let mut affected = 0;
+        let mut changed = false;
+        for object in self.objects.values_mut() {
+            let Some(label) = Self::object_as_mut::<LabelObject>(object.as_mut()) else {
+                continue;
+            };
+            affected += 1;
+            if label.is_enabled() != enabled {
+                label.state_mut().enabled = enabled;
+                changed = true;
+            }
+        }
+        if changed {
+            self.generation = self.generation.saturating_add(1);
+        }
+        affected
+    }
+
     /// Disable all objects
     pub fn disable_all(&mut self) {
         for obj in self.objects.values_mut() {
@@ -1213,19 +1571,29 @@ impl ObjectRegistry {
 
     /// Compute the bounding box of all enabled objects
     pub fn extent(&self) -> Option<(Vec3, Vec3)> {
+        self.extent_with_options(MeasurementResolveOptions::default())
+    }
+
+    /// Computes enabled-object bounds with explicit measurement options.
+    pub fn extent_with_options(&self, options: MeasurementResolveOptions) -> Option<(Vec3, Vec3)> {
         let mut min = Vec3::new(f32::MAX, f32::MAX, f32::MAX);
         let mut max = Vec3::new(f32::MIN, f32::MIN, f32::MIN);
         let mut has_extent = false;
 
-        for obj in self.enabled_objects() {
-            if let Some((obj_min, obj_max)) = obj.extent() {
-                min.x = min.x.min(obj_min.x);
-                min.y = min.y.min(obj_min.y);
-                min.z = min.z.min(obj_min.z);
-                max.x = max.x.max(obj_max.x);
-                max.y = max.y.max(obj_max.y);
-                max.z = max.z.max(obj_max.z);
-                has_extent = true;
+        for name in &self.render_order {
+            let Some(object) = self.get(name) else {
+                continue;
+            };
+            if object.is_enabled() {
+                if let Some((obj_min, obj_max)) = self.object_extent_with_options(name, options) {
+                    min.x = min.x.min(obj_min.x);
+                    min.y = min.y.min(obj_min.y);
+                    min.z = min.z.min(obj_min.z);
+                    max.x = max.x.max(obj_max.x);
+                    max.y = max.y.max(obj_max.y);
+                    max.z = max.z.max(obj_max.z);
+                    has_extent = true;
+                }
             }
         }
 
@@ -1285,6 +1653,11 @@ impl ObjectRegistry {
                         *child = new.clone();
                     }
                 }
+            } else if let Some(measurement) = Self::object_as_mut::<MeasurementObject>(obj.as_mut())
+            {
+                measurement.rename_anchors_to(old_name, new_name);
+            } else if let Some(label) = Self::object_as_mut::<LabelObject>(obj.as_mut()) {
+                label.rename_anchors_to(old_name, new_name);
             }
         }
 
@@ -1306,6 +1679,14 @@ impl ObjectRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn molecule_with_atoms(name: &str, count: usize) -> MoleculeObject {
+        let mut molecule = patinae_mol::ObjectMolecule::new(name);
+        for _ in 0..count {
+            molecule.add_atom(patinae_mol::Atom::new("CA", patinae_mol::Element::Carbon));
+        }
+        MoleculeObject::from_raw(molecule)
+    }
 
     // Mock object for testing
     struct MockObject {
@@ -1450,6 +1831,13 @@ mod tests {
     }
 
     #[test]
+    fn annotation_object_types_do_not_enter_picking() {
+        assert!(!ObjectType::Measurement.is_pickable());
+        assert!(!ObjectType::Label.is_pickable());
+        assert!(ObjectType::Molecule.is_pickable());
+    }
+
+    #[test]
     fn render_ids_survive_reorder_and_rename_without_reuse() {
         let mut registry = ObjectRegistry::new();
 
@@ -1479,6 +1867,240 @@ mod tests {
         registry.remove("b");
         registry.add(MockObject::new("d"));
         assert_ne!(registry.render_id("d"), Some(b_id));
+    }
+
+    #[test]
+    fn label_objects_round_trip_with_order_group_state_and_render_id() {
+        let mut registry = ObjectRegistry::new();
+        registry.add(molecule_with_atoms("source", 2));
+        let mut labels = LabelObject::with_entities(
+            "labels",
+            vec![
+                LabelEntity::new(
+                    AtomAnchor::new("source", patinae_mol::AtomIndex(0)),
+                    "first",
+                ),
+                LabelEntity::new(
+                    AtomAnchor::new("source", patinae_mol::AtomIndex(1)),
+                    "second",
+                ),
+                LabelEntity::new(
+                    AtomAnchor::new("source", patinae_mol::AtomIndex(0)),
+                    "duplicate",
+                ),
+            ],
+        );
+        labels.state_mut().enabled = false;
+        labels.set_color(ColorIndex::Named(7));
+        registry.add(labels);
+        registry.add_to_group("annotations", "labels");
+        let render_id = registry.render_id("labels");
+        let revisions = registry.get_label("labels").unwrap().revisions();
+
+        let restored = ObjectRegistry::from_snapshot(registry.to_snapshot());
+        let labels = restored.get_label("labels").unwrap();
+
+        assert_eq!(
+            labels
+                .entities()
+                .iter()
+                .map(LabelEntity::text)
+                .collect::<Vec<_>>(),
+            ["first", "second", "duplicate"]
+        );
+        assert!(!labels.state().enabled);
+        assert_eq!(labels.presentation().color(), Some(ColorIndex::Named(7)));
+        assert_eq!(labels.revisions(), revisions);
+        assert_eq!(restored.render_id("labels"), render_id);
+        assert_eq!(restored.parent_group("labels"), Some("annotations"));
+    }
+
+    #[test]
+    fn bulk_label_object_visibility_coalesces_generation_and_noops() {
+        let mut registry = ObjectRegistry::new();
+        registry.add(LabelObject::new("first"));
+        registry.add(LabelObject::new("second"));
+        registry.add(GroupObject::new("other"));
+        let before = registry.generation();
+
+        assert_eq!(registry.set_label_objects_enabled(false), 2);
+        assert_eq!(registry.generation(), before + 1);
+        assert!(!registry.get_label("first").unwrap().is_enabled());
+        assert!(!registry.get_label("second").unwrap().is_enabled());
+
+        let unchanged = registry.generation();
+        assert_eq!(registry.set_label_objects_enabled(false), 2);
+        assert_eq!(registry.generation(), unchanged);
+    }
+
+    #[test]
+    fn source_lifecycle_updates_both_annotation_types_without_rebinding() {
+        let mut registry = ObjectRegistry::new();
+        registry.add(molecule_with_atoms("source", 2));
+        let indices = [0, 1].map(patinae_mol::AtomIndex);
+        let mut measurement = MeasurementObject::new("distance", MeasurementKind::Distance);
+        measurement
+            .add_entry(MeasurementEntity::new(vec![
+                AtomAnchor::new("source", indices[0]),
+                AtomAnchor::new("source", indices[1]),
+            ]))
+            .unwrap();
+        registry.add(measurement);
+        registry.add(LabelObject::with_entities(
+            "labels",
+            vec![LabelEntity::new(
+                AtomAnchor::new("source", indices[0]),
+                "CA",
+            )],
+        ));
+        let label_id = registry.render_id("labels");
+
+        registry.rename("labels", "renamed_labels").unwrap();
+        assert_eq!(registry.render_id("renamed_labels"), label_id);
+        registry.rename("source", "renamed_source").unwrap();
+        assert_eq!(
+            registry.get_measurement("distance").unwrap().entries()[0].anchors[0].object_name,
+            "renamed_source"
+        );
+        assert_eq!(
+            registry.get_label("renamed_labels").unwrap().entities()[0]
+                .anchor()
+                .object_name,
+            "renamed_source"
+        );
+
+        registry.remove("renamed_source");
+        registry.add(molecule_with_atoms("renamed_source", 2));
+
+        assert!(
+            registry.get_measurement("distance").unwrap().entries()[0].anchors[0].is_orphaned()
+        );
+        assert!(registry.get_label("renamed_labels").unwrap().entities()[0]
+            .anchor()
+            .is_orphaned());
+    }
+
+    #[test]
+    fn removed_atoms_orphan_matching_anchors_in_one_revision_step() {
+        let mut registry = ObjectRegistry::new();
+        registry.add(molecule_with_atoms("source", 3));
+        let indices = [0, 1, 2].map(patinae_mol::AtomIndex);
+        let mut measurement = MeasurementObject::new("distance", MeasurementKind::Distance);
+        measurement
+            .add_entry(MeasurementEntity::new(vec![
+                AtomAnchor::new("source", indices[0]),
+                AtomAnchor::new("source", indices[1]),
+            ]))
+            .unwrap();
+        registry.add(measurement);
+        registry.add(LabelObject::with_entities(
+            "labels",
+            vec![
+                LabelEntity::new(AtomAnchor::new("source", indices[0]), "removed"),
+                LabelEntity::new(AtomAnchor::new("source", indices[1]), "also removed"),
+                LabelEntity::new(AtomAnchor::new("source", indices[2]), "retained"),
+            ],
+        ));
+        let generation_before = registry.generation();
+        let measurement_revision_before = registry
+            .get_measurement("distance")
+            .unwrap()
+            .revisions()
+            .geometry;
+        let label_revision_before = registry.get_label("labels").unwrap().revisions().geometry;
+
+        registry
+            .remove_molecule_atoms(
+                "source",
+                &[patinae_mol::AtomIndex(0), patinae_mol::AtomIndex(1)],
+            )
+            .unwrap();
+
+        let measurement = registry.get_measurement("distance").unwrap();
+        assert!(measurement.entries()[0].anchors[0].is_orphaned());
+        assert!(measurement.entries()[0].anchors[1].is_orphaned());
+        assert_eq!(
+            measurement.revisions().geometry,
+            measurement_revision_before + 1
+        );
+        let labels = registry.get_label("labels").unwrap();
+        assert!(labels.entities()[0].anchor().is_orphaned());
+        assert!(labels.entities()[1].anchor().is_orphaned());
+        assert!(!labels.entities()[2].anchor().is_orphaned());
+        assert_eq!(
+            labels.entities()[2].anchor().atom_index,
+            patinae_mol::AtomIndex(0)
+        );
+        assert_eq!(labels.revisions().geometry, label_revision_before + 1);
+        assert_eq!(registry.generation(), generation_before + 1);
+
+        let generation_after = registry.generation();
+        let measurement_revisions_after = registry.get_measurement("distance").unwrap().revisions();
+        let label_revisions_after = registry.get_label("labels").unwrap().revisions();
+        let unrelated_remap = {
+            let mut molecule = patinae_mol::ObjectMolecule::new("temporary");
+            molecule.add_atom(patinae_mol::Atom::new("A", patinae_mol::Element::Carbon));
+            molecule.add_atom(patinae_mol::Atom::new("B", patinae_mol::Element::Carbon));
+            molecule.remove_atoms(&[patinae_mol::AtomIndex(0)])
+        };
+        registry.remap_atom_anchors("unrelated", &unrelated_remap);
+
+        assert_eq!(registry.generation(), generation_after);
+        assert_eq!(
+            registry.get_measurement("distance").unwrap().revisions(),
+            measurement_revisions_after
+        );
+        assert_eq!(
+            registry.get_label("labels").unwrap().revisions(),
+            label_revisions_after
+        );
+    }
+
+    #[test]
+    fn registry_atom_removal_orphans_dependencies_and_deletes_empty_sources() {
+        let mut registry = ObjectRegistry::new();
+        registry.add(molecule_with_atoms("source", 2));
+        registry.add(LabelObject::with_entities(
+            "labels",
+            vec![LabelEntity::new(
+                AtomAnchor::new("source", patinae_mol::AtomIndex(0)),
+                "first",
+            )],
+        ));
+
+        registry
+            .remove_molecule_atoms("source", &[patinae_mol::AtomIndex(0)])
+            .unwrap();
+        assert_eq!(
+            registry
+                .get_molecule("source")
+                .unwrap()
+                .molecule()
+                .atom_count(),
+            1
+        );
+        assert!(registry.get_label("labels").unwrap().entities()[0]
+            .anchor()
+            .is_orphaned());
+
+        registry
+            .remove_molecule_atoms("source", &[patinae_mol::AtomIndex(0)])
+            .unwrap();
+        assert!(registry.get_molecule("source").is_none());
+    }
+
+    #[test]
+    fn render_ids_wrap_and_reuse_only_retired_ids() {
+        let mut registry = ObjectRegistry::new();
+        registry.add(MockObject::new("retired"));
+        let retired_id = registry.render_id("retired").unwrap();
+        registry.remove("retired");
+        registry.next_render_id =
+            ObjectRegistry::normalize_next_render_id(NEXT_AFTER_MAX_RENDER_ID);
+
+        registry.add(MockObject::new("replacement"));
+
+        assert_eq!(registry.render_id("replacement"), Some(retired_id));
     }
 
     #[test]

@@ -10,7 +10,8 @@ use anyhow::{bail, ensure, Context, Result};
 use flate2::read::GzDecoder;
 use patinae_scene::{ObjectState, Session};
 use patinae_session::prs::{
-    load_prs_document, save_prs, PrsDocument, PRS_FORMAT_VERSION, PRS_PRODUCER_VERSION,
+    decode_prs_document, load_prs_document, save_prs, PRS_FORMAT_VERSION,
+    PRS_LEGACY_FORMAT_VERSION, PRS_PRODUCER_VERSION,
 };
 use patinae_settings::groups::{CartoonOverrides, CartoonSettings, Settings};
 use patinae_settings::ObjectOverrides;
@@ -46,12 +47,12 @@ const V033_SESSION_CLEAR_COLOR_INDEX: usize = 10;
 // v0.4.0-v0.4.2 Settings had 15 positional groups. v0.4.3 inserted renderer
 // at index 3 and object at index 7, shifting all later fields.
 const LEGACY_SETTINGS_TO_CURRENT: [usize; 15] =
-    [0, 1, 2, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+    [0, 1, 2, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17];
 const LEGACY_SETTINGS_CARTOON_INDEX: usize = 6;
 
 // PyMOL-RS v0.3.3 predates the FXAA, SSAO, renderer, object, and ellipsoid
 // groups. The remaining groups retain these semantic destinations.
-const V033_SETTINGS_TO_CURRENT: [usize; 12] = [0, 1, 2, 4, 8, 9, 10, 11, 12, 13, 14, 15];
+const V033_SETTINGS_TO_CURRENT: [usize; 12] = [0, 1, 2, 4, 9, 10, 11, 12, 13, 14, 15, 16];
 const V033_SETTINGS_UI_INDEX: usize = 1;
 const V033_SETTINGS_CARTOON_INDEX: usize = 4;
 const V033_SETTINGS_STICK_INDEX: usize = 5;
@@ -61,12 +62,15 @@ const V033_SETTINGS_DOT_INDEX: usize = 10;
 const V033_SETTINGS_MESH_INDEX: usize = 11;
 
 const CURRENT_SETTINGS_UI_INDEX: usize = 1;
-const CURRENT_SETTINGS_CARTOON_INDEX: usize = 8;
-const CURRENT_SETTINGS_STICK_INDEX: usize = 9;
-const CURRENT_SETTINGS_SPHERE_INDEX: usize = 10;
-const CURRENT_SETTINGS_SURFACE_INDEX: usize = 11;
-const CURRENT_SETTINGS_DOT_INDEX: usize = 14;
-const CURRENT_SETTINGS_MESH_INDEX: usize = 15;
+const CURRENT_SETTINGS_MEASUREMENT_INDEX: usize = 7;
+const CURRENT_SETTINGS_OBJECT_INDEX: usize = 8;
+const CURRENT_SETTINGS_CARTOON_INDEX: usize = 9;
+const CURRENT_SETTINGS_STICK_INDEX: usize = 10;
+const CURRENT_SETTINGS_SPHERE_INDEX: usize = 11;
+const CURRENT_SETTINGS_SURFACE_INDEX: usize = 12;
+const CURRENT_SETTINGS_DOT_INDEX: usize = 15;
+const CURRENT_SETTINGS_MESH_INDEX: usize = 16;
+const CURRENT_SETTINGS_ELLIPSOID_INDEX: usize = 17;
 
 const V033_UI_TO_CURRENT: [Option<usize>; 10] = [
     Some(1),
@@ -258,12 +262,21 @@ fn upgrade_path(input: &Path, output: &Path) -> Result<UpgradeReport> {
     );
 
     let payload = read_prs_payload(input)?;
-    if rmp_serde::from_slice::<PrsDocument>(&payload).is_ok() {
-        bail!(
-            "{} already uses a PRS document readable by this Patinae version",
-            input.display()
-        );
-    }
+    let current_document_error = match decode_prs_document(&payload) {
+        Ok(document) => {
+            let is_raw_session = document.prs_format_version == PRS_LEGACY_FORMAT_VERSION
+                && document.producer.is_none()
+                && document.producer_version.is_none();
+            if !is_raw_session {
+                bail!(
+                    "{} already uses a PRS document readable by this Patinae version",
+                    input.display()
+                );
+            }
+            None
+        }
+        Err(error) => Some(error),
+    };
 
     let (session, source) = match rmp_serde::from_slice::<Session>(&payload) {
         Ok(session) => (session, SourceFormat::CurrentRawSession),
@@ -274,6 +287,17 @@ fn upgrade_path(input: &Path, output: &Path) -> Result<UpgradeReport> {
                     input.display()
                 )
             })?;
+            if let Some(format_version) = document_format_version(&root) {
+                if format_version >= u64::from(PRS_FORMAT_VERSION) {
+                    let document_error = current_document_error
+                        .as_ref()
+                        .map(ToString::to_string)
+                        .unwrap_or_else(|| "unknown document error".to_string());
+                    bail!(
+                        "refusing to reinterpret PRS v{format_version} envelope as a legacy session; current decoder rejected it: {document_error}"
+                    );
+                }
+            }
             let (mut session_value, source) = extract_session(root)?;
             migrate_session(&mut session_value)?;
             let migrated_payload = encode_value(&session_value)?;
@@ -373,6 +397,16 @@ fn extract_session(root: Value) -> Result<(Value, SourceFormat)> {
             "unsupported MessagePack root {}; expected a Session array or map",
             value_kind(&other)
         ),
+    }
+}
+
+fn document_format_version(root: &Value) -> Option<u64> {
+    match root {
+        Value::Map(fields) if map_value(fields, "session").is_some() => {
+            map_value(fields, "prs_format_version").and_then(Value::as_u64)
+        }
+        Value::Array(fields) if fields.len() == 4 => fields.first().and_then(Value::as_u64),
+        _ => None,
     }
 }
 
@@ -665,8 +699,10 @@ fn migrate_positional_registry(registry: &mut Value) -> Result<()> {
         .map(Vec::len)
         .context("ObjectRegistrySnapshot is not an array")?;
     ensure!(
-        field_count == 9 || field_count == V033_REGISTRY_TO_CURRENT.len(),
-        "unsupported ObjectRegistrySnapshot field count {field_count}; expected {} for PyMOL-RS v0.3.3 or 9 for Patinae v0.4.0-v0.4.2",
+        field_count == 11
+            || field_count == 9
+            || field_count == V033_REGISTRY_TO_CURRENT.len(),
+        "unsupported ObjectRegistrySnapshot field count {field_count}; expected {} for PyMOL-RS v0.3.3, 9 for Patinae v0.4.0-v0.4.2, or 11 for a current raw Session",
         V033_REGISTRY_TO_CURRENT.len()
     );
     let is_v033 = field_count == V033_REGISTRY_TO_CURRENT.len();
@@ -1225,16 +1261,49 @@ fn validate_positional_settings_fields(settings: &Value) -> Result<()> {
     validate_field::<patinae_settings::groups::BehaviorSettings>(fields, 4, "settings.behavior")?;
     validate_field::<patinae_settings::groups::SsaoSettings>(fields, 5, "settings.ssao")?;
     validate_field::<patinae_settings::groups::FxaaSettings>(fields, 6, "settings.fxaa")?;
-    validate_field::<patinae_settings::groups::ObjectSettings>(fields, 7, "settings.object")?;
-    validate_field::<CartoonSettings>(fields, 8, "settings.cartoon")?;
-    validate_field::<patinae_settings::groups::StickSettings>(fields, 9, "settings.stick")?;
-    validate_field::<patinae_settings::groups::SphereSettings>(fields, 10, "settings.sphere")?;
-    validate_field::<patinae_settings::groups::SurfaceSettings>(fields, 11, "settings.surface")?;
-    validate_field::<patinae_settings::groups::RibbonSettings>(fields, 12, "settings.ribbon")?;
-    validate_field::<patinae_settings::groups::LineSettings>(fields, 13, "settings.line")?;
-    validate_field::<patinae_settings::groups::DotSettings>(fields, 14, "settings.dot")?;
-    validate_field::<patinae_settings::groups::MeshSettings>(fields, 15, "settings.mesh")?;
-    validate_field::<patinae_settings::groups::EllipsoidSettings>(fields, 16, "settings.ellipsoid")
+    validate_field::<patinae_settings::groups::MeasurementSettings>(
+        fields,
+        CURRENT_SETTINGS_MEASUREMENT_INDEX,
+        "settings.measurement",
+    )?;
+    validate_field::<patinae_settings::groups::ObjectSettings>(
+        fields,
+        CURRENT_SETTINGS_OBJECT_INDEX,
+        "settings.object",
+    )?;
+    validate_field::<CartoonSettings>(fields, CURRENT_SETTINGS_CARTOON_INDEX, "settings.cartoon")?;
+    validate_field::<patinae_settings::groups::StickSettings>(
+        fields,
+        CURRENT_SETTINGS_STICK_INDEX,
+        "settings.stick",
+    )?;
+    validate_field::<patinae_settings::groups::SphereSettings>(
+        fields,
+        CURRENT_SETTINGS_SPHERE_INDEX,
+        "settings.sphere",
+    )?;
+    validate_field::<patinae_settings::groups::SurfaceSettings>(
+        fields,
+        CURRENT_SETTINGS_SURFACE_INDEX,
+        "settings.surface",
+    )?;
+    validate_field::<patinae_settings::groups::RibbonSettings>(fields, 13, "settings.ribbon")?;
+    validate_field::<patinae_settings::groups::LineSettings>(fields, 14, "settings.line")?;
+    validate_field::<patinae_settings::groups::DotSettings>(
+        fields,
+        CURRENT_SETTINGS_DOT_INDEX,
+        "settings.dot",
+    )?;
+    validate_field::<patinae_settings::groups::MeshSettings>(
+        fields,
+        CURRENT_SETTINGS_MESH_INDEX,
+        "settings.mesh",
+    )?;
+    validate_field::<patinae_settings::groups::EllipsoidSettings>(
+        fields,
+        CURRENT_SETTINGS_ELLIPSOID_INDEX,
+        "settings.ellipsoid",
+    )
 }
 
 fn validate_field<T: DeserializeOwned>(fields: &[Value], index: usize, label: &str) -> Result<()> {
@@ -1494,6 +1563,116 @@ mod tests {
 
         assert!(error.to_string().contains("already uses a PRS document"));
         assert!(!paths.output.exists());
+    }
+
+    #[test]
+    fn current_raw_session_upgrades_through_raw_session_path() {
+        let paths = TestPaths::new("current_raw");
+        let session = Session::new();
+        write_gzip_value(&paths.input, &positional_value(&session).unwrap()).unwrap();
+
+        let report = upgrade_path(&paths.input, &paths.output).unwrap();
+        let upgraded = load_prs_document(&paths.output).unwrap();
+
+        assert!(matches!(report.source, SourceFormat::CurrentRawSession));
+        assert_eq!(upgraded.prs_format_version, PRS_FORMAT_VERSION);
+        assert!(paths.output.exists());
+    }
+
+    #[test]
+    fn malformed_v3_document_is_rejected_without_legacy_fallback() {
+        let paths = TestPaths::new("malformed_v3");
+        let mut session = positional_value(&Session::new()).unwrap();
+        let registry = array_mut(&mut session, "Session")
+            .unwrap()
+            .get_mut(SESSION_REGISTRY_INDEX)
+            .unwrap();
+        assert_eq!(array_mut(registry, "registry").unwrap().len(), 11);
+        array_mut(registry, "registry").unwrap().pop();
+        let document = Value::Array(vec![
+            Value::from(3_u64),
+            Value::from("patinae"),
+            Value::from(PRS_PRODUCER_VERSION),
+            session,
+        ]);
+        write_gzip_value(&paths.input, &document).unwrap();
+
+        let error = upgrade_path(&paths.input, &paths.output).unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("refusing to reinterpret PRS v3 envelope"));
+        assert!(!paths.output.exists());
+    }
+
+    #[test]
+    fn future_document_is_rejected_without_legacy_fallback() {
+        let paths = TestPaths::new("future_v4");
+        let document = Value::Map(vec![
+            (Value::from("prs_format_version"), Value::from(4_u64)),
+            (Value::from("producer"), Value::from("patinae")),
+            (
+                Value::from("producer_version"),
+                Value::from(PRS_PRODUCER_VERSION),
+            ),
+            (
+                Value::from("session"),
+                named_value(&Session::new()).unwrap(),
+            ),
+        ]);
+        write_gzip_value(&paths.input, &document).unwrap();
+
+        let error = upgrade_path(&paths.input, &paths.output).unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("refusing to reinterpret PRS v4 envelope"));
+        assert!(!paths.output.exists());
+    }
+
+    #[test]
+    fn registry_migration_accepts_current_raw_arity_and_rejects_transition_arity() {
+        let session = Session::new();
+        let current_session = positional_value(&session).unwrap();
+        let current_registry = current_session
+            .as_array()
+            .unwrap()
+            .get(SESSION_REGISTRY_INDEX)
+            .unwrap()
+            .clone();
+        assert_eq!(current_registry.as_array().unwrap().len(), 11);
+
+        let mut transition_registry = current_registry.clone();
+        array_mut(&mut transition_registry, "transition registry")
+            .unwrap()
+            .pop();
+
+        let error = migrate_positional_registry(&mut transition_registry).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("unsupported ObjectRegistrySnapshot field count 10"));
+        let mut current_registry = current_registry;
+        migrate_positional_registry(&mut current_registry).unwrap();
+    }
+
+    #[test]
+    fn registry_migration_rejects_unknown_v3_arity() {
+        let session = Session::new();
+        let mut session_value = positional_value(&session).unwrap();
+        let registry = array_mut(&mut session_value, "Session").unwrap()[SESSION_REGISTRY_INDEX]
+            .as_array()
+            .unwrap()
+            .clone();
+        let mut unsupported = Value::Array(registry);
+        array_mut(&mut unsupported, "registry")
+            .unwrap()
+            .push(Value::Nil);
+
+        let error = migrate_positional_registry(&mut unsupported).unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("unsupported ObjectRegistrySnapshot field count 12"));
     }
 
     fn downgrade_positional_session(session: &mut Value) -> Result<()> {

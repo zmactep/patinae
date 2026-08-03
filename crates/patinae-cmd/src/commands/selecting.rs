@@ -113,6 +113,27 @@ pub fn select_with_context(
         return Ok((0, Vec::new()));
     }
 
+    let labels_by_source = if parsed_expr.uses_atom_labels() {
+        let mut labels = ahash::AHashMap::<&str, Vec<(patinae_mol::AtomIndex, &str)>>::new();
+        for label_name in viewer.objects().names() {
+            let Some(label_object) = viewer.objects().get_label(label_name) else {
+                continue;
+            };
+            for entity in label_object.entities() {
+                let anchor = entity.anchor();
+                if !anchor.is_orphaned() {
+                    labels
+                        .entry(&anchor.object_name)
+                        .or_default()
+                        .push((anchor.atom_index, entity.text()));
+                }
+            }
+        }
+        labels
+    } else {
+        ahash::AHashMap::new()
+    };
+
     let mut total_count = 0;
     let mut results: Vec<(String, SelectionResult)> = Vec::new();
 
@@ -128,13 +149,20 @@ pub fn select_with_context(
         let mol = mol_obj.molecule();
 
         // Build context with implicit object selections and named selections
-        let ctx = viewer.selections().build_eval_context(
+        let mut ctx = viewer.selections().build_eval_context(
             mol,
             mol_obj.display_state(),
             obj_name,
             &object_names,
             options,
         );
+        if let Some(labels) = labels_by_source.get(obj_name.as_str()) {
+            for &(atom_index, text) in labels {
+                if mol.get_atom(atom_index).is_some() {
+                    ctx.add_atom_label(atom_index.as_usize(), text);
+                }
+            }
+        }
 
         match patinae_select::evaluate(&parsed_expr, &ctx) {
             Ok(result) => {

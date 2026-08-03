@@ -11,6 +11,10 @@ import {
     MapSourceGlyph,
     MapIsomeshGlyph,
     MapIsosurfaceGlyph,
+    MeasurementDistanceGlyph,
+    MeasurementAngleGlyph,
+    MeasurementDihedralGlyph,
+    LabelGlyph,
 } from "../icons.slint";
 import { RowBtn } from "./row-btn.slint";
 
@@ -194,7 +198,15 @@ component ObjectSection inherits VerticalLayout {
     property <bool> can-expand: root.obj.has-representations && root.obj.subchains.length > 0;
     property <bool> has-object-icon: root.obj.object-icon-kind != "";
     property <bool> has-leading-slot: root.can-expand || root.has-object-icon;
-    property <length> action-buttons-w: root.obj.has-representations ? 2 * Tokens.row-h : 0px;
+    property <bool> has-row-color:
+        root.obj.has-representations
+        || root.obj.object-type == "measurement"
+        || root.obj.object-type == "label";
+    property <length> action-buttons-w: root.obj.has-representations
+        ? 2 * Tokens.row-h
+        : root.has-row-color ? Tokens.row-h : 0px;
+    property <length> annotation-meta-w:
+        root.obj.object-type == "measurement" || root.obj.object-type == "label" ? 92px : 0px;
 
     // Object header row
     obj-header := Rectangle {
@@ -212,6 +224,9 @@ component ObjectSection inherits VerticalLayout {
         border-color: root.obj.selected
             ? Theme.cyan.with-alpha(0.5)
             : transparent;
+        accessible-role: list-item;
+        accessible-label: root.obj.name
+            + (root.obj.focus-disabled-reason != "" ? ". " + root.obj.focus-disabled-reason : "");
 
         // Chevron
         Rectangle {
@@ -233,7 +248,7 @@ component ObjectSection inherits VerticalLayout {
             }
         }
 
-        // Map kind icon
+        // Object-kind icon
         Rectangle {
             x: root.indent + Tokens.space-md;
             y: 0;
@@ -259,6 +274,34 @@ component ObjectSection inherits VerticalLayout {
                 y: (parent.height - self.height) / 2;
                 tint: root.obj.enabled ? Theme.cyan : Theme.text-ghost;
             }
+
+            if root.obj.object-icon-kind == "measurement-distance": MeasurementDistanceGlyph {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                tint: root.obj.enabled ? root.obj.color : Theme.text-ghost;
+                multicolor: root.obj.enabled && root.obj.multicolor;
+            }
+
+            if root.obj.object-icon-kind == "measurement-angle": MeasurementAngleGlyph {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                tint: root.obj.enabled ? root.obj.color : Theme.text-ghost;
+                multicolor: root.obj.enabled && root.obj.multicolor;
+            }
+
+            if root.obj.object-icon-kind == "measurement-dihedral": MeasurementDihedralGlyph {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                tint: root.obj.enabled ? root.obj.color : Theme.text-ghost;
+                multicolor: root.obj.enabled && root.obj.multicolor;
+            }
+
+            if root.obj.object-icon-kind == "label": LabelGlyph {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                tint: root.obj.enabled ? root.obj.color : Theme.text-ghost;
+                multicolor: root.obj.enabled && root.obj.multicolor;
+            }
         }
 
         // Name
@@ -266,7 +309,8 @@ component ObjectSection inherits VerticalLayout {
             x: root.indent + Tokens.space-md
                 + (root.has-leading-slot ? Tokens.chevron-w + Tokens.space-sm : 0px);
             y: 0;
-            width: parent.width - self.x - Tokens.space-md;
+            width: parent.width - self.x - Tokens.space-md
+                - root.action-buttons-w - root.annotation-meta-w;
             height: parent.height;
             text: root.obj.name;
             color: !root.obj.enabled
@@ -274,6 +318,26 @@ component ObjectSection inherits VerticalLayout {
                 : root.obj.selected ? Theme.text : Theme.text-dim;
             font-size: Tokens.font-lg;
             font-weight: root.obj.selected ? 500 : 400;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+
+        // Annotation entity count and unresolved warning
+        if root.obj.object-type == "measurement" || root.obj.object-type == "label": Text {
+            x: parent.width - root.action-buttons-w - root.annotation-meta-w;
+            y: 0;
+            width: root.annotation-meta-w - Tokens.space-sm;
+            height: parent.height;
+            text: root.obj.entity-count + " "
+                + (root.obj.object-type == "measurement"
+                    ? root.obj.measurement-kind
+                    : (root.obj.entity-count == 1 ? "label" : "labels"))
+                + (root.obj.has-unresolved-entities ? "  !" : "");
+            color: root.obj.has-unresolved-entities
+                ? Theme.warning
+                : root.obj.enabled ? Theme.text-ghost : Theme.text-ghost.with-alpha(0.4);
+            font-size: Tokens.font-sm;
+            horizontal-alignment: right;
             vertical-alignment: center;
             overflow: elide;
         }
@@ -329,7 +393,7 @@ component ObjectSection inherits VerticalLayout {
         obj-c-btn := RowBtn {
             x: parent.width - Tokens.row-h + 2px;
             y: (parent.height - self.height) / 2;
-            visible: root.obj.has-representations;
+            visible: root.has-row-color;
             letter: "C";
             obj-name: root.obj.name;
             row-hovered: obj-touch.has-hover || chevron-touch.has-hover;

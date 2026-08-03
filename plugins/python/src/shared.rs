@@ -5,6 +5,7 @@ use std::time::Duration;
 use patinae_mol::ObjectMolecule;
 use patinae_plugin::prelude::{AtomChunk, AtomStreamRequest};
 use patinae_plugin::wire::WireAtomPropertyChange;
+use patinae_scene::LabelObjectView;
 use pyo3::prelude::*;
 
 use crate::atom_ops::AlterBuffer;
@@ -131,6 +132,9 @@ pub enum HostBridgeRequestKind {
     CountAtoms {
         selection: String,
     },
+    LabelObject {
+        name: String,
+    },
     OpenAtomStream {
         request: AtomStreamRequest,
     },
@@ -149,6 +153,7 @@ pub enum HostBridgeRequestKind {
 /// Host operation result delivered to the Python worker.
 pub enum HostBridgeValue {
     CountAtoms(usize),
+    LabelObject(Option<LabelObjectView>),
     AtomStreamOpened { stream_id: u64, total_count: usize },
     AtomChunk(AtomChunk),
     Unit,

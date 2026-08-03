@@ -143,6 +143,7 @@ impl RenderState {
         self.record_fast_overlay_pass(encoder, effective_target, n_fast_overlay);
         self.record_translucent_pass(encoder, n_wboit);
         self.record_wboit_composite(encoder, effective_target, n_wboit);
+        self.record_stroke_overlay(encoder, effective_target);
         self.record_silhouette_overlay(encoder, effective_target);
         if has_selection_overlay {
             if let Some(overlay_target) = if self.screen.fxaa_enabled {

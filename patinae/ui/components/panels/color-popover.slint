@@ -226,7 +226,8 @@ export component ColorPopover inherits Rectangle {
     // Block empty-surface clicks from falling through to the dismiss backdrop.
     TouchArea {}
 
-    property <string> target: ObjectsState.popover-scope == "all-c"
+    property <bool> solid-only: ObjectsState.popover-solid-only;
+    property <string> target: !root.solid-only && ObjectsState.popover-scope == "all-c"
         ? ObjectsState.popover-target + " and elem C"
         : ObjectsState.popover-target;
     property <string> scope: ObjectsState.popover-scope;
@@ -238,7 +239,8 @@ export component ColorPopover inherits Rectangle {
     property <bool> is-bio: ObjectsState.popover-subchain-kind == ""
         || ObjectsState.popover-subchain-kind == "biopolymer";
     // Command prefix based on scope
-    property <string> scope-prefix: root.scope == "all" || root.scope == "all-c" ? "color "
+    property <string> scope-prefix: root.solid-only ? "color "
+        : root.scope == "all" || root.scope == "all-c" ? "color "
         : root.scope == "cartoon" ? "set cartoon_color, "
         : root.scope == "sticks" ? "set stick_color, "
         : root.scope == "lines" ? "set line_color, "
@@ -278,9 +280,9 @@ export component ColorPopover inherits Rectangle {
         }
 
         // ── SCOPE ──
-        SectionLabel { text: "SCOPE"; }
+        if !root.solid-only: SectionLabel { text: "SCOPE"; }
 
-        VerticalLayout {
+        if !root.solid-only: VerticalLayout {
             spacing: 2px;
 
             HorizontalLayout {
@@ -375,7 +377,7 @@ export component ColorPopover inherits Rectangle {
         }
 
         // Separator
-        Rectangle {
+        if !root.solid-only: Rectangle {
             height: Tokens.hairline;
             background: Theme.line;
         }
@@ -421,9 +423,9 @@ export component ColorPopover inherits Rectangle {
         }
 
         // ── SCHEME ──
-        SectionLabel { text: "SCHEME"; }
+        if !root.solid-only: SectionLabel { text: "SCHEME"; }
 
-        VerticalLayout {
+        if !root.solid-only: VerticalLayout {
             spacing: 2px;
 
             HorizontalLayout {

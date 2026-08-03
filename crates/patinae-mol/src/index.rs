@@ -112,6 +112,47 @@ define_index!(
     AtomIndex, "AtomIndex"
 );
 
+/// Maps atom indices across one topology edit.
+///
+/// Entries use indices from the molecule before the edit. A missing target
+/// means that the source atom was removed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AtomRemap {
+    old_to_new: Vec<Option<AtomIndex>>,
+}
+
+impl AtomRemap {
+    /// Creates an identity mapping for `atom_count` atoms.
+    pub(crate) fn identity(atom_count: usize) -> Self {
+        let old_to_new = (0..atom_count)
+            .map(|index| {
+                let index = u32::try_from(index).expect("atom count must fit into AtomIndex");
+                Some(AtomIndex(index))
+            })
+            .collect();
+        Self { old_to_new }
+    }
+
+    pub(crate) fn from_mapping(old_to_new: Vec<Option<AtomIndex>>) -> Self {
+        Self { old_to_new }
+    }
+
+    /// Returns the new index for one pre-edit atom.
+    #[must_use]
+    pub fn remap(&self, old_index: AtomIndex) -> Option<AtomIndex> {
+        self.old_to_new.get(old_index.as_usize()).copied().flatten()
+    }
+
+    /// Returns whether this mapping leaves every atom index unchanged.
+    #[must_use]
+    pub fn is_identity(&self) -> bool {
+        self.old_to_new
+            .iter()
+            .enumerate()
+            .all(|(old, new)| new.is_some_and(|new| new.as_usize() == old))
+    }
+}
+
 define_index!(
     /// Type-safe index into a bond array
     ///

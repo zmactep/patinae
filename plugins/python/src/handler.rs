@@ -52,6 +52,7 @@ pub struct PythonHandler {
 #[derive(Debug, Clone, Copy)]
 enum PendingBridgeQuery {
     CountAtoms { bridge_id: u64 },
+    LabelObject { bridge_id: u64 },
     OpenAtomStream { bridge_id: u64 },
     ReadAtomStream { bridge_id: u64 },
     CloseAtomStream { bridge_id: u64 },
@@ -179,6 +180,10 @@ impl PythonHandler {
                     Ok(WireHostQueryValue::CountAtoms(count)),
                 ) => (bridge_id, Ok(HostBridgeValue::CountAtoms(*count))),
                 (
+                    PendingBridgeQuery::LabelObject { bridge_id },
+                    Ok(WireHostQueryValue::LabelObject(label)),
+                ) => (bridge_id, Ok(HostBridgeValue::LabelObject(label.clone()))),
+                (
                     PendingBridgeQuery::OpenAtomStream { bridge_id },
                     Ok(WireHostQueryValue::AtomStreamOpened(opened)),
                 ) => (
@@ -197,17 +202,19 @@ impl PythonHandler {
                     Ok(WireHostQueryValue::AtomStreamClosed),
                 ) => (bridge_id, Ok(HostBridgeValue::Unit)),
                 (PendingBridgeQuery::CountAtoms { bridge_id }, Err(error))
+                | (PendingBridgeQuery::LabelObject { bridge_id }, Err(error))
                 | (PendingBridgeQuery::OpenAtomStream { bridge_id }, Err(error))
                 | (PendingBridgeQuery::ReadAtomStream { bridge_id }, Err(error))
                 | (PendingBridgeQuery::CloseAtomStream { bridge_id }, Err(error)) => {
                     (bridge_id, Err(error.clone()))
                 }
                 (PendingBridgeQuery::CountAtoms { bridge_id }, _)
+                | (PendingBridgeQuery::LabelObject { bridge_id }, _)
                 | (PendingBridgeQuery::OpenAtomStream { bridge_id }, _)
                 | (PendingBridgeQuery::ReadAtomStream { bridge_id }, _)
                 | (PendingBridgeQuery::CloseAtomStream { bridge_id }, _) => (
                     bridge_id,
-                    Err("host returned unexpected atom stream result".to_string()),
+                    Err("host returned an unexpected Python bridge result".to_string()),
                 ),
             };
             bridge.complete(bridge_id, value);
@@ -241,6 +248,17 @@ impl PythonHandler {
                     id: wire_id,
                     selection,
                 });
+            }
+            HostBridgeRequestKind::LabelObject { name } => {
+                let wire_id = self.next_query_id;
+                self.next_query_id += 1;
+                self.pending_bridge_queries.insert(
+                    wire_id,
+                    PendingBridgeQuery::LabelObject {
+                        bridge_id: request.id,
+                    },
+                );
+                ctx.query_host(WireHostQuery::LabelObject { id: wire_id, name });
             }
             HostBridgeRequestKind::OpenAtomStream {
                 request: stream_request,

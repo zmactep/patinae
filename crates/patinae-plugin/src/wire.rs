@@ -25,7 +25,8 @@ use patinae_scene::{
     GpuBufferDescriptor, GpuCacheStats, GpuCachedHandle, GpuComputePipelineDescriptor, GpuHandle,
     GpuPipelineLayoutDescriptor, GpuRenderPipelineDescriptor, GpuSamplerDescriptor,
     GpuShaderModuleDescriptor, GpuSubmitBatch, GpuTextureDescriptor, GpuTextureViewDescriptor,
-    MovieStateSnapshot, RenderArtifactSnapshotDescriptor, SceneView, Session, ViewportImage,
+    LabelObjectView, MovieStateSnapshot, RenderArtifactSnapshotDescriptor, SceneView, Session,
+    ViewportImage,
 };
 use patinae_settings::{
     DynamicSettingDescriptor, DynamicSettingStore, SettingType, SettingValue, SideEffectCategory,
@@ -33,7 +34,7 @@ use patinae_settings::{
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 /// Runtime wire version for MessagePack DTOs.
-pub const RUNTIME_WIRE_VERSION: u32 = 12;
+pub const RUNTIME_WIRE_VERSION: u32 = 13;
 
 /// Maximum MessagePack payload copied across the runtime ABI.
 pub const MAX_WIRE_PAYLOAD_LEN: usize = 64 * 1024 * 1024;
@@ -395,6 +396,13 @@ pub enum WireHostQuery {
     CountAtoms { id: u64, selection: String },
     /// Return full viewport image bytes.
     ViewportImage { id: u64 },
+    /// Return one portable label-object inspection snapshot.
+    LabelObject {
+        /// Correlation id.
+        id: u64,
+        /// Registry-owned label object name.
+        name: String,
+    },
     /// Open a host-owned atom stream.
     OpenAtomStream {
         /// Correlation id.
@@ -440,6 +448,8 @@ pub enum WireHostQueryValue {
     CountAtoms(usize),
     /// Full viewport image bytes.
     ViewportImage(Option<ViewportImage>),
+    /// Portable label-object inspection snapshot.
+    LabelObject(Option<LabelObjectView>),
     /// Open atom stream metadata.
     AtomStreamOpened(WireAtomStreamOpened),
     /// Atom stream rows.

@@ -3,6 +3,9 @@
 //! Mirrors patinae's viewport: owns a `Session` + `CommandExecutor` and a
 //! `patinae_render::RenderState` (held by `GpuState`).
 
+use std::cell::RefCell;
+use std::collections::HashMap;
+
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
@@ -12,10 +15,14 @@ use patinae_render::{
     render_memory_policy_from_settings, FrameStatsHistory, PickingMode, RenderConfig,
     RenderMemoryPolicy, RenderMemoryProfile, RenderMemoryRecoveryStage,
 };
-use patinae_scene::bridge::{resolve_pick, CachedRenderScene};
+use patinae_scene::bridge::{
+    resolve_pick, CachedRenderScene, ProjectedAnnotationLabel, ProjectedSceneLabels,
+};
 use patinae_scene::{
-    expand_pick_to_selection, pick_expression_for_hit, CameraDelta, InputState, MoleculeObject,
-    Object, PickHit, Session, SessionAdapter,
+    expand_pick_to_selection, label_object_view, pick_expression_for_hit,
+    resolve_annotation_bundles,
+    AnnotationColorSummary, CameraDelta, InputState, MeasurementKind, MoleculeObject, Object,
+    PickHit, ResolvedAnnotationBundle, Session, SessionAdapter,
 };
 use patinae_select::{build_sele_command, select};
 
@@ -51,6 +58,19 @@ struct ObjectInfo {
     object_type: &'static str,
     atom_count: usize,
     enabled: bool,
+    measurement_kind: Option<&'static str>,
+    entity_count: usize,
+    has_unresolved_entities: bool,
+    focus_disabled_reason: Option<&'static str>,
+    color: [f32; 3],
+    multicolor: bool,
+    parent_group: Option<String>,
+    has_representations: bool,
+    can_focus: bool,
+    can_color: bool,
+    can_rename: bool,
+    can_delete: bool,
+    can_group: bool,
 }
 
 #[derive(Serialize)]
@@ -79,7 +99,33 @@ struct LabelInfo {
     x: f32,
     y: f32,
     text: String,
-    kind: &'static str,
+    color: [f32; 4],
+    size: f32,
+    alignment: &'static str,
+    anchor_x: f32,
+    anchor_y: f32,
+    owner_id: u32,
+    insertion_ordinal: usize,
+    display_order: f64,
+}
+
+impl From<&ProjectedAnnotationLabel> for LabelInfo {
+    fn from(label: &ProjectedAnnotationLabel) -> Self {
+        let (anchor_x, anchor_y) = label.alignment.anchor_factors();
+        Self {
+            x: label.x,
+            y: label.y,
+            text: label.text.clone(),
+            color: label.color,
+            size: label.size,
+            alignment: label.alignment.as_str(),
+            anchor_x,
+            anchor_y,
+            owner_id: label.owner_id.get(),
+            insertion_ordinal: label.insertion_ordinal,
+            display_order: label.display_order as f64,
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -227,6 +273,7 @@ async fn create_web_viewer(
         recovery,
         last_registry_generation,
         render_scene: CachedRenderScene::default(),
+        projected_labels: RefCell::new(ProjectedSceneLabels::default()),
         input: InputState::new(),
         needs_redraw: true,
         width,
@@ -273,6 +320,7 @@ pub struct WebViewer {
     recovery: RenderMemoryRecoveryStage,
     last_registry_generation: u64,
     render_scene: CachedRenderScene,
+    projected_labels: RefCell<ProjectedSceneLabels>,
     input: InputState,
     needs_redraw: bool,
     width: u32,
@@ -1166,25 +1214,27 @@ impl WebViewer {
 
     #[wasm_bindgen]
     pub fn get_object_info(&self, name: &str) -> JsValue {
-        if let Some(mol_obj) = self.session.registry.get_molecule(name) {
-            let info = ObjectInfo {
-                name: name.to_string(),
-                object_type: "molecule",
-                atom_count: mol_obj.molecule().atom_count(),
-                enabled: mol_obj.is_enabled(),
-            };
-            return serde_wasm_bindgen::to_value(&info).unwrap_or(JsValue::NULL);
-        }
-        if let Some(map_obj) = self.session.registry.get_map(name) {
-            let info = ObjectInfo {
-                name: name.to_string(),
-                object_type: "map",
-                atom_count: 0,
-                enabled: map_obj.is_enabled(),
-            };
-            return serde_wasm_bindgen::to_value(&info).unwrap_or(JsValue::NULL);
-        }
-        JsValue::NULL
+        object_info_for_session(&self.session, name)
+            .and_then(|info| serde_wasm_bindgen::to_value(&info).ok())
+            .unwrap_or(JsValue::NULL)
+    }
+
+    #[wasm_bindgen]
+    pub fn get_object_infos(&self) -> JsValue {
+        serde_wasm_bindgen::to_value(&object_infos_for_session(&self.session))
+            .unwrap_or(JsValue::NULL)
+    }
+
+    #[wasm_bindgen]
+    pub fn get_label_object(&self, name: &str) -> JsValue {
+        label_object_view(
+            &self.session.registry,
+            &self.session.settings,
+            &self.session.named_palette,
+            name,
+        )
+        .and_then(|label| serde_wasm_bindgen::to_value(&label).ok())
+        .unwrap_or(JsValue::NULL)
     }
 
     #[wasm_bindgen]
@@ -1276,56 +1326,321 @@ impl WebViewer {
     #[wasm_bindgen]
     pub fn get_labels(&self) -> JsValue {
         let viewport = (0.0, 0.0, self.width as f32, self.height as f32);
-        let mut labels = Vec::new();
-
-        for name in self.session.registry.names() {
-            if let Some(mol_obj) = self.session.registry.get_molecule(name) {
-                if !mol_obj.is_enabled() {
-                    continue;
-                }
-                for (pos, text) in mol_obj.collect_labels() {
-                    if let Some((sx, sy)) = self.session.camera.project_to_screen(pos, viewport) {
-                        if sx >= 0.0
-                            && sx <= self.width as f32
-                            && sy >= 0.0
-                            && sy <= self.height as f32
-                        {
-                            labels.push(LabelInfo {
-                                x: sx,
-                                y: sy,
-                                text: text.to_string(),
-                                kind: "atom",
-                            });
-                        }
-                    }
-                }
-            }
-        }
-
-        for name in self.session.registry.names() {
-            if let Some(meas_obj) = self.session.registry.get_measurement(name) {
-                if !meas_obj.is_enabled() {
-                    continue;
-                }
-                for (pos, text) in meas_obj.collect_labels() {
-                    if let Some((sx, sy)) = self.session.camera.project_to_screen(pos, viewport) {
-                        if sx >= 0.0
-                            && sx <= self.width as f32
-                            && sy >= 0.0
-                            && sy <= self.height as f32
-                        {
-                            labels.push(LabelInfo {
-                                x: sx,
-                                y: sy,
-                                text: text.to_string(),
-                                kind: "measurement",
-                            });
-                        }
-                    }
-                }
-            }
-        }
+        let mut projected = self.projected_labels.borrow_mut();
+        projected.rebuild(
+            &self.session.camera,
+            viewport,
+            self.render_scene.annotation_bundles(),
+        );
+        let labels = projected
+            .labels()
+            .iter()
+            .map(LabelInfo::from)
+            .collect::<Vec<_>>();
 
         serde_wasm_bindgen::to_value(&labels).unwrap_or(JsValue::NULL)
+    }
+}
+
+const fn measurement_kind_name(kind: MeasurementKind) -> &'static str {
+    match kind {
+        MeasurementKind::Distance => "distance",
+        MeasurementKind::Angle => "angle",
+        MeasurementKind::Dihedral => "dihedral",
+    }
+}
+
+fn object_info_for_session(session: &Session, name: &str) -> Option<ObjectInfo> {
+    let annotations = if session.registry.get_measurement(name).is_some()
+        || session.registry.get_label(name).is_some()
+    {
+        resolve_annotation_bundles(
+            &session.registry,
+            &session.settings,
+            &session.named_palette,
+        )
+    } else {
+        Vec::new()
+    };
+    let bundle = annotations.iter().find(|bundle| bundle.owner_name == name);
+    object_info_for_session_with_bundle(session, name, bundle)
+}
+
+fn object_infos_for_session(session: &Session) -> Vec<ObjectInfo> {
+    let annotations = resolve_annotation_bundles(
+        &session.registry,
+        &session.settings,
+        &session.named_palette,
+    );
+    let annotations_by_owner = annotations
+        .iter()
+        .map(|bundle| (bundle.owner_name.as_str(), bundle))
+        .collect::<HashMap<_, _>>();
+    session
+        .registry
+        .names()
+        .filter_map(|name| {
+            object_info_for_session_with_bundle(
+                session,
+                name,
+                annotations_by_owner.get(name).copied(),
+            )
+        })
+        .collect()
+}
+
+fn object_info_for_session_with_bundle(
+    session: &Session,
+    name: &str,
+    bundle: Option<&ResolvedAnnotationBundle>,
+) -> Option<ObjectInfo> {
+    let parent_group = session.registry.parent_group(name).map(str::to_string);
+    if let Some(molecule) = session.registry.get_molecule(name) {
+        return Some(ObjectInfo {
+            name: name.to_string(),
+            object_type: "molecule",
+            atom_count: molecule.molecule().atom_count(),
+            enabled: molecule.is_enabled(),
+            measurement_kind: None,
+            entity_count: 0,
+            has_unresolved_entities: false,
+            focus_disabled_reason: None,
+            color: [1.0, 1.0, 1.0],
+            multicolor: false,
+            parent_group,
+            has_representations: true,
+            can_focus: true,
+            can_color: true,
+            can_rename: true,
+            can_delete: true,
+            can_group: true,
+        });
+    }
+    if let Some(map) = session.registry.get_map(name) {
+        return Some(ObjectInfo {
+            name: name.to_string(),
+            object_type: "map",
+            atom_count: 0,
+            enabled: map.is_enabled(),
+            measurement_kind: None,
+            entity_count: 0,
+            has_unresolved_entities: false,
+            focus_disabled_reason: None,
+            color: [1.0, 1.0, 1.0],
+            multicolor: false,
+            parent_group,
+            has_representations: false,
+            can_focus: true,
+            can_color: false,
+            can_rename: true,
+            can_delete: true,
+            can_group: true,
+        });
+    }
+    if let Some(measurement) = session.registry.get_measurement(name) {
+        return Some(annotation_object_info(
+            name,
+            "measurement",
+            measurement.is_enabled(),
+            Some(measurement_kind_name(measurement.kind())),
+            measurement.len(),
+            bundle,
+            parent_group,
+        ));
+    }
+    let label = session.registry.get_label(name)?;
+    Some(annotation_object_info(
+        name,
+        "label",
+        label.is_enabled(),
+        None,
+        label.len(),
+        bundle,
+        parent_group,
+    ))
+}
+
+fn annotation_object_info(
+    name: &str,
+    object_type: &'static str,
+    enabled: bool,
+    measurement_kind: Option<&'static str>,
+    entity_count: usize,
+    bundle: Option<&ResolvedAnnotationBundle>,
+    parent_group: Option<String>,
+) -> ObjectInfo {
+    let can_focus = bundle.is_some_and(|bundle| bundle.bounds.is_some());
+    let (color, multicolor) = annotation_swatch(bundle);
+    ObjectInfo {
+        name: name.to_string(),
+        object_type,
+        atom_count: 0,
+        enabled,
+        measurement_kind,
+        entity_count,
+        has_unresolved_entities: bundle.is_some_and(|bundle| bundle.unresolved_count != 0),
+        focus_disabled_reason: (!can_focus).then_some("No resolvable anchors"),
+        color,
+        multicolor,
+        parent_group,
+        has_representations: false,
+        can_focus,
+        can_color: true,
+        can_rename: true,
+        can_delete: true,
+        can_group: true,
+    }
+}
+
+fn annotation_swatch(bundle: Option<&ResolvedAnnotationBundle>) -> ([f32; 3], bool) {
+    match bundle.map(ResolvedAnnotationBundle::color_summary) {
+        Some(AnnotationColorSummary::Uniform(color)) => (color, false),
+        Some(AnnotationColorSummary::Mixed) => ([0.13, 0.83, 0.93], true),
+        Some(AnnotationColorSummary::Empty) | None => ([0.13, 0.83, 0.93], false),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lin_alg::f32::Vec3;
+    use patinae_color::ColorIndex;
+    use patinae_mol::{Atom, AtomIndex, CoordSet, Element, ObjectMolecule};
+    use patinae_scene::{
+        AtomAnchor, LabelAlignment, LabelEntity, LabelEntityPresentation, LabelObject,
+        MeasurementObject, MoleculeObject, RenderObjectId,
+    };
+
+    #[test]
+    fn projected_label_info_preserves_shared_style_alignment_and_order() {
+        let projected = ProjectedAnnotationLabel {
+            x: 12.5,
+            y: 24.0,
+            text: "CA".to_string(),
+            color: [0.1, 0.2, 0.3, 0.4],
+            size: 18.0,
+            alignment: LabelAlignment::TopRight,
+            owner_id: RenderObjectId::new(7).expect("render id"),
+            insertion_ordinal: 9,
+            display_order: 11,
+        };
+
+        let info = LabelInfo::from(&projected);
+
+        assert_eq!((info.x, info.y), (12.5, 24.0));
+        assert_eq!(info.text, "CA");
+        assert_eq!(info.color, [0.1, 0.2, 0.3, 0.4]);
+        assert_eq!(info.size, 18.0);
+        assert_eq!(info.alignment, "top-right");
+        assert_eq!((info.anchor_x, info.anchor_y), (1.0, 0.0));
+        assert_eq!(info.owner_id, 7);
+        assert_eq!(info.insertion_ordinal, 9);
+        assert_eq!(info.display_order, 11.0);
+    }
+
+    #[test]
+    fn measurement_object_info_exposes_all_three_kinds_without_molecular_controls() {
+        let mut session = Session::new();
+        for (name, kind, expected) in [
+            ("distance", MeasurementKind::Distance, "distance"),
+            ("angle", MeasurementKind::Angle, "angle"),
+            ("dihedral", MeasurementKind::Dihedral, "dihedral"),
+        ] {
+            session.registry.add(MeasurementObject::new(name, kind));
+            let info = object_info_for_session(&session, name).expect("measurement object info");
+            assert_eq!(info.object_type, "measurement");
+            assert_eq!(info.measurement_kind, Some(expected));
+            assert_eq!(info.entity_count, 0);
+            assert!(!info.has_representations);
+            assert!(!info.can_focus);
+            assert_eq!(info.focus_disabled_reason, Some("No resolvable anchors"));
+            assert!(info.can_color);
+            assert!(info.can_rename);
+            assert!(info.can_delete);
+            assert!(info.can_group);
+        }
+    }
+
+    #[test]
+    fn label_object_info_tracks_grouping_resolution_and_annotation_capabilities() {
+        let mut molecule = ObjectMolecule::new("source");
+        molecule.add_atom(Atom::new("CA", Element::Carbon));
+        molecule.add_coord_set(CoordSet::from_vec3(&[Vec3::new(0.0, 0.0, 0.0)]));
+        let atom_index = AtomIndex(0);
+
+        let mut session = Session::new();
+        session
+            .registry
+            .add(MoleculeObject::with_name(molecule, "source"));
+        session.registry.add(LabelObject::with_entities(
+            "labels",
+            vec![LabelEntity::new(
+                AtomAnchor::new("source", atom_index),
+                "CA",
+            )],
+        ));
+        assert!(session.registry.add_to_group("annotations", "labels"));
+
+        let resolved = object_info_for_session(&session, "labels").expect("label object info");
+        assert_eq!(resolved.object_type, "label");
+        assert_eq!(resolved.entity_count, 1);
+        assert_eq!(resolved.parent_group.as_deref(), Some("annotations"));
+        assert!(resolved.can_focus);
+        assert!(resolved.focus_disabled_reason.is_none());
+        assert!(!resolved.has_representations);
+        assert!(resolved.can_color && resolved.can_rename && resolved.can_delete);
+
+        session.registry.remove("source");
+        let unresolved = object_info_for_session(&session, "labels").expect("orphaned label row");
+        assert!(unresolved.has_unresolved_entities);
+        assert!(!unresolved.can_focus);
+        assert_eq!(
+            unresolved.focus_disabled_reason,
+            Some("No resolvable anchors")
+        );
+    }
+
+    #[test]
+    fn bulk_object_infos_resolve_mixed_annotation_swatch_once_in_render_order() {
+        let mut molecule = ObjectMolecule::new("source");
+        molecule.add_atom(Atom::new("CA", Element::Carbon));
+        molecule.add_coord_set(CoordSet::from_vec3(&[Vec3::new(0.0, 0.0, 0.0)]));
+        let atom_index = AtomIndex(0);
+
+        let mut session = Session::new();
+        session
+            .registry
+            .add(MoleculeObject::with_name(molecule, "source"));
+        let red = session.named_palette.get_by_name("red").unwrap().0;
+        let blue = session.named_palette.get_by_name("blue").unwrap().0;
+        let mut red_style = LabelEntityPresentation::default();
+        red_style.set_color(ColorIndex::Named(red)).unwrap();
+        let mut blue_style = LabelEntityPresentation::default();
+        blue_style.set_color(ColorIndex::Named(blue)).unwrap();
+        session.registry.add(LabelObject::with_entities(
+            "labels",
+            vec![
+                LabelEntity::with_presentation(
+                    AtomAnchor::new("source", atom_index),
+                    "red",
+                    red_style,
+                ),
+                LabelEntity::with_presentation(
+                    AtomAnchor::new("source", atom_index),
+                    "blue",
+                    blue_style,
+                ),
+            ],
+        ));
+
+        let infos = object_infos_for_session(&session);
+
+        assert_eq!(
+            infos.iter().map(|info| info.name.as_str()).collect::<Vec<_>>(),
+            ["source", "labels"]
+        );
+        let labels = infos.iter().find(|info| info.name == "labels").unwrap();
+        assert!(labels.multicolor);
+        assert_eq!(labels.color, [0.13, 0.83, 0.93]);
     }
 }

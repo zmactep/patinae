@@ -45,6 +45,13 @@ class WidgetBackend:
         result = self._query("get_names", {})
         return list(result) if result else []
 
+    def get_label(self, name):
+        """Get a read-only label object snapshot from the browser viewer."""
+        result = self._query("get_label", {"name": str(name)})
+        if result is None:
+            raise KeyError(f"label object {name!r} not found")
+        return result
+
     def get_movie_state(self):
         """Get current movie state from the browser viewer."""
         return self._query("get_movie_state", {})

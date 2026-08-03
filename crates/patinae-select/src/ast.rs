@@ -425,6 +425,41 @@ impl SelectionExpr {
         refs
     }
 
+    /// Returns whether evaluation needs semantic atom-label text.
+    pub fn uses_atom_labels(&self) -> bool {
+        match self {
+            SelectionExpr::Label(_) => true,
+            SelectionExpr::And(left, right)
+            | SelectionExpr::Or(left, right)
+            | SelectionExpr::Like(left, right)
+            | SelectionExpr::In(left, right)
+            | SelectionExpr::Within(_, left, right)
+            | SelectionExpr::Beyond(_, left, right)
+            | SelectionExpr::NearTo(_, left, right) => {
+                left.uses_atom_labels() || right.uses_atom_labels()
+            }
+            SelectionExpr::Not(inner)
+            | SelectionExpr::ByRes(inner)
+            | SelectionExpr::ByChain(inner)
+            | SelectionExpr::ByObject(inner)
+            | SelectionExpr::ByMolecule(inner)
+            | SelectionExpr::BySegment(inner)
+            | SelectionExpr::ByFragment(inner)
+            | SelectionExpr::ByCAlpha(inner)
+            | SelectionExpr::ByRing(inner)
+            | SelectionExpr::ByCell(inner)
+            | SelectionExpr::Neighbor(inner)
+            | SelectionExpr::BoundTo(inner)
+            | SelectionExpr::First(inner)
+            | SelectionExpr::Last(inner)
+            | SelectionExpr::Around(_, inner)
+            | SelectionExpr::Expand(_, inner)
+            | SelectionExpr::Extend(_, inner)
+            | SelectionExpr::Gap(_, inner) => inner.uses_atom_labels(),
+            _ => false,
+        }
+    }
+
     fn collect_selection_refs<'a>(&'a self, out: &mut Vec<&'a str>) {
         match self {
             SelectionExpr::Selection(name) => out.push(name),
@@ -515,6 +550,16 @@ mod tests {
         assert!(CompareOp::Eq.compare_i32(5, 5));
         assert!(CompareOp::Ne.compare_i32(5, 3));
         assert!(CompareOp::Lt.compare_i32(3, 5));
+    }
+
+    #[test]
+    fn detects_nested_atom_label_dependencies() {
+        let label = SelectionExpr::Label(Pattern::Exact("active".to_string()));
+        assert!(label.clone().negate().uses_atom_labels());
+        assert!(SelectionExpr::All.and(label).uses_atom_labels());
+        assert!(!SelectionExpr::All
+            .and(SelectionExpr::Name(Pattern::Exact("CA".to_string())))
+            .uses_atom_labels());
     }
 
     #[test]

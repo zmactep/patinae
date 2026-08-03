@@ -23,7 +23,7 @@ macro_rules! define_overrides_from_manifest {
         /// they cannot be overridden per-object.
         #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
         pub struct ObjectOverrides {
-            $( pub $object_field: $object_overrides_ty, )*
+            $( #[serde(default)] pub $object_field: $object_overrides_ty, )*
         }
 
         /// Fully resolved settings for a single object (global + overrides merged).

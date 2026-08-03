@@ -43,6 +43,9 @@ pub struct EvalContext<'a> {
     /// Named selections that can be referenced
     named_selections: AHashMap<String, SelectionResult>,
 
+    /// Semantic label text indexed by flattened atom index.
+    atom_labels: AHashMap<usize, Vec<&'a str>>,
+
     /// Current state index (0-based, None = all states)
     state: Option<usize>,
 
@@ -63,6 +66,7 @@ impl<'a> EvalContext<'a> {
         EvalContext {
             molecules: vec![mol],
             named_selections: AHashMap::new(),
+            atom_labels: AHashMap::new(),
             state: None,
             total_atoms,
             molecule_offsets: vec![0],
@@ -81,6 +85,7 @@ impl<'a> EvalContext<'a> {
         EvalContext {
             molecules,
             named_selections: AHashMap::new(),
+            atom_labels: AHashMap::new(),
             state: None,
             total_atoms,
             molecule_offsets: offsets,
@@ -93,6 +98,7 @@ impl<'a> EvalContext<'a> {
         EvalContext {
             molecules: Vec::new(),
             named_selections: AHashMap::new(),
+            atom_labels: AHashMap::new(),
             state: None,
             total_atoms: 0,
             molecule_offsets: Vec::new(),
@@ -201,6 +207,22 @@ impl<'a> EvalContext<'a> {
     /// Get an iterator over named selections
     pub fn selections(&self) -> impl Iterator<Item = (&String, &SelectionResult)> {
         self.named_selections.iter()
+    }
+
+    /// Adds semantic label text for one flattened atom index.
+    pub fn add_atom_label(&mut self, global_index: usize, text: &'a str) {
+        if global_index < self.total_atoms {
+            self.atom_labels.entry(global_index).or_default().push(text);
+        }
+    }
+
+    /// Iterates semantic label text attached to one flattened atom index.
+    pub fn atom_labels(&self, global_index: usize) -> impl Iterator<Item = &str> {
+        self.atom_labels
+            .get(&global_index)
+            .into_iter()
+            .flatten()
+            .copied()
     }
 
     /// Get the effective state for a molecule (resolves None to current state)

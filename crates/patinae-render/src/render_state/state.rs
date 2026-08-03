@@ -34,6 +34,7 @@ use crate::pipelines::map::{MapParamsLayout, MapPipeline};
 use crate::pipelines::mesh::{MeshParamsLayout, MeshPipeline};
 use crate::pipelines::sphere::{SphereParamsLayout, SpherePipeline};
 use crate::pipelines::stick::{StickParamsLayout, StickPipeline};
+use crate::pipelines::stroke::StrokePipeline;
 use crate::pipelines::surface::{SurfaceParamsLayout, SurfacePipeline};
 use crate::pipelines::wboit_composite::WboitComposite;
 use crate::postprocess::fxaa::FxaaPass;
@@ -48,6 +49,7 @@ use crate::scene_store::{
 };
 #[cfg(feature = "stats")]
 use crate::stats::FrameStatsCollector;
+use crate::stroke::StrokeEntry;
 use crate::uniforms::FrameUniforms;
 
 /// Per-rep picking state — uniform buffer + bind group for `PickingParams`.
@@ -81,6 +83,7 @@ pub struct RenderSyncTimings {
     pub marking_resources_ms: f32,
     pub rep_sync_ms: f32,
     pub map_sync_ms: f32,
+    pub stroke_sync_ms: f32,
     pub order_bounds_ms: f32,
     pub compute_dispatch_ms: f32,
     pub marker_lut_upload_bytes: u64,
@@ -102,6 +105,7 @@ pub(super) struct SceneRuntime {
     pub(super) scene_store: SceneStore,
     pub(super) reps: HashMap<(u32, RepKind), RepEntry>,
     pub(super) maps: HashMap<u32, MapEntry>,
+    pub(super) strokes: HashMap<u32, StrokeEntry>,
     /// Stable draw order grouped by `RepKind`, so passes (picking,
     /// depth_prepass, translucent) hit the same pipeline in long runs and
     /// behave deterministically across frames. `HashMap::values()` order is
@@ -110,6 +114,10 @@ pub(super) struct SceneRuntime {
     pub(super) draw_order: Vec<(u32, RepKind)>,
     /// Stable draw order for first-class map contour objects.
     pub(super) map_draw_order: Vec<u32>,
+    /// Stable registry order for semantic objects that own visible strokes.
+    pub(super) stroke_draw_order: Vec<u32>,
+    /// Fingerprint of all annotation-owner bounds, including label-only owners.
+    pub(super) stroke_bounds_hash: u64,
     /// Set by `sync` and viewport LOD transitions when scene-affecting data
     /// invalidates cached render-side state.
     pub(super) scene_dirty: bool,
@@ -157,6 +165,7 @@ pub struct GeometryRuntime {
     pub(crate) dot_pipeline: DotPipeline,
     pub(crate) map_params_layout: MapParamsLayout,
     pub(crate) map_pipeline: MapPipeline,
+    pub(crate) stroke_pipeline: StrokePipeline,
     pub(crate) mesh_pipeline: MeshPipeline,
     pub(crate) ellipsoid_pipeline: EllipsoidPipeline,
     pub(crate) cartoon_pipeline: CartoonPipeline,

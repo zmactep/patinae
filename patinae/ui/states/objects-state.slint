@@ -33,14 +33,22 @@ export struct SubchainItem {
 
 // ── Object (contains subchains) ──────────────────────────────────────
 
-/// A molecular object containing zero or more subchains.
+/// A scene object displayed in the Objects panel.
 export struct ObjectItem {
     /// Object name (e.g. "1abc").
     name: string,
-    /// Semantic object type: "molecule" or "map".
+    /// Semantic object type: "molecule" | "map" | "measurement" | "label".
     object-type: string,
-    /// Object-list icon key: "" | "map-source" | "map-isomesh" | "map-isosurface".
+    /// Object-list icon key for map and annotation subtypes.
     object-icon-kind: string,
+    /// Measurement subtype: "" | "distance" | "angle" | "dihedral".
+    measurement-kind: string,
+    /// Number of entities in a measurement or label object.
+    entity-count: int,
+    /// Whether at least one annotation entity is currently unresolved.
+    has-unresolved-entities: bool,
+    /// Reason focus is unavailable, or an empty string when focus is supported.
+    focus-disabled-reason: string,
     /// Visible in the viewport.
     enabled: bool,
     /// Whether subchains are expanded below this object.
@@ -51,8 +59,32 @@ export struct ObjectItem {
     atom-count: int,
     /// Sidebar color (first subchain or consensus).
     color: color,
+    /// True when annotation entities resolve to several colors.
+    multicolor: bool,
     /// Whether representation controls apply to this object.
     has-representations: bool,
+    /// Whether the object supports object-level coloring.
+    can-color: bool,
+    /// Whether the object supports copy.
+    can-copy: bool,
+    /// Whether the object supports extract.
+    can-extract: bool,
+    /// Whether the object supports align.
+    can-align: bool,
+    /// Whether the object supports orient.
+    can-orient: bool,
+    /// Whether `remove` may operate on atoms in this object.
+    can-remove-atoms: bool,
+    /// Whether the object may be deleted.
+    can-delete: bool,
+    /// Whether the object may be renamed.
+    can-rename: bool,
+    /// Whether the object may be placed into a group.
+    can-group: bool,
+    /// Whether focus/zoom commands apply to the object.
+    can-focus: bool,
+    /// Whether visibility commands apply to the object.
+    can-toggle: bool,
     /// Subchains belonging to this object.
     subchains: [SubchainItem],
     /// Number of subchains truncated from the list (0 = all shown).
@@ -96,7 +128,7 @@ export struct SelectionRow {
 
 /// A single row in the action pill overflow menu.
 export struct OverflowMenuItem {
-    /// Action identifier: "align" | "rename" | "copy" | "extract" | "remove" | "separator" | "color" | "representation".
+    /// Action identifier: "align" | "rename" | "copy" | "extract" | "remove" | "delete" | "separator" | "color" | "representation".
     action: string,
     /// Display label (empty for separators).
     label: string,
@@ -118,6 +150,12 @@ export global ObjectsState {
 
     /// Current selection level: "none" | "groups" | "objects" | "subchains".
     in-out property <string> selection-level: "none";
+    /// Capabilities shared by the current action-pill selection.
+    in-out property <bool> action-can-focus: true;
+    in-out property <bool> action-can-orient: true;
+    in-out property <bool> action-can-center: true;
+    in-out property <bool> action-can-toggle: true;
+    in-out property <bool> action-can-overflow: true;
 
     // ── Group callbacks ──
     callback group-clicked(/* name */ string, /* shift */ bool, /* meta */ bool);
@@ -156,6 +194,8 @@ export global ObjectsState {
     in-out property <int> popover-entry-index: -1;       // partition entry index (-1 = object scope)
     in-out property <string> popover-selector-clause: "";// selection clause for current popover target
     in-out property <string> popover-scope: "all";     // "all" | "cartoon" | "sticks" | ...
+    /// Whether the color popover exposes only direct solid colors.
+    in-out property <bool> popover-solid-only: false;
     in-out property <length> popover-anchor-y: 0px;    // window-relative Y for popover top edge
     // Per-rep active flags (computed by Rust for "R" popover)
     in-out property <bool> popover-rep-lines: false;

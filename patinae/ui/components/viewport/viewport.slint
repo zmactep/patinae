@@ -14,6 +14,20 @@ export component Viewport inherits Rectangle {
         image-fit: contain;
     }
 
+    if !LayoutState.empty-mode: Rectangle {
+        width: parent.width;
+        height: parent.height;
+        background: transparent;
+
+        for label in ViewportState.labels: Text {
+            x: label.x * 1px - self.width * label.anchor-x;
+            y: label.y * 1px - self.height * label.anchor-y;
+            text: label.text;
+            color: label.color;
+            font-size: label.size * 1px;
+        }
+    }
+
     if !LayoutState.empty-mode: Hud {
         x: parent.width - self.width - 16px;
         y: 16px;

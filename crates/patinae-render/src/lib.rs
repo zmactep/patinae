@@ -38,6 +38,7 @@ mod stats;
 /// fps + percentile tail-latency in a HUD even when the `stats` cargo
 /// feature (per-pass GPU timestamps) is off.
 mod stats_history;
+mod stroke;
 mod uniforms;
 mod viewport_image;
 
@@ -77,7 +78,8 @@ pub use render_artifacts::{
 };
 pub use render_input::{
     pack_rep_rgb8, ColorLutEntry, MarkerUpdate, RenderInput, RenderMapInput, RenderMapMode,
-    RenderObjectInput, RepColorLutEntry, SceneLod, REP_COLOR_INHERIT,
+    RenderObjectInput, RenderStrokeInput, RepColorLutEntry, SceneLod, StrokeSegment,
+    IDENTITY_TRANSFORM, REP_COLOR_INHERIT,
 };
 pub use render_state::{RenderState, RenderSyncTimings};
 pub use representation_budget::{

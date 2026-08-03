@@ -141,8 +141,9 @@ fn eval_expr(expr: &SelectionExpr, ctx: &EvalContext) -> EvalResult<SelectionRes
                 !ctx.options.ignore_case,
             )
         }),
-        SelectionExpr::Label(pattern) => eval_property(ctx, |atom, _| {
-            pattern.matches(&atom.repr.label, !ctx.options.ignore_case)
+        SelectionExpr::Label(pattern) => eval_property(ctx, |_, info| {
+            ctx.atom_labels(info.global_idx)
+                .any(|label| pattern.matches(label, !ctx.options.ignore_case))
         }),
         SelectionExpr::Custom(pattern) => eval_property(ctx, |atom, _| {
             // Custom properties would need additional support
@@ -295,7 +296,6 @@ fn eval_expr(expr: &SelectionExpr, ctx: &EvalContext) -> EvalResult<SelectionRes
 
 /// Information about an atom during evaluation
 struct AtomInfo {
-    #[allow(dead_code)]
     global_idx: usize,
     local_idx: usize,
     mol_idx: usize,
@@ -1055,6 +1055,24 @@ mod tests {
         let expr = SelectionExpr::Name(Pattern::Exact("CA".to_string()));
         let result = evaluate(&expr, &ctx).unwrap();
         assert_eq!(result.count(), 2); // Two CA atoms
+    }
+
+    #[test]
+    fn label_predicate_uses_context_labels_not_atom_render_state() {
+        let mut mol = create_test_molecule();
+        mol.get_atom_mut(AtomIndex(0)).unwrap().repr.label = "legacy".to_string();
+        let mut ctx = EvalContext::single(&mol);
+        ctx.add_atom_label(1, "semantic");
+
+        let semantic = SelectionExpr::Label(Pattern::Exact("semantic".to_string()));
+        let semantic_result = evaluate(&semantic, &ctx).unwrap();
+        assert_eq!(
+            semantic_result.indices().collect::<Vec<_>>(),
+            vec![AtomIndex(1)]
+        );
+
+        let legacy = SelectionExpr::Label(Pattern::Exact("legacy".to_string()));
+        assert_eq!(evaluate(&legacy, &ctx).unwrap().count(), 0);
     }
 
     #[test]

@@ -115,6 +115,7 @@ pub struct MarkerUpdate {
 pub struct RenderInput<'a> {
     pub objects: &'a [RenderObjectInput<'a>],
     pub maps: &'a [RenderMapInput<'a>],
+    pub strokes: &'a [RenderStrokeInput<'a>],
     pub settings: &'a ResolvedSettings,
     /// Scene-wide level-of-detail bucket, derived from the sum of atoms
     /// across all visible objects. Reps that produce O(N²)-ish vertex
@@ -149,6 +150,64 @@ pub struct RenderMapInput<'a> {
     pub geometry_revision: u64,
     pub material_revision: u64,
     pub dirty: bool,
+}
+
+/// One styled world-space line segment rendered as a screen-space quad.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
+pub struct StrokeSegment {
+    pub start: [f32; 3],
+    /// Width in physical viewport pixels.
+    pub width_px: f32,
+    pub end: [f32; 3],
+    /// Non-zero when the fragment shader should render round caps.
+    pub round_ends: u32,
+    /// Per-segment RGBA, allowing heterogeneous styles in one owner.
+    pub color: [f32; 4],
+}
+
+impl StrokeSegment {
+    /// Creates one fully styled segment instance.
+    pub const fn new(
+        start: [f32; 3],
+        end: [f32; 3],
+        color: [f32; 4],
+        width_px: f32,
+        round_ends: bool,
+    ) -> Self {
+        Self {
+            start,
+            width_px,
+            end,
+            round_ends: round_ends as u32,
+            color,
+        }
+    }
+
+    pub(crate) fn vertex_layout() -> wgpu::VertexBufferLayout<'static> {
+        const ATTRS: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![
+            0 => Float32x3,
+            1 => Float32,
+            2 => Float32x3,
+            3 => Uint32,
+            4 => Float32x4
+        ];
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<Self>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &ATTRS,
+        }
+    }
+}
+
+/// Renderer payload for all strokes owned by one semantic scene object.
+pub struct RenderStrokeInput<'a> {
+    pub object_id: ObjectId,
+    pub segments: &'a [StrokeSegment],
+    /// World-space bounds shared with focus and zoom resolution.
+    pub bounds: Option<([f32; 3], [f32; 3])>,
+    pub geometry_revision: u64,
+    pub material_revision: u64,
 }
 
 /// Scene-wide level-of-detail bucket. Larger structures auto-downgrade
@@ -194,6 +253,8 @@ pub struct RenderObjectInput<'a> {
     pub object_id: ObjectId,
     pub molecule: &'a ObjectMolecule,
     pub coord_set: &'a CoordSet,
+    /// Object-to-world transform, stored as column-major matrix columns.
+    pub transform: [[f32; 4]; 4],
     /// Bitmask of representations materialized on at least one atom.
     ///
     /// Atoms still gate per-rep visibility individually via
@@ -247,4 +308,34 @@ pub struct RenderObjectInput<'a> {
     /// Hosts wire this from `MoleculeObject::dirty_flags()` and clear the
     /// per-object flags *after* `sync()`.
     pub dirty: DirtyFlags,
+}
+
+/// Column-major identity transform for hosts that keep molecule coordinates
+/// directly in world space.
+pub const IDENTITY_TRANSFORM: [[f32; 4]; 4] = [
+    [1.0, 0.0, 0.0, 0.0],
+    [0.0, 1.0, 0.0, 0.0],
+    [0.0, 0.0, 1.0, 0.0],
+    [0.0, 0.0, 0.0, 1.0],
+];
+
+#[cfg(test)]
+mod tests {
+    use super::StrokeSegment;
+
+    #[test]
+    fn stroke_segment_keeps_heterogeneous_instance_material() {
+        let segment = StrokeSegment::new(
+            [1.0, 2.0, 3.0],
+            [4.0, 5.0, 6.0],
+            [0.1, 0.2, 0.3, 0.4],
+            3.5,
+            true,
+        );
+
+        assert_eq!(std::mem::size_of::<StrokeSegment>(), 48);
+        assert_eq!(segment.color, [0.1, 0.2, 0.3, 0.4]);
+        assert_eq!(segment.width_px, 3.5);
+        assert_eq!(segment.round_ends, 1);
+    }
 }

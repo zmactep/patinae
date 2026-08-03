@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::camera::Camera;
 use crate::movie::{LoopMode, Movie};
-use crate::object::{Object, ObjectRegistry};
+use crate::object::{MeasurementResolveOptions, Object, ObjectRegistry};
 use crate::scene::SceneManager;
 use crate::selection::SelectionManager;
 use crate::session::Session;
@@ -140,7 +140,8 @@ pub trait ViewerLike {
 
     /// Zoom to fit all objects while preserving rotation
     fn zoom_all(&mut self, buffer: f32) {
-        if let Some((min, max)) = self.objects().extent() {
+        let options = MeasurementResolveOptions::from_settings(&self.settings().measurement);
+        if let Some((min, max)) = self.objects().extent_with_options(options) {
             self.camera_mut().zoom_to(min, max, buffer);
             self.set_viewport_image_internal(None);
             self.request_redraw();
@@ -151,10 +152,11 @@ pub trait ViewerLike {
     ///
     /// For groups, uses the combined extent of all children.
     fn zoom_on(&mut self, name: &str, buffer: f32) {
+        let options = MeasurementResolveOptions::from_settings(&self.settings().measurement);
         let extent = if self.objects().get_group(name).is_some() {
-            self.objects().group_extent(name)
+            self.objects().group_extent_with_options(name, options)
         } else {
-            self.objects().get(name).and_then(|o| o.extent())
+            self.objects().object_extent_with_options(name, options)
         };
         if let Some((min, max)) = extent {
             self.camera_mut().zoom_to(min, max, buffer);
@@ -165,7 +167,8 @@ pub trait ViewerLike {
 
     /// Center on all objects without changing zoom or rotation
     fn center_all(&mut self) {
-        if let Some((min, max)) = self.objects().extent() {
+        let options = MeasurementResolveOptions::from_settings(&self.settings().measurement);
+        if let Some((min, max)) = self.objects().extent_with_options(options) {
             self.camera_mut().center_to(min, max);
             self.set_viewport_image_internal(None);
             self.request_redraw();
@@ -176,10 +179,11 @@ pub trait ViewerLike {
     ///
     /// For groups, uses the combined extent of all children.
     fn center_on(&mut self, name: &str) {
+        let options = MeasurementResolveOptions::from_settings(&self.settings().measurement);
         let extent = if self.objects().get_group(name).is_some() {
-            self.objects().group_extent(name)
+            self.objects().group_extent_with_options(name, options)
         } else {
-            self.objects().get(name).and_then(|o| o.extent())
+            self.objects().object_extent_with_options(name, options)
         };
         if let Some((min, max)) = extent {
             self.camera_mut().center_to(min, max);
@@ -192,7 +196,8 @@ pub trait ViewerLike {
     fn reset_view(&mut self) {
         *self.camera_mut() = Camera::new();
         self.set_viewport_image_internal(None);
-        if let Some((min, max)) = self.objects().extent() {
+        let options = MeasurementResolveOptions::from_settings(&self.settings().measurement);
+        if let Some((min, max)) = self.objects().extent_with_options(options) {
             self.camera_mut().reset_view(min, max);
             self.request_redraw();
         }

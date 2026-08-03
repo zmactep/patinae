@@ -563,8 +563,8 @@ impl Camera {
 
     /// Project a 3D world position to 2D screen coordinates.
     ///
-    /// `viewport` is `(x, y, width, height)` in logical pixels.
-    /// Returns `None` if the point is behind the camera (clip.w <= 0).
+    /// `viewport` is `(x, y, width, height)` in caller-defined screen units.
+    /// Returns `None` outside the camera's near/far clip interval.
     pub fn project_to_screen(
         &self,
         world_pos: Vec3,
@@ -580,14 +580,23 @@ impl Camera {
         let z = world_pos.z;
         let clip_x = mvp.data[0] * x + mvp.data[4] * y + mvp.data[8] * z + mvp.data[12];
         let clip_y = mvp.data[1] * x + mvp.data[5] * y + mvp.data[9] * z + mvp.data[13];
+        let clip_z = mvp.data[2] * x + mvp.data[6] * y + mvp.data[10] * z + mvp.data[14];
         let clip_w = mvp.data[3] * x + mvp.data[7] * y + mvp.data[11] * z + mvp.data[15];
 
-        if clip_w <= 0.0 {
+        if !clip_w.is_finite() || clip_w <= 0.0 {
             return None;
         }
 
         let ndc_x = clip_x / clip_w;
         let ndc_y = clip_y / clip_w;
+        let ndc_z = clip_z / clip_w;
+        if !ndc_x.is_finite()
+            || !ndc_y.is_finite()
+            || !ndc_z.is_finite()
+            || !(0.0..=1.0).contains(&ndc_z)
+        {
+            return None;
+        }
 
         let (vp_x, vp_y, vp_w, vp_h) = viewport;
         let screen_x = vp_x + (ndc_x + 1.0) * 0.5 * vp_w;
@@ -925,5 +934,24 @@ mod tests {
         // Should have 1.0 somewhere (the w=1 term)
         let has_one = ortho.data.iter().any(|&v| (v - 1.0).abs() < 0.001);
         assert!(has_one, "Orthographic matrix should contain 1.0");
+    }
+
+    #[test]
+    fn screen_projection_rejects_points_outside_clip_depth() {
+        let camera = Camera::new();
+        let viewport = (0.0, 0.0, 100.0, 100.0);
+
+        assert!(camera
+            .project_to_screen(Vec3::new(0.0, 0.0, 0.0), viewport)
+            .is_some());
+        assert!(camera
+            .project_to_screen(Vec3::new(0.0, 0.0, 49.95), viewport)
+            .is_none());
+        assert!(camera
+            .project_to_screen(Vec3::new(0.0, 0.0, 51.0), viewport)
+            .is_none());
+        assert!(camera
+            .project_to_screen(Vec3::new(0.0, 0.0, -951.0), viewport)
+            .is_none());
     }
 }

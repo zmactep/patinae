@@ -721,6 +721,7 @@ mod tests {
             object_id: ObjectId(1),
             molecule,
             coord_set,
+            transform: crate::render_input::IDENTITY_TRANSFORM,
             visible_reps: RepMask::SPHERES,
             draw_reps: RepMask::SPHERES,
             object_settings: None,

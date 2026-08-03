@@ -48,16 +48,13 @@ export class LabelOverlay {
       el.style.left = `${cssX}px`;
       el.style.top = `${cssY}px`;
       el.textContent = label.text;
-
-      if (label.kind === "atom") {
-        el.style.color = "white";
-        el.style.fontSize = "14px";
-        el.style.transform = "translateY(-100%)";
-      } else {
-        el.style.color = "#ffff00";
-        el.style.fontSize = "13px";
-        el.style.transform = "translate(-50%, -50%)";
-      }
+      el.style.fontSize = `${label.size}px`;
+      el.style.transform = `translate(${-label.anchor_x * 100}%, ${-label.anchor_y * 100}%)`;
+      el.style.color = rgbaToCss(label.color);
+      el.dataset.alignment = label.alignment;
+      el.dataset.ownerId = String(label.owner_id);
+      el.dataset.insertionOrdinal = String(label.insertion_ordinal);
+      el.dataset.displayOrder = String(label.display_order);
 
       el.style.display = "";
     }
@@ -73,4 +70,16 @@ export class LabelOverlay {
   destroy(): void {
     this.container.remove();
   }
+}
+
+function rgbaToCss(color: LabelInfo["color"]): string {
+  const red = Math.round(clampUnit(color[0]) * 255);
+  const green = Math.round(clampUnit(color[1]) * 255);
+  const blue = Math.round(clampUnit(color[2]) * 255);
+  const alpha = clampUnit(color[3]);
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+}
+
+function clampUnit(value: number): number {
+  return Math.min(1, Math.max(0, value));
 }

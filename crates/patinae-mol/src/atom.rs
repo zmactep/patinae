@@ -102,6 +102,12 @@ impl RepMask {
         RepMask(self.0 & other.0)
     }
 
+    /// Remove every bit present in `other`.
+    #[inline]
+    pub const fn difference(self, other: RepMask) -> RepMask {
+        RepMask(self.0 & !other.0)
+    }
+
     /// True if no representation bits are set.
     #[inline]
     pub const fn is_empty(self) -> bool {

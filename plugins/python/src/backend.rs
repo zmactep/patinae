@@ -18,8 +18,9 @@ use patinae_plugin::prelude::{
     AtomValue,
 };
 use patinae_plugin::wire::{WireAtomPropertyChange, WireAtomPropertyValue};
+use patinae_scene::{LabelEntityView, LabelObjectView};
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
+use pyo3::types::{PyDict, PyList};
 
 use crate::atom_ops::{build_globals, expression_to_cstring};
 use crate::shared::{HostBridgeHandle, HostBridgeRequestKind, HostBridgeValue, SharedStateHandle};
@@ -169,6 +170,56 @@ fn molecule_snapshot_unavailable_error() -> PyErr {
 
 fn unexpected_host_result_error() -> PyErr {
     pyo3::exceptions::PyRuntimeError::new_err("host returned an unexpected Python bridge result")
+}
+
+fn label_entity_to_py<'py>(
+    py: Python<'py>,
+    entity: &LabelEntityView,
+) -> PyResult<Bound<'py, PyDict>> {
+    let anchor = PyDict::new(py);
+    anchor.set_item("object_name", &entity.anchor.object_name)?;
+    anchor.set_item("atom_index", entity.anchor.atom_index)?;
+    anchor.set_item("orphaned", entity.anchor.orphaned)?;
+    anchor.set_item("resolved", entity.anchor.resolved)?;
+
+    let result = PyDict::new(py);
+    result.set_item("anchor", anchor)?;
+    result.set_item("text", &entity.text)?;
+    result.set_item("color", entity.color)?;
+    result.set_item("color_override_index", entity.color_override_index)?;
+    result.set_item("size", entity.size)?;
+    result.set_item("size_override", entity.size_override)?;
+    result.set_item("visible", entity.visible)?;
+    result.set_item("visible_override", entity.visible_override)?;
+    Ok(result)
+}
+
+fn label_object_to_py(py: Python<'_>, label: &LabelObjectView) -> PyResult<Py<PyAny>> {
+    let entities = PyList::empty(py);
+    for entity in &label.entities {
+        entities.append(label_entity_to_py(py, entity)?)?;
+    }
+
+    let revisions = PyDict::new(py);
+    revisions.set_item("geometry", label.revisions.geometry)?;
+    revisions.set_item("material", label.revisions.material)?;
+    revisions.set_item("labels", label.revisions.labels)?;
+
+    let result = PyDict::new(py);
+    result.set_item("name", &label.name)?;
+    result.set_item("enabled", label.enabled)?;
+    result.set_item("color", label.color)?;
+    result.set_item("color_override_index", label.color_override_index)?;
+    result.set_item("size", label.size)?;
+    result.set_item("size_override", label.size_override)?;
+    result.set_item("visible", label.visible)?;
+    result.set_item("visible_override", label.visible_override)?;
+    result.set_item("alignment", &label.alignment)?;
+    result.set_item("alignment_override", &label.alignment_override)?;
+    result.set_item("entities", entities)?;
+    result.set_item("unresolved_count", label.unresolved_count)?;
+    result.set_item("revisions", revisions)?;
+    Ok(result.into_any().unbind())
 }
 
 fn set_row_locals(locals: &Bound<'_, PyDict>, row: &AtomRow) -> PyResult<()> {
@@ -338,6 +389,19 @@ impl PluginBackend {
     fn get_names(&self) -> Vec<String> {
         let state = self.shared.lock().unwrap();
         state.names.clone()
+    }
+
+    /// Get a read-only label object snapshot.
+    fn get_label(&self, py: Python<'_>, name: &str) -> PyResult<Py<PyAny>> {
+        match self.host_request(HostBridgeRequestKind::LabelObject {
+            name: name.to_string(),
+        })? {
+            HostBridgeValue::LabelObject(Some(label)) => label_object_to_py(py, &label),
+            HostBridgeValue::LabelObject(None) => Err(pyo3::exceptions::PyKeyError::new_err(
+                format!("label object '{}' not found", name),
+            )),
+            _ => Err(unexpected_host_result_error()),
+        }
     }
 
     /// Count atoms matching a selection across all molecules.

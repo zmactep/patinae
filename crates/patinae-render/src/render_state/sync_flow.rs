@@ -5,7 +5,7 @@ use crate::map_contour::MapEntry;
 use crate::memory::GpuMemoryUsage;
 use crate::picking::pass::PickingParams;
 use crate::picking::RepKind;
-use crate::render_input::{RenderInput, RenderMapInput, RenderObjectInput};
+use crate::render_input::{RenderInput, RenderMapInput, RenderObjectInput, RenderStrokeInput};
 use crate::representation_budget::{
     current_warning_keys, plan_rep_budget, RepBudgetDiagnostic, RepBudgetInput, RepBudgetRequest,
     RepBuildDecision, RepMemoryEstimate, RepQualityLevel,
@@ -14,6 +14,7 @@ use crate::representations::catalog::{self, RepCatalogEntry};
 use crate::scene_store::SceneStoreCompactionStats;
 use patinae_mol::{AtomIndex, DirtyFlags};
 use std::collections::{HashMap, HashSet};
+use std::hash::{DefaultHasher, Hash, Hasher};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RepSyncOutcome {
@@ -132,6 +133,7 @@ impl RenderState {
         let mut picking_cache_dirty = !evict_object_ids.is_empty();
         let mut draw_order_dirty = !evict_object_ids.is_empty();
         let mut map_order_dirty = false;
+        let mut stroke_order_dirty = false;
         let mut bounds_dirty = !evict_object_ids.is_empty();
 
         let scene_affecting_dirty = patinae_mol::DirtyFlags::COORDS
@@ -389,6 +391,57 @@ impl RenderState {
         }
         timings.map_sync_ms = sync_elapsed(&mut now_ms, t0);
 
+        let t0 = sync_now(&mut now_ms);
+        let stroke_bounds_hash = hash_stroke_bounds(input.strokes);
+        if self.scene.stroke_bounds_hash != stroke_bounds_hash {
+            self.scene.stroke_bounds_hash = stroke_bounds_hash;
+            bounds_dirty = true;
+            scene_changed = true;
+        }
+        let mut keep_strokes: HashSet<u32> = HashSet::with_capacity(input.strokes.len());
+        for stroke in input
+            .strokes
+            .iter()
+            .filter(|stroke| has_drawable_strokes(stroke))
+        {
+            keep_strokes.insert(stroke.object_id.0);
+            let entry_existed = self.scene.strokes.contains_key(&stroke.object_id.0);
+            if !entry_existed {
+                let entry = crate::stroke::StrokeEntry::new(stroke, &self.ctx.device);
+                self.scene.strokes.insert(stroke.object_id.0, entry);
+                scene_changed = true;
+                stroke_order_dirty = true;
+                bounds_dirty = true;
+                continue;
+            }
+            let Some(entry) = self.scene.strokes.get_mut(&stroke.object_id.0) else {
+                continue;
+            };
+            if entry.sync(stroke, &self.ctx.device, &self.ctx.queue) {
+                scene_changed = true;
+                bounds_dirty = true;
+            }
+        }
+        if self.scene.strokes.len() != keep_strokes.len() {
+            self.scene
+                .strokes
+                .retain(|object_id, _| keep_strokes.contains(object_id));
+            scene_changed = true;
+            stroke_order_dirty = true;
+            bounds_dirty = true;
+        }
+        if !stroke_order_dirty
+            && !self.scene.stroke_draw_order.iter().copied().eq(input
+                .strokes
+                .iter()
+                .filter(|stroke| has_drawable_strokes(stroke))
+                .map(|stroke| stroke.object_id.0))
+        {
+            scene_changed = true;
+            stroke_order_dirty = true;
+        }
+        timings.stroke_sync_ms = sync_elapsed(&mut now_ms, t0);
+
         // Rebuild stable draw order. Sort by `RepKind` discriminant first so
 
         // every pass groups pipeline switches; tie-break by `object_id` for
@@ -413,8 +466,20 @@ impl RenderState {
                 .extend(input.maps.iter().map(|map| map.object_id.0));
         }
 
+        if stroke_order_dirty {
+            self.scene.stroke_draw_order.clear();
+            self.scene.stroke_draw_order.extend(
+                input
+                    .strokes
+                    .iter()
+                    .filter(|stroke| has_drawable_strokes(stroke))
+                    .map(|stroke| stroke.object_id.0),
+            );
+        }
+
         if bounds_dirty || self.scene.scene_bounds.is_none() {
-            self.scene.scene_bounds = compute_scene_bounds(input.objects, input.maps);
+            self.scene.scene_bounds =
+                compute_scene_bounds(input.objects, input.maps, input.strokes);
         }
 
         if self.sync_manual_picking(input, draw_keep.len()) {
@@ -799,6 +864,29 @@ fn hidden_rep_cacheable(kind: RepKind) -> bool {
     )
 }
 
+fn has_drawable_strokes(input: &RenderStrokeInput<'_>) -> bool {
+    !input.segments.is_empty()
+}
+
+fn hash_stroke_bounds(strokes: &[RenderStrokeInput<'_>]) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    strokes.len().hash(&mut hasher);
+    for stroke in strokes {
+        stroke.object_id.0.hash(&mut hasher);
+        stroke.geometry_revision.hash(&mut hasher);
+        match stroke.bounds {
+            Some((min, max)) => {
+                1_u8.hash(&mut hasher);
+                for value in min.into_iter().chain(max) {
+                    value.to_bits().hash(&mut hasher);
+                }
+            }
+            None => 0_u8.hash(&mut hasher),
+        }
+    }
+    hasher.finish()
+}
+
 fn can_retain_hidden_rep_cache(dirty: DirtyFlags) -> bool {
     const RETAINABLE_WHILE_HIDDEN: DirtyFlags = DirtyFlags::COLOR
         .union(DirtyFlags::VISIBILITY)
@@ -811,6 +899,7 @@ fn can_retain_hidden_rep_cache(dirty: DirtyFlags) -> bool {
 fn compute_scene_bounds(
     objects: &[RenderObjectInput<'_>],
     maps: &[RenderMapInput<'_>],
+    strokes: &[RenderStrokeInput<'_>],
 ) -> Option<SceneBounds> {
     let mut min = [f32::INFINITY; 3];
     let mut max = [f32::NEG_INFINITY; 3];
@@ -831,7 +920,7 @@ fn compute_scene_bounds(
                 continue;
             };
             let pad = atom.effective_vdw().max(0.1);
-            let p = [pos.x, pos.y, pos.z];
+            let p = transform_point(&obj.transform, [pos.x, pos.y, pos.z]);
             for axis in 0..3 {
                 min[axis] = min[axis].min(p[axis] - pad);
                 max[axis] = max[axis].max(p[axis] + pad);
@@ -855,6 +944,16 @@ fn compute_scene_bounds(
             }
             any = true;
         }
+    }
+    for stroke in strokes {
+        let Some((stroke_min, stroke_max)) = stroke.bounds else {
+            continue;
+        };
+        for axis in 0..3 {
+            min[axis] = min[axis].min(stroke_min[axis]);
+            max[axis] = max[axis].max(stroke_max[axis]);
+        }
+        any = true;
     }
     if !any {
         return None;
@@ -1006,5 +1105,41 @@ mod tests {
             assert!(!should_reuse_budget_request(cartoon, dirty));
             assert!(!should_reuse_budget_request(sphere, dirty));
         }
+    }
+
+    #[test]
+    fn scene_bounds_include_stroke_only_payloads() {
+        let input = RenderStrokeInput {
+            object_id: crate::ObjectId(1),
+            segments: &[],
+            bounds: Some(([-2.0, -1.0, 0.0], [4.0, 3.0, 2.0])),
+            geometry_revision: 1,
+            material_revision: 1,
+        };
+
+        assert!(!has_drawable_strokes(&input));
+        let bounds = compute_scene_bounds(&[], &[], &[input]).unwrap();
+        assert_eq!(bounds.center, [1.0, 1.0, 1.0]);
+        assert!((bounds.radius - 3.741_657_5).abs() < 1.0e-6);
+    }
+
+    #[test]
+    fn label_only_bounds_have_an_independent_scene_fingerprint() {
+        let first = RenderStrokeInput {
+            object_id: crate::ObjectId(1),
+            segments: &[],
+            bounds: Some(([1.0, 2.0, 3.0], [1.0, 2.0, 3.0])),
+            geometry_revision: 7,
+            material_revision: 9,
+        };
+        let moved = RenderStrokeInput {
+            object_id: crate::ObjectId(1),
+            segments: &[],
+            bounds: Some(([4.0, 5.0, 6.0], [4.0, 5.0, 6.0])),
+            geometry_revision: 8,
+            material_revision: 9,
+        };
+
+        assert_ne!(hash_stroke_bounds(&[first]), hash_stroke_bounds(&[moved]));
     }
 }

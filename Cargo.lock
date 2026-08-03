@@ -4312,6 +4312,7 @@ dependencies = [
  "patinae-select",
  "patinae-settings",
  "serde",
+ "serde_json",
  "web-time",
  "wgpu",
 ]
@@ -4342,6 +4343,7 @@ dependencies = [
  "patinae-scene",
  "patinae-settings",
  "rmp-serde",
+ "rmpv",
  "serde",
  "thiserror 2.0.18",
 ]

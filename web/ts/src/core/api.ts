@@ -240,6 +240,14 @@ export class PatinaeViewer {
     );
   }
 
+  getObjectInfos(): ObjectInfo[] {
+    return this.core.queryWasm(
+      "get_object_infos",
+      [],
+      (wasm) => wasm.get_object_infos() as ObjectInfo[],
+    );
+  }
+
   getSequenceData(): SequenceChain[] {
     return this.core.queryWasm(
       "get_sequence_data",

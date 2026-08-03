@@ -27,7 +27,8 @@ use patinae_settings::{ResolvedSettings, Settings, ShadingMode};
 
 use patinae_scene::bridge::{
     frame_uniforms_from_camera, frame_uniforms_from_session, resolve_pick, resolve_setting_color,
-    visit_render_scene, CachedRenderScene, ResolvedSceneColors, ResolvedSceneMarkers,
+    visit_render_scene, CachedRenderScene, ProjectedAnnotationLabel, ProjectedSceneLabels,
+    ResolvedSceneColors, ResolvedSceneMarkers, ResolvedSceneStrokes,
 };
 
 const VIEWPORT_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
@@ -120,6 +121,8 @@ pub struct ViewportRenderer {
     last_viewport_size: Option<(u32, u32)>,
     /// Persistent host-side render cache shared with the web viewer.
     render_scene: CachedRenderScene,
+    /// Camera-dependent overlay cache, independent of semantic annotation resolution.
+    projected_labels: ProjectedSceneLabels,
     /// Last structural object-registry generation observed by recovery logic.
     last_registry_generation: u64,
     /// In-flight async hover pick. At most one outstanding handle.
@@ -140,6 +143,22 @@ pub struct ViewportRenderer {
 }
 
 impl ViewportRenderer {
+    /// Projects all annotation labels resolved for the latest rendered frame.
+    pub(crate) fn annotation_labels(
+        &mut self,
+        camera: &Camera,
+        viewport: (f32, f32, f32, f32),
+    ) -> &[ProjectedAnnotationLabel] {
+        self.projected_labels
+            .rebuild(camera, viewport, self.render_scene.annotation_bundles());
+        self.projected_labels.labels()
+    }
+
+    /// Clears the host overlay while a captured viewport image replaces live rendering.
+    pub(crate) fn clear_annotation_labels(&mut self) {
+        self.projected_labels.clear();
+    }
+
     fn new_with_config_and_errors(
         device: wgpu::Device,
         queue: wgpu::Queue,
@@ -161,6 +180,7 @@ impl ViewportRenderer {
             wgpu_errors,
             last_viewport_size: None,
             render_scene: CachedRenderScene::default(),
+            projected_labels: ProjectedSceneLabels::default(),
             last_registry_generation: 0,
             pending_hover: None,
             last_hover_submit: None,
@@ -523,8 +543,7 @@ impl ViewportRenderer {
         // flag set by commands so SceneModel::sync stops perpetually
         // rebuilding the objects panel (which would destroy panel
         // TouchAreas every frame and break hover/click detection).
-        session.registry.clear_all_dirty_molecules();
-        session.registry.clear_all_dirty_maps();
+        session.registry.clear_all_dirty_objects();
 
         // 5) Marker bits already flow through `render_scene` →
         // `RenderObjectInput.atom_markers` → `marker_lut`. The legacy
@@ -749,6 +768,9 @@ impl CaptureRenderer for ViewportRenderer {
             &mut |_name, obj| object_inputs.push(obj),
             &mut |_name, map| map_inputs.push(map),
         );
+        let mut resolved_strokes = ResolvedSceneStrokes::default();
+        resolved_strokes.rebuild(registry, settings, named);
+        let stroke_inputs = resolved_strokes.render_inputs();
 
         let frame = frame_uniforms_from_camera(camera, settings, (width, height), clear_color);
 
@@ -760,6 +782,7 @@ impl CaptureRenderer for ViewportRenderer {
         let input = RenderInput {
             objects: &object_inputs,
             maps: &map_inputs,
+            strokes: &stroke_inputs,
             settings: &resolved,
             lod,
         };
@@ -789,8 +812,7 @@ impl CaptureRenderer for ViewportRenderer {
 
         patinae_render::capture::capture_png(&mut self.state, path, width, height, &frame, &input)
             .map_err(|e| ViewerError::capture_error(e.to_string()))?;
-        registry.clear_all_dirty_molecules();
-        registry.clear_all_dirty_maps();
+        registry.clear_all_dirty_objects();
 
         // Restore live viewport size on the next frame — `render_frame`
         // detects the dimension mismatch and resizes back.
@@ -868,6 +890,7 @@ impl CaptureRenderer for ViewportRenderer {
         let input = RenderInput {
             objects: &object_inputs,
             maps: &map_inputs,
+            strokes: &[],
             settings: &resolved,
             lod,
         };
@@ -876,8 +899,7 @@ impl CaptureRenderer for ViewportRenderer {
             .state
             .export_displayed_geometry(&input, options)
             .map_err(|e| ViewerError::capture_error(e.to_string()))?;
-        registry.clear_all_dirty_molecules();
-        registry.clear_all_dirty_maps();
+        registry.clear_all_dirty_objects();
 
         // Restore live viewport size on the next frame, matching capture.
         self.last_viewport_size = None;
@@ -916,6 +938,7 @@ impl CaptureRenderer for ViewportRenderer {
         let input = RenderInput {
             objects: &object_inputs,
             maps: &map_inputs,
+            strokes: &[],
             settings: &resolved,
             lod,
         };
@@ -923,8 +946,7 @@ impl CaptureRenderer for ViewportRenderer {
         self.state
             .for_each_trace_geometry_chunk(&input, options, visitor)
             .map_err(|e| ViewerError::capture_error(e.to_string()))?;
-        registry.clear_all_dirty_molecules();
-        registry.clear_all_dirty_maps();
+        registry.clear_all_dirty_objects();
 
         self.last_viewport_size = None;
         Ok(())
@@ -961,14 +983,14 @@ impl CaptureRenderer for ViewportRenderer {
         let input = RenderInput {
             objects: &object_inputs,
             maps: &map_inputs,
+            strokes: &[],
             settings: &resolved,
             lod,
         };
 
         let snapshot = self.state.render_artifact_snapshot(&input);
         visitor(snapshot).map_err(ViewerError::capture_error)?;
-        registry.clear_all_dirty_molecules();
-        registry.clear_all_dirty_maps();
+        registry.clear_all_dirty_objects();
 
         self.last_viewport_size = None;
         Ok(())

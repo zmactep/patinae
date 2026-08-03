@@ -64,10 +64,20 @@ pub use highlight_state::HighlightState;
 pub use input::{ButtonState, CameraDelta, InputState, Modifiers, MouseButton, ScrollDelta};
 pub use keybindings::{parse_key_string, KeyBinding, KeyBindings, KeyCode};
 pub use movie::{LoopMode, Movie, MovieFrame, ObjectKeyframe, PlayDirection, PlaybackState};
+#[expect(deprecated, reason = "public compatibility aliases remain re-exported")]
 pub use object::{
-    DirtyFlags, GroupObject, Label, LabelAnchor, LabelObject, MapData, MapDisplayMode, MapObject,
-    Measurement, MeasurementObject, MeasurementType, MoleculeObject, MoleculeObjectSnapshot,
-    Object, ObjectRegistry, ObjectRegistrySnapshot, ObjectState, ObjectType, RenderObjectId,
+    label_object_view, resolve_annotation_bundles, resolve_measurement_entity_value,
+    AnnotationColor, AnnotationColorSummary, AnnotationOwnerKind, AnnotationPresentationError,
+    AnnotationWarning, AtomAnchor, DirtyFlags, GroupObject, Label, LabelAlignment, LabelAnchor,
+    LabelAnchorView, LabelEntity, LabelEntityPresentation, LabelEntityView, LabelObject,
+    LabelObjectPresentation, LabelObjectSnapshot, LabelObjectView, LabelPresentation,
+    LabelRevisions, LabelSize, LinePattern, MapData, MapDisplayMode, MapObject, MeasurementAnchor,
+    MeasurementEntity, MeasurementEntityPresentation, MeasurementEntry, MeasurementEntryError,
+    MeasurementKind, MeasurementObject, MeasurementObjectPresentation, MeasurementObjectSnapshot,
+    MeasurementPresentation, MeasurementResolveOptions, MeasurementRevisions, MeasurementType,
+    MoleculeObject, MoleculeObjectSnapshot, Object, ObjectRegistry, ObjectRegistrySnapshot,
+    ObjectState, ObjectType, RenderObjectId, ResolvedAnnotationBundle, ResolvedLabelPrimitive,
+    ResolvedStrokePath, StrokePath, StrokeStyle,
 };
 pub use pick::{expand_pick_to_selection, pick_expression_for_hit, PickHit};
 pub use render_target::CaptureRenderer;

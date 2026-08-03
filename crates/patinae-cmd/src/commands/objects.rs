@@ -2,7 +2,7 @@
 
 use patinae_mol::dss::{assign_secondary_structure, assigner_for};
 use patinae_mol::{AtomIndex, ObjectMolecule};
-use patinae_scene::{DirtyFlags, MoleculeObject};
+use patinae_scene::MoleculeObject;
 
 use crate::args::{ArgValue, ParsedCommand};
 use crate::command::{ArgHint, Command, CommandContext, CommandRegistry, ViewerLike};
@@ -1336,10 +1336,10 @@ impl Command for ExtractCommand {
         ctx.viewer.objects_mut().add(mol_obj);
 
         // Remove atoms from source
-        if let Some(src_obj) = ctx.viewer.objects_mut().get_molecule_mut(&src_name) {
-            src_obj.molecule_mut().remove_atoms(&remove_indices);
-            src_obj.invalidate(DirtyFlags::ALL);
-        }
+        ctx.viewer
+            .objects_mut()
+            .remove_molecule_atoms(&src_name, &remove_indices)
+            .map_err(|error| CmdError::scene(error.to_string()))?;
 
         ctx.viewer.request_redraw();
 
@@ -1403,8 +1403,8 @@ impl Command for RemoveCommand {
         // Evaluate selection across all objects
         let results = evaluate_selection(ctx.viewer, selection)?;
 
-        // Collect (object_name, indices_to_remove) before mutating
-        let removals: Vec<(String, Vec<AtomIndex>)> = results
+        // Collect object names and indices before mutating.
+        let removals = results
             .into_iter()
             .filter_map(|(obj_name, sel_result)| {
                 if sel_result.count() == 0 {
@@ -1413,7 +1413,7 @@ impl Command for RemoveCommand {
                 let indices: Vec<AtomIndex> = sel_result.indices().collect();
                 Some((obj_name, indices))
             })
-            .collect();
+            .collect::<Vec<_>>();
 
         if removals.is_empty() {
             if !ctx.quiet {
@@ -1423,26 +1423,13 @@ impl Command for RemoveCommand {
         }
 
         let mut total_removed = 0usize;
-        let mut objects_to_delete: Vec<String> = Vec::new();
-
         // Apply removals
         for (obj_name, indices) in &removals {
             total_removed += indices.len();
-
-            if let Some(obj) = ctx.viewer.objects_mut().get_molecule_mut(obj_name) {
-                obj.molecule_mut().remove_atoms(indices);
-                obj.invalidate(DirtyFlags::ALL);
-
-                // If all atoms gone, schedule object deletion
-                if obj.molecule().atom_count() == 0 {
-                    objects_to_delete.push(obj_name.clone());
-                }
-            }
-        }
-
-        // Delete objects that lost all their atoms
-        for name in &objects_to_delete {
-            ctx.viewer.objects_mut().remove(name);
+            ctx.viewer
+                .objects_mut()
+                .remove_molecule_atoms(obj_name, indices)
+                .map_err(|error| CmdError::scene(error.to_string()))?;
         }
 
         ctx.viewer.request_redraw();
@@ -1551,7 +1538,10 @@ mod tests {
     use crate::command::CommandContext;
     use crate::parser::parse_command;
     use patinae_mol::{AtomBuilder, AtomIndex, BondOrder, CoordSet, Element};
-    use patinae_scene::{MoleculeObject, Session, SessionAdapter};
+    use patinae_scene::{
+        AtomAnchor, LabelEntity, LabelObject, MeasurementEntity, MeasurementKind,
+        MeasurementObject, MoleculeObject, Session, SessionAdapter,
+    };
 
     /// Create a molecule with two residues: ALA (3 atoms) and HOH (1 atom)
     fn create_test_molecule(name: &str) -> patinae_mol::ObjectMolecule {
@@ -1664,6 +1654,37 @@ mod tests {
         StateCommand.execute(&mut ctx, &parsed)
     }
 
+    fn run_extract(session: &mut Session, cmd_str: &str) -> CmdResult {
+        let mut needs_redraw = false;
+        let mut adapter = SessionAdapter {
+            session,
+            render_context: None,
+            default_size: (800, 600),
+            needs_redraw: &mut needs_redraw,
+            async_fetch_fn: None,
+        };
+        let parsed = parse_command(cmd_str).map_err(CmdError::parse)?;
+        let viewer: &mut dyn ViewerLike = &mut adapter;
+        let mut ctx = CommandContext::new(viewer).with_quiet(true);
+        ExtractCommand.execute(&mut ctx, &parsed)
+    }
+
+    fn add_atom_annotations(session: &mut Session, source_name: &str, atom_index: AtomIndex) {
+        let anchor = AtomAnchor::new(source_name, atom_index);
+        session.registry.add(LabelObject::with_entities(
+            "labels",
+            vec![LabelEntity::new(anchor.clone(), "selected")],
+        ));
+        let mut measurement = MeasurementObject::new("distance", MeasurementKind::Distance);
+        measurement
+            .add_entry(MeasurementEntity::new(vec![
+                anchor,
+                AtomAnchor::new(source_name, AtomIndex(0)),
+            ]))
+            .unwrap();
+        session.registry.add(measurement);
+    }
+
     #[test]
     fn test_remove_by_resn() {
         let mol = create_test_molecule("test");
@@ -1717,6 +1738,54 @@ mod tests {
 
         let obj = session.registry.get_molecule("test").unwrap();
         assert_eq!(obj.molecule().atom_count(), 3);
+    }
+
+    #[test]
+    fn remove_orphans_annotation_anchors_before_atom_deletion() {
+        let mol = create_test_molecule("test");
+        let mut session = setup_session_with(mol);
+        add_atom_annotations(&mut session, "test", AtomIndex(3));
+
+        run_remove(&mut session, "remove resn HOH").unwrap();
+
+        assert!(session.registry.get_label("labels").unwrap().entities()[0]
+            .anchor()
+            .is_orphaned());
+        assert!(session
+            .registry
+            .get_measurement("distance")
+            .unwrap()
+            .entries()[0]
+            .anchors[0]
+            .is_orphaned());
+        assert!(!session
+            .registry
+            .get_measurement("distance")
+            .unwrap()
+            .entries()[0]
+            .anchors[1]
+            .is_orphaned());
+    }
+
+    #[test]
+    fn extract_orphans_source_annotation_anchors_before_atom_deletion() {
+        let mol = create_test_molecule("test");
+        let mut session = setup_session_with(mol);
+        add_atom_annotations(&mut session, "test", AtomIndex(3));
+
+        run_extract(&mut session, "extract water, resn HOH").unwrap();
+
+        assert!(session.registry.get_label("labels").unwrap().entities()[0]
+            .anchor()
+            .is_orphaned());
+        assert!(session
+            .registry
+            .get_measurement("distance")
+            .unwrap()
+            .entries()[0]
+            .anchors[0]
+            .is_orphaned());
+        assert!(session.registry.get_molecule("water").is_some());
     }
 
     #[test]

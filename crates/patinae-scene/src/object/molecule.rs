@@ -9,6 +9,8 @@ use patinae_settings::ObjectOverrides;
 
 use super::{Object, ObjectState, ObjectType};
 
+const MOLECULAR_REPS: RepMask = RepMask(RepMask::ALL.0 & !RepMask::LABELS.0);
+
 /// A molecular object with render state.
 ///
 /// Wraps `ObjectMolecule` and manages visual state (enabled, colour,
@@ -218,20 +220,31 @@ impl MoleculeObject {
 
     /// Set the visible representations mask (e.g., copying from another object)
     pub fn set_visible_reps(&mut self, reps: RepMask) {
-        self.state.visible_reps = reps;
-        self.state.draw_reps = reps;
+        let reps = reps.difference(RepMask::LABELS);
+        self.state.visible_reps.set_hidden(MOLECULAR_REPS);
+        self.state.visible_reps.set_visible(reps);
+        self.state.draw_reps.set_hidden(MOLECULAR_REPS);
+        self.state.draw_reps.set_visible(reps);
         self.state.draw_mask_restorable_reps = RepMask::NONE;
         self.dirty |= DirtyFlags::REPS;
     }
 
     /// Set the object-level representation draw mask.
     pub fn set_draw_reps(&mut self, reps: RepMask) {
-        self.state.draw_reps = reps.intersection(self.state.visible_reps);
+        let reps = reps.difference(RepMask::LABELS);
+        self.state.draw_reps.set_hidden(MOLECULAR_REPS);
+        self.state
+            .draw_reps
+            .set_visible(reps.intersection(self.state.visible_reps));
         self.dirty |= DirtyFlags::DRAW_MASK;
     }
 
     /// Show a representation for selected atoms.
     pub fn show_rep_for_selection(&mut self, selected: &SelectionResult, rep: RepMask) {
+        let rep = rep.difference(RepMask::LABELS);
+        if rep.is_empty() {
+            return;
+        }
         let selected_all_atoms = self.selection_covers_all_atoms(selected);
         if rep.can_toggle_with_draw_mask()
             && selected_all_atoms
@@ -270,6 +283,10 @@ impl MoleculeObject {
 
     /// Hide a representation for selected atoms.
     pub fn hide_rep_for_selection(&mut self, selected: &SelectionResult, rep: RepMask) {
+        let rep = rep.difference(RepMask::LABELS);
+        if rep.is_empty() {
+            return;
+        }
         let selected_all_atoms = self.selection_covers_all_atoms(selected);
         if rep.can_toggle_with_draw_mask() && selected_all_atoms {
             let can_restore_draw_mask = self.selected_atoms_all_have_rep(selected, rep);
@@ -285,47 +302,47 @@ impl MoleculeObject {
 
         for idx in selected.indices() {
             if let Some(atom) = self.molecule.get_atom_mut(AtomIndex(idx.0)) {
-                if rep == RepMask::ALL {
-                    atom.repr.visible_reps = RepMask::NONE;
-                } else {
-                    atom.repr.visible_reps.set_hidden(rep);
-                }
+                atom.repr.visible_reps.set_hidden(rep);
             }
         }
         self.dirty |= representation_membership_dirty(rep);
 
         if selected_all_atoms {
-            if rep == RepMask::ALL {
-                self.state.visible_reps = RepMask::NONE;
-                self.state.draw_reps = RepMask::NONE;
-                self.state.clear_draw_mask_restorable(RepMask::ALL);
-            } else {
-                self.state.visible_reps.set_hidden(rep);
-                self.state.draw_reps.set_hidden(rep);
-                self.state.clear_draw_mask_restorable(rep);
-            }
+            self.state.visible_reps.set_hidden(rep);
+            self.state.draw_reps.set_hidden(rep);
+            self.state.clear_draw_mask_restorable(rep);
             return;
         }
 
         let visible_reps = self.atom_rep_union();
-        self.state.visible_reps = visible_reps;
-        self.state.draw_reps = self.state.draw_reps.intersection(visible_reps);
+        self.state.visible_reps.set_hidden(MOLECULAR_REPS);
+        self.state.visible_reps.set_visible(visible_reps);
+        self.state.draw_reps = self
+            .state
+            .draw_reps
+            .intersection(visible_reps.union(RepMask::LABELS));
         self.state.clear_draw_mask_restorable(rep);
     }
 
     /// Show only one representation for selected atoms.
     pub fn show_as_rep_for_selection(&mut self, selected: &SelectionResult, rep: RepMask) {
+        let rep = rep.difference(RepMask::LABELS);
+        if rep.is_empty() {
+            return;
+        }
         let selected_all_atoms = self.selection_covers_all_atoms(selected);
         for idx in selected.indices() {
             if let Some(atom) = self.molecule.get_atom_mut(AtomIndex(idx.0)) {
-                atom.repr.visible_reps = RepMask::NONE;
+                atom.repr.visible_reps.set_hidden(MOLECULAR_REPS);
                 atom.repr.visible_reps.set_visible(rep);
             }
         }
 
         if selected_all_atoms {
-            self.state.visible_reps = rep;
-            self.state.draw_reps = rep;
+            self.state.visible_reps.set_hidden(MOLECULAR_REPS);
+            self.state.visible_reps.set_visible(rep);
+            self.state.draw_reps.set_hidden(MOLECULAR_REPS);
+            self.state.draw_reps.set_visible(rep);
         } else {
             self.state.visible_reps.set_visible(rep);
             self.state.draw_reps.set_visible(rep);
@@ -411,33 +428,6 @@ impl MoleculeObject {
         self.state.draw_reps.is_visible(RepMask::MESH)
     }
 
-    /// Collect label data for screen-space rendering.
-    ///
-    /// Returns (world_position, label_text) for each atom that has LABELS visible
-    /// and a non-empty label string.
-    pub fn collect_labels(&self) -> Vec<(Vec3, &str)> {
-        if !self.state.draw_reps.is_visible(RepMask::LABELS) {
-            return Vec::new();
-        }
-
-        let coord_set = match self.molecule.get_coord_set(self.display_state) {
-            Some(cs) => cs,
-            None => return Vec::new(),
-        };
-
-        let mut labels = Vec::new();
-        for (atom_idx, coord) in coord_set.iter_with_atoms() {
-            let atom = match self.molecule.get_atom(atom_idx) {
-                Some(a) => a,
-                None => continue,
-            };
-            if atom.repr.visible_reps.is_visible(RepMask::LABELS) && !atom.repr.label.is_empty() {
-                labels.push((coord, atom.repr.label.as_str()));
-            }
-        }
-        labels
-    }
-
     fn selection_covers_all_atoms(&self, selected: &SelectionResult) -> bool {
         selected.count() == self.molecule.atom_count()
     }
@@ -455,7 +445,7 @@ impl MoleculeObject {
         for atom in self.molecule.atoms() {
             union = union.union(atom.repr.visible_reps);
         }
-        union
+        union.difference(RepMask::LABELS)
     }
 }
 
@@ -915,6 +905,34 @@ mod tests {
         assert!(obj.visible_reps().is_visible(RepMask::STICKS));
         assert!(obj.draw_reps().is_visible(RepMask::STICKS));
         assert_eq!(obj.draw_mask_restorable_reps(), RepMask::NONE);
+    }
+
+    #[test]
+    fn molecular_rep_mutations_never_change_legacy_label_bits() {
+        let mol = create_test_molecule();
+        let mut obj = MoleculeObject::new(mol);
+        for atom in obj.molecule_mut().atoms_mut() {
+            atom.repr.visible_reps.set_visible(RepMask::LABELS);
+        }
+        obj.state.visible_reps.set_visible(RepMask::LABELS);
+        obj.state.draw_reps.set_visible(RepMask::LABELS);
+        let selected = all_atoms(&obj);
+
+        obj.hide_rep_for_selection(&selected, RepMask::ALL);
+        obj.show_rep_for_selection(&selected, RepMask::ALL);
+        obj.show_as_rep_for_selection(&selected, RepMask::STICKS);
+
+        assert!(obj.state.visible_reps.is_visible(RepMask::LABELS));
+        assert!(obj.state.draw_reps.is_visible(RepMask::LABELS));
+        assert!(obj
+            .molecule()
+            .atoms()
+            .all(|atom| atom.repr.visible_reps.is_visible(RepMask::LABELS)));
+
+        obj.clear_dirty();
+        obj.hide_rep_for_selection(&selected, RepMask::LABELS);
+        obj.show_rep_for_selection(&selected, RepMask::LABELS);
+        assert_eq!(obj.dirty_flags(), DirtyFlags::empty());
     }
 
     #[test]

@@ -84,6 +84,9 @@ impl RenderState {
         for map in self.scene.maps.values() {
             ledger.add_usage(GpuMemoryCategory::Representation, map.memory_usage());
         }
+        for stroke in self.scene.strokes.values() {
+            ledger.add_usage(GpuMemoryCategory::Overlay, stroke.memory_usage());
+        }
 
         ledger.add_usage(
             GpuMemoryCategory::RepresentationScratch,

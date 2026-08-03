@@ -38,6 +38,10 @@ component PillSep inherits Rectangle {
 // ── Action pill ──────────────────────────────────────────────────────
 
 export component ActionPill inherits Rectangle {
+    property <bool> has-camera-actions:
+        ObjectsState.action-can-focus
+        || ObjectsState.action-can-orient
+        || ObjectsState.action-can-center;
     width: layout.preferred-width;
     height: Tokens.action-pill-h;
     border-radius: Tokens.action-pill-radius;
@@ -91,10 +95,10 @@ export component ActionPill inherits Rectangle {
             }
         }
 
-        PillSep {}
+        if root.has-camera-actions: PillSep {}
 
         // Camera cluster: zoom · orient · center
-        zoom-btn := PillButton {
+        if ObjectsState.action-can-focus: zoom-btn := PillButton {
             clicked => { ObjectsState.action-zoom(); }
             ZoomIcon {
                 x: (parent.width - self.width) / 2;
@@ -102,7 +106,7 @@ export component ActionPill inherits Rectangle {
                 tint: zoom-btn.tint;
             }
         }
-        orient-btn := PillButton {
+        if ObjectsState.action-can-orient: orient-btn := PillButton {
             clicked => { ObjectsState.action-orient(); }
             OrientIcon {
                 x: (parent.width - self.width) / 2;
@@ -110,7 +114,7 @@ export component ActionPill inherits Rectangle {
                 tint: orient-btn.tint;
             }
         }
-        center-btn := PillButton {
+        if ObjectsState.action-can-center: center-btn := PillButton {
             clicked => { ObjectsState.action-center(); }
             CenterIcon {
                 x: (parent.width - self.width) / 2;
@@ -120,8 +124,8 @@ export component ActionPill inherits Rectangle {
         }
 
         // Visibility toggle (not for subchains)
-        if ObjectsState.selection-level != "subchains": PillSep {}
-        if ObjectsState.selection-level != "subchains": toggle-btn := PillButton {
+        if ObjectsState.action-can-toggle && ObjectsState.selection-level != "subchains": PillSep {}
+        if ObjectsState.action-can-toggle && ObjectsState.selection-level != "subchains": toggle-btn := PillButton {
             clicked => { ObjectsState.action-toggle(); }
             ToggleIcon {
                 x: (parent.width - self.width) / 2;
@@ -130,10 +134,10 @@ export component ActionPill inherits Rectangle {
             }
         }
 
-        PillSep {}
+        if ObjectsState.action-can-overflow: PillSep {}
 
         // Overflow
-        overflow-btn := PillButton {
+        if ObjectsState.action-can-overflow: overflow-btn := PillButton {
             clicked => {
                 ObjectsState.popover-anchor-y = overflow-btn.absolute-position.y - Tokens.action-pill-pad-v;
                 ObjectsState.action-overflow();

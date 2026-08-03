@@ -12,4 +12,7 @@ cargo run -p prs-upgrade -- old.prs upgraded.prs
 ```
 
 The output path must not exist. The tool leaves the source untouched, writes a
-current PRS v2 document, and loads the result again before reporting success.
+current PRS v3 document, and loads the result again before reporting success.
+Malformed current and future PRS envelopes are rejected instead of being
+reinterpreted as legacy sessions. Legacy atom-local labels are migrated into
+first-class label collections.

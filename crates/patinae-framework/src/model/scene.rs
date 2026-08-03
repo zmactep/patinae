@@ -6,10 +6,16 @@
 //! drives sidebar color, popover commands, and selection scope — see
 //! [`patinae_mol::SubchainKind`].
 
+use std::hash::{DefaultHasher, Hash, Hasher};
+
 use patinae_color::{Color, ColorIndex, NamedPalette, ThemedPalette};
 use patinae_mol::{Atom, SubchainKind, SubchainView};
-use patinae_scene::{MapDisplayMode, Object, ObjectRegistry};
+use patinae_scene::{
+    resolve_annotation_bundles, AnnotationColorSummary, MapDisplayMode, MeasurementKind, Object,
+    ObjectRegistry, ResolvedAnnotationBundle,
+};
 use patinae_select::format_exact_selector_value;
+use patinae_settings::Settings;
 
 use crate::model::sequence::compress_resi_list;
 
@@ -80,6 +86,18 @@ pub struct SceneObject {
     pub name: String,
     pub kind: SceneObjectKind,
     pub map_visual_kind: Option<SceneMapVisualKind>,
+    /// Measurement subtype used for iconography and row metadata.
+    pub measurement_kind: Option<MeasurementKind>,
+    /// Number of stored entities for measurement and label collections.
+    pub entity_count: usize,
+    /// Whether any annotation entity cannot currently be resolved.
+    pub has_unresolved_entities: bool,
+    /// Human-readable reason focus is unavailable for this object.
+    pub focus_disabled_reason: Option<String>,
+    /// Actions that are valid for this object kind.
+    pub capabilities: SceneObjectCapabilities,
+    /// Resolved sidebar color for the object row.
+    pub color: SidebarColor,
     pub enabled: bool,
     /// Whether subchains are shown in the sidebar.
     pub expanded: bool,
@@ -91,6 +109,78 @@ pub struct SceneObject {
 pub enum SceneObjectKind {
     Molecule,
     Map,
+    Measurement,
+    Label,
+}
+
+/// Actions supported by one object-list row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SceneObjectCapabilities {
+    pub focus: bool,
+    pub visibility: bool,
+    pub color: bool,
+    pub rename: bool,
+    pub delete: bool,
+    pub grouping: bool,
+    pub representations: bool,
+    pub copy: bool,
+    pub extract: bool,
+    pub align: bool,
+    pub orient: bool,
+    pub remove_atoms: bool,
+}
+
+impl SceneObjectCapabilities {
+    const fn molecule() -> Self {
+        Self {
+            focus: true,
+            visibility: true,
+            color: true,
+            rename: true,
+            delete: true,
+            grouping: true,
+            representations: true,
+            copy: true,
+            extract: true,
+            align: true,
+            orient: true,
+            remove_atoms: true,
+        }
+    }
+
+    const fn map() -> Self {
+        Self {
+            focus: true,
+            visibility: true,
+            color: true,
+            rename: true,
+            delete: true,
+            grouping: true,
+            representations: false,
+            copy: true,
+            extract: true,
+            align: true,
+            orient: true,
+            remove_atoms: true,
+        }
+    }
+
+    const fn annotation(has_extent: bool) -> Self {
+        Self {
+            focus: has_extent,
+            visibility: true,
+            color: true,
+            rename: true,
+            delete: true,
+            grouping: true,
+            representations: false,
+            copy: false,
+            extract: false,
+            align: false,
+            orient: false,
+            remove_atoms: false,
+        }
+    }
 }
 
 /// Visual subtype used by map rows in the Objects panel.
@@ -123,12 +213,14 @@ pub enum SceneEntry {
 pub struct SceneColorContext<'a> {
     pub named_palette: &'a NamedPalette,
     pub palette: &'a ThemedPalette,
+    pub settings: &'a Settings,
 }
 
 /// UI-framework-agnostic scene model for the objects panel.
 pub struct SceneModel {
     pub entries: Vec<SceneEntry>,
     last_generation: u64,
+    last_annotation_settings_hash: u64,
 }
 
 impl SceneModel {
@@ -136,6 +228,7 @@ impl SceneModel {
         Self {
             entries: Vec::new(),
             last_generation: u64::MAX, // force first sync
+            last_annotation_settings_hash: u64::MAX,
         }
     }
 
@@ -146,13 +239,18 @@ impl SceneModel {
     /// - Any molecule has pending dirty flags (content: color/coords/reps)
     pub fn sync(&mut self, registry: &ObjectRegistry, color_ctx: &SceneColorContext<'_>) -> bool {
         let gen = registry.generation();
+        let annotation_settings_hash = annotation_settings_hash(color_ctx.settings);
         if gen == self.last_generation
+            && annotation_settings_hash == self.last_annotation_settings_hash
             && !registry.has_any_dirty_molecule()
             && !registry.has_any_dirty_map()
+            && !registry.has_any_dirty_measurement()
+            && !registry.has_any_dirty_label()
         {
             return false;
         }
         self.last_generation = gen;
+        self.last_annotation_settings_hash = annotation_settings_hash;
         self.rebuild(registry, color_ctx);
         true
     }
@@ -160,6 +258,7 @@ impl SceneModel {
     /// Force a rebuild on the next `sync` call.
     pub fn invalidate(&mut self) {
         self.last_generation = u64::MAX;
+        self.last_annotation_settings_hash = u64::MAX;
     }
 
     /// Toggle expand/collapse for an object (searches both standalone and group children).
@@ -238,6 +337,12 @@ impl SceneModel {
             .collect();
 
         self.entries.clear();
+        let annotations =
+            resolve_annotation_bundles(registry, color_ctx.settings, color_ctx.named_palette);
+        let annotations_by_owner = annotations
+            .iter()
+            .map(|bundle| (bundle.owner_name.as_str(), bundle))
+            .collect::<std::collections::HashMap<_, _>>();
 
         for top_name in registry.top_level_names() {
             if let Some(group) = registry.get_group(top_name) {
@@ -246,22 +351,13 @@ impl SceneModel {
                     .children()
                     .iter()
                     .filter_map(|child_name| {
-                        if let Some(mol) = registry.get_molecule(child_name) {
-                            Some(build_scene_object(
-                                child_name,
-                                mol,
-                                was_expanded.contains(child_name.as_str()),
-                                color_ctx,
-                            ))
-                        } else {
-                            registry.get_map(child_name).map(|map| {
-                                build_map_scene_object(
-                                    child_name,
-                                    map,
-                                    was_expanded.contains(child_name.as_str()),
-                                )
-                            })
-                        }
+                        build_object_by_name(
+                            registry,
+                            child_name,
+                            was_expanded.contains(child_name.as_str()),
+                            color_ctx,
+                            &annotations_by_owner,
+                        )
                     })
                     .collect();
 
@@ -271,19 +367,14 @@ impl SceneModel {
                     enabled: group.state().enabled,
                     children,
                 }));
-            } else if let Some(mol) = registry.get_molecule(top_name) {
-                self.entries.push(SceneEntry::Object(build_scene_object(
-                    top_name,
-                    mol,
-                    was_expanded.contains(top_name),
-                    color_ctx,
-                )));
-            } else if let Some(map) = registry.get_map(top_name) {
-                self.entries.push(SceneEntry::Object(build_map_scene_object(
-                    top_name,
-                    map,
-                    was_expanded.contains(top_name),
-                )));
+            } else if let Some(object) = build_object_by_name(
+                registry,
+                top_name,
+                was_expanded.contains(top_name),
+                color_ctx,
+                &annotations_by_owner,
+            ) {
+                self.entries.push(SceneEntry::Object(object));
             }
         }
     }
@@ -306,6 +397,36 @@ impl Default for SceneModel {
 // ============================================================================
 // Helpers
 // ============================================================================
+
+fn build_object_by_name(
+    registry: &ObjectRegistry,
+    name: &str,
+    expanded: bool,
+    color_ctx: &SceneColorContext<'_>,
+    annotations: &std::collections::HashMap<&str, &ResolvedAnnotationBundle>,
+) -> Option<SceneObject> {
+    if let Some(molecule) = registry.get_molecule(name) {
+        Some(build_scene_object(name, molecule, expanded, color_ctx))
+    } else if let Some(map) = registry.get_map(name) {
+        Some(build_map_scene_object(name, map, expanded))
+    } else {
+        registry
+            .get_measurement(name)
+            .map(|measurement| {
+                build_measurement_scene_object(
+                    name,
+                    measurement,
+                    annotations.get(name).copied(),
+                    color_ctx,
+                )
+            })
+            .or_else(|| {
+                registry.get_label(name).map(|label| {
+                    build_label_scene_object(name, label, annotations.get(name).copied(), color_ctx)
+                })
+            })
+    }
+}
 
 fn build_scene_object(
     name: &str,
@@ -356,10 +477,21 @@ fn build_scene_object(
         })
         .collect();
 
+    let color = subchains
+        .first()
+        .map(|subchain| subchain.color)
+        .unwrap_or(SidebarColor::Other);
+
     SceneObject {
         name: name.to_string(),
         kind: SceneObjectKind::Molecule,
         map_visual_kind: None,
+        measurement_kind: None,
+        entity_count: 0,
+        has_unresolved_entities: false,
+        focus_disabled_reason: None,
+        capabilities: SceneObjectCapabilities::molecule(),
+        color,
         enabled: state.enabled,
         expanded,
         subchains,
@@ -375,10 +507,128 @@ fn build_map_scene_object(
         name: name.to_string(),
         kind: SceneObjectKind::Map,
         map_visual_kind: Some(map_visual_kind(map.display_mode())),
+        measurement_kind: None,
+        entity_count: 0,
+        has_unresolved_entities: false,
+        focus_disabled_reason: None,
+        capabilities: SceneObjectCapabilities::map(),
+        color: SidebarColor::Color(Color::WHITE),
         enabled: map.state().enabled,
         expanded,
         subchains: Vec::new(),
     }
+}
+
+fn build_measurement_scene_object(
+    name: &str,
+    measurement: &patinae_scene::MeasurementObject,
+    bundle: Option<&ResolvedAnnotationBundle>,
+    color_ctx: &SceneColorContext<'_>,
+) -> SceneObject {
+    let has_extent = bundle.is_some_and(|bundle| bundle.bounds.is_some());
+    let fallback_color = if measurement.has_explicit_color() {
+        resolve_object_color(measurement.state().color, color_ctx.named_palette)
+    } else {
+        SidebarColor::Color(patinae_color::CYAN)
+    };
+    SceneObject {
+        name: name.to_string(),
+        kind: SceneObjectKind::Measurement,
+        map_visual_kind: None,
+        measurement_kind: Some(measurement.kind()),
+        entity_count: measurement.len(),
+        has_unresolved_entities: bundle.is_some_and(|bundle| bundle.unresolved_count != 0),
+        focus_disabled_reason: (!has_extent).then(|| "No resolvable anchors".to_string()),
+        capabilities: SceneObjectCapabilities::annotation(has_extent),
+        color: annotation_sidebar_color(bundle, fallback_color),
+        enabled: measurement.state().enabled,
+        expanded: false,
+        subchains: Vec::new(),
+    }
+}
+
+fn build_label_scene_object(
+    name: &str,
+    label: &patinae_scene::LabelObject,
+    bundle: Option<&ResolvedAnnotationBundle>,
+    color_ctx: &SceneColorContext<'_>,
+) -> SceneObject {
+    let has_extent = bundle.is_some_and(|bundle| bundle.bounds.is_some());
+    let fallback_color = label
+        .presentation()
+        .color()
+        .map_or(SidebarColor::Color(patinae_color::CYAN), |color| {
+            resolve_object_color(color, color_ctx.named_palette)
+        });
+    SceneObject {
+        name: name.to_string(),
+        kind: SceneObjectKind::Label,
+        map_visual_kind: None,
+        measurement_kind: None,
+        entity_count: label.len(),
+        has_unresolved_entities: bundle.is_some_and(|bundle| bundle.unresolved_count != 0),
+        focus_disabled_reason: (!has_extent).then(|| "No resolvable anchors".to_string()),
+        capabilities: SceneObjectCapabilities::annotation(has_extent),
+        color: annotation_sidebar_color(bundle, fallback_color),
+        enabled: label.state().enabled,
+        expanded: false,
+        subchains: Vec::new(),
+    }
+}
+
+fn annotation_sidebar_color(
+    bundle: Option<&ResolvedAnnotationBundle>,
+    fallback: SidebarColor,
+) -> SidebarColor {
+    match bundle.map(ResolvedAnnotationBundle::color_summary) {
+        Some(AnnotationColorSummary::Uniform([red, green, blue])) => {
+            SidebarColor::Color(Color::new(red, green, blue))
+        }
+        Some(AnnotationColorSummary::Mixed) => SidebarColor::Multicolor,
+        Some(AnnotationColorSummary::Empty) | None => fallback,
+    }
+}
+
+fn resolve_object_color(color: ColorIndex, named_palette: &NamedPalette) -> SidebarColor {
+    match color {
+        ColorIndex::Named(index) => SidebarColor::Color(
+            named_palette
+                .get_by_index(index)
+                .unwrap_or(patinae_color::CYAN),
+        ),
+        _ => SidebarColor::Color(patinae_color::CYAN),
+    }
+}
+
+fn annotation_settings_hash(settings: &Settings) -> u64 {
+    let measurement = &settings.measurement;
+    let mut hasher = DefaultHasher::new();
+    for value in [
+        measurement.dash_length,
+        measurement.dash_gap,
+        measurement.dash_width,
+        measurement.angle_size,
+        measurement.angle_label_position,
+        measurement.dihedral_size,
+        measurement.dihedral_label_position,
+        measurement.dash_transparency,
+        measurement.label_size,
+    ] {
+        value.to_bits().hash(&mut hasher);
+    }
+    measurement.dash_round_ends.hash(&mut hasher);
+    for value in [
+        measurement.label_digits,
+        measurement.label_distance_digits,
+        measurement.label_angle_digits,
+        measurement.label_dihedral_digits,
+        measurement.dash_color.0,
+        measurement.angle_color.0,
+        measurement.dihedral_color.0,
+    ] {
+        value.hash(&mut hasher);
+    }
+    hasher.finish()
 }
 
 fn map_visual_kind(mode: MapDisplayMode) -> SceneMapVisualKind {
@@ -539,8 +789,13 @@ mod tests {
     use super::*;
     use lin_alg::f32::Vec3;
     use patinae_algos::surface::Grid3D;
-    use patinae_mol::{Atom, AtomBuilder, AtomFlags, Element, MoleculeBuilder, ObjectMolecule};
-    use patinae_scene::MapObject;
+    use patinae_mol::{
+        Atom, AtomBuilder, AtomFlags, AtomIndex, Element, MoleculeBuilder, ObjectMolecule,
+    };
+    use patinae_scene::{
+        AtomAnchor, LabelEntity, LabelEntityPresentation, LabelObject, MapObject,
+        MeasurementAnchor, MeasurementEntry, MeasurementObject, MoleculeObject,
+    };
 
     fn poly_atom(chain: &str, resn: &str, resv: i32, name: &str) -> Atom {
         AtomBuilder::new()
@@ -653,14 +908,25 @@ mod tests {
         let mut model = SceneModel::new();
         let registry = ObjectRegistry::default();
         let palette = ThemedPalette::dark();
+        let named = NamedPalette::default();
+        let mut settings = Settings::default();
         let ctx = SceneColorContext {
-            named_palette: &NamedPalette::default(),
+            named_palette: &named,
             palette: &palette,
+            settings: &settings,
         };
         // First sync rebuilds
         assert!(model.sync(&registry, &ctx));
         // Second sync with no changes
         assert!(!model.sync(&registry, &ctx));
+
+        settings.measurement.label_size = 18.0;
+        let changed_ctx = SceneColorContext {
+            named_palette: &named,
+            palette: &palette,
+            settings: &settings,
+        };
+        assert!(model.sync(&registry, &changed_ctx));
     }
 
     #[test]
@@ -671,6 +937,7 @@ mod tests {
         let ctx = SceneColorContext {
             named_palette: &NamedPalette::default(),
             palette: &palette,
+            settings: &Settings::default(),
         };
         model.sync(&registry, &ctx);
         model.invalidate();
@@ -709,6 +976,12 @@ mod tests {
             name: "mol".to_string(),
             kind: SceneObjectKind::Molecule,
             map_visual_kind: None,
+            measurement_kind: None,
+            entity_count: 0,
+            has_unresolved_entities: false,
+            focus_disabled_reason: None,
+            capabilities: SceneObjectCapabilities::molecule(),
+            color: SidebarColor::Other,
             enabled: true,
             expanded: false,
             subchains: vec![],
@@ -730,6 +1003,12 @@ mod tests {
             name: "mol".to_string(),
             kind: SceneObjectKind::Molecule,
             map_visual_kind: None,
+            measurement_kind: None,
+            entity_count: 0,
+            has_unresolved_entities: false,
+            focus_disabled_reason: None,
+            capabilities: SceneObjectCapabilities::molecule(),
+            color: SidebarColor::Other,
             enabled: true,
             expanded: false,
             subchains: vec![],
@@ -764,6 +1043,7 @@ mod tests {
         let ctx = SceneColorContext {
             named_palette: &NamedPalette::default(),
             palette: &palette,
+            settings: &Settings::default(),
         };
         assert!(model.sync(&registry, &ctx));
 
@@ -779,6 +1059,173 @@ mod tests {
             model.get("surface").and_then(|obj| obj.map_visual_kind),
             Some(SceneMapVisualKind::Isosurface)
         );
+    }
+
+    #[test]
+    fn scene_model_includes_measurements_with_kind_count_and_capabilities() {
+        let molecule = MoleculeBuilder::new("source")
+            .add_atom(poly_atom("A", "ALA", 1, "CA"), Vec3::new(0.0, 0.0, 0.0))
+            .add_atom(poly_atom("A", "ALA", 2, "CA"), Vec3::new(2.0, 0.0, 0.0))
+            .build();
+        let first = AtomIndex(0);
+        let second = AtomIndex(1);
+
+        let mut registry = ObjectRegistry::default();
+        registry.add(MoleculeObject::new(molecule));
+        let mut measurement = MeasurementObject::new("d1", MeasurementKind::Distance);
+        measurement
+            .add_entry(MeasurementEntry::new(vec![
+                MeasurementAnchor::new("source", first),
+                MeasurementAnchor::new("source", second),
+            ]))
+            .expect("distance entry");
+        registry.add(measurement);
+
+        let mut model = SceneModel::new();
+        let palette = ThemedPalette::dark();
+        let ctx = SceneColorContext {
+            named_palette: &NamedPalette::default(),
+            palette: &palette,
+            settings: &Settings::default(),
+        };
+        assert!(model.sync(&registry, &ctx));
+
+        let object = model.get("d1").expect("measurement row");
+        assert_eq!(object.kind, SceneObjectKind::Measurement);
+        assert_eq!(object.measurement_kind, Some(MeasurementKind::Distance));
+        assert_eq!(object.entity_count, 1);
+        assert!(!object.has_unresolved_entities);
+        assert_eq!(object.color, SidebarColor::Color(patinae_color::CYAN));
+        assert!(object.capabilities.focus);
+        assert!(object.capabilities.color);
+        assert!(object.capabilities.delete);
+        assert!(object.capabilities.grouping);
+        assert!(!object.capabilities.representations);
+        assert!(!object.capabilities.copy);
+        assert!(!object.capabilities.extract);
+        assert!(!object.capabilities.align);
+        assert!(!object.capabilities.orient);
+        assert!(!object.capabilities.remove_atoms);
+    }
+
+    #[test]
+    fn scene_model_keeps_grouped_unresolved_measurement_rows() {
+        let molecule = MoleculeBuilder::new("source")
+            .add_atom(poly_atom("A", "ALA", 1, "CA"), Vec3::new(0.0, 0.0, 0.0))
+            .add_atom(poly_atom("A", "ALA", 2, "CA"), Vec3::new(2.0, 0.0, 0.0))
+            .build();
+        let first = AtomIndex(0);
+        let second = AtomIndex(1);
+
+        let mut registry = ObjectRegistry::default();
+        registry.add(MoleculeObject::new(molecule));
+        let mut measurement = MeasurementObject::new("d1", MeasurementKind::Distance);
+        measurement
+            .add_entry(MeasurementEntry::new(vec![
+                MeasurementAnchor::new("source", first),
+                MeasurementAnchor::new("source", second),
+            ]))
+            .expect("distance entry");
+        registry.add(measurement);
+        assert!(registry.add_to_group("measurements", "d1"));
+        registry.remove("source");
+
+        let mut model = SceneModel::new();
+        let palette = ThemedPalette::dark();
+        let ctx = SceneColorContext {
+            named_palette: &NamedPalette::default(),
+            palette: &palette,
+            settings: &Settings::default(),
+        };
+        assert!(model.sync(&registry, &ctx));
+
+        let group = model.get_group("measurements").expect("measurement group");
+        assert_eq!(group.children.len(), 1);
+        assert_eq!(group.children[0].name, "d1");
+        assert!(group.children[0].has_unresolved_entities);
+        assert!(!group.children[0].capabilities.focus);
+        assert_eq!(
+            group.children[0].focus_disabled_reason.as_deref(),
+            Some("No resolvable anchors")
+        );
+    }
+
+    #[test]
+    fn scene_model_lists_top_level_and_grouped_labels_with_mixed_style_and_focus_state() {
+        let molecule = MoleculeBuilder::new("source")
+            .add_atom(poly_atom("A", "ALA", 1, "CA"), Vec3::new(0.0, 0.0, 0.0))
+            .add_atom(poly_atom("A", "ALA", 2, "CA"), Vec3::new(2.0, 0.0, 0.0))
+            .build();
+        let first = AtomIndex(0);
+        let second = AtomIndex(1);
+        let mut first_style = LabelEntityPresentation::default();
+        first_style
+            .set_color(ColorIndex::Named(1))
+            .expect("named label color");
+        let mut second_style = LabelEntityPresentation::default();
+        second_style
+            .set_color(ColorIndex::Named(2))
+            .expect("named label color");
+
+        let mut registry = ObjectRegistry::default();
+        registry.add(MoleculeObject::new(molecule));
+        registry.add(LabelObject::with_entities(
+            "top-labels",
+            vec![
+                LabelEntity::with_presentation(
+                    AtomAnchor::new("source", first),
+                    "first",
+                    first_style,
+                ),
+                LabelEntity::with_presentation(
+                    AtomAnchor::new("source", second),
+                    "second",
+                    second_style,
+                ),
+            ],
+        ));
+        registry.add(LabelObject::with_entities(
+            "grouped-labels",
+            vec![LabelEntity::new(
+                AtomAnchor::new("source", first),
+                "grouped",
+            )],
+        ));
+        assert!(registry.add_to_group("annotations", "grouped-labels"));
+
+        let mut model = SceneModel::new();
+        let palette = ThemedPalette::dark();
+        let settings = Settings::default();
+        let named = NamedPalette::default();
+        let ctx = SceneColorContext {
+            named_palette: &named,
+            palette: &palette,
+            settings: &settings,
+        };
+        assert!(model.sync(&registry, &ctx));
+
+        let top = model.get("top-labels").expect("top-level label row");
+        assert_eq!(top.kind, SceneObjectKind::Label);
+        assert_eq!(top.entity_count, 2);
+        assert_eq!(top.color, SidebarColor::Multicolor);
+        assert!(top.capabilities.focus);
+        assert!(top.focus_disabled_reason.is_none());
+
+        let group = model.get_group("annotations").expect("annotation group");
+        assert_eq!(group.children[0].name, "grouped-labels");
+        assert_eq!(group.children[0].kind, SceneObjectKind::Label);
+
+        registry.remove("source");
+        assert!(model.sync(&registry, &ctx));
+        for name in ["top-labels", "grouped-labels"] {
+            let row = model.get(name).expect("orphaned label remains listed");
+            assert!(row.has_unresolved_entities);
+            assert!(!row.capabilities.focus);
+            assert_eq!(
+                row.focus_disabled_reason.as_deref(),
+                Some("No resolvable anchors")
+            );
+        }
     }
 
     // ── Selector-clause synthesis (build_selector_clause via real partitions) ──

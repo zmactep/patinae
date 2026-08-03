@@ -10,6 +10,7 @@ pub mod dot;
 pub mod ellipsoid;
 pub mod fxaa;
 pub mod line;
+pub mod measurement;
 pub mod mesh;
 pub mod movie;
 pub mod object;
@@ -28,6 +29,7 @@ pub use dot::{DotOverrides, DotSettings};
 pub use ellipsoid::{EllipsoidOverrides, EllipsoidSettings};
 pub use fxaa::FxaaSettings;
 pub use line::{LineOverrides, LineSettings};
+pub use measurement::MeasurementSettings;
 pub use mesh::{MeshOverrides, MeshSettings};
 pub use movie::MovieSettings;
 pub use object::{ObjectSettingOverrides, ObjectSettings};
@@ -56,8 +58,8 @@ macro_rules! define_settings_from_manifest {
         /// groups also live here as the global defaults.
         #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
         pub struct Settings {
-            $( pub $global_field: $global_ty, )*
-            $( pub $object_field: $object_ty, )*
+            $( #[serde(default)] pub $global_field: $global_ty, )*
+            $( #[serde(default)] pub $object_field: $object_ty, )*
         }
 
         /// Build runtime descriptors from the root settings manifest and each
@@ -119,4 +121,23 @@ fn append_object_group<G: 'static, O: 'static>(
             get_overrides_mut,
         )
     }));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Settings;
+
+    #[test]
+    fn settings_without_measurement_group_use_defaults() {
+        let mut value = serde_json::to_value(Settings::default()).expect("serialize settings");
+        value
+            .as_object_mut()
+            .expect("settings serialize as a map")
+            .remove("measurement");
+
+        let restored: Settings = serde_json::from_value(value).expect("deserialize old settings");
+
+        assert_eq!(restored.measurement.dash_length, 0.15);
+        assert_eq!(restored.measurement.label_digits, 1);
+    }
 }

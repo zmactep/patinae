@@ -1,3 +1,17 @@
+export struct ViewportLabel {
+    x: float,
+    y: float,
+    text: string,
+    color: color,
+    size: float,
+    anchor-x: float,
+    anchor-y: float,
+    alignment: string,
+    owner-id: string,
+    insertion-ordinal: int,
+    display-order: string,
+}
+
 export global ViewportState {
     // Rust → Slint
     in-out property <image> viewport-texture;
@@ -19,6 +33,8 @@ export global ViewportState {
     /// Multi-line: per-pass GPU ms (cull / shadow / atlas AO / opaque / translucent).
     /// Empty when the `stats` cargo feature is off.
     in-out property <string> perf-gpu-text: "";
+    /// Projected annotation labels in logical viewport coordinates and UI-pixel sizes.
+    in-out property <[ViewportLabel]> labels;
 
     // Slint → Rust
     in-out property <float> mouse-x;

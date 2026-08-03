@@ -65,8 +65,7 @@ pub fn render_frame(
     timings.sync_ms = elapsed_ms(t0);
     timings.sync_detail = gpu.state.last_sync_timings();
     drop(frame);
-    session.registry.clear_all_dirty_molecules();
-    session.registry.clear_all_dirty_maps();
+    session.registry.clear_all_dirty_objects();
 
     let t0 = performance_now_ms();
     // Silhouette setting.

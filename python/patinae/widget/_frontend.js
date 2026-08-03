@@ -295,6 +295,9 @@ export default {
           case "get_names":
             result = wasm.get_object_names();
             break;
+          case "get_label":
+            result = wasm.get_label_object(String(req.params.name || ""));
+            break;
           case "get_movie_state":
             result = wasm.get_movie_state();
             break;

@@ -24,6 +24,7 @@ pub mod map;
 pub mod mesh;
 pub mod sphere;
 pub mod stick;
+pub mod stroke;
 pub mod surface;
 pub mod wboit_composite;
 

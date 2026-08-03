@@ -1,12 +1,14 @@
 //! Display commands: show, hide, enable, disable, color, set_color, bg_color, label
 
+use ahash::{AHashMap, AHashSet};
 use patinae_mol::{three_to_one, Atom, RepMask};
-use patinae_scene::{DirtyFlags, Object};
+use patinae_scene::{AtomAnchor, DirtyFlags, LabelEntity, LabelObject, ObjectType};
 use patinae_select::AtomIndex;
 
 use crate::args::ParsedCommand;
 use crate::command::{ArgHint, Command, CommandContext, CommandRegistry, ViewerLike};
 use crate::command_help;
+use crate::commands::selecting::evaluate_selection;
 use crate::error::{CmdError, CmdResult};
 use crate::helpers::{
     for_each_selected_molecule_mut, resolve_object_names, set_enabled_with_group_awareness,
@@ -82,6 +84,8 @@ impl Command for ShowCommand {
             "show cartoon",
             "show sticks, organic",
             "show surface, chain A",
+            "show labels",
+            "show labels, distance",
         ]
     }
 
@@ -104,6 +108,16 @@ impl Command for ShowCommand {
         } else {
             RepMask::ALL
         };
+
+        if rep == RepMask::LABELS {
+            let affected =
+                set_annotation_label_visibility(ctx.viewer, args.str_arg(1, "selection"), true)?;
+            ctx.viewer.request_redraw();
+            if !ctx.quiet {
+                ctx.print(&format!(" Showing labels ({affected} affected)"));
+            }
+            return Ok(());
+        }
 
         let total_affected = for_each_selected_molecule_mut(
             ctx.viewer,
@@ -161,6 +175,8 @@ impl Command for HideCommand {
             "hide",
             "hide lines",
             "hide sticks, all",
+            "hide labels",
+            "hide labels, all",
         ]
     }
 
@@ -183,6 +199,16 @@ impl Command for HideCommand {
         } else {
             RepMask::ALL
         };
+
+        if rep == RepMask::LABELS {
+            let affected =
+                set_annotation_label_visibility(ctx.viewer, args.str_arg(1, "selection"), false)?;
+            ctx.viewer.request_redraw();
+            if !ctx.quiet {
+                ctx.print(&format!(" Hiding labels ({affected} affected)"));
+            }
+            return Ok(());
+        }
 
         let total_affected = for_each_selected_molecule_mut(
             ctx.viewer,
@@ -207,6 +233,94 @@ impl Command for HideCommand {
 
         Ok(())
     }
+}
+
+/// Routes label representation visibility to semantic annotation objects.
+fn set_annotation_label_visibility(
+    viewer: &mut dyn ViewerLike,
+    selection: Option<&str>,
+    visible: bool,
+) -> CmdResult<usize> {
+    let Some(selection) = selection else {
+        return Ok(viewer.objects_mut().set_label_objects_enabled(visible));
+    };
+
+    let all = matches!(selection, "all" | "*");
+    let selected_owners = match resolve_object_names(viewer.objects(), selection) {
+        ResolvedNames::All => viewer.objects().names().map(str::to_string).collect(),
+        ResolvedNames::Matched(names) => names,
+        ResolvedNames::Unresolved => Vec::new(),
+    }
+    .into_iter()
+    .collect::<AHashSet<_>>();
+    let selected_atoms = if all {
+        AHashMap::new()
+    } else {
+        selected_atom_indices(viewer, selection)?
+    };
+
+    let label_names = viewer
+        .objects()
+        .names()
+        .filter(|name| viewer.objects().get_label(name).is_some())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    let mut affected = 0;
+    for name in label_names {
+        let entity_indices = {
+            let label_object = viewer
+                .objects()
+                .get_label(&name)
+                .expect("collected label object must remain present");
+            label_object
+                .entities()
+                .iter()
+                .enumerate()
+                .filter_map(|(index, entity)| {
+                    let anchor = entity.anchor();
+                    let owner_selected = all || selected_owners.contains(&name);
+                    let atom_selected = !anchor.is_orphaned()
+                        && selected_atoms
+                            .get(&anchor.object_name)
+                            .is_some_and(|indices| indices.contains(&anchor.atom_index));
+                    (owner_selected || atom_selected).then_some(index)
+                })
+                .collect::<Vec<_>>()
+        };
+        if let Some(label_object) = viewer.objects_mut().get_label_mut(&name) {
+            affected += label_object.set_entities_visible(entity_indices, visible);
+        }
+    }
+
+    let measurement_names = viewer
+        .objects()
+        .names()
+        .filter(|name| viewer.objects().get_measurement(name).is_some())
+        .filter(|name| all || selected_owners.contains(*name))
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    for name in measurement_names {
+        if let Some(measurement) = viewer.objects_mut().get_measurement_mut(&name) {
+            affected += measurement.set_entity_labels_visible(0..measurement.len(), visible);
+        }
+    }
+
+    Ok(affected)
+}
+
+fn selected_atom_indices(
+    viewer: &dyn ViewerLike,
+    selection: &str,
+) -> CmdResult<AHashMap<String, AHashSet<AtomIndex>>> {
+    let results = evaluate_selection(viewer, selection)?;
+    let mut selected = AHashMap::new();
+    for (object_name, atom_selection) in results {
+        let indices = atom_selection.indices().collect::<AHashSet<_>>();
+        if !indices.is_empty() {
+            selected.insert(object_name, indices);
+        }
+    }
+    Ok(selected)
 }
 
 // ============================================================================
@@ -265,6 +379,12 @@ impl Command for ShowAsCommand {
                 format!("unknown representation: {}", rep_name),
             )
         })?;
+        if rep == RepMask::LABELS {
+            return Err(CmdError::invalid_arg(
+                "representation",
+                "label primitives are semantic annotations; use 'show labels'",
+            ));
+        }
 
         let total_affected = for_each_selected_molecule_mut(
             ctx.viewer,
@@ -552,13 +672,14 @@ impl Command for ColorCommand {
             .ok_or_else(|| CmdError::missing_argument("color".to_string()))?;
         let selection = args.str_arg_or(1, "selection", "all");
 
-        let color_index: i32 =
-            if let Some(ci) = patinae_color::ColorIndex::from_scheme_name(color_name) {
-                i32::from(ci)
+        let resolved_color =
+            if let Some(color_index) = patinae_color::ColorIndex::from_scheme_name(color_name) {
+                color_index
             } else if let Some(idx) = ctx.viewer.color_index(color_name) {
-                idx as i32
+                patinae_color::ColorIndex::Named(idx)
             } else if let Some(color) = patinae_color::Color::from_hex(color_name) {
-                ctx.viewer.named_palette_mut().set(color_name, color) as i32
+                let index = ctx.viewer.named_palette_mut().set(color_name, color);
+                patinae_color::ColorIndex::Named(index)
             } else {
                 return Err(CmdError::invalid_arg(
                     "color",
@@ -566,6 +687,47 @@ impl Command for ColorCommand {
                 ));
             };
 
+        let annotation_type = ctx
+            .viewer
+            .objects()
+            .get(selection)
+            .map(|object| object.object_type())
+            .filter(|object_type| {
+                matches!(object_type, ObjectType::Measurement | ObjectType::Label)
+            });
+        if let Some(annotation_type) = annotation_type {
+            let patinae_color::ColorIndex::Named(index) = resolved_color else {
+                return Err(CmdError::invalid_arg(
+                    "color",
+                    "annotation objects require a named or hexadecimal color",
+                ));
+            };
+            match annotation_type {
+                ObjectType::Measurement => ctx
+                    .viewer
+                    .objects_mut()
+                    .get_measurement_mut(selection)
+                    .expect("measurement type checked above")
+                    .set_color(patinae_color::ColorIndex::Named(index)),
+                ObjectType::Label => ctx
+                    .viewer
+                    .objects_mut()
+                    .get_label_mut(selection)
+                    .expect("label type checked above")
+                    .set_color(patinae_color::ColorIndex::Named(index)),
+                _ => unreachable!("annotation type filter admits only measurement and label"),
+            }
+            ctx.viewer.request_redraw();
+            if !ctx.quiet {
+                ctx.print(&format!(
+                    " Color: {} {} colored {}",
+                    annotation_type, selection, color_name
+                ));
+            }
+            return Ok(());
+        }
+
+        let color_index = i32::from(resolved_color);
         let total_colored = for_each_selected_molecule_mut(
             ctx.viewer,
             selection,
@@ -846,11 +1008,24 @@ enum LabelExpression {
 fn parse_label_expr(s: &str) -> Result<LabelExpression, CmdError> {
     let trimmed = s.trim();
 
+    if trimmed.is_empty() {
+        return Err(CmdError::invalid_arg(
+            "expression",
+            "label expression must not be empty",
+        ));
+    }
+
     // Check for quoted string literal
     if (trimmed.starts_with('"') && trimmed.ends_with('"'))
         || (trimmed.starts_with('\'') && trimmed.ends_with('\''))
     {
         let inner = &trimmed[1..trimmed.len() - 1];
+        if inner.trim().is_empty() {
+            return Err(CmdError::invalid_arg(
+                "expression",
+                "label expression must not be empty",
+            ));
+        }
         return Ok(LabelExpression::StringLiteral(inner.to_string()));
     }
 
@@ -909,24 +1084,52 @@ fn eval_label_expr(expr: &LabelExpression, atom: &Atom) -> String {
 
 struct LabelCommand;
 
+fn collect_label_entities(
+    viewer: &dyn ViewerLike,
+    selection: &str,
+    expression: &LabelExpression,
+) -> CmdResult<Vec<LabelEntity>> {
+    let results = evaluate_selection(viewer, selection)?;
+    let mut entities = Vec::new();
+    for (object_name, selected) in results {
+        let Some(molecule) = viewer.objects().get_molecule(&object_name) else {
+            continue;
+        };
+        for index in selected.indices() {
+            let Some(atom) = molecule.molecule().get_atom(index) else {
+                continue;
+            };
+            entities.push(LabelEntity::new(
+                AtomAnchor::new(object_name.clone(), index),
+                eval_label_expr(expression, atom),
+            ));
+        }
+    }
+    if entities.is_empty() {
+        return Err(CmdError::selection(format!(
+            "no atoms found in selection '{selection}'"
+        )));
+    }
+    Ok(entities)
+}
+
 impl Command for LabelCommand {
     fn name(&self) -> &str {
         "label"
     }
 
     fn arg_hints(&self) -> &[ArgHint] {
-        &[ArgHint::Selection, ArgHint::LabelProperty]
+        &[ArgHint::Selection, ArgHint::LabelProperty, ArgHint::Object]
     }
 
     command_help! {
         CMD "label"
         DESCRIPTION [
-            "sets text labels on atoms based on a property expression.",
+            "creates atom-anchored semantic label collections.",
         ]
-        REQUIRED []
-        OPTIONAL [
-            { "selection", "string", "atoms to label", "all" },
-            { "expression", "string", "property to display", "none" } => [
+        REQUIRED [
+            { "selection", "string", "atoms to label" },
+            { "expression", "string", "property to display" } => [
                 "name           - atom name",
                 "resn           - residue name",
                 "resi           - residue number/identifier",
@@ -938,15 +1141,17 @@ impl Command for LabelCommand {
                 "formal_charge  - formal charge",
                 "partial_charge - partial charge",
                 "\"string\"       - literal string",
-                "If no expression is given, labels are cleared.",
             ],
+        ]
+        OPTIONAL [
+            { "object", "string", "label object to create or append", "automatic labelNN" },
         ]
         EXAMPLES [
             "label all, name",
             "label chain A, resn",
             "label organic, resi",
             "label sele, \"hello\"",
-            "label              # clear all labels",
+            "label name CA, resn, object=ca_labels",
         ]
     }
 
@@ -955,58 +1160,59 @@ impl Command for LabelCommand {
         ctx: &mut CommandContext<'v, 'r, dyn ViewerLike + 'v>,
         args: &ParsedCommand,
     ) -> CmdResult {
-        let selection = args.str_arg_or(0, "selection", "all");
-        let expr_str = args.str_arg(1, "expression");
+        let selection = args
+            .str_arg(0, "selection")
+            .ok_or_else(|| CmdError::missing_argument("selection"))?;
+        let expression = args
+            .str_arg(1, "expression")
+            .ok_or_else(|| CmdError::missing_argument("expression"))?;
+        let expression = parse_label_expr(expression)?;
 
-        if let Some(expr_str) = expr_str {
-            // Set labels
-            let expr = parse_label_expr(expr_str)?;
-
-            let total_affected = for_each_selected_molecule_mut(
-                ctx.viewer,
-                selection,
-                DirtyFlags::REPS,
-                |mol_obj, selected| {
-                    mol_obj
-                        .state_mut()
-                        .visible_reps
-                        .set_visible(RepMask::LABELS);
-                    let mol_mut = mol_obj.molecule_mut();
-                    for idx in selected.indices() {
-                        if let Some(atom) = mol_mut.get_atom_mut(AtomIndex(idx.0)) {
-                            atom.repr.label = eval_label_expr(&expr, atom);
-                            atom.repr.visible_reps.set_visible(RepMask::LABELS);
-                        }
-                    }
-                },
-            )?;
-
-            if !ctx.quiet {
-                ctx.print(&format!(" Label: {} atoms labeled", total_affected));
+        let requested_name = match args.get_named("object") {
+            None => None,
+            Some(value) => Some(value.as_str().ok_or_else(|| {
+                CmdError::invalid_arg("object", "label object name must be a string")
+            })?),
+        };
+        if let Some(name) = requested_name {
+            let trimmed_name = name.trim();
+            if trimmed_name.is_empty() || matches!(trimmed_name, "\"\"" | "''") {
+                return Err(CmdError::invalid_arg(
+                    "object",
+                    "label object name must not be empty",
+                ));
             }
-        } else {
-            // Clear labels
-            let total_affected = for_each_selected_molecule_mut(
-                ctx.viewer,
-                selection,
-                DirtyFlags::REPS,
-                |mol_obj, selected| {
-                    let mol_mut = mol_obj.molecule_mut();
-                    for idx in selected.indices() {
-                        if let Some(atom) = mol_mut.get_atom_mut(AtomIndex(idx.0)) {
-                            atom.repr.label.clear();
-                            atom.repr.visible_reps.set_hidden(RepMask::LABELS);
-                        }
-                    }
-                },
-            )?;
-
-            if !ctx.quiet {
-                ctx.print(&format!(" Label: {} atoms unlabeled", total_affected));
+            if let Some(existing) = ctx.viewer.objects().get(name) {
+                if ctx.viewer.objects().get_label(name).is_none() {
+                    return Err(CmdError::invalid_arg(
+                        "object",
+                        format!("object '{name}' is {}, not a label", existing.object_type()),
+                    ));
+                }
             }
         }
 
+        let entities = collect_label_entities(ctx.viewer, selection, &expression)?;
+        let count = entities.len();
+        let object_name = requested_name
+            .map(str::to_string)
+            .unwrap_or_else(|| ctx.viewer.objects().first_free_label_name());
+
+        if let Some(label_object) = ctx.viewer.objects_mut().get_label_mut(&object_name) {
+            label_object.extend_entities(entities);
+        } else {
+            ctx.viewer
+                .objects_mut()
+                .add(LabelObject::with_entities(object_name.clone(), entities));
+        }
+
         ctx.viewer.request_redraw();
+
+        if !ctx.quiet {
+            ctx.print(&format!(
+                " Label: {count} atoms labeled in \"{object_name}\""
+            ));
+        }
 
         Ok(())
     }
@@ -1015,14 +1221,20 @@ impl Command for LabelCommand {
 #[cfg(test)]
 mod tests {
     use super::parse_rep;
+    use crate::commands::selecting::evaluate_selection;
+    use crate::error::CmdResult;
     use crate::CommandExecutor;
     use lin_alg::f32::Vec3;
+    use patinae_algos::surface::Grid3D;
     use patinae_color::ThemedPalette;
     use patinae_mol::{Atom, Element, ObjectMolecule, RepMask};
-    use patinae_scene::{MoleculeObject, Session, SessionAdapter};
+    use patinae_scene::{
+        AtomAnchor, GroupObject, LabelEntity, LabelObject, MapObject, MeasurementEntity,
+        MeasurementKind, MeasurementObject, MoleculeObject, Object, Session, SessionAdapter,
+    };
     use patinae_select::{AtomIndex, SelectionResult};
 
-    fn run_display_command(session: &mut Session, command: &str) -> bool {
+    fn execute_display_command(session: &mut Session, command: &str) -> CmdResult<bool> {
         let mut needs_redraw = false;
         {
             let mut adapter = SessionAdapter {
@@ -1032,9 +1244,13 @@ mod tests {
                 needs_redraw: &mut needs_redraw,
                 async_fetch_fn: None,
             };
-            CommandExecutor::new().do_(&mut adapter, command).unwrap();
+            CommandExecutor::new().do_(&mut adapter, command)?;
         }
-        needs_redraw
+        Ok(needs_redraw)
+    }
+
+    fn run_display_command(session: &mut Session, command: &str) -> bool {
+        execute_display_command(session, command).unwrap()
     }
 
     fn cartoon_object_named(name: &str) -> MoleculeObject {
@@ -1090,6 +1306,86 @@ mod tests {
     }
 
     #[test]
+    fn color_named_updates_exact_measurement_material() {
+        let mut session = Session::new();
+        session.registry.add(MeasurementObject::new(
+            "distance",
+            MeasurementKind::Distance,
+        ));
+        let before = session
+            .registry
+            .get_measurement("distance")
+            .unwrap()
+            .revisions()
+            .material;
+
+        assert!(run_display_command(&mut session, "color red, distance"));
+
+        let red = session.named_palette.get_by_name("red").unwrap().0;
+        let measurement = session.registry.get_measurement("distance").unwrap();
+        assert_eq!(
+            measurement.state().color,
+            patinae_color::ColorIndex::Named(red)
+        );
+        assert!(measurement.has_explicit_color());
+        assert!(measurement.revisions().material > before);
+    }
+
+    #[test]
+    fn color_scheme_rejects_exact_measurement_without_mutation() {
+        let mut session = Session::new();
+        session.registry.add(MeasurementObject::new(
+            "distance",
+            MeasurementKind::Distance,
+        ));
+        let before = session
+            .registry
+            .get_measurement("distance")
+            .unwrap()
+            .revisions();
+        let mut needs_redraw = false;
+        let error = {
+            let mut adapter = SessionAdapter {
+                session: &mut session,
+                render_context: None,
+                default_size: (64, 64),
+                needs_redraw: &mut needs_redraw,
+                async_fetch_fn: None,
+            };
+            CommandExecutor::new()
+                .do_(&mut adapter, "color chain, distance")
+                .unwrap_err()
+        };
+
+        assert!(error.to_string().contains("named or hexadecimal"));
+        let measurement = session.registry.get_measurement("distance").unwrap();
+        assert_eq!(measurement.revisions(), before);
+        assert_eq!(
+            measurement.state().color,
+            patinae_color::ColorIndex::default()
+        );
+        assert!(!needs_redraw);
+    }
+
+    #[test]
+    fn color_named_updates_exact_label_material() {
+        let mut session = Session::new();
+        session.registry.add(LabelObject::new("labels"));
+        let before = session.registry.get_label("labels").unwrap().revisions();
+
+        assert!(run_display_command(&mut session, "color red, labels"));
+
+        let red = session.named_palette.get_by_name("red").unwrap().0;
+        let labels = session.registry.get_label("labels").unwrap();
+        assert_eq!(
+            labels.presentation().color(),
+            Some(patinae_color::ColorIndex::Named(red))
+        );
+        assert!(labels.revisions().material > before.material);
+        assert!(labels.revisions().labels > before.labels);
+    }
+
+    #[test]
     fn bg_color_background_alias_without_args_resets_to_theme_background() {
         let mut session = Session::new();
         let theme_bg = session.palette.viewport_bg.to_array();
@@ -1136,5 +1432,239 @@ mod tests {
             .map(|atom| atom.repr.visible_reps)
             .collect();
         assert_eq!(command_atom_reps, helper_atom_reps);
+    }
+
+    #[test]
+    fn label_command_creates_one_ordered_collection_per_invocation() {
+        let mut session = Session::new();
+        session.registry.add(cartoon_object_named("source"));
+
+        run_display_command(&mut session, "label source, name");
+        run_display_command(&mut session, "label source, resi");
+
+        let first = session.registry.get_label("label01").unwrap();
+        assert_eq!(first.len(), 2);
+        assert_eq!(
+            first
+                .entities()
+                .iter()
+                .map(LabelEntity::text)
+                .collect::<Vec<_>>(),
+            vec!["CA", "CB"]
+        );
+        assert_eq!(first.entities()[0].anchor().object_name, "source");
+        assert_eq!(first.entities()[1].anchor().object_name, "source");
+
+        let second = session.registry.get_label("label02").unwrap();
+        assert_eq!(second.len(), 2);
+        assert_eq!(
+            second
+                .entities()
+                .iter()
+                .map(LabelEntity::text)
+                .collect::<Vec<_>>(),
+            vec!["0", "0"]
+        );
+        assert!(session
+            .registry
+            .get_molecule("source")
+            .unwrap()
+            .molecule()
+            .atoms()
+            .all(|atom| atom.repr.label.is_empty()));
+    }
+
+    #[test]
+    fn unnamed_label_uses_first_free_name_in_shared_namespace() {
+        let mut session = Session::new();
+        session.registry.add(cartoon_object_named("label01"));
+        session.registry.add(cartoon_object_named("source"));
+
+        run_display_command(&mut session, "label source, name");
+
+        assert!(session.registry.get_label("label02").is_some());
+        assert!(session.registry.get_molecule("label01").is_some());
+    }
+
+    #[test]
+    fn named_label_appends_duplicate_anchors_without_upsert() {
+        let mut session = Session::new();
+        session.registry.add(cartoon_object_named("source"));
+
+        run_display_command(
+            &mut session,
+            "label name CA, name, object=active_site_labels",
+        );
+        run_display_command(
+            &mut session,
+            "label name CA, resi, object=active_site_labels",
+        );
+
+        let labels = session.registry.get_label("active_site_labels").unwrap();
+        assert_eq!(labels.len(), 2);
+        assert_eq!(
+            labels.entities()[0].anchor().atom_index,
+            labels.entities()[1].anchor().atom_index
+        );
+        assert_eq!(labels.entities()[0].text(), "CA");
+        assert_eq!(labels.entities()[1].text(), "0");
+    }
+
+    #[test]
+    fn label_failures_do_not_mutate_registry_or_consume_name() {
+        let mut session = Session::new();
+        session.registry.add(cartoon_object_named("source"));
+        session
+            .registry
+            .add(MeasurementObject::new("taken", MeasurementKind::Distance));
+        session.registry.add(GroupObject::new("group"));
+        session.registry.add(MapObject::new(
+            "map",
+            Grid3D::from_dims([0.0; 3], [1.0; 3], [1, 1, 1], vec![0.0; 8]),
+        ));
+        let before_len = session.registry.len();
+        let before_measurement = session
+            .registry
+            .get_measurement("taken")
+            .unwrap()
+            .revisions();
+
+        let empty_error = execute_display_command(&mut session, "label name ZZ, name").unwrap_err();
+        assert!(empty_error.to_string().contains("no atoms"));
+        let expression_error =
+            execute_display_command(&mut session, "label source, \"\"").unwrap_err();
+        assert!(expression_error.to_string().contains("expression"));
+        let conflict_error =
+            execute_display_command(&mut session, "label source, name, object=taken").unwrap_err();
+        assert!(conflict_error.to_string().contains("not a label"));
+        for target in ["source", "group", "map"] {
+            let error = execute_display_command(
+                &mut session,
+                &format!("label name CA, name, object={target}"),
+            )
+            .unwrap_err();
+            assert!(error.to_string().contains("not a label"));
+        }
+        let name_error =
+            execute_display_command(&mut session, "label source, name, object=\"\"").unwrap_err();
+        assert!(name_error.to_string().contains("must not be empty"));
+
+        assert_eq!(session.registry.len(), before_len);
+        assert_eq!(
+            session
+                .registry
+                .get_measurement("taken")
+                .unwrap()
+                .revisions(),
+            before_measurement
+        );
+        assert!(session.registry.get_label("label01").is_none());
+
+        run_display_command(&mut session, "label source, name");
+        assert!(session.registry.get_label("label01").is_some());
+    }
+
+    #[test]
+    fn expressionless_label_is_an_error_and_preserves_collections() {
+        let mut session = Session::new();
+        session.registry.add(cartoon_object_named("source"));
+        run_display_command(&mut session, "label source, name");
+        let before = session.registry.get_label("label01").unwrap().revisions();
+
+        let error = execute_display_command(&mut session, "label source").unwrap_err();
+
+        assert!(error.to_string().contains("expression"));
+        let labels = session.registry.get_label("label01").unwrap();
+        assert_eq!(labels.len(), 2);
+        assert_eq!(labels.revisions(), before);
+    }
+
+    #[test]
+    fn label_selection_predicate_reads_semantic_label_text() {
+        let mut session = Session::new();
+        session.registry.add(cartoon_object_named("source"));
+        run_display_command(&mut session, "label name CA, semantic_label");
+
+        let mut needs_redraw = false;
+        let adapter = SessionAdapter {
+            session: &mut session,
+            render_context: None,
+            default_size: (64, 64),
+            needs_redraw: &mut needs_redraw,
+            async_fetch_fn: None,
+        };
+        let selected = evaluate_selection(&adapter, "label semantic_label").unwrap();
+
+        assert_eq!(
+            selected
+                .iter()
+                .map(|(_, result)| result.count())
+                .sum::<usize>(),
+            1
+        );
+        assert_eq!(
+            selected[0].1.indices().collect::<Vec<_>>(),
+            vec![AtomIndex(0)]
+        );
+    }
+
+    #[test]
+    fn show_hide_labels_routes_object_entity_and_measurement_visibility() {
+        let mut session = Session::new();
+        session.registry.add(cartoon_object_named("source"));
+        run_display_command(&mut session, "label source, name");
+
+        let anchors = [AtomIndex(0), AtomIndex(1)]
+            .into_iter()
+            .map(|index| AtomAnchor::new("source", index))
+            .collect::<Vec<_>>();
+        let mut measurement = MeasurementObject::new("distance", MeasurementKind::Distance);
+        measurement
+            .add_entry(MeasurementEntity::new(anchors))
+            .unwrap();
+        measurement
+            .entity_presentation_mut(0)
+            .unwrap()
+            .set_label_visible(true);
+        session.registry.add(measurement);
+
+        run_display_command(&mut session, "hide labels");
+        assert!(!session.registry.get_label("label01").unwrap().is_enabled());
+        assert!(session
+            .registry
+            .get_measurement("distance")
+            .unwrap()
+            .is_enabled());
+
+        run_display_command(&mut session, "show labels");
+        assert!(session.registry.get_label("label01").unwrap().is_enabled());
+
+        run_display_command(&mut session, "hide labels, name CA");
+        let labels = session.registry.get_label("label01").unwrap();
+        assert_eq!(labels.entities()[0].presentation().visible(), Some(false));
+        assert_eq!(labels.entities()[1].presentation().visible(), None);
+
+        run_display_command(&mut session, "hide labels, distance");
+        let measurement = session.registry.get_measurement("distance").unwrap();
+        assert_eq!(
+            measurement.entries()[0].presentation().label_visible(),
+            Some(false)
+        );
+        assert_eq!(measurement.presentation().label_visible(), None);
+        assert!(measurement.is_enabled());
+
+        run_display_command(&mut session, "show labels, all");
+        let labels = session.registry.get_label("label01").unwrap();
+        assert!(labels
+            .entities()
+            .iter()
+            .all(|entity| entity.presentation().visible() == Some(true)));
+        let measurement = session.registry.get_measurement("distance").unwrap();
+        assert_eq!(
+            measurement.entries()[0].presentation().label_visible(),
+            Some(true)
+        );
+        assert_eq!(measurement.presentation().label_visible(), None);
+        assert!(measurement.is_enabled());
     }
 }

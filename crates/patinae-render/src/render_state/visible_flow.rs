@@ -278,6 +278,47 @@ impl RenderState {
         pass.set_bind_group(0, &self.screen.composite_bind_group, &[]);
         pass.draw(0..3, 0..1);
     }
+
+    pub(super) fn record_stroke_overlay(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
+    ) {
+        if self.scene.stroke_draw_order.is_empty() {
+            return;
+        }
+
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("patinae.stroke_overlay_pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: target,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &self.targets.depth,
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                }),
+                stencil_ops: None,
+            }),
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        pass.set_pipeline(&self.geometry.stroke_pipeline.pipeline);
+        pass.set_bind_group(0, &self.ctx.frame.bind_group, &[]);
+        for object_id in &self.scene.stroke_draw_order {
+            if let Some(entry) = self.scene.strokes.get(object_id) {
+                entry.record(&mut pass);
+            }
+        }
+    }
 }
 
 impl RenderState {

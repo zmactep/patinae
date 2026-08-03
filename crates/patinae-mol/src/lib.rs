@@ -73,7 +73,7 @@ pub use dirty::DirtyFlags;
 pub use element::{Element, DEFAULT_COV_RADIUS, DEFAULT_VDW_RADIUS, ELEMENT_COUNT};
 pub use error::{MolError, MolResult};
 pub use flags::{AtomFlags, AtomGeometry, Chirality, Stereo};
-pub use index::{AtomIndex, BondIndex, CoordIndex, StateIndex, INVALID_INDEX};
+pub use index::{AtomIndex, AtomRemap, BondIndex, CoordIndex, StateIndex, INVALID_INDEX};
 pub use iterator::atoms_same_chain_id;
 pub use molecule::{MoleculeBuilder, ObjectMolecule};
 pub use residue::{
@@ -102,7 +102,7 @@ pub mod prelude {
     pub use crate::element::Element;
     pub use crate::error::{MolError, MolResult};
     pub use crate::flags::{AtomFlags, AtomGeometry};
-    pub use crate::index::{AtomIndex, BondIndex, StateIndex};
+    pub use crate::index::{AtomIndex, AtomRemap, BondIndex, StateIndex};
     pub use crate::molecule::{MoleculeBuilder, ObjectMolecule};
     pub use crate::residue::{ChainView, ResidueKey, ResidueView};
     pub use crate::secondary::SecondaryStructure;

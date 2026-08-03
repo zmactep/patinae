@@ -11,9 +11,22 @@ export interface OutputMessage {
 
 export interface ObjectInfo {
   name: string;
-  object_type: "molecule" | "map";
+  object_type: "molecule" | "map" | "measurement" | "label";
   atom_count: number;
   enabled: boolean;
+  measurement_kind: "distance" | "angle" | "dihedral" | null;
+  entity_count: number;
+  has_unresolved_entities: boolean;
+  focus_disabled_reason: string | null;
+  color: [number, number, number];
+  multicolor: boolean;
+  parent_group: string | null;
+  has_representations: boolean;
+  can_focus: boolean;
+  can_color: boolean;
+  can_rename: boolean;
+  can_delete: boolean;
+  can_group: boolean;
 }
 
 export interface SelectionInfo {
@@ -45,7 +58,23 @@ export interface LabelInfo {
   x: number;
   y: number;
   text: string;
-  kind: "atom" | "measurement";
+  color: [number, number, number, number];
+  size: number;
+  alignment:
+    | "bottom-left"
+    | "bottom-center"
+    | "bottom-right"
+    | "center-left"
+    | "center"
+    | "center-right"
+    | "top-left"
+    | "top-center"
+    | "top-right";
+  anchor_x: number;
+  anchor_y: number;
+  owner_id: number;
+  insertion_ordinal: number;
+  display_order: number;
 }
 
 export type PanelSlot = "top" | "right" | "bottom";

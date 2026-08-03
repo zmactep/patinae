@@ -5,10 +5,11 @@ use slint::{ComponentHandle, Model, ModelRc, VecModel};
 
 use patinae_framework::kernel::AppKernel;
 use patinae_framework::model::scene::{
-    SceneColorContext, SceneEntry, SceneMapVisualKind, SceneModel, SceneObjectKind, SidebarColor,
+    SceneColorContext, SceneEntry, SceneMapVisualKind, SceneModel, SceneObjectCapabilities,
+    SceneObjectKind, SidebarColor,
 };
 use patinae_mol::RepMask;
-use patinae_scene::{MoleculeObject, ObjectRegistry};
+use patinae_scene::{MeasurementKind, MoleculeObject, ObjectRegistry};
 
 use crate::{
     AppWindow, ObjectItem, ObjectsState, OverflowMenuItem, SelectionRow, SubchainItem, TopLevelRow,
@@ -24,6 +25,73 @@ enum SelectionLevel {
     Groups,
     Objects,
     Subchains,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SelectedCapabilities {
+    focus: bool,
+    visibility: bool,
+    color: bool,
+    rename: bool,
+    delete: bool,
+    representations: bool,
+    copy: bool,
+    extract: bool,
+    align: bool,
+    orient: bool,
+    remove_atoms: bool,
+    all_annotations: bool,
+}
+
+impl SelectedCapabilities {
+    const fn molecular_selection() -> Self {
+        Self {
+            focus: true,
+            visibility: true,
+            color: true,
+            rename: true,
+            delete: false,
+            representations: true,
+            copy: true,
+            extract: true,
+            align: true,
+            orient: true,
+            remove_atoms: true,
+            all_annotations: false,
+        }
+    }
+
+    const fn from_object(capabilities: SceneObjectCapabilities, kind: SceneObjectKind) -> Self {
+        Self {
+            focus: capabilities.focus,
+            visibility: capabilities.visibility,
+            color: capabilities.color,
+            rename: capabilities.rename,
+            delete: capabilities.delete,
+            representations: capabilities.representations,
+            copy: capabilities.copy,
+            extract: capabilities.extract,
+            align: capabilities.align,
+            orient: capabilities.orient,
+            remove_atoms: capabilities.remove_atoms,
+            all_annotations: matches!(kind, SceneObjectKind::Measurement | SceneObjectKind::Label),
+        }
+    }
+
+    fn intersect(&mut self, other: Self) {
+        self.focus &= other.focus;
+        self.visibility &= other.visibility;
+        self.color &= other.color;
+        self.rename &= other.rename;
+        self.delete &= other.delete;
+        self.representations &= other.representations;
+        self.copy &= other.copy;
+        self.extract &= other.extract;
+        self.align &= other.align;
+        self.orient &= other.orient;
+        self.remove_atoms &= other.remove_atoms;
+        self.all_annotations &= other.all_annotations;
+    }
 }
 
 impl SelectionLevel {
@@ -109,6 +177,7 @@ impl ObjectsBridge {
         let color_ctx = SceneColorContext {
             named_palette: &kernel.session.named_palette,
             palette: &kernel.session.palette,
+            settings: &kernel.session.settings,
         };
 
         let scene_changed = kernel.scene.sync(&kernel.session.registry, &color_ctx);
@@ -140,7 +209,7 @@ impl ObjectsBridge {
 
         if selection_state_changed {
             let os = window.global::<ObjectsState>();
-            self.update_slint_selection(&os);
+            self.update_slint_selection(&os, &kernel.scene);
         }
     }
 
@@ -216,25 +285,41 @@ impl ObjectsBridge {
         let subchains: Vec<SubchainItem> =
             subchains.into_iter().take(MAX_VISIBLE_SUBCHAINS).collect();
 
-        let obj_color = obj
-            .subchains
-            .first()
-            .map(|s| sidebar_color_to_slint(s.color))
-            .unwrap_or(slint::Color::from_rgb_u8(255, 255, 255));
-
         ObjectItem {
             name: obj.name.clone().into(),
             object_type: match obj.kind {
                 SceneObjectKind::Molecule => "molecule".into(),
                 SceneObjectKind::Map => "map".into(),
+                SceneObjectKind::Measurement => "measurement".into(),
+                SceneObjectKind::Label => "label".into(),
             },
             object_icon_kind: object_icon_kind(obj).into(),
+            measurement_kind: measurement_kind_name(obj.measurement_kind).into(),
+            entity_count: i32::try_from(obj.entity_count).unwrap_or(i32::MAX),
+            has_unresolved_entities: obj.has_unresolved_entities,
+            focus_disabled_reason: obj
+                .focus_disabled_reason
+                .as_deref()
+                .unwrap_or_default()
+                .into(),
             enabled: obj.enabled,
             expanded: obj.expanded,
             selected: self.selected_objects.contains(&obj.name),
             atom_count: obj.subchains.iter().map(|s| s.atom_count).sum::<usize>() as i32,
-            color: obj_color,
-            has_representations: obj.kind == SceneObjectKind::Molecule,
+            color: sidebar_color_to_slint(obj.color),
+            multicolor: matches!(obj.color, SidebarColor::Multicolor),
+            has_representations: obj.capabilities.representations,
+            can_color: obj.capabilities.color,
+            can_copy: obj.capabilities.copy,
+            can_extract: obj.capabilities.extract,
+            can_align: obj.capabilities.align,
+            can_orient: obj.capabilities.orient,
+            can_remove_atoms: obj.capabilities.remove_atoms,
+            can_delete: obj.capabilities.delete,
+            can_rename: obj.capabilities.rename,
+            can_group: obj.capabilities.grouping,
+            can_focus: obj.capabilities.focus,
+            can_toggle: obj.capabilities.visibility,
             subchains: ModelRc::from(Rc::new(VecModel::from(subchains))),
             overflow_count,
         }
@@ -366,10 +451,16 @@ impl ObjectsBridge {
         }
     }
 
-    fn update_slint_selection(&self, os: &ObjectsState) {
+    fn update_slint_selection(&self, os: &ObjectsState, scene: &SceneModel) {
         os.set_selected_count(self.selected_count());
         os.set_selection_level(self.selection_level.as_str().into());
         os.set_selected_selection_count(self.selected_selections.len() as i32);
+        let capabilities = self.selected_capabilities(scene);
+        os.set_action_can_focus(capabilities.is_some_and(|value| value.focus));
+        os.set_action_can_orient(capabilities.is_some_and(|value| value.orient));
+        os.set_action_can_center(capabilities.is_some_and(|value| value.focus));
+        os.set_action_can_toggle(capabilities.is_some_and(|value| value.visibility));
+        os.set_action_can_overflow(capabilities.is_some());
         // Rebuild model to reflect selection flags
         // (we need to update selected flags in the existing model)
         self.update_selection_flags_in_model();
@@ -589,12 +680,51 @@ impl ObjectsBridge {
         }
     }
 
-    fn compute_overflow_menu(&self) -> Vec<OverflowMenuItem> {
+    fn selected_capabilities(&self, scene: &SceneModel) -> Option<SelectedCapabilities> {
+        let mut selected: Option<SelectedCapabilities> = None;
+        let mut include = |capabilities| match &mut selected {
+            Some(current) => current.intersect(capabilities),
+            None => selected = Some(capabilities),
+        };
+
+        for group_name in &self.selected_groups {
+            if let Some(group) = scene.get_group(group_name) {
+                if group.children.is_empty() {
+                    include(SelectedCapabilities::molecular_selection());
+                } else {
+                    for child in &group.children {
+                        include(SelectedCapabilities::from_object(
+                            child.capabilities,
+                            child.kind,
+                        ));
+                    }
+                }
+            }
+        }
+        for object_name in &self.selected_objects {
+            if let Some(object) = scene.get(object_name) {
+                include(SelectedCapabilities::from_object(
+                    object.capabilities,
+                    object.kind,
+                ));
+            }
+        }
+        if !self.selected_subchains.is_empty() || !self.selected_selections.is_empty() {
+            include(SelectedCapabilities::molecular_selection());
+        }
+
+        selected
+    }
+
+    fn compute_overflow_menu(&self, scene: &SceneModel) -> Vec<OverflowMenuItem> {
         let total = self.selected_groups.len()
             + self.selected_objects.len()
             + self.selected_subchains.len()
             + self.selected_selections.len();
         let is_multi = total > 1;
+        let Some(capabilities) = self.selected_capabilities(scene) else {
+            return Vec::new();
+        };
 
         let is_chain_or_sel = matches!(self.selection_level, SelectionLevel::Subchains)
             || (self.selection_level == SelectionLevel::None
@@ -602,7 +732,7 @@ impl ObjectsBridge {
 
         let mut items = Vec::new();
 
-        if is_multi {
+        if is_multi && capabilities.align {
             items.push(OverflowMenuItem {
                 action: "align".into(),
                 label: "Align".into(),
@@ -610,7 +740,7 @@ impl ObjectsBridge {
             });
         }
 
-        if !is_multi {
+        if !is_multi && capabilities.rename {
             items.push(OverflowMenuItem {
                 action: "rename".into(),
                 label: "Rename".into(),
@@ -618,18 +748,20 @@ impl ObjectsBridge {
             });
         }
 
-        if is_chain_or_sel {
+        if is_chain_or_sel && capabilities.copy {
             items.push(OverflowMenuItem {
                 action: "copy".into(),
                 label: "Copy".into(),
                 disabled: false,
             });
-            items.push(OverflowMenuItem {
-                action: "extract".into(),
-                label: "Extract".into(),
-                disabled: false,
-            });
-        } else {
+            if capabilities.extract {
+                items.push(OverflowMenuItem {
+                    action: "extract".into(),
+                    label: "Extract".into(),
+                    disabled: false,
+                });
+            }
+        } else if capabilities.copy {
             items.push(OverflowMenuItem {
                 action: "separator".into(),
                 label: "".into(),
@@ -642,28 +774,41 @@ impl ObjectsBridge {
             });
         }
 
-        items.push(OverflowMenuItem {
-            action: "remove".into(),
-            label: "Remove".into(),
-            disabled: false,
-        });
+        if capabilities.remove_atoms {
+            items.push(OverflowMenuItem {
+                action: "remove".into(),
+                label: "Remove".into(),
+                disabled: false,
+            });
+        } else if capabilities.all_annotations && capabilities.delete {
+            items.push(OverflowMenuItem {
+                action: "delete".into(),
+                label: "Delete".into(),
+                disabled: false,
+            });
+        }
 
-        // Always show Color and Representation at the bottom
-        items.push(OverflowMenuItem {
-            action: "separator".into(),
-            label: "".into(),
-            disabled: false,
-        });
-        items.push(OverflowMenuItem {
-            action: "color".into(),
-            label: "Color".into(),
-            disabled: false,
-        });
-        items.push(OverflowMenuItem {
-            action: "representation".into(),
-            label: "Representation".into(),
-            disabled: false,
-        });
+        if capabilities.color || capabilities.representations {
+            items.push(OverflowMenuItem {
+                action: "separator".into(),
+                label: "".into(),
+                disabled: false,
+            });
+        }
+        if capabilities.color {
+            items.push(OverflowMenuItem {
+                action: "color".into(),
+                label: "Color".into(),
+                disabled: false,
+            });
+        }
+        if capabilities.representations {
+            items.push(OverflowMenuItem {
+                action: "representation".into(),
+                label: "Representation".into(),
+                disabled: false,
+            });
+        }
 
         items
     }
@@ -703,10 +848,29 @@ impl ObjectsBridge {
 }
 
 fn object_icon_kind(obj: &patinae_framework::model::scene::SceneObject) -> &'static str {
+    if let Some(kind) = obj.measurement_kind {
+        return match kind {
+            MeasurementKind::Distance => "measurement-distance",
+            MeasurementKind::Angle => "measurement-angle",
+            MeasurementKind::Dihedral => "measurement-dihedral",
+        };
+    }
+    if obj.kind == SceneObjectKind::Label {
+        return "label";
+    }
     match obj.map_visual_kind {
         Some(SceneMapVisualKind::Source) => "map-source",
         Some(SceneMapVisualKind::Isomesh) => "map-isomesh",
         Some(SceneMapVisualKind::Isosurface) => "map-isosurface",
+        None => "",
+    }
+}
+
+fn measurement_kind_name(kind: Option<MeasurementKind>) -> &'static str {
+    match kind {
+        Some(MeasurementKind::Distance) => "distance",
+        Some(MeasurementKind::Angle) => "angle",
+        Some(MeasurementKind::Dihedral) => "dihedral",
         None => "",
     }
 }
@@ -1038,6 +1202,12 @@ fn open_pill_popover(os: &ObjectsState, kind: &str, target: &str) {
     os.set_popover_kind(kind.into());
 }
 
+fn uses_solid_color_popover(scene: &SceneModel, object_name: &str) -> bool {
+    scene
+        .get(object_name)
+        .is_some_and(|object| object.capabilities.color && !object.capabilities.representations)
+}
+
 /// Open the name-input popup (rename / copy / extract).
 fn open_name_popup(os: &ObjectsState, action: &str, target: &str, short: &str) {
     let (suffix, title_label) = match action {
@@ -1282,7 +1452,7 @@ pub fn setup_callbacks(app: Rc<RefCell<crate::app::App>>, window: &AppWindow) {
             let order = visible_order_groups(&a.kernel.scene);
             a.objects.click_groups(name, &order, shift, meta);
 
-            a.objects.update_slint_selection(&os);
+            a.objects.update_slint_selection(&os, &a.kernel.scene);
         });
     }
 
@@ -1299,7 +1469,7 @@ pub fn setup_callbacks(app: Rc<RefCell<crate::app::App>>, window: &AppWindow) {
             let order = visible_order_objects(&a.kernel.scene);
             a.objects.click_objects(name, &order, shift, meta);
 
-            a.objects.update_slint_selection(&os);
+            a.objects.update_slint_selection(&os, &a.kernel.scene);
         });
     }
 
@@ -1329,7 +1499,7 @@ pub fn setup_callbacks(app: Rc<RefCell<crate::app::App>>, window: &AppWindow) {
                 let order = visible_order_subchains(&a.kernel.scene);
                 a.objects.click_subchains(target, key, &order, shift, meta);
 
-                a.objects.update_slint_selection(&os);
+                a.objects.update_slint_selection(&os, &a.kernel.scene);
             },
         );
     }
@@ -1369,7 +1539,7 @@ pub fn setup_callbacks(app: Rc<RefCell<crate::app::App>>, window: &AppWindow) {
             let order = visible_order_selections(&a.objects);
             a.objects.click_selections(name, &order, shift, meta);
 
-            a.objects.update_slint_selection(&os);
+            a.objects.update_slint_selection(&os, &a.kernel.scene);
         });
     }
 
@@ -1408,6 +1578,7 @@ pub fn setup_callbacks(app: Rc<RefCell<crate::app::App>>, window: &AppWindow) {
                 }
 
                 if source == "selection" {
+                    os.set_popover_solid_only(false);
                     // Selection-sourced popover: target is the selection name
                     if kind == "R" {
                         let a = app.borrow();
@@ -1435,12 +1606,18 @@ pub fn setup_callbacks(app: Rc<RefCell<crate::app::App>>, window: &AppWindow) {
                     // Object/subchain-sourced popover
                     let target = build_popover_target(&obj_name, &selector_clause);
                     let label = build_popover_label(&obj_name, &chain_id, &subchain_label);
+                    let solid_only = {
+                        let a = app.borrow();
+                        uses_solid_color_popover(&a.kernel.scene, &obj_name)
+                    };
+                    os.set_popover_solid_only(solid_only);
 
                     // Reset scope to "all" when landing on a disabled scope button.
                     let current_scope = os.get_popover_scope().to_string();
                     let is_bio = subchain_kind.is_empty() || subchain_kind == "biopolymer";
                     let is_bio_or_organic = is_bio || subchain_kind == "organic";
-                    if (!is_bio && current_scope == "cartoon")
+                    if solid_only
+                        || (!is_bio && current_scope == "cartoon")
                         || (!is_bio_or_organic && current_scope == "all-c")
                     {
                         os.set_popover_scope("all".into());
@@ -1554,7 +1731,14 @@ pub fn setup_callbacks(app: Rc<RefCell<crate::app::App>>, window: &AppWindow) {
         let app = app.clone();
         os.on_action_zoom(move || {
             let mut a = app.borrow_mut();
-            if let Some(target) = a.objects.collect_selected_target() {
+            let can_focus = a
+                .objects
+                .selected_capabilities(&a.kernel.scene)
+                .is_some_and(|capabilities| capabilities.focus);
+            if can_focus {
+                let Some(target) = a.objects.collect_selected_target() else {
+                    return;
+                };
                 a.kernel.bus.execute_command(format!("zoom {}", target));
             }
         });
@@ -1565,7 +1749,14 @@ pub fn setup_callbacks(app: Rc<RefCell<crate::app::App>>, window: &AppWindow) {
         let app = app.clone();
         os.on_action_orient(move || {
             let mut a = app.borrow_mut();
-            if let Some(target) = a.objects.collect_selected_target() {
+            let can_orient = a
+                .objects
+                .selected_capabilities(&a.kernel.scene)
+                .is_some_and(|capabilities| capabilities.orient);
+            if can_orient {
+                let Some(target) = a.objects.collect_selected_target() else {
+                    return;
+                };
                 a.kernel.bus.execute_command(format!("orient {}", target));
             }
         });
@@ -1576,7 +1767,14 @@ pub fn setup_callbacks(app: Rc<RefCell<crate::app::App>>, window: &AppWindow) {
         let app = app.clone();
         os.on_action_center(move || {
             let mut a = app.borrow_mut();
-            if let Some(target) = a.objects.collect_selected_target() {
+            let can_focus = a
+                .objects
+                .selected_capabilities(&a.kernel.scene)
+                .is_some_and(|capabilities| capabilities.focus);
+            if can_focus {
+                let Some(target) = a.objects.collect_selected_target() else {
+                    return;
+                };
                 a.kernel.bus.execute_command(format!("center {}", target));
             }
         });
@@ -1587,6 +1785,13 @@ pub fn setup_callbacks(app: Rc<RefCell<crate::app::App>>, window: &AppWindow) {
         let app = app.clone();
         os.on_action_toggle(move || {
             let mut a = app.borrow_mut();
+            let can_toggle = a
+                .objects
+                .selected_capabilities(&a.kernel.scene)
+                .is_some_and(|capabilities| capabilities.visibility);
+            if !can_toggle {
+                return;
+            }
 
             // Toggle level-based selections (groups/objects)
             match a.objects.selection_level {
@@ -1636,7 +1841,7 @@ pub fn setup_callbacks(app: Rc<RefCell<crate::app::App>>, window: &AppWindow) {
                 return;
             }
 
-            let items = a.objects.compute_overflow_menu();
+            let items = a.objects.compute_overflow_menu(&a.kernel.scene);
             let model: Rc<VecModel<OverflowMenuItem>> = Rc::new(VecModel::from(items));
             os.set_overflow_menu_items(ModelRc::from(model));
             os.set_popover_kind("M".into());
@@ -1652,40 +1857,60 @@ pub fn setup_callbacks(app: Rc<RefCell<crate::app::App>>, window: &AppWindow) {
             let Some(w) = weak.upgrade() else { return };
             let os = w.global::<ObjectsState>();
             let action = action.to_string();
+            let Some(capabilities) = a.objects.selected_capabilities(&a.kernel.scene) else {
+                return;
+            };
             let Some(target) = a.objects.collect_selected_target() else {
                 return;
             };
             let short = ObjectsBridge::truncate_name(&target, 28);
 
             match action.as_str() {
-                "rename" => open_name_popup(&os, "rename", &target, &short),
-                "copy" => open_name_popup(&os, "copy", &target, &short),
-                "extract" => open_name_popup(&os, "extract", &target, &short),
-                "remove" => {
+                "rename" if capabilities.rename => open_name_popup(&os, "rename", &target, &short),
+                "copy" if capabilities.copy => open_name_popup(&os, "copy", &target, &short),
+                "extract" if capabilities.extract => {
+                    open_name_popup(&os, "extract", &target, &short)
+                }
+                "remove" if capabilities.remove_atoms => {
                     let cmd = format!("remove {}", target);
                     a.kernel.bus.execute_command(&cmd);
                     os.set_popover_kind("".into());
                 }
-                "align" => {
+                "delete" if capabilities.all_annotations && capabilities.delete => {
+                    let targets: Vec<String> = a
+                        .objects
+                        .selected_groups
+                        .iter()
+                        .chain(&a.objects.selected_objects)
+                        .cloned()
+                        .collect();
+                    for name in targets {
+                        a.kernel.bus.execute_command(format!("delete {}", name));
+                    }
+                    os.set_popover_kind("".into());
+                }
+                "align" if capabilities.align => {
                     if let Some((mobile, fixed)) = a.objects.collect_align_targets() {
                         let cmd = format!("align {}, {}", mobile, fixed);
                         a.kernel.bus.execute_command(&cmd);
                     }
                     os.set_popover_kind("".into());
                 }
-                "color" => {
+                "color" if capabilities.color => {
                     if os.get_popover_kind() == "C" {
                         os.set_popover_kind("".into());
                         return;
                     }
                     os.set_popover_scope("all".into());
+                    os.set_popover_solid_only(!capabilities.representations);
                     open_pill_popover(&os, "C", &target);
                 }
-                "representation" => {
+                "representation" if capabilities.representations => {
                     if os.get_popover_kind() == "R" {
                         os.set_popover_kind("".into());
                         return;
                     }
+                    os.set_popover_solid_only(false);
                     set_active_reps_for_multi(&os, &a.kernel, &a.objects);
                     open_pill_popover(&os, "R", &target);
                 }
@@ -1727,7 +1952,7 @@ pub fn setup_callbacks(app: Rc<RefCell<crate::app::App>>, window: &AppWindow) {
                 a.objects.selection_level = SelectionLevel::None;
                 a.objects.anchor = None;
                 a.objects.selection_anchor = None;
-                a.objects.update_slint_selection(&os);
+                a.objects.update_slint_selection(&os, &a.kernel.scene);
             }
 
             os.set_popover_kind("".into());
@@ -1772,6 +1997,173 @@ mod tests {
             entry_index: 0,
             selector_clause: clause.into(),
         }
+    }
+
+    fn capabilities_for(kind: SceneObjectKind) -> SceneObjectCapabilities {
+        let annotation = matches!(kind, SceneObjectKind::Measurement | SceneObjectKind::Label);
+        SceneObjectCapabilities {
+            focus: true,
+            visibility: true,
+            color: true,
+            rename: true,
+            delete: true,
+            grouping: true,
+            representations: kind == SceneObjectKind::Molecule,
+            copy: !annotation,
+            extract: !annotation,
+            align: !annotation,
+            orient: !annotation,
+            remove_atoms: !annotation,
+        }
+    }
+
+    fn scene_object(
+        name: &str,
+        kind: SceneObjectKind,
+    ) -> patinae_framework::model::scene::SceneObject {
+        patinae_framework::model::scene::SceneObject {
+            name: name.to_string(),
+            kind,
+            map_visual_kind: None,
+            measurement_kind: (kind == SceneObjectKind::Measurement)
+                .then_some(MeasurementKind::Distance),
+            entity_count: usize::from(matches!(
+                kind,
+                SceneObjectKind::Measurement | SceneObjectKind::Label
+            )),
+            has_unresolved_entities: false,
+            focus_disabled_reason: None,
+            capabilities: capabilities_for(kind),
+            color: SidebarColor::Other,
+            enabled: true,
+            expanded: false,
+            subchains: Vec::new(),
+        }
+    }
+
+    fn unresolved_annotation(
+        name: &str,
+        kind: SceneObjectKind,
+    ) -> patinae_framework::model::scene::SceneObject {
+        let mut object = scene_object(name, kind);
+        object.has_unresolved_entities = true;
+        object.focus_disabled_reason = Some("No resolvable anchors".to_string());
+        object.capabilities.focus = false;
+        object
+    }
+
+    fn annotation_kinds() -> [SceneObjectKind; 2] {
+        [SceneObjectKind::Measurement, SceneObjectKind::Label]
+    }
+
+    fn assert_annotation_overflow(kind: SceneObjectKind) {
+        let mut scene = SceneModel::new();
+        scene
+            .entries
+            .push(SceneEntry::Object(scene_object("annotation", kind)));
+        let mut bridge = ObjectsBridge::new();
+        bridge.selection_level = SelectionLevel::Objects;
+        bridge.selected_objects.push("annotation".to_string());
+
+        let capabilities = bridge
+            .selected_capabilities(&scene)
+            .expect("annotation capabilities");
+        assert!(capabilities.focus);
+        assert!(capabilities.visibility);
+        assert!(capabilities.color);
+        assert!(!capabilities.orient);
+        assert!(!capabilities.remove_atoms);
+
+        let actions = action_names(&bridge.compute_overflow_menu(&scene));
+        assert!(actions.iter().any(|action| action == "rename"));
+        assert!(actions.iter().any(|action| action == "delete"));
+        assert!(actions.iter().any(|action| action == "color"));
+        for hidden in ["remove", "copy", "extract", "align", "representation"] {
+            assert!(!actions.iter().any(|action| action == hidden), "{hidden}");
+        }
+    }
+
+    #[test]
+    fn annotation_overflow_uses_delete_and_hides_molecular_actions() {
+        for kind in annotation_kinds() {
+            assert_annotation_overflow(kind);
+        }
+    }
+
+    #[test]
+    fn unresolved_annotations_disable_focus_but_keep_management_actions() {
+        for kind in annotation_kinds() {
+            let mut scene = SceneModel::new();
+            scene.entries.push(SceneEntry::Object(unresolved_annotation(
+                "annotation",
+                kind,
+            )));
+            let mut bridge = ObjectsBridge::new();
+            bridge.selection_level = SelectionLevel::Objects;
+            bridge.selected_objects.push("annotation".to_string());
+            let capabilities = bridge
+                .selected_capabilities(&scene)
+                .expect("annotation capabilities");
+            assert!(!capabilities.focus);
+            assert!(capabilities.visibility);
+            assert!(capabilities.color);
+            assert!(capabilities.delete);
+        }
+    }
+
+    #[test]
+    fn label_icon_uses_annotation_key() {
+        let object = scene_object("labels", SceneObjectKind::Label);
+        assert_eq!(object_icon_kind(&object), "label");
+    }
+
+    fn action_names(items: &[OverflowMenuItem]) -> Vec<String> {
+        items.iter().map(|item| item.action.to_string()).collect()
+    }
+
+    #[test]
+    fn molecule_overflow_preserves_atomic_remove_and_representation_actions() {
+        let mut scene = SceneModel::new();
+        scene.entries.push(SceneEntry::Object(scene_object(
+            "mol",
+            SceneObjectKind::Molecule,
+        )));
+        let mut bridge = ObjectsBridge::new();
+        bridge.selection_level = SelectionLevel::Objects;
+        bridge.selected_objects.push("mol".to_string());
+
+        let actions = action_names(&bridge.compute_overflow_menu(&scene));
+        assert!(actions.iter().any(|action| action == "remove"));
+        assert!(actions.iter().any(|action| action == "copy"));
+        assert!(actions.iter().any(|action| action == "representation"));
+        assert!(!actions.iter().any(|action| action == "delete"));
+    }
+
+    #[test]
+    fn measurement_icon_keys_distinguish_all_three_kinds() {
+        let mut object = scene_object("m", SceneObjectKind::Measurement);
+        object.measurement_kind = Some(MeasurementKind::Distance);
+        assert_eq!(object_icon_kind(&object), "measurement-distance");
+        object.measurement_kind = Some(MeasurementKind::Angle);
+        assert_eq!(object_icon_kind(&object), "measurement-angle");
+        object.measurement_kind = Some(MeasurementKind::Dihedral);
+        assert_eq!(object_icon_kind(&object), "measurement-dihedral");
+    }
+
+    #[test]
+    fn measurement_color_popover_uses_only_solid_colors() {
+        let mut scene = SceneModel::new();
+        scene.entries.push(SceneEntry::Object(scene_object(
+            "distance",
+            SceneObjectKind::Measurement,
+        )));
+        scene.entries.push(SceneEntry::Object(scene_object(
+            "molecule",
+            SceneObjectKind::Molecule,
+        )));
+
+        assert!(uses_solid_color_popover(&scene, "distance"));
+        assert!(!uses_solid_color_popover(&scene, "molecule"));
     }
 
     #[test]

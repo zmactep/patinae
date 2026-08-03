@@ -481,6 +481,7 @@ macro_rules! __patinae_settings_root_manifest {
                 behavior: BehaviorSettings,
                 ssao: SsaoSettings,
                 fxaa: FxaaSettings,
+                measurement: MeasurementSettings,
             }
             object {
                 object: ObjectSettings => ObjectSettingOverrides,

@@ -24,16 +24,23 @@
 //! indexed by `AtomIndex`. The renderer applies per-rep alpha (e.g.
 //! `sphere_transparency`) on top.
 
+mod annotations;
 mod cache;
 mod colors;
 mod frame;
 mod markers;
 mod objects;
 mod picking;
+mod strokes;
 
+pub use annotations::{
+    project_annotation_labels, ProjectedAnnotationLabel, ProjectedSceneLabels,
+    ResolvedSceneAnnotations,
+};
 pub use cache::{CachedRenderFrame, CachedRenderScene};
 pub use colors::{resolve_setting_color, ResolvedSceneColors};
 pub use frame::{frame_uniforms_from_camera, frame_uniforms_from_session};
 pub use markers::ResolvedSceneMarkers;
 pub use objects::{visit_render_objects, visit_render_scene};
 pub use picking::resolve_pick;
+pub use strokes::ResolvedSceneStrokes;

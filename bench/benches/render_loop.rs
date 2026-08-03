@@ -30,6 +30,7 @@ use patinae_render::{
     bytes_to_gib, required_limits_for_memory_policy, select_render_memory_policy, ObjectId,
     PickingMode, RenderConfig, RenderInput, RenderMemoryPolicy, RenderMemoryProfile,
     RenderMemorySelectionInput, RenderObjectInput, RenderState, RenderSyncTimings, SceneLod,
+    IDENTITY_TRANSFORM,
 };
 use patinae_settings::{ResolvedSettings, Settings};
 
@@ -630,6 +631,7 @@ fn run_scene_store_churn(state: &mut RenderState, input: SceneStoreChurnInput<'_
             object_id: ObjectId(1),
             molecule: active_mol,
             coord_set: active_coord,
+            transform: IDENTITY_TRANSFORM,
             visible_reps: input.visible,
             draw_reps: input.visible,
             object_settings: None,
@@ -644,6 +646,7 @@ fn run_scene_store_churn(state: &mut RenderState, input: SceneStoreChurnInput<'_
         let render_input = RenderInput {
             objects: std::slice::from_ref(&object_input),
             maps: &[],
+            strokes: &[],
             settings: input.settings,
             lod,
         };
@@ -655,6 +658,7 @@ fn run_scene_store_churn(state: &mut RenderState, input: SceneStoreChurnInput<'_
         object_id: ObjectId(1),
         molecule: input.mol,
         coord_set: input.coord,
+        transform: IDENTITY_TRANSFORM,
         visible_reps: input.visible,
         draw_reps: input.visible,
         object_settings: None,
@@ -669,6 +673,7 @@ fn run_scene_store_churn(state: &mut RenderState, input: SceneStoreChurnInput<'_
     let restore_render_input = RenderInput {
         objects: std::slice::from_ref(&restore_input),
         maps: &[],
+        strokes: &[],
         settings: input.settings,
         lod: original_lod,
     };
@@ -933,6 +938,7 @@ fn bench_render_loop(c: &mut Criterion) {
         object_id: ObjectId(1),
         molecule: &mol,
         coord_set: &coord,
+        transform: IDENTITY_TRANSFORM,
         visible_reps: visible,
         draw_reps: visible,
         object_settings: None,
@@ -947,6 +953,7 @@ fn bench_render_loop(c: &mut Criterion) {
     let initial_render_input = RenderInput {
         objects: std::slice::from_ref(&input),
         maps: &[],
+        strokes: &[],
         settings: &settings,
         lod,
     };
@@ -990,6 +997,7 @@ fn bench_render_loop(c: &mut Criterion) {
             object_id: ObjectId(1),
             molecule: &mol,
             coord_set: &coord,
+            transform: IDENTITY_TRANSFORM,
             visible_reps: visible,
             draw_reps: hidden_draw,
             object_settings: None,
@@ -1004,6 +1012,7 @@ fn bench_render_loop(c: &mut Criterion) {
         let hide_render_input = RenderInput {
             objects: std::slice::from_ref(&hide_input),
             maps: &[],
+            strokes: &[],
             settings: &settings,
             lod,
         };
@@ -1014,6 +1023,7 @@ fn bench_render_loop(c: &mut Criterion) {
             object_id: ObjectId(1),
             molecule: &mol,
             coord_set: &coord,
+            transform: IDENTITY_TRANSFORM,
             visible_reps: visible,
             draw_reps: visible,
             object_settings: None,
@@ -1028,6 +1038,7 @@ fn bench_render_loop(c: &mut Criterion) {
         let show_render_input = RenderInput {
             objects: std::slice::from_ref(&show_input),
             maps: &[],
+            strokes: &[],
             settings: &settings,
             lod,
         };
@@ -1046,6 +1057,7 @@ fn bench_render_loop(c: &mut Criterion) {
                 object_id: ObjectId(1),
                 molecule: &mol,
                 coord_set: &coord,
+                transform: IDENTITY_TRANSFORM,
                 visible_reps: visible,
                 draw_reps: visible,
                 object_settings: None,
@@ -1060,6 +1072,7 @@ fn bench_render_loop(c: &mut Criterion) {
             state.sync(&RenderInput {
                 objects: std::slice::from_ref(&frame_input),
                 maps: &[],
+                strokes: &[],
                 settings: &settings,
                 lod,
             });
@@ -1119,6 +1132,7 @@ fn bench_render_loop(c: &mut Criterion) {
                 object_id: ObjectId(1),
                 molecule: &mol,
                 coord_set: &coord,
+                transform: IDENTITY_TRANSFORM,
                 visible_reps: visible,
                 draw_reps: visible,
                 object_settings: None,
@@ -1133,6 +1147,7 @@ fn bench_render_loop(c: &mut Criterion) {
             state.sync(&RenderInput {
                 objects: std::slice::from_ref(&frame_input),
                 maps: &[],
+                strokes: &[],
                 settings: &settings,
                 lod,
             });

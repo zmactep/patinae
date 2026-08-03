@@ -37,5 +37,8 @@ image = { workspace = true, optional = true }
 serde = { workspace = true }
 web-time = "1"
 
+[dev-dependencies]
+serde_json.workspace = true
+
 [lints]
 workspace = true

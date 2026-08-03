@@ -12,6 +12,7 @@ The ``cmd`` object is created lazily on first access.
 import sys
 
 from ._cmd import Cmd
+from ._labels import LabelAnchor, LabelEntity, LabelObject, LabelRevisions
 from ._patinae import (
     Atom,
     Bond,
@@ -44,6 +45,10 @@ __all__ = [
     "CoordSet",
     "Color",
     "SelectionResult",
+    "LabelAnchor",
+    "LabelEntity",
+    "LabelObject",
+    "LabelRevisions",
     "PatinaeError",
     "SelectionError",
     "mol",

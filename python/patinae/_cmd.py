@@ -76,6 +76,22 @@ class Cmd:
         """Set background color."""
         self._backend.execute(f"bg_color {color}")
 
+    def label(self, selection, expression, object=None, quiet=True):
+        """Create or append an atom-anchored label collection.
+
+        ``expression`` uses the Patinae label expression syntax. Property
+        names such as ``name`` or ``resi`` are stored at creation time. A
+        literal string must include its command quotes, for example
+        ``'\"active site\"'``.
+
+        Omitting ``object`` creates a new auto-named ``LabelObject``. Passing
+        an existing label object name appends entities in selection order.
+        """
+        cmd_str = f"label {selection}, {expression}"
+        if object is not None:
+            cmd_str += f", object={object}"
+        self._backend.execute(cmd_str, quiet)
+
     # =====================================================================
     # Selections
     # =====================================================================
@@ -255,6 +271,15 @@ class Cmd:
     def get_model(self, name):
         """Get a molecular object by name."""
         return self._backend.get_model(name)
+
+    def get_label(self, name):
+        """Get an immutable snapshot of a first-class label object."""
+        from ._labels import LabelObject
+
+        value = self._backend.get_label(name)
+        if isinstance(value, LabelObject):
+            return value
+        return LabelObject.from_mapping(value)
 
     # =====================================================================
     # Settings

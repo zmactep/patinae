@@ -31,6 +31,7 @@ pub(crate) fn append_cpu_object_geometry(
     options: &GeometryExportOptions,
 ) {
     let settings = input.object_settings.as_ref().unwrap_or(scene_settings);
+    let first_new_primitive = object.primitives.len();
     if options.include_analytic {
         append_spheres(object, input, settings);
         append_sticks(object, input, settings);
@@ -39,6 +40,48 @@ pub(crate) fn append_cpu_object_geometry(
         append_lines(object, input, settings);
         append_dots(object, input, settings);
     }
+    for primitive in &mut object.primitives[first_new_primitive..] {
+        transform_primitive(primitive, &input.transform);
+    }
+}
+
+fn transform_primitive(primitive: &mut DisplayedPrimitive, transform: &[[f32; 4]; 4]) {
+    match primitive {
+        DisplayedPrimitive::Mesh { mesh, .. } => {
+            for vertex in &mut mesh.vertices {
+                vertex.position = transform_point(transform, vertex.position);
+                vertex.normal = transform_dir(transform, vertex.normal);
+            }
+        }
+        DisplayedPrimitive::Sphere { center, .. } => {
+            *center = transform_point(transform, *center);
+        }
+        DisplayedPrimitive::Cylinder { start, end, .. }
+        | DisplayedPrimitive::LineSegment { start, end, .. } => {
+            *start = transform_point(transform, *start);
+            *end = transform_point(transform, *end);
+        }
+        DisplayedPrimitive::PointSample { position, .. } => {
+            *position = transform_point(transform, *position);
+        }
+    }
+}
+
+fn transform_point(m: &[[f32; 4]; 4], p: [f32; 3]) -> [f32; 3] {
+    [
+        m[0][0] * p[0] + m[1][0] * p[1] + m[2][0] * p[2] + m[3][0],
+        m[0][1] * p[0] + m[1][1] * p[1] + m[2][1] * p[2] + m[3][1],
+        m[0][2] * p[0] + m[1][2] * p[1] + m[2][2] * p[2] + m[3][2],
+    ]
+}
+
+fn transform_dir(m: &[[f32; 4]; 4], n: [f32; 3]) -> [f32; 3] {
+    normalize3([
+        m[0][0] * n[0] + m[1][0] * n[1] + m[2][0] * n[2],
+        m[0][1] * n[0] + m[1][1] * n[1] + m[2][1] * n[2],
+        m[0][2] * n[0] + m[1][2] * n[1] + m[2][2] * n[2],
+    ])
+    .unwrap_or([0.0, 0.0, 1.0])
 }
 
 pub(crate) fn material_for_atom(
@@ -518,6 +561,7 @@ mod tests {
             object_id: ObjectId(1),
             molecule: mol,
             coord_set,
+            transform: crate::render_input::IDENTITY_TRANSFORM,
             visible_reps: reps,
             draw_reps: reps,
             object_settings: None,
@@ -624,5 +668,40 @@ mod tests {
             .unwrap();
         let expected = mol.get_atom(AtomIndex(0)).unwrap().effective_vdw() * 2.0 * 1.5;
         assert!((radius - expected).abs() < 1e-5);
+    }
+
+    #[test]
+    fn object_transform_moves_exported_geometry_into_world_space() {
+        let (mol, coords) = test_object(RepMask::SPHERES);
+        let colors = vec![[1.0, 1.0, 1.0, 1.0]; mol.atom_count()];
+        let rep_colors = vec![RepColorLutEntry::default(); mol.atom_count()];
+        let resolved = ResolvedSettings::resolve(&Settings::default(), None);
+        let mut input = input_for(&mol, &coords, &colors, &rep_colors, RepMask::SPHERES);
+        input.transform[3] = [2.0, 3.0, 4.0, 1.0];
+        let mut object = DisplayedObjectGeometry {
+            object_id: ObjectId(1),
+            primitives: Vec::new(),
+        };
+
+        append_cpu_object_geometry(
+            &mut object,
+            &input,
+            &resolved,
+            &GeometryExportOptions::default(),
+        );
+
+        let center = object
+            .primitives
+            .iter()
+            .find_map(|primitive| match primitive {
+                DisplayedPrimitive::Sphere {
+                    owner_atom_id: 0,
+                    center,
+                    ..
+                } => Some(*center),
+                _ => None,
+            })
+            .expect("first sphere");
+        assert_eq!(center, [2.0, 3.0, 4.0]);
     }
 }
