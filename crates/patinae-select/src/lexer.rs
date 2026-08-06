@@ -187,17 +187,28 @@ fn comparison(input: &str) -> LexResult<'_, Token> {
 
 /// Parse a number (integer or float) - does NOT consume leading minus
 fn number(input: &str) -> LexResult<'_, Token> {
+    let original_input = input;
     let (input, int_part) = digit1(input)?;
     let (input, frac_part) = opt(preceded(char('.'), digit1))(input)?;
 
     match frac_part {
         Some(frac) => {
             let s = format!("{}.{}", int_part, frac);
-            let f: f32 = s.parse().unwrap_or(0.0);
+            let f: f32 = s.parse().map_err(|_| {
+                nom::Err::Error(nom::error::Error::new(
+                    original_input,
+                    nom::error::ErrorKind::Float,
+                ))
+            })?;
             Ok((input, Token::Float(f)))
         }
         None => {
-            let i: i32 = int_part.parse().unwrap_or(0);
+            let i: i32 = int_part.parse().map_err(|_| {
+                nom::Err::Error(nom::error::Error::new(
+                    original_input,
+                    nom::error::ErrorKind::Digit,
+                ))
+            })?;
             Ok((input, Token::Integer(i)))
         }
     }
@@ -645,6 +656,13 @@ mod tests {
                 Token::Eof
             ]
         );
+    }
+
+    #[test]
+    fn test_tokenize_rejects_integer_overflow() {
+        let overflow = (i64::from(i32::MAX) + 1).to_string();
+
+        assert!(tokenize(&overflow).is_err());
     }
 
     #[test]

@@ -6,8 +6,8 @@
 
 use lin_alg::f32::Vec3;
 use patinae_cmd::{
-    AsyncCommandRequest, CmdError, CommandAction, CommandExecutor, CommandOutput, FetchRequest,
-    MessageKind, ViewerLike,
+    AnnotationOutcome, AnnotationRequest, AsyncCommandRequest, CmdError, CommandAction,
+    CommandExecutor, CommandOutput, FetchRequest, MessageKind, ViewerLike,
 };
 use patinae_mol::ObjectMolecule;
 use patinae_scene::{
@@ -202,6 +202,33 @@ impl AppKernel {
         result
     }
 
+    /// Executes one typed native annotation request.
+    ///
+    /// Successful mutations are reported through the normal output model and
+    /// request a redraw through the session adapter. Failures are reported as
+    /// errors without setting the redraw flag.
+    ///
+    /// # Errors
+    ///
+    /// Returns validation or execution errors from the command layer.
+    pub fn execute_annotation_request(
+        &mut self,
+        request: &AnnotationRequest,
+    ) -> Result<AnnotationOutcome, CmdError> {
+        self.command_generation = self.command_generation.wrapping_add(1);
+        let result = self.mutate_viewer(None, (1, 1), |viewer| {
+            patinae_cmd::execute_annotation_request(viewer, request)
+        });
+        match &result {
+            Ok(outcome) => self.output.print_info(format!(
+                " Annotation updated in \"{}\"",
+                outcome.object_name()
+            )),
+            Err(error) => self.output.print_error(error.to_string()),
+        }
+        result
+    }
+
     pub fn command_generation(&self) -> u64 {
         self.command_generation
     }
@@ -213,12 +240,12 @@ impl AppKernel {
 
     /// Apply a plugin-supplied viewer mutation through the same adapter used
     /// by commands.
-    pub fn mutate_viewer<'a>(
+    pub fn mutate_viewer<'a, T>(
         &'a mut self,
         render_context: Option<&'a mut (dyn CaptureRenderer + 'a)>,
         viewport_size: (u32, u32),
-        f: impl FnOnce(&mut dyn ViewerLike),
-    ) {
+        f: impl FnOnce(&mut dyn ViewerLike) -> T,
+    ) -> T {
         let mut adapter = SessionAdapter {
             session: &mut self.session,
             render_context,
@@ -226,7 +253,7 @@ impl AppKernel {
             needs_redraw: &mut self.needs_redraw,
             async_fetch_fn: None,
         };
-        f(&mut adapter);
+        f(&mut adapter)
     }
 
     /// Apply a fetched molecule using the same viewer behavior as the sync command.
@@ -488,6 +515,79 @@ fn viewport_image_len(width: u32, height: u32) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lin_alg::f32::Vec3;
+    use patinae_cmd::{AnnotationRequest, MeasurementRequest, MeasurementTarget};
+    use patinae_mol::{Atom, CoordSet, Element};
+    use patinae_scene::{MeasurementKind, MoleculeObject};
+
+    fn kernel_with_measurement_atoms() -> AppKernel {
+        let mut kernel = AppKernel::new();
+        let mut molecule = ObjectMolecule::new("source");
+        molecule.add_atom(Atom::new("A", Element::Carbon));
+        molecule.add_atom(Atom::new("B", Element::Carbon));
+        molecule.add_coord_set(CoordSet::from_vec3(&[
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(1.0, 0.0, 0.0),
+        ]));
+        kernel
+            .session
+            .registry
+            .add(MoleculeObject::with_name(molecule, "source"));
+        kernel
+    }
+
+    #[test]
+    fn typed_annotation_success_reports_output_and_requests_redraw() {
+        let mut kernel = kernel_with_measurement_atoms();
+        kernel.clear_redraw_flag();
+        let request = AnnotationRequest::Measurement(MeasurementRequest::new(
+            ["name A", "name B"],
+            MeasurementTarget::New,
+        ));
+
+        let outcome = kernel.execute_annotation_request(&request).unwrap();
+
+        assert_eq!(outcome.object_name(), "distance01");
+        assert_eq!(
+            kernel
+                .session
+                .registry
+                .get_measurement("distance01")
+                .unwrap()
+                .kind(),
+            MeasurementKind::Distance
+        );
+        assert!(kernel.needs_redraw());
+        assert!(kernel
+            .output
+            .buffer
+            .back()
+            .unwrap()
+            .text
+            .contains("distance01"));
+    }
+
+    #[test]
+    fn typed_annotation_failure_reports_error_without_redraw() {
+        use crate::model::output::OutputKind;
+
+        let mut kernel = kernel_with_measurement_atoms();
+        kernel.clear_redraw_flag();
+        let request = AnnotationRequest::Measurement(MeasurementRequest::new(
+            ["all", "name B"],
+            MeasurementTarget::New,
+        ));
+
+        assert!(kernel.execute_annotation_request(&request).is_err());
+
+        assert!(!kernel.needs_redraw());
+        assert_eq!(kernel.output.buffer.back().unwrap().kind, OutputKind::Error);
+        assert!(kernel
+            .session
+            .registry
+            .get_measurement("distance01")
+            .is_none());
+    }
 
     #[test]
     fn kernel_creates_with_defaults() {

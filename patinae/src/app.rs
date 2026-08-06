@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 
 use slint::{ComponentHandle, Image, Rgba8Pixel, SharedPixelBuffer};
 
+use patinae_cmd::AnnotationRequest;
 use patinae_framework::component::SharedContext;
 use patinae_framework::kernel::AppKernel;
 use patinae_framework::message::AppMessage;
@@ -17,16 +18,16 @@ use patinae_render::{
     RenderMemoryProfile, RENDER_COMPUTE_STORAGE_BUFFERS_PER_STAGE,
 };
 use patinae_scene::{
-    bridge::ProjectedAnnotationLabel, expand_pick_to_selection, pick_expression_for_hit,
-    CaptureRenderer, KeyBinding, ViewportImage,
+    bridge::ProjectedAnnotationLabel, canonical_atom_path_for_hit, expand_pick_to_selection,
+    pick_expression_for_hit, CaptureRenderer, KeyBinding, PickHit, ViewportImage,
 };
 use patinae_select::build_sele_command;
 use patinae_settings::{
     paths::{PatinaercPath, PatinaercSource},
-    ThemeMode,
+    MouseSelectionMode, ThemeMode,
 };
 
-use crate::bridges::input::{InputBridge, PointerSnapshot};
+use crate::bridges::input::{InputBridge, PendingClick, PointerSnapshot};
 use crate::bridges::movie::MovieBridge;
 use crate::bridges::objects::ObjectsBridge;
 use crate::bridges::platform::PlatformBridge;
@@ -112,6 +113,8 @@ pub struct App {
     pub(crate) kernel: AppKernel,
     renderer: Option<ViewportRenderer>,
     input: InputBridge,
+    /// Hover granularity used to expand the cached pick hit.
+    last_hover_mode: Option<MouseSelectionMode>,
     pub(crate) objects: ObjectsBridge,
     pub(crate) movie: MovieBridge,
     pub(crate) repl: ReplBridge,
@@ -176,6 +179,8 @@ pub struct App {
     /// Drained on a later event-loop tick so native modal dialogs cannot
     /// re-enter Slint rendering while the current surface image is acquired.
     pending_save_file_requests: VecDeque<SaveFileRequest>,
+    /// Native-only typed annotation work queued by action-pill callbacks.
+    pending_annotation_requests: VecDeque<AnnotationRequest>,
     save_file_dialog_scheduled: bool,
     transient_notification: Option<(String, Instant)>,
     last_empty_mode: bool,
@@ -202,6 +207,7 @@ impl App {
             kernel,
             renderer: None,
             input: InputBridge::new(),
+            last_hover_mode: None,
             objects: ObjectsBridge::new(),
             movie: MovieBridge::new(),
             repl: ReplBridge::new(),
@@ -235,6 +241,7 @@ impl App {
             perf_update_counter: Cell::new(0),
             startup_actions: VecDeque::new(),
             pending_save_file_requests: VecDeque::new(),
+            pending_annotation_requests: VecDeque::new(),
             save_file_dialog_scheduled: false,
             transient_notification: None,
             last_empty_mode: true,
@@ -338,6 +345,20 @@ impl App {
         }
         self.kernel.bus.request_redraw();
         app.window().request_redraw();
+    }
+
+    /// Queues one native-only typed annotation request.
+    pub(crate) fn queue_annotation_request(&mut self, request: AnnotationRequest) {
+        self.pending_annotation_requests.push_back(request);
+    }
+
+    fn drain_annotation_requests(&mut self) -> usize {
+        let mut processed = 0;
+        while let Some(request) = self.pending_annotation_requests.pop_front() {
+            let _ = self.kernel.execute_annotation_request(&request);
+            processed += 1;
+        }
+        processed
     }
 
     // --- Per-frame rendering ---
@@ -458,10 +479,11 @@ impl App {
                 .ok()
                 .map(|v| v == "1")
                 .unwrap_or(false);
-            if let Some(click_pos) = self.input.take_pending_click() {
-                self.process_click(click_pos, (vw, vh));
-                // Clear hover state so it re-evaluates cleanly next frame
-                self.clear_hover_indicators();
+            if let Some(click) = self.input.take_pending_click() {
+                if self.process_click(click, (vw, vh)) {
+                    // Ordinary selection clicks re-evaluate hover next frame.
+                    self.clear_hover_indicators();
+                }
             } else if !hover_disabled {
                 self.process_hover(vw, vh, sf);
             }
@@ -474,6 +496,9 @@ impl App {
         self.kernel.process_async_tasks();
         mark("async.tasks", &mut t_section);
         self.sync_notifications(app);
+
+        self.drain_annotation_requests();
+        mark("annotations", &mut t_section);
 
         // Drain pending commands (color, show, etc. — sets dirty flags on molecules).
         // Cast the renderer to `&mut dyn CaptureRenderer` for the trait-based
@@ -654,20 +679,16 @@ impl App {
             return;
         }
 
+        let scene_generation = self.plugin_scene_generation();
         {
             let gpu_device = self.renderer.as_ref().map(|r| r.gpu_device().as_ref());
             let gpu_queue = self.renderer.as_ref().map(|r| r.gpu_queue().as_ref());
             let kernel = &mut self.kernel;
-            let scene_generation = kernel
-                .session
-                .registry
-                .generation()
-                .wrapping_add(kernel.session.selections.generation().rotate_left(1))
-                .wrapping_add(kernel.session.movie.generation().rotate_left(2));
             let shared = SharedContext {
                 registry: &kernel.session.registry,
                 camera: &kernel.session.camera,
                 selections: &kernel.session.selections,
+                recent_atoms: &kernel.session.recent_atoms,
                 named_palette: &kernel.session.named_palette,
                 movie: &kernel.session.movie,
                 settings: &kernel.session.settings,
@@ -853,17 +874,12 @@ impl App {
 
         let gpu_device = self.renderer.as_ref().map(|r| r.gpu_device().as_ref());
         let gpu_queue = self.renderer.as_ref().map(|r| r.gpu_queue().as_ref());
-        let scene_generation = self
-            .kernel
-            .session
-            .registry
-            .generation()
-            .wrapping_add(self.kernel.session.selections.generation().rotate_left(1))
-            .wrapping_add(self.kernel.session.movie.generation().rotate_left(2));
+        let scene_generation = self.plugin_scene_generation();
         let shared = SharedContext {
             registry: &self.kernel.session.registry,
             camera: &self.kernel.session.camera,
             selections: &self.kernel.session.selections,
+            recent_atoms: &self.kernel.session.recent_atoms,
             named_palette: &self.kernel.session.named_palette,
             movie: &self.kernel.session.movie,
             settings: &self.kernel.session.settings,
@@ -935,6 +951,7 @@ impl App {
             .generation()
             .wrapping_add(self.kernel.session.selections.generation().rotate_left(1))
             .wrapping_add(self.kernel.session.movie.generation().rotate_left(2))
+            .wrapping_add(self.kernel.session.recent_atoms.generation().rotate_left(3))
     }
 
     fn run_startup_actions(&mut self, app: &AppWindow, viewport_size: (u32, u32)) {
@@ -1033,6 +1050,7 @@ impl App {
     fn clear_hover_indicators(&mut self) {
         self.kernel.session.clear_hover();
         self.kernel.viewport.hover_hit = None;
+        self.last_hover_mode = None;
     }
 
     /// Process hover indicators: ray-cast each frame when no button is pressed.
@@ -1067,43 +1085,71 @@ impl App {
             .renderer
             .as_mut()
             .and_then(|r| r.poll_hover_pick(&self.kernel.session, mx as u32, my as u32));
-        let Some(new_hit) = resolved else {
-            return;
-        };
+        if let Some(new_hit) = resolved {
+            self.apply_hover_result(new_hit);
+        } else {
+            self.refresh_cached_hover_mode();
+        }
+    }
 
-        // Change detection — skip GPU work if nothing changed.
-        let changed = match (&self.kernel.viewport.hover_hit, &new_hit) {
+    fn effective_hover_mode(&self) -> MouseSelectionMode {
+        if self.kernel.viewport.input.ctrl_or_cmd_held() {
+            MouseSelectionMode::Atoms
+        } else {
+            self.kernel.session.settings.ui.mouse_selection_mode
+        }
+    }
+
+    fn apply_hover_result(&mut self, new_hit: Option<PickHit>) {
+        let mode = self.effective_hover_mode();
+        let hit_changed = match (&self.kernel.viewport.hover_hit, &new_hit) {
             (None, None) => false,
             (Some(_), None) | (None, Some(_)) => true,
             (Some(a), Some(b)) => a.object_name != b.object_name || a.atom_index != b.atom_index,
         };
-        if !changed {
+        if !hit_changed && self.last_hover_mode == Some(mode) {
             return;
         }
 
-        let mode = self.kernel.session.settings.ui.mouse_selection_mode as i32;
+        self.set_hover_from_hit(new_hit.as_ref(), mode);
+        self.kernel.viewport.hover_hit = new_hit;
+        self.last_hover_mode = Some(mode);
+    }
 
-        // Resolve hit → hover target (single global, not per-molecule).
-        if let Some(hit) = new_hit.as_ref() {
-            if let Some(mol_obj) = self.kernel.session.registry.get_molecule(&hit.object_name) {
-                let mol = mol_obj.molecule();
-                let sel = expand_pick_to_selection(hit, mode, mol);
-                self.kernel.session.set_hover(patinae_scene::HoverTarget {
-                    object: hit.object_name.clone(),
-                    selection: sel,
-                });
-            } else {
-                self.kernel.session.clear_hover();
-            }
+    fn refresh_cached_hover_mode(&mut self) {
+        let mode = self.effective_hover_mode();
+        if self.last_hover_mode == Some(mode) {
+            return;
+        }
+
+        let hit = self.kernel.viewport.hover_hit.clone();
+        self.set_hover_from_hit(hit.as_ref(), mode);
+        self.last_hover_mode = Some(mode);
+    }
+
+    fn set_hover_from_hit(&mut self, hit: Option<&PickHit>, mode: MouseSelectionMode) {
+        let target = hit.and_then(|hit| {
+            let molecule = self
+                .kernel
+                .session
+                .registry
+                .get_molecule(&hit.object_name)?;
+            Some(patinae_scene::HoverTarget {
+                object: hit.object_name.clone(),
+                selection: expand_pick_to_selection(hit, mode.into(), molecule.molecule()),
+            })
+        });
+        if let Some(target) = target {
+            self.kernel.session.set_hover(target);
         } else {
             self.kernel.session.clear_hover();
         }
-
-        self.kernel.viewport.hover_hit = new_hit;
     }
 
-    /// Process a click: GPU pick and update the `sele` named selection.
-    fn process_click(&mut self, click_pos: (f32, f32), viewport: (u32, u32)) {
+    /// Process a click and report whether ordinary hover should be reset.
+    fn process_click(&mut self, click: PendingClick, viewport: (u32, u32)) -> bool {
+        let clear_hover = !click.ctrl_or_cmd;
+        let click_pos = click.position;
         // Ignore clicks outside the 3D viewport. The popover-dismiss backdrop
         // (layout.slint) forwards pointer-down/up to ViewportState so a drag
         // through the backdrop rotates the camera; a plain dismiss-click
@@ -1115,18 +1161,30 @@ impl App {
             || click_pos.1 < 0.0
             || click_pos.1 >= vh as f32
         {
-            return;
+            return clear_hover;
         }
 
         if self.dismiss_viewport_image() {
-            return;
+            return false;
         }
 
         let hit = self.renderer.as_mut().and_then(|r| {
             r.pick_at_click(&self.kernel.session, click_pos.0 as u32, click_pos.1 as u32)
         });
 
-        let cmd = if let Some(ref hit) = hit {
+        self.apply_pick_result(hit.as_ref(), click.ctrl_or_cmd);
+        clear_hover
+    }
+
+    fn apply_pick_result(&mut self, hit: Option<&PickHit>, ctrl_or_cmd: bool) {
+        if ctrl_or_cmd {
+            if let Some(hit) = hit {
+                self.pick_recent_atom(hit);
+            }
+            return;
+        }
+
+        let cmd = if let Some(hit) = hit {
             if let Some(mol_obj) = self.kernel.session.registry.get_molecule(&hit.object_name) {
                 let mol = mol_obj.molecule();
                 let mode = self.kernel.session.settings.ui.mouse_selection_mode as i32;
@@ -1163,6 +1221,32 @@ impl App {
         }
     }
 
+    fn pick_recent_atom(&mut self, hit: &PickHit) {
+        let Some(molecule) = self.kernel.session.registry.get_molecule(&hit.object_name) else {
+            self.kernel.bus.print_warning(
+                "Recent atom pick was rejected: picked object is not a loaded molecule",
+            );
+            return;
+        };
+        let path = match canonical_atom_path_for_hit(hit, molecule.molecule()) {
+            Ok(path) => path,
+            Err(error) => {
+                self.kernel
+                    .bus
+                    .print_warning(format!("Recent atom pick was rejected: {error}"));
+                return;
+            }
+        };
+        let command = if self.kernel.session.recent_atoms.row_id(&path).is_some() {
+            "unpick"
+        } else {
+            "pick"
+        };
+        self.kernel
+            .bus
+            .execute_command(format!("{command} {}", quote_command_arg(&path)));
+    }
+
     // --- Helpers ---
 
     fn dismiss_viewport_image(&mut self) -> bool {
@@ -1173,8 +1257,7 @@ impl App {
             .is_some_and(|renderer| renderer.clear_viewport_gpu_image());
         let had_image = had_cpu_image || had_gpu_image;
         if had_image {
-            self.kernel.session.clear_hover();
-            self.kernel.viewport.hover_hit = None;
+            self.clear_hover_indicators();
         }
         had_image
     }
@@ -1348,6 +1431,7 @@ fn should_apply_standard_panel_preset(was_empty: bool, is_empty: bool) -> bool {
 fn apply_standard_panel_preset(layout: &LayoutState) {
     layout.set_objects_visible(true);
     layout.set_selections_visible(true);
+    layout.set_recent_atoms_visible(true);
     layout.set_repl_visible(true);
     layout.set_sequence_visible(false);
     layout.set_movie_visible(false);
@@ -2197,11 +2281,14 @@ fn map_winit_key(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lin_alg::f32::Vec3;
+    use patinae_cmd::{AnnotationRequest, MeasurementRequest, MeasurementTarget};
+    use patinae_mol::{Atom, AtomIndex, Element, ObjectMolecule};
     use patinae_render::{
         gib_to_bytes, mib_to_bytes, PERFORMANCE_MAX_BUFFER_SIZE,
         PERFORMANCE_MAX_STORAGE_BUFFER_BINDING_SIZE,
     };
-    use patinae_scene::KeyCode;
+    use patinae_scene::{KeyCode, Modifiers, MoleculeObject, ObjectType, PickHit};
 
     fn adapter_limits(
         max_buffer_size: u64,
@@ -2229,6 +2316,280 @@ mod tests {
         let path = temp_startup_path(name);
         std::fs::write(&path, "# startup rc\n").expect("startup rc test file should be writable");
         path
+    }
+
+    fn app_with_atoms(atoms: impl IntoIterator<Item = Atom>) -> App {
+        let mut app = App::new();
+        let mut molecule = ObjectMolecule::new("mol");
+        for atom in atoms {
+            molecule.add_atom(atom);
+        }
+        app.kernel
+            .session
+            .registry
+            .add(MoleculeObject::from_raw(molecule));
+        app
+    }
+
+    #[test]
+    fn native_annotation_queue_executes_in_order_without_app_messages() {
+        let mut app = app_with_atoms([
+            Atom::new("A", Element::Carbon),
+            Atom::new("B", Element::Carbon),
+        ]);
+        app.kernel
+            .session
+            .registry
+            .get_molecule_mut("mol")
+            .unwrap()
+            .molecule_mut()
+            .add_coord_set(patinae_mol::CoordSet::from_vec3(&[
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(1.0, 0.0, 0.0),
+            ]));
+        for _ in 0..2 {
+            app.queue_annotation_request(AnnotationRequest::Measurement(MeasurementRequest::new(
+                ["name A", "name B"],
+                MeasurementTarget::New,
+            )));
+        }
+
+        assert_eq!(app.drain_annotation_requests(), 2);
+
+        assert!(app
+            .kernel
+            .session
+            .registry
+            .get_measurement("distance01")
+            .is_some());
+        assert!(app
+            .kernel
+            .session
+            .registry
+            .get_measurement("distance02")
+            .is_some());
+        assert!(app.kernel.bus.drain_outbox().is_empty());
+    }
+
+    fn atom_hit(index: usize) -> PickHit {
+        PickHit {
+            object_name: "mol".to_string(),
+            object_type: ObjectType::Molecule,
+            atom_index: Some(AtomIndex::from(index)),
+            position: Vec3::new(0.0, 0.0, 0.0),
+            distance: 1.0,
+        }
+    }
+
+    fn drain_command_messages(app: &mut App) -> Vec<(String, bool)> {
+        app.kernel
+            .bus
+            .drain_outbox()
+            .into_iter()
+            .filter_map(|message| match message {
+                AppMessage::ExecuteCommand { command, silent } => Some((command, silent)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn drain_commands(app: &mut App) -> Vec<String> {
+        drain_command_messages(app)
+            .into_iter()
+            .map(|(command, _)| command)
+            .collect()
+    }
+
+    fn drain_warnings(app: &mut App) -> Vec<String> {
+        app.kernel
+            .bus
+            .drain_outbox()
+            .into_iter()
+            .filter_map(|message| match message {
+                AppMessage::PrintWarning(message) => Some(message),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn modified_atom_hit_queues_pick_then_unpick_without_named_selection() {
+        let mut app = app_with_atoms([Atom::new("CA", Element::Carbon)]);
+        let hit = atom_hit(0);
+        let path = canonical_atom_path_for_hit(
+            &hit,
+            app.kernel
+                .session
+                .registry
+                .get_molecule("mol")
+                .unwrap()
+                .molecule(),
+        )
+        .unwrap();
+
+        app.apply_pick_result(Some(&hit), true);
+        assert_eq!(
+            drain_command_messages(&mut app),
+            [(format!("pick {}", quote_command_arg(&path)), false)]
+        );
+        let limit = app.kernel.session.settings.behavior.recent_pick_limit();
+        app.kernel.session.recent_atoms.insert(path.clone(), limit);
+        app.apply_pick_result(Some(&hit), true);
+
+        assert!(!app.kernel.session.selections.contains("sele"));
+        assert_eq!(
+            drain_command_messages(&mut app),
+            [(format!("unpick {}", quote_command_arg(&path)), false)]
+        );
+    }
+
+    #[test]
+    fn modified_atom_hit_quotes_a_reserved_model_name_via_the_slash_path() {
+        let mut app = App::new();
+        let mut molecule = ObjectMolecule::new("of");
+        molecule.add_atom(Atom::new("CA", Element::Carbon));
+        app.kernel
+            .session
+            .registry
+            .add(MoleculeObject::from_raw(molecule));
+        let hit = PickHit {
+            object_name: "of".to_string(),
+            object_type: ObjectType::Molecule,
+            atom_index: Some(AtomIndex::from(0usize)),
+            position: Vec3::new(0.0, 0.0, 0.0),
+            distance: 1.0,
+        };
+        let path = canonical_atom_path_for_hit(
+            &hit,
+            app.kernel
+                .session
+                .registry
+                .get_molecule("of")
+                .unwrap()
+                .molecule(),
+        )
+        .unwrap();
+
+        app.apply_pick_result(Some(&hit), true);
+
+        assert_eq!(
+            drain_command_messages(&mut app),
+            [(format!("pick {}", quote_command_arg(&path)), false)]
+        );
+    }
+
+    #[test]
+    fn plugin_scene_generation_tracks_recent_atom_mutations() {
+        let mut app = app_with_atoms([Atom::new("CA", Element::Carbon)]);
+        let before = app.plugin_scene_generation();
+        let hit = atom_hit(0);
+        let path = canonical_atom_path_for_hit(
+            &hit,
+            app.kernel
+                .session
+                .registry
+                .get_molecule("mol")
+                .unwrap()
+                .molecule(),
+        )
+        .unwrap();
+        let limit = app.kernel.session.settings.behavior.recent_pick_limit();
+
+        app.kernel.session.recent_atoms.insert(path, limit);
+
+        assert_ne!(app.plugin_scene_generation(), before);
+    }
+
+    #[test]
+    fn modified_miss_is_no_op_and_ordinary_click_semantics_remain() {
+        let mut app = app_with_atoms([Atom::new("CA", Element::Carbon)]);
+        app.apply_pick_result(Some(&atom_hit(0)), true);
+        assert!(drain_commands(&mut app)[0].starts_with("pick \"/mol/"));
+
+        app.apply_pick_result(None, true);
+        assert!(app.kernel.session.recent_atoms.is_empty());
+        assert!(drain_commands(&mut app).is_empty());
+
+        app.apply_pick_result(Some(&atom_hit(0)), false);
+        assert_eq!(
+            drain_commands(&mut app),
+            ["select sele, model mol and chain \"\" and resi 0"]
+        );
+
+        app.kernel.session.selections.define("sele", "model mol");
+        app.apply_pick_result(None, false);
+        assert_eq!(drain_commands(&mut app), ["deselect sele"]);
+    }
+
+    #[test]
+    fn modified_pick_is_always_atomic_regardless_of_mouse_selection_mode() {
+        let atoms = ["CA", "CB"].map(|name| Atom::new(name, Element::Carbon));
+        let mut app = app_with_atoms(atoms);
+        app.kernel.session.settings.ui.mouse_selection_mode = MouseSelectionMode::Objects;
+
+        app.apply_pick_result(Some(&atom_hit(1)), true);
+
+        assert!(drain_commands(&mut app)[0].starts_with("pick \"/mol/"));
+    }
+
+    #[test]
+    fn stationary_modifier_transitions_reexpand_cached_hover_hit() {
+        let mut app = app_with_atoms([
+            Atom::new("CA", Element::Carbon),
+            Atom::new("CB", Element::Carbon),
+        ]);
+        app.apply_hover_result(Some(atom_hit(0)));
+        assert_eq!(
+            app.kernel
+                .session
+                .hover_target
+                .as_ref()
+                .unwrap()
+                .selection
+                .count(),
+            2
+        );
+
+        app.kernel
+            .viewport
+            .input
+            .handle_modifiers(Modifiers::CONTROL);
+        app.refresh_cached_hover_mode();
+        assert_eq!(
+            app.kernel
+                .session
+                .hover_target
+                .as_ref()
+                .unwrap()
+                .selection
+                .count(),
+            1
+        );
+
+        app.kernel.viewport.input.handle_modifiers(Modifiers::EMPTY);
+        app.refresh_cached_hover_mode();
+        assert_eq!(
+            app.kernel
+                .session
+                .hover_target
+                .as_ref()
+                .unwrap()
+                .selection
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn modified_non_atom_hit_warns_without_queuing_a_command() {
+        let mut app = app_with_atoms([Atom::new("CA", Element::Carbon)]);
+        let mut hit = atom_hit(0);
+        hit.atom_index = None;
+
+        app.apply_pick_result(Some(&hit), true);
+
+        assert_eq!(drain_warnings(&mut app).len(), 1);
+        assert!(drain_commands(&mut app).is_empty());
     }
 
     #[test]

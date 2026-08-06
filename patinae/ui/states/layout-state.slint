@@ -9,6 +9,7 @@ export global LayoutState {
     // ── Component visibility (toggled by sidebar) ─────────────────
     in-out property <bool> objects-visible: true;
     in-out property <bool> selections-visible: true;
+    in-out property <bool> recent-atoms-visible: true;
     in-out property <bool> sequence-visible: false;
     in-out property <bool> movie-visible: false;
     in-out property <int> bottom-active-tab: 0;  // 0 = Sequence, 1 = Movie
@@ -19,7 +20,8 @@ export global LayoutState {
     // ── Derived dock visibility ───────────────────────────────────
     // A dock is visible when at least one of its components is on.
     out property <bool> right-dock-visible:
-        plugin-right-visible || (!empty-mode && (objects-visible || selections-visible));
+        plugin-right-visible
+        || (!empty-mode && (objects-visible || selections-visible || recent-atoms-visible));
     out property <bool> bottom-dock-visible:
         plugin-bottom-visible || (!empty-mode && (sequence-visible || movie-visible));
 

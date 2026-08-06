@@ -64,7 +64,7 @@ fn execute_isocontour(
     vis_obj.set_level(level);
     vis_obj.set_display_mode(mode);
 
-    ctx.viewer.objects_mut().add(vis_obj);
+    ctx.viewer.insert_object(Box::new(vis_obj));
 
     let mode_name = match mode {
         MapDisplayMode::None => "map",
@@ -235,8 +235,14 @@ impl Command for IsosurfaceCommand {
 mod tests {
     use std::sync::Arc;
 
+    use lin_alg::f32::Vec3;
     use patinae_algos::surface::{extract_isomesh, extract_isosurface, Grid3D};
-    use patinae_scene::{MapDisplayMode, MapObject, Session, SessionAdapter};
+    use patinae_mol::{AtomBuilder, AtomIndex, CoordSet, Element, ObjectMolecule};
+    use patinae_scene::{
+        canonical_atom_path_for_hit, MapDisplayMode, MapObject, MoleculeObject, ObjectType,
+        PickHit, Session, SessionAdapter,
+    };
+    use patinae_settings::groups::RecentPickLimit;
 
     use crate::CommandExecutor;
 
@@ -245,6 +251,38 @@ mod tests {
         let grid = Grid3D::from_dims([0.0; 3], [1.0; 3], [1, 1, 1], vec![0.0; 8]);
         session.registry.add(MapObject::new("src", grid));
         session
+    }
+
+    fn seed_picked_molecule(session: &mut Session, name: &str) {
+        let mut molecule = ObjectMolecule::new(name);
+        molecule.add_atom(
+            AtomBuilder::new()
+                .name("CA")
+                .element(Element::Carbon)
+                .resn("GLY")
+                .resv(1)
+                .chain("A")
+                .build(),
+        );
+        molecule.add_coord_set(CoordSet::from_vec3(&[Vec3::new(0.0, 0.0, 0.0)]));
+        session
+            .registry
+            .add(MoleculeObject::with_name(molecule, name));
+        let molecule = session.registry.get_molecule(name).unwrap();
+        let path = canonical_atom_path_for_hit(
+            &PickHit {
+                object_name: name.to_string(),
+                object_type: ObjectType::Molecule,
+                atom_index: Some(AtomIndex(0)),
+                position: Vec3::new(0.0, 0.0, 0.0),
+                distance: 0.0,
+            },
+            molecule.molecule(),
+        )
+        .unwrap();
+        session
+            .recent_atoms
+            .insert(path, RecentPickLimit::Unlimited);
     }
 
     fn with_adapter<T>(session: &mut Session, f: impl FnOnce(&mut SessionAdapter<'_>) -> T) -> T {
@@ -337,6 +375,21 @@ mod tests {
         assert_eq!(surface.display_mode(), MapDisplayMode::Isosurface);
         assert!(surface.is_renderable());
         assert_eq!(surface.level(), 2.0);
+    }
+
+    #[test]
+    fn isomesh_same_name_replacement_prunes_recent_atom() {
+        let mut session = seed_session_with_map();
+        seed_picked_molecule(&mut session, "mesh1");
+
+        with_adapter(&mut session, |adapter| {
+            CommandExecutor::new()
+                .do_with_options(adapter, "isomesh mesh1, src, 1.0", true)
+                .unwrap();
+        });
+
+        assert!(session.registry.get_map("mesh1").is_some());
+        assert!(session.recent_atoms.is_empty());
     }
 
     #[test]

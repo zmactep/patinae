@@ -29,6 +29,7 @@ mod movie;
 mod object;
 mod pick;
 pub mod quat;
+mod recent_atoms;
 mod render_target;
 mod scene;
 mod selection;
@@ -79,7 +80,13 @@ pub use object::{
     ObjectState, ObjectType, RenderObjectId, ResolvedAnnotationBundle, ResolvedLabelPrimitive,
     ResolvedStrokePath, StrokePath, StrokeStyle,
 };
-pub use pick::{expand_pick_to_selection, pick_expression_for_hit, PickHit};
+#[doc(inline)]
+pub use pick::{
+    canonical_atom_path_for_atom, canonical_atom_path_for_hit, display_atom_path,
+    expand_pick_to_selection, pick_expression_for_hit, AtomPathError, PickHit,
+};
+#[doc(inline)]
+pub use recent_atoms::{RecentAtomId, RecentAtomRow, RecentAtoms};
 pub use render_target::CaptureRenderer;
 pub use scene::{
     Scene, SceneAtomData, SceneManager, SceneObjectData, ScenePerAtomData, SceneStoreMask,

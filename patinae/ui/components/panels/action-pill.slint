@@ -7,23 +7,107 @@ import {
     CenterIcon,
     ToggleIcon,
     OverflowIcon,
+    MeasurementDistanceGlyph,
+    MeasurementAngleGlyph,
+    MeasurementDihedralGlyph,
+    LabelGlyph,
 } from "../icons.slint";
 
 // ── Icon-only pill button ────────────────────────────────────────────
 
 component PillButton inherits Rectangle {
+    in property <string> tooltip;
+    in property <bool> enabled: true;
     callback clicked();
     out property <bool> hovered <=> touch.has-hover;
-    out property <color> tint: touch.has-hover ? Theme.text : Theme.text-dim;
+    out property <color> tint: !root.enabled
+        ? Theme.text-ghost
+        : touch.has-hover ? Theme.text : Theme.text-dim;
 
     width: Tokens.action-btn-h;
     height: Tokens.action-btn-h;
     horizontal-stretch: 0;
     border-radius: Tokens.action-btn-radius;
-    background: touch.has-hover ? Theme.bg-inset.with-alpha(0.6) : transparent;
+    background: root.enabled && touch.has-hover
+        ? Theme.bg-inset.with-alpha(0.6)
+        : transparent;
+    opacity: root.enabled ? 1.0 : 0.4;
+    accessible-role: button;
+    accessible-label: root.tooltip;
 
     touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
         clicked => { root.clicked(); }
+    }
+
+    if touch.has-hover && root.tooltip != "": Rectangle {
+        z: 20;
+        x: (parent.width - self.width) / 2;
+        y: -self.height - Tokens.space-sm;
+        width: tooltip-text.preferred-width + 2 * Tokens.space-sm;
+        height: 22px;
+        border-radius: Tokens.radius-sm;
+        background: Theme.bg-card;
+        border-width: Tokens.hairline;
+        border-color: Theme.line-strong;
+
+        tooltip-text := Text {
+            text: root.tooltip;
+            color: Theme.text-dim;
+            font-size: Tokens.font-md;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+}
+
+component MeasurementActionIcon {
+    in property <string> kind;
+    in property <bool> add-to: false;
+    in property <color> tint;
+
+    width: Tokens.pill-icon-size;
+    height: Tokens.pill-icon-size;
+
+    if root.kind == "distance": MeasurementDistanceGlyph {
+        x: 1px;
+        y: 1px;
+        tint: root.tint;
+    }
+    if root.kind == "angle": MeasurementAngleGlyph {
+        x: 1px;
+        y: 1px;
+        tint: root.tint;
+    }
+    if root.kind == "dihedral": MeasurementDihedralGlyph {
+        x: 1px;
+        y: 1px;
+        tint: root.tint;
+    }
+
+    if root.add-to: Rectangle {
+        x: 10px;
+        y: 10px;
+        width: 6px;
+        height: 6px;
+        border-radius: 3px;
+        background: Theme.bg-card;
+
+        Rectangle {
+            x: 1px;
+            y: 2.5px;
+            width: 4px;
+            height: 1px;
+            background: root.tint;
+        }
+        Rectangle {
+            x: 2.5px;
+            y: 1px;
+            width: 1px;
+            height: 4px;
+            background: root.tint;
+        }
     }
 }
 
@@ -38,10 +122,12 @@ component PillSep inherits Rectangle {
 // ── Action pill ──────────────────────────────────────────────────────
 
 export component ActionPill inherits Rectangle {
+    property <bool> recent-domain: ObjectsState.recent-operand-count > 0;
     property <bool> has-camera-actions:
-        ObjectsState.action-can-focus
-        || ObjectsState.action-can-orient
-        || ObjectsState.action-can-center;
+        !root.recent-domain
+        && (ObjectsState.action-can-focus
+            || ObjectsState.action-can-orient
+            || ObjectsState.action-can-center);
     width: layout.preferred-width;
     height: Tokens.action-pill-h;
     border-radius: Tokens.action-pill-radius;
@@ -85,7 +171,9 @@ export component ActionPill inherits Rectangle {
                 Text {
                     width: 100%;
                     height: 100%;
-                    text: ObjectsState.selected-count;
+                    text: root.recent-domain
+                        ? ObjectsState.recent-operand-count
+                        : ObjectsState.selected-count;
                     color: Theme.cyan;
                     font-size: Tokens.font-sm;
                     font-weight: 500;
@@ -95,10 +183,61 @@ export component ActionPill inherits Rectangle {
             }
         }
 
+        if root.recent-domain: PillSep {}
+
+        if root.recent-domain: measurement-btn := PillButton {
+            tooltip: "Add measurement";
+            enabled: ObjectsState.recent-can-add-measurement;
+            clicked => { ObjectsState.action-add-measurement(); }
+
+            MeasurementActionIcon {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                kind: ObjectsState.recent-measurement-kind;
+                tint: measurement-btn.tint;
+            }
+        }
+
+        if root.recent-domain: measurement-to-btn := PillButton {
+            tooltip: "Add measurement to…";
+            enabled: ObjectsState.recent-can-add-measurement
+                && ObjectsState.recent-has-measurement-targets;
+            clicked => {
+                ObjectsState.popover-anchor-y = measurement-to-btn.absolute-position.y;
+                ObjectsState.action-add-measurement-to();
+            }
+
+            MeasurementActionIcon {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                kind: ObjectsState.recent-measurement-kind;
+                add-to: true;
+                tint: measurement-to-btn.tint;
+            }
+        }
+
+        if root.recent-domain: PillSep {}
+
+        if root.recent-domain: label-btn := PillButton {
+            tooltip: "Add label";
+            enabled: ObjectsState.recent-can-add-label;
+            clicked => {
+                ObjectsState.popover-anchor-y = label-btn.absolute-position.y;
+                ObjectsState.action-add-label();
+            }
+
+            LabelGlyph {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                tint: label-btn.tint;
+            }
+        }
+
         if root.has-camera-actions: PillSep {}
 
         // Camera cluster: zoom · orient · center
-        if ObjectsState.action-can-focus: zoom-btn := PillButton {
+        if !root.recent-domain && ObjectsState.action-can-focus: zoom-btn := PillButton {
+            tooltip: "Zoom to selection";
             clicked => { ObjectsState.action-zoom(); }
             ZoomIcon {
                 x: (parent.width - self.width) / 2;
@@ -106,7 +245,8 @@ export component ActionPill inherits Rectangle {
                 tint: zoom-btn.tint;
             }
         }
-        if ObjectsState.action-can-orient: orient-btn := PillButton {
+        if !root.recent-domain && ObjectsState.action-can-orient: orient-btn := PillButton {
+            tooltip: "Orient selection";
             clicked => { ObjectsState.action-orient(); }
             OrientIcon {
                 x: (parent.width - self.width) / 2;
@@ -114,7 +254,8 @@ export component ActionPill inherits Rectangle {
                 tint: orient-btn.tint;
             }
         }
-        if ObjectsState.action-can-center: center-btn := PillButton {
+        if !root.recent-domain && ObjectsState.action-can-center: center-btn := PillButton {
+            tooltip: "Center selection";
             clicked => { ObjectsState.action-center(); }
             CenterIcon {
                 x: (parent.width - self.width) / 2;
@@ -124,8 +265,9 @@ export component ActionPill inherits Rectangle {
         }
 
         // Visibility toggle (not for subchains)
-        if ObjectsState.action-can-toggle && ObjectsState.selection-level != "subchains": PillSep {}
-        if ObjectsState.action-can-toggle && ObjectsState.selection-level != "subchains": toggle-btn := PillButton {
+        if !root.recent-domain && ObjectsState.action-can-toggle && ObjectsState.selection-level != "subchains": PillSep {}
+        if !root.recent-domain && ObjectsState.action-can-toggle && ObjectsState.selection-level != "subchains": toggle-btn := PillButton {
+            tooltip: "Toggle visibility";
             clicked => { ObjectsState.action-toggle(); }
             ToggleIcon {
                 x: (parent.width - self.width) / 2;
@@ -134,10 +276,11 @@ export component ActionPill inherits Rectangle {
             }
         }
 
-        if ObjectsState.action-can-overflow: PillSep {}
+        if !root.recent-domain && ObjectsState.action-can-overflow: PillSep {}
 
         // Overflow
-        if ObjectsState.action-can-overflow: overflow-btn := PillButton {
+        if !root.recent-domain && ObjectsState.action-can-overflow: overflow-btn := PillButton {
+            tooltip: "More actions";
             clicked => {
                 ObjectsState.popover-anchor-y = overflow-btn.absolute-position.y - Tokens.action-pill-pad-v;
                 ObjectsState.action-overflow();

@@ -8,7 +8,10 @@
 
 use lin_alg::f32::Vec3;
 use patinae_mol::{AtomIndex, ObjectMolecule};
-use patinae_select::{format_exact_selector_value, SelectionResult};
+use patinae_select::{
+    format_exact_selector_value, MacroSpec, Pattern, ResiItem, SelectionExpr, SelectionResult,
+};
+use std::fmt;
 
 use crate::object::ObjectType;
 
@@ -31,6 +34,215 @@ impl PickHit {
     /// Check if this hit an atom
     pub fn is_atom(&self) -> bool {
         self.atom_index.is_some()
+    }
+}
+
+/// Errors produced while formatting canonical atom paths.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AtomPathError {
+    /// The hit belongs to an object that cannot contain atoms.
+    NotMolecule(ObjectType),
+    /// The hit does not identify an atom.
+    MissingAtomIndex,
+    /// The hit identifies no atom in the supplied molecule.
+    AtomNotFound(AtomIndex),
+    /// The hit and molecule names disagree.
+    ObjectNameMismatch {
+        /// Object name requested by the caller.
+        requested: String,
+        /// Name of the supplied molecule.
+        molecule: String,
+    },
+    /// The insertion code cannot be represented by the slash grammar.
+    UnrepresentableInsertionCode(char),
+    /// The alternate location cannot be represented by the slash grammar.
+    UnrepresentableAlternateLocation(char),
+}
+
+impl fmt::Display for AtomPathError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NotMolecule(object_type) => {
+                write!(f, "picked object is {object_type}, not a molecule")
+            }
+            Self::MissingAtomIndex => write!(f, "pick hit does not contain an atom index"),
+            Self::AtomNotFound(index) => {
+                write!(f, "picked atom index {} does not exist", index.as_usize())
+            }
+            Self::ObjectNameMismatch {
+                requested,
+                molecule,
+            } => write!(
+                f,
+                "requested object name {requested:?} does not match molecule name {molecule:?}"
+            ),
+            Self::UnrepresentableInsertionCode(code) => {
+                write!(f, "insertion code {code:?} is not representable")
+            }
+            Self::UnrepresentableAlternateLocation(alt) => {
+                write!(f, "alternate location {alt:?} is not representable")
+            }
+        }
+    }
+}
+
+impl std::error::Error for AtomPathError {}
+
+/// Formats a picked atom as a canonical slash path.
+///
+/// Every string-valued atom address component uses the selection language's
+/// exact-value formatter. Blank segment, chain, insertion-code, and alternate
+/// location values therefore remain explicit constraints rather than omitted
+/// wildcard fields.
+///
+/// # Errors
+///
+/// Returns an error when the hit is not a molecule atom, disagrees with the
+/// supplied molecule, refers past its atom table, or contains metadata the
+/// slash grammar cannot represent losslessly.
+pub fn canonical_atom_path_for_hit(
+    hit: &PickHit,
+    molecule: &ObjectMolecule,
+) -> Result<String, AtomPathError> {
+    if hit.object_type != ObjectType::Molecule {
+        return Err(AtomPathError::NotMolecule(hit.object_type));
+    }
+    let atom_index = hit.atom_index.ok_or(AtomPathError::MissingAtomIndex)?;
+    canonical_atom_path_for_atom(&hit.object_name, molecule, atom_index)
+}
+
+/// Formats one molecule atom as a canonical slash path.
+///
+/// # Errors
+///
+/// Returns an error when `object_name` disagrees with the molecule name, the
+/// atom index is invalid, or atom metadata cannot be represented losslessly by
+/// the slash grammar.
+pub fn canonical_atom_path_for_atom(
+    object_name: &str,
+    molecule: &ObjectMolecule,
+    atom_index: AtomIndex,
+) -> Result<String, AtomPathError> {
+    if object_name != molecule.name {
+        return Err(AtomPathError::ObjectNameMismatch {
+            requested: object_name.to_string(),
+            molecule: molecule.name.clone(),
+        });
+    }
+
+    let atom = molecule
+        .get_atom(atom_index)
+        .ok_or(AtomPathError::AtomNotFound(atom_index))?;
+    let inscode = atom.residue.key.inscode;
+    if !inscode.is_alphabetic() && inscode != ' ' {
+        return Err(AtomPathError::UnrepresentableInsertionCode(inscode));
+    }
+    if atom.alt == '\0' {
+        return Err(AtomPathError::UnrepresentableAlternateLocation(atom.alt));
+    }
+
+    let residue_identifier = format!("{}{inscode}", atom.residue.key.resv);
+    let alternate_location_value = atom.alt.to_string();
+    Ok(format_canonical_atom_path(
+        object_name,
+        &atom.residue.segi,
+        &atom.residue.key.chain,
+        &atom.residue.key.resn,
+        &residue_identifier,
+        &atom.name,
+        &alternate_location_value,
+    ))
+}
+
+pub(crate) fn format_canonical_atom_path(
+    model: &str,
+    segment: &str,
+    chain: &str,
+    residue_name: &str,
+    residue_identifier: &str,
+    atom_name: &str,
+    alternate_location: &str,
+) -> String {
+    let model = format_exact_selector_value(model);
+    let segment = format_exact_selector_value(segment);
+    let chain = format_exact_selector_value(chain);
+    let residue_name = format_exact_selector_value(residue_name);
+    let residue_identifier = format_exact_selector_value(residue_identifier);
+    let atom_name = format_exact_selector_value(atom_name);
+    let alternate_location = format_exact_selector_value(alternate_location);
+
+    format!(
+        "/{model}/{segment}/{chain}/{residue_name}`{residue_identifier}/{atom_name}`{alternate_location}"
+    )
+}
+
+/// Formats a canonical atom path for user-facing display.
+///
+/// Persisted paths keep quoted exact values for blank fields, insertion codes,
+/// and alternate locations. This formatter hides those internal sentinels while
+/// preserving quotes that are required for non-blank special characters.
+///
+/// # Examples
+///
+/// ```
+/// use patinae_scene::display_atom_path;
+///
+/// let path = r#"/1fsd/""/A/LYS`"16 "/HZ2`" ""#;
+/// assert_eq!(display_atom_path(path), "/1fsd//A/LYS`16/HZ2");
+/// ```
+#[must_use]
+pub fn display_atom_path(path: &str) -> String {
+    let Ok(SelectionExpr::Macro(spec)) = patinae_select::parse(path) else {
+        return path.to_string();
+    };
+    display_exact_atom_macro(&spec).unwrap_or_else(|| path.to_string())
+}
+
+fn display_exact_atom_macro(spec: &MacroSpec) -> Option<String> {
+    let model = display_exact_pattern(&spec.model)?;
+    let segment = display_exact_pattern(&spec.segi)?;
+    let chain = display_exact_pattern(&spec.chain)?;
+    let residue_name = display_exact_pattern(&spec.resn)?;
+    let residue_identifier = display_residue_identifier(spec)?;
+    let atom_name = display_exact_pattern(&spec.name)?;
+    let alternate_location = exact_pattern(&spec.alt)?;
+    let alternate_location_suffix = if alternate_location.is_empty() || alternate_location == " " {
+        String::new()
+    } else {
+        format!("`{}", display_exact_value(alternate_location))
+    };
+
+    Some(format!(
+        "/{model}/{segment}/{chain}/{residue_name}`{residue_identifier}/{atom_name}{alternate_location_suffix}"
+    ))
+}
+
+fn display_exact_pattern(pattern: &Option<Pattern>) -> Option<String> {
+    exact_pattern(pattern).map(display_exact_value)
+}
+
+fn exact_pattern(pattern: &Option<Pattern>) -> Option<&str> {
+    match pattern {
+        Some(Pattern::Exact(value)) => Some(value),
+        _ => None,
+    }
+}
+
+fn display_residue_identifier(spec: &MacroSpec) -> Option<String> {
+    let identifier = match spec.resi.as_ref()?.items.as_slice() {
+        [ResiItem::Single(value)] => value.to_string(),
+        [ResiItem::InsCode(value, ' ')] => value.to_string(),
+        [ResiItem::InsCode(value, code)] => format!("{value}{code}"),
+        _ => return None,
+    };
+    Some(display_exact_value(&identifier))
+}
+
+fn display_exact_value(value: &str) -> String {
+    if value.is_empty() {
+        String::new()
+    } else {
+        format_exact_selector_value(value).into_owned()
     }
 }
 
@@ -176,7 +388,7 @@ fn format_resi(resv: i32, inscode: char) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use patinae_mol::RepMask;
+    use patinae_mol::{Atom, AtomBuilder, Element, MoleculeBuilder, RepMask};
 
     #[test]
     fn test_pick_hit() {
@@ -252,6 +464,182 @@ mod tests {
             position: Vec3::new(0.0, 0.0, 0.0),
             distance: 1.0,
         }
+    }
+
+    fn atom_with_path_metadata(
+        name: &str,
+        segi: &str,
+        chain: &str,
+        resn: &str,
+        resv: i32,
+        inscode: char,
+        alt: char,
+    ) -> Atom {
+        let mut atom = AtomBuilder::new()
+            .name(name)
+            .element(Element::Carbon)
+            .segi(segi)
+            .chain(chain)
+            .resn(resn)
+            .resv(resv)
+            .inscode(inscode)
+            .build();
+        atom.alt = alt;
+        atom
+    }
+
+    fn path_hit(object_name: &str, atom_index: usize) -> PickHit {
+        PickHit {
+            object_name: object_name.to_string(),
+            object_type: ObjectType::Molecule,
+            atom_index: Some(AtomIndex::from(atom_index)),
+            position: Vec3::new(0.0, 0.0, 0.0),
+            distance: 1.0,
+        }
+    }
+
+    fn assert_path_selects_only_first(path: &str, target: &ObjectMolecule, other: &ObjectMolecule) {
+        let expr = patinae_select::parse(path).unwrap();
+        let context = patinae_select::EvalContext::multi(vec![target, other]);
+        let selected = patinae_select::evaluate(&expr, &context).unwrap();
+
+        assert_eq!(selected.count(), 1, "path {path}");
+        assert!(selected.contains_index(0), "path {path}");
+    }
+
+    #[test]
+    fn canonical_atom_path_round_trips_ordinary_hit_among_near_collisions() {
+        let target = MoleculeBuilder::new("ordinary")
+            .add_atom(
+                atom_with_path_metadata("CA", "", "A", "GLY", 42, ' ', ' '),
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .add_atom(
+                atom_with_path_metadata("CA", "SEG", "A", "GLY", 42, ' ', ' '),
+                Vec3::new(1.0, 0.0, 0.0),
+            )
+            .add_atom(
+                atom_with_path_metadata("CA", "", "B", "GLY", 42, ' ', ' '),
+                Vec3::new(2.0, 0.0, 0.0),
+            )
+            .add_atom(
+                atom_with_path_metadata("CA", "", "A", "ALA", 42, ' ', ' '),
+                Vec3::new(3.0, 0.0, 0.0),
+            )
+            .add_atom(
+                atom_with_path_metadata("CA", "", "A", "GLY", 43, ' ', ' '),
+                Vec3::new(4.0, 0.0, 0.0),
+            )
+            .add_atom(
+                atom_with_path_metadata("CA", "", "A", "GLY", 42, 'A', ' '),
+                Vec3::new(5.0, 0.0, 0.0),
+            )
+            .add_atom(
+                atom_with_path_metadata("CB", "", "A", "GLY", 42, ' ', ' '),
+                Vec3::new(6.0, 0.0, 0.0),
+            )
+            .add_atom(
+                atom_with_path_metadata("CA", "", "A", "GLY", 42, ' ', 'B'),
+                Vec3::new(7.0, 0.0, 0.0),
+            )
+            .build();
+        let other = MoleculeBuilder::new("other")
+            .add_atom(
+                atom_with_path_metadata("CA", "", "A", "GLY", 42, ' ', ' '),
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .build();
+
+        let path = canonical_atom_path_for_hit(&path_hit("ordinary", 0), &target).unwrap();
+
+        assert_eq!(path, "/ordinary/\"\"/A/GLY`\"42 \"/CA`\" \"");
+        assert_eq!(display_atom_path(&path), "/ordinary//A/GLY`42/CA");
+        assert_path_selects_only_first(&path, &target, &other);
+    }
+
+    #[test]
+    fn canonical_atom_path_round_trips_special_hit_as_exact_values() {
+        let model = "model/\"quoted\"\\tail";
+        let target = MoleculeBuilder::new(model)
+            .add_atom(
+                atom_with_path_metadata("C/A*?\"\\", "*", "?", "G/L\"Y\\", -42, 'A', '?'),
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .add_atom(
+                atom_with_path_metadata("C/Axx\"\\", "*", "?", "G/L\"Y\\", -42, 'A', '?'),
+                Vec3::new(1.0, 0.0, 0.0),
+            )
+            .build();
+        let other = MoleculeBuilder::new("different/model")
+            .add_atom(
+                atom_with_path_metadata("C/A*?\"\\", "*", "?", "G/L\"Y\\", -42, 'A', '?'),
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .build();
+
+        let path = canonical_atom_path_for_hit(&path_hit(model, 0), &target).unwrap();
+
+        assert!(path.starts_with(r#"/"model/\"quoted\"\\tail"/"*"/"?"/"#));
+        assert!(path.ends_with(r#"/"C/A*?\"\\"`"?""#));
+        assert_eq!(
+            display_atom_path(&path),
+            r#"/"model/\"quoted\"\\tail"/"*"/"?"/"G/L\"Y\\"`"-42A"/"C/A*?\"\\"`"?""#
+        );
+        assert_path_selects_only_first(&path, &target, &other);
+    }
+
+    #[test]
+    fn canonical_atom_path_rejects_incomplete_or_unrepresentable_hit() {
+        let molecule = MoleculeBuilder::new("test")
+            .add_atom(
+                atom_with_path_metadata("CA", "", "A", "GLY", 42, ' ', ' '),
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .build();
+
+        let mut hit = path_hit("test", 0);
+        hit.atom_index = None;
+        assert_eq!(
+            canonical_atom_path_for_hit(&hit, &molecule),
+            Err(AtomPathError::MissingAtomIndex)
+        );
+
+        let hit = path_hit("test", 10);
+        assert_eq!(
+            canonical_atom_path_for_hit(&hit, &molecule),
+            Err(AtomPathError::AtomNotFound(AtomIndex::from(10usize)))
+        );
+
+        let mut hit = path_hit("test", 0);
+        hit.object_type = ObjectType::Map;
+        assert_eq!(
+            canonical_atom_path_for_hit(&hit, &molecule),
+            Err(AtomPathError::NotMolecule(ObjectType::Map))
+        );
+
+        let hit = path_hit("different", 0);
+        assert!(matches!(
+            canonical_atom_path_for_hit(&hit, &molecule),
+            Err(AtomPathError::ObjectNameMismatch { .. })
+        ));
+
+        let invalid_inscode = MoleculeBuilder::new("test")
+            .add_atom(
+                atom_with_path_metadata("CA", "", "A", "GLY", 42, '*', ' '),
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .build();
+        assert_eq!(
+            canonical_atom_path_for_hit(&path_hit("test", 0), &invalid_inscode),
+            Err(AtomPathError::UnrepresentableInsertionCode('*'))
+        );
+
+        let mut molecule = molecule;
+        molecule.get_atom_mut(AtomIndex::from(0usize)).unwrap().alt = '\0';
+        assert_eq!(
+            canonical_atom_path_for_hit(&path_hit("test", 0), &molecule),
+            Err(AtomPathError::UnrepresentableAlternateLocation('\0'))
+        );
     }
 
     fn blank_chain_molecule() -> ObjectMolecule {

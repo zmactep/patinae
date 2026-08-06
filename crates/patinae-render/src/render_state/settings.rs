@@ -1,7 +1,7 @@
 use super::state::*;
 use crate::compute::ssao::SsaoParams;
 use crate::passes::lighting::MAX_ATLAS_DIRECTIONS;
-use crate::passes::selection_dots::{uses_selection_dots_fallback, SelectionDotsPass};
+use crate::passes::selection_dots::uses_selection_dots_fallback;
 use crate::postprocess::fxaa::FxaaParams;
 use crate::postprocess::marking::MarkingPass;
 use crate::postprocess::silhouette::SilhouetteParams;
@@ -26,8 +26,7 @@ impl RenderState {
     pub fn set_selection_overlay_enabled(&mut self, enabled: bool) {
         if !enabled {
             self.screen.selection_dots_enabled = false;
-            self.screen.selection_dots_rebuild_all = false;
-            self.screen.selection_dots = None;
+            self.screen.atom_markers_rebuild_all = true;
         }
 
         if enabled && uses_selection_dots_fallback(self.memory.policy) {
@@ -43,15 +42,11 @@ impl RenderState {
             }
             self.screen.selection_overlay_enabled = false;
             self.screen.selection_dots_enabled = true;
-            if self.screen.selection_dots.is_none() {
-                self.screen.selection_dots =
-                    Some(SelectionDotsPass::new(&self.ctx, &self.scene.scene_layout));
-            }
             self.screen.marking_bind_groups = None;
             self.screen.fxaa_overlay_bind_group = None;
             self.targets.clear_marking_targets();
             if !was_enabled {
-                self.screen.selection_dots_rebuild_all = true;
+                self.screen.atom_markers_rebuild_all = true;
             }
             return;
         }
@@ -74,8 +69,7 @@ impl RenderState {
         }
         if enabled {
             self.screen.selection_dots_enabled = false;
-            self.screen.selection_dots_rebuild_all = false;
-            self.screen.selection_dots = None;
+            self.screen.atom_markers_rebuild_all = true;
         }
         if enabled && self.screen.marking.is_none() {
             self.screen.marking = Some(MarkingPass::new(&self.ctx));

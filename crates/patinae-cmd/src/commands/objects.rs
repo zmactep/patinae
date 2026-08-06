@@ -2,7 +2,7 @@
 
 use patinae_mol::dss::{assign_secondary_structure, assigner_for};
 use patinae_mol::{AtomIndex, ObjectMolecule};
-use patinae_scene::MoleculeObject;
+use patinae_scene::{MoleculeObject, Object};
 
 use crate::args::{ArgValue, ParsedCommand};
 use crate::command::{ArgHint, Command, CommandContext, CommandRegistry, ViewerLike};
@@ -142,8 +142,9 @@ impl Command for DeleteCommand {
         to_delete.dedup();
 
         for obj_name in &to_delete {
-            ctx.viewer.objects_mut().remove(obj_name);
-            deleted_objects += 1;
+            if ctx.viewer.remove_object(obj_name) {
+                deleted_objects += 1;
+            }
         }
 
         // Delete matching named selections
@@ -234,8 +235,8 @@ impl Command for RenameCommand {
             .ok_or_else(|| CmdError::missing_argument("new_name".to_string()))?;
 
         // Try renaming as an object first, then as a selection
-        let renamed = match ctx.viewer.objects_mut().rename(old_name, new_name) {
-            Ok(()) => true,
+        let renamed = match ctx.viewer.rename_object(old_name, new_name) {
+            Ok(_) => true,
             Err(_) => ctx.viewer.rename_selection(old_name, new_name),
         };
 
@@ -328,7 +329,7 @@ impl Command for CreateCommand {
         let atom_count = new_mol.atom_count();
         let mut mol_obj = MoleculeObject::from_raw_with_name(new_mol, name);
         mol_obj.set_visible_reps(source_reps);
-        ctx.viewer.objects_mut().add(mol_obj);
+        ctx.viewer.insert_object(Box::new(mol_obj));
         ctx.viewer.request_redraw();
 
         if !ctx.quiet {
@@ -456,7 +457,7 @@ impl Command for CopyCommand {
 
             let mut new_obj = MoleculeObject::from_raw_with_name(cloned_mol, target);
             new_obj.set_visible_reps(source_reps);
-            ctx.viewer.objects_mut().add(new_obj);
+            ctx.viewer.insert_object(Box::new(new_obj));
             ctx.viewer.request_redraw();
 
             if !ctx.quiet {
@@ -491,7 +492,7 @@ impl Command for CopyCommand {
         let atom_count = new_mol.atom_count();
         let mut new_obj = MoleculeObject::from_raw_with_name(new_mol, target);
         new_obj.set_visible_reps(source_reps);
-        ctx.viewer.objects_mut().add(new_obj);
+        ctx.viewer.insert_object(Box::new(new_obj));
         ctx.viewer.request_redraw();
 
         if !ctx.quiet {
@@ -570,7 +571,7 @@ impl Command for GroupCommand {
                     && !ctx.viewer.objects().contains(name)
                 {
                     use patinae_scene::GroupObject;
-                    ctx.viewer.objects_mut().add(GroupObject::new(name));
+                    ctx.viewer.insert_object(Box::new(GroupObject::new(name)));
                 }
                 for member in &resolved {
                     ctx.viewer.objects_mut().add_to_group(name, member);
@@ -657,7 +658,7 @@ impl Command for GroupCommand {
                 } else {
                     // Create empty group
                     use patinae_scene::GroupObject;
-                    ctx.viewer.objects_mut().add(GroupObject::new(name));
+                    ctx.viewer.insert_object(Box::new(GroupObject::new(name)));
                     if !ctx.quiet {
                         ctx.print(&format!(" Created group \"{}\"", name));
                     }
@@ -685,7 +686,7 @@ impl Command for GroupCommand {
                     group.clear();
                 }
                 for child in &children {
-                    ctx.viewer.objects_mut().remove(child);
+                    ctx.viewer.remove_object(child);
                 }
                 if !ctx.quiet {
                     ctx.print(&format!(
@@ -700,7 +701,7 @@ impl Command for GroupCommand {
                 if let Some(group) = ctx.viewer.objects_mut().get_group_mut(name) {
                     group.clear();
                 }
-                ctx.viewer.objects_mut().remove(name);
+                ctx.viewer.remove_object(name);
                 if !ctx.quiet {
                     let verb = if action == "excise" {
                         "Excised"
@@ -771,7 +772,7 @@ impl Command for UngroupCommand {
         }
 
         // Delete the group object itself
-        ctx.viewer.objects_mut().remove(name);
+        ctx.viewer.remove_object(name);
         ctx.viewer.request_redraw();
 
         if !ctx.quiet {
@@ -1051,11 +1052,13 @@ impl Command for SplitStatesCommand {
         };
 
         let count = new_mols.len();
+        let mut objects: Vec<Box<dyn Object>> = Vec::with_capacity(count);
         for (name, mol) in new_mols {
             let mut mol_obj = MoleculeObject::from_raw_with_name(mol, &name);
             mol_obj.set_visible_reps(source_reps);
-            ctx.viewer.objects_mut().add(mol_obj);
+            objects.push(Box::new(mol_obj));
         }
+        ctx.viewer.insert_objects(objects);
 
         ctx.viewer.request_redraw();
 
@@ -1333,11 +1336,10 @@ impl Command for ExtractCommand {
         // Add the new object preserving per-atom representations from source
         let mut mol_obj = MoleculeObject::from_raw_with_name(new_mol, name);
         mol_obj.set_visible_reps(source_reps);
-        ctx.viewer.objects_mut().add(mol_obj);
+        ctx.viewer.insert_object(Box::new(mol_obj));
 
         // Remove atoms from source
         ctx.viewer
-            .objects_mut()
             .remove_molecule_atoms(&src_name, &remove_indices)
             .map_err(|error| CmdError::scene(error.to_string()))?;
 
@@ -1427,7 +1429,6 @@ impl Command for RemoveCommand {
         for (obj_name, indices) in &removals {
             total_removed += indices.len();
             ctx.viewer
-                .objects_mut()
                 .remove_molecule_atoms(obj_name, indices)
                 .map_err(|error| CmdError::scene(error.to_string()))?;
         }
@@ -1537,11 +1538,13 @@ mod tests {
     use super::*;
     use crate::command::CommandContext;
     use crate::parser::parse_command;
+    use crate::CommandExecutor;
     use patinae_mol::{AtomBuilder, AtomIndex, BondOrder, CoordSet, Element};
     use patinae_scene::{
         AtomAnchor, LabelEntity, LabelObject, MeasurementEntity, MeasurementKind,
         MeasurementObject, MoleculeObject, Session, SessionAdapter,
     };
+    use patinae_settings::groups::RecentPickLimit;
 
     /// Create a molecule with two residues: ALA (3 atoms) and HOH (1 atom)
     fn create_test_molecule(name: &str) -> patinae_mol::ObjectMolecule {
@@ -1669,6 +1672,33 @@ mod tests {
         ExtractCommand.execute(&mut ctx, &parsed)
     }
 
+    fn run_registered(session: &mut Session, cmd_str: &str) -> CmdResult {
+        let mut needs_redraw = false;
+        let mut adapter = SessionAdapter {
+            session,
+            render_context: None,
+            default_size: (800, 600),
+            needs_redraw: &mut needs_redraw,
+            async_fetch_fn: None,
+        };
+        CommandExecutor::new().do_(&mut adapter, cmd_str)
+    }
+
+    fn recent_path(session: &Session, object_name: &str, atom_index: u32) -> String {
+        let molecule = session.registry.get_molecule(object_name).unwrap();
+        patinae_scene::canonical_atom_path_for_hit(
+            &patinae_scene::PickHit {
+                object_name: object_name.to_string(),
+                object_type: patinae_scene::ObjectType::Molecule,
+                atom_index: Some(AtomIndex(atom_index)),
+                position: lin_alg::f32::Vec3::new(0.0, 0.0, 0.0),
+                distance: 0.0,
+            },
+            molecule.molecule(),
+        )
+        .unwrap()
+    }
+
     fn add_atom_annotations(session: &mut Session, source_name: &str, atom_index: AtomIndex) {
         let anchor = AtomAnchor::new(source_name, atom_index);
         session.registry.add(LabelObject::with_entities(
@@ -1738,6 +1768,39 @@ mod tests {
 
         let obj = session.registry.get_molecule("test").unwrap();
         assert_eq!(obj.molecule().atom_count(), 3);
+    }
+
+    #[test]
+    fn rename_remove_and_delete_commands_reconcile_recent_atom_paths() {
+        let mut session = setup_session_with(create_test_molecule("test"));
+        let ca = recent_path(&session, "test", 0);
+        let cb = recent_path(&session, "test", 1);
+        let water = recent_path(&session, "test", 3);
+        session
+            .recent_atoms
+            .insert(ca.clone(), RecentPickLimit::Unlimited);
+        let ca_id = session.recent_atoms.row_id(&ca).unwrap();
+        session.recent_atoms.insert(cb, RecentPickLimit::Unlimited);
+        session
+            .recent_atoms
+            .insert(water, RecentPickLimit::Unlimited);
+
+        run_registered(&mut session, "rename test, renamed").unwrap();
+        assert_eq!(session.recent_atoms.rows()[0].id(), ca_id);
+        assert!(session
+            .recent_atoms
+            .paths()
+            .all(|path| path.starts_with("/renamed/")));
+
+        run_registered(&mut session, "remove name CB").unwrap();
+        assert_eq!(session.recent_atoms.len(), 2);
+        assert!(session
+            .recent_atoms
+            .paths()
+            .all(|path| !path.contains("/CB`")));
+
+        run_registered(&mut session, "delete renamed").unwrap();
+        assert!(session.recent_atoms.is_empty());
     }
 
     #[test]

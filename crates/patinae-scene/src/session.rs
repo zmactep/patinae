@@ -7,14 +7,19 @@
 //! GPU resources live behind a host-provided render target.
 
 use patinae_color::{NamedPalette, ThemedPalette};
-use patinae_select::SelectionResult;
+use patinae_select::{
+    evaluate, parse, EvalContext, MacroSpec, Pattern, ResiItem, SelectionExpr, SelectionOptions,
+    SelectionResult,
+};
 use patinae_settings::Settings;
 use serde::{Deserialize, Serialize};
 
 use crate::camera::Camera;
+use crate::error::SceneResult;
 use crate::highlight_state::HighlightState;
 use crate::movie::Movie;
 use crate::object::{DirtyFlags, Object, ObjectRegistry, ObjectRegistrySnapshot};
+use crate::recent_atoms::RecentAtoms;
 use crate::scene::SceneManager;
 use crate::selection::SelectionManager;
 use crate::view::ViewManager;
@@ -53,6 +58,8 @@ pub struct Session {
     pub named_palette: NamedPalette,
     /// Theme-aware palette (element, chain, SS, residue, gradients, etc.)
     pub palette: ThemedPalette,
+    /// Ordered canonical paths for atoms collected from the viewport.
+    pub recent_atoms: RecentAtoms,
 
     // =========================================================================
     // Visual Properties
@@ -136,12 +143,14 @@ struct SessionProxy {
     clear_color: [f32; 3],
     #[serde(default)]
     clear_color_set: bool,
+    #[serde(default)]
+    recent_atoms: RecentAtoms,
 }
 
 impl Serialize for Session {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeStruct;
-        let mut s = serializer.serialize_struct("Session", 11)?;
+        let mut s = serializer.serialize_struct("Session", 12)?;
         s.serialize_field("registry", &self.registry.to_snapshot())?;
         s.serialize_field("camera", &self.camera)?;
         s.serialize_field("selections", &self.selections)?;
@@ -153,6 +162,7 @@ impl Serialize for Session {
         s.serialize_field("palette", &self.palette)?;
         s.serialize_field("clear_color", &self.clear_color)?;
         s.serialize_field("clear_color_set", &self.clear_color_set)?;
+        s.serialize_field("recent_atoms", &self.recent_atoms)?;
         s.end()
     }
 }
@@ -160,7 +170,9 @@ impl Serialize for Session {
 impl<'de> Deserialize<'de> for Session {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let proxy = SessionProxy::deserialize(deserializer)?;
-        Ok(Session {
+        let mut recent_atoms = proxy.recent_atoms;
+        recent_atoms.enforce_limit(proxy.settings.behavior.recent_pick_limit());
+        let mut session = Session {
             registry: ObjectRegistry::from_snapshot(proxy.registry),
             camera: proxy.camera,
             selections: proxy.selections,
@@ -170,12 +182,15 @@ impl<'de> Deserialize<'de> for Session {
             settings: proxy.settings,
             named_palette: proxy.named_palette,
             palette: proxy.palette,
+            recent_atoms,
             clear_color: proxy.clear_color,
             clear_color_set: proxy.clear_color_set,
             viewport_image: None,
             highlight_state: HighlightState::new(),
             hover_target: None,
-        })
+        };
+        session.reconcile_recent_atoms();
+        Ok(session)
     }
 }
 
@@ -198,11 +213,164 @@ impl Session {
             settings: Settings::default(),
             named_palette: NamedPalette::default(),
             palette: ThemedPalette::dark(),
+            recent_atoms: RecentAtoms::new(),
             clear_color: [0.0, 0.0, 0.0],
             clear_color_set: false,
             viewport_image: None,
             highlight_state: HighlightState::new(),
             hover_target: None,
+        }
+    }
+
+    /// Reconciles durable recent paths against the current molecular registry.
+    pub fn reconcile_recent_atoms(&mut self) -> bool {
+        self.reconcile_recent_atoms_with_model_rename(None)
+    }
+
+    /// Inserts an object and reconciles recent atom paths.
+    pub fn insert_object(&mut self, object: Box<dyn Object>) {
+        self.insert_objects(std::iter::once(object));
+    }
+
+    /// Inserts objects sequentially and reconciles recent paths once.
+    pub(crate) fn insert_objects(&mut self, objects: impl IntoIterator<Item = Box<dyn Object>>) {
+        let mut inserted = false;
+        for object in objects {
+            let name = object.name().to_string();
+            self.registry.insert_boxed(&name, object);
+            inserted = true;
+        }
+        if inserted {
+            self.reconcile_recent_atoms();
+        }
+    }
+
+    /// Returns whether a canonical recent-atom path resolves to exactly one atom.
+    pub fn recent_atom_path_is_singleton(&self, path: &str) -> bool {
+        self.resolve_recent_atom(path).is_some()
+    }
+
+    /// Resolves every valid recent path to an object-local atom index.
+    pub(crate) fn resolved_recent_atoms(&self) -> Vec<(String, patinae_mol::AtomIndex)> {
+        let contexts =
+            recent_atom_evaluation_contexts(&self.registry, &self.selections, &self.settings);
+        self.recent_atoms
+            .paths()
+            .filter_map(|path| resolve_recent_atom_in_contexts(path, &contexts))
+            .collect()
+    }
+
+    fn resolve_recent_atom(&self, path: &str) -> Option<(String, patinae_mol::AtomIndex)> {
+        let contexts =
+            recent_atom_evaluation_contexts(&self.registry, &self.selections, &self.settings);
+        resolve_recent_atom_in_contexts(path, &contexts)
+    }
+
+    fn reconcile_recent_atoms_with_model_rename(&mut self, rename: Option<(&str, &str)>) -> bool {
+        if self.recent_atoms.is_empty() {
+            return false;
+        }
+
+        let contexts =
+            recent_atom_evaluation_contexts(&self.registry, &self.selections, &self.settings);
+
+        let mut changed = self.recent_atoms.reconcile_paths(|path| {
+            let SelectionExpr::Macro(mut spec) = parse(path).ok()? else {
+                return None;
+            };
+            if let Some((old_name, new_name)) = rename {
+                if exact_pattern(&spec.model) == Some(old_name) {
+                    spec.model = Some(Pattern::Exact(new_name.to_string()));
+                }
+            }
+            if !is_exact_atom_macro(&spec) {
+                return None;
+            }
+            let canonical_path = format_exact_atom_macro(&spec)?;
+            let expression = SelectionExpr::Macro(spec);
+            exact_singleton_in_contexts(&expression, &contexts).then_some(canonical_path)
+        });
+        changed |= self
+            .recent_atoms
+            .enforce_limit(self.settings.behavior.recent_pick_limit());
+        changed
+    }
+
+    /// Renames an object and rewrites matching recent path model components.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the registry rejects the rename.
+    pub fn rename_object(&mut self, old_name: &str, new_name: &str) -> SceneResult<()> {
+        self.registry.rename(old_name, new_name)?;
+        self.reconcile_recent_atoms_with_model_rename(Some((old_name, new_name)));
+        Ok(())
+    }
+
+    /// Removes an object and reconciles recent atom paths.
+    pub fn remove_object(&mut self, name: &str) -> bool {
+        if self.registry.remove(name).is_none() {
+            return false;
+        }
+        self.reconcile_recent_atoms();
+        true
+    }
+
+    /// Removes molecule atoms and reconciles recent atom paths.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `source_name` is not a molecule object.
+    pub fn remove_molecule_atoms(
+        &mut self,
+        source_name: &str,
+        indices: &[patinae_mol::AtomIndex],
+    ) -> SceneResult<usize> {
+        let removed = self.registry.remove_molecule_atoms(source_name, indices)?;
+        self.reconcile_recent_atoms();
+        Ok(removed)
+    }
+
+    /// Clears all objects and reconciles recent atom paths.
+    pub fn clear_objects(&mut self) {
+        self.registry.clear();
+        self.reconcile_recent_atoms();
+    }
+
+    /// Applies immediate recent-atom effects for one changed global setting.
+    pub fn reconcile_recent_atom_setting(&mut self, setting_name: &str) {
+        match setting_name {
+            "max_recent_picks" => {
+                self.recent_atoms
+                    .enforce_limit(self.settings.behavior.recent_pick_limit());
+            }
+            "ignore_case" | "ignore_case_chain" => {
+                self.reconcile_recent_atoms();
+            }
+            _ => {}
+        };
+    }
+
+    /// Replaces all session state and invalidates transient observer tokens.
+    pub fn replace_contents(&mut self, mut replacement: Session) {
+        let old_registry_generation = self.registry.generation();
+        let old_selection_generation = self.selections.generation();
+        let old_recent_generation = self.recent_atoms.generation();
+        let old_recent_incarnation = self.recent_atoms.incarnation();
+        replacement.reconcile_recent_atoms();
+
+        *self = replacement;
+        self.recent_atoms
+            .mark_replaced_after(old_recent_incarnation);
+        self.registry.mark_all_dirty();
+        if self.registry.generation() == old_registry_generation {
+            self.registry.invalidate();
+        }
+        if self.selections.generation() == old_selection_generation {
+            self.selections.invalidate();
+        }
+        if self.recent_atoms.generation() == old_recent_generation {
+            self.recent_atoms.invalidate();
         }
     }
 
@@ -365,6 +533,113 @@ impl Session {
     }
 }
 
+fn is_exact_atom_macro(spec: &MacroSpec) -> bool {
+    exact_pattern(&spec.model).is_some()
+        && exact_pattern(&spec.segi).is_some()
+        && exact_pattern(&spec.chain).is_some()
+        && exact_pattern(&spec.resn).is_some()
+        && exact_residue_identifier(spec).is_some()
+        && exact_pattern(&spec.name).is_some()
+        && exact_pattern(&spec.alt).is_some()
+}
+
+fn format_exact_atom_macro(spec: &MacroSpec) -> Option<String> {
+    let model = exact_pattern(&spec.model)?;
+    let segment = exact_pattern(&spec.segi)?;
+    let chain = exact_pattern(&spec.chain)?;
+    let residue_name = exact_pattern(&spec.resn)?;
+    let residue_identifier = exact_residue_identifier(spec)?;
+    let atom_name = exact_pattern(&spec.name)?;
+    let alternate_location = exact_pattern(&spec.alt)?;
+    Some(crate::pick::format_canonical_atom_path(
+        model,
+        segment,
+        chain,
+        residue_name,
+        &residue_identifier,
+        atom_name,
+        alternate_location,
+    ))
+}
+
+fn exact_pattern(pattern: &Option<Pattern>) -> Option<&str> {
+    match pattern {
+        Some(Pattern::Exact(value)) => Some(value),
+        _ => None,
+    }
+}
+
+fn exact_residue_identifier(spec: &MacroSpec) -> Option<String> {
+    match spec.resi.as_ref()?.items.as_slice() {
+        [ResiItem::Single(value)] => Some(value.to_string()),
+        [ResiItem::InsCode(value, code)] => Some(format!("{value}{code}")),
+        _ => None,
+    }
+}
+
+fn recent_atom_evaluation_contexts<'a>(
+    registry: &'a ObjectRegistry,
+    selections: &SelectionManager,
+    settings: &Settings,
+) -> Vec<EvalContext<'a>> {
+    let object_names = registry.names().map(ToOwned::to_owned).collect::<Vec<_>>();
+    let options = SelectionOptions {
+        ignore_case: settings.behavior.ignore_case,
+        ignore_case_chain: settings.behavior.ignore_case_chain,
+    };
+    object_names
+        .iter()
+        .filter_map(|object_name| {
+            let molecule = registry.get_molecule(object_name)?;
+            Some(selections.build_eval_context(
+                molecule.molecule(),
+                molecule.display_state(),
+                object_name,
+                &object_names,
+                options,
+            ))
+        })
+        .collect()
+}
+
+fn exact_singleton_in_contexts(expression: &SelectionExpr, contexts: &[EvalContext<'_>]) -> bool {
+    exact_singleton_target_in_contexts(expression, contexts).is_some()
+}
+
+fn resolve_recent_atom_in_contexts(
+    path: &str,
+    contexts: &[EvalContext<'_>],
+) -> Option<(String, patinae_mol::AtomIndex)> {
+    let SelectionExpr::Macro(spec) = parse(path).ok()? else {
+        return None;
+    };
+    if !is_exact_atom_macro(&spec) {
+        return None;
+    }
+    exact_singleton_target_in_contexts(&SelectionExpr::Macro(spec), contexts)
+}
+
+fn exact_singleton_target_in_contexts(
+    expression: &SelectionExpr,
+    contexts: &[EvalContext<'_>],
+) -> Option<(String, patinae_mol::AtomIndex)> {
+    let mut target = None;
+    for context in contexts {
+        let selection = evaluate(expression, context).ok()?;
+        if selection.count() > 1 {
+            return None;
+        }
+        if let Some(atom_index) = selection.first() {
+            if target.is_some() {
+                return None;
+            }
+            let object_name = context.first_molecule()?.name.clone();
+            target = Some((object_name, atom_index));
+        }
+    }
+    target
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -373,6 +648,37 @@ mod tests {
     use crate::scene::SceneStoreMask;
     use lin_alg::f32::Vec3;
     use patinae_mol::{Atom, CoordSet, Element, ObjectMolecule};
+    use patinae_settings::groups::RecentPickLimit;
+
+    fn single_atom_molecule(name: &str, atom_name: &str, chain: &str) -> ObjectMolecule {
+        let mut molecule = ObjectMolecule::new(name);
+        molecule.add_atom(
+            patinae_mol::AtomBuilder::new()
+                .name(atom_name)
+                .element(Element::Carbon)
+                .resn("GLY")
+                .resv(1)
+                .chain(chain)
+                .build(),
+        );
+        molecule.add_coord_set(CoordSet::from_vec3(&[Vec3::new(0.0, 0.0, 0.0)]));
+        molecule
+    }
+
+    fn atom_path(session: &Session, object_name: &str, atom_index: usize) -> String {
+        let molecule = session.registry.get_molecule(object_name).unwrap();
+        crate::canonical_atom_path_for_hit(
+            &crate::PickHit {
+                object_name: object_name.to_string(),
+                object_type: crate::ObjectType::Molecule,
+                atom_index: Some(patinae_mol::AtomIndex(atom_index.try_into().unwrap())),
+                position: Vec3::new(0.0, 0.0, 0.0),
+                distance: 0.0,
+            },
+            molecule.molecule(),
+        )
+        .unwrap()
+    }
 
     fn multi_state_molecule(name: &str, states: usize) -> ObjectMolecule {
         let mut mol = ObjectMolecule::new(name);
@@ -443,5 +749,275 @@ mod tests {
         assert!(session.sync_movie_frame());
 
         assert_eq!(session.camera.fov(), 35.0);
+    }
+
+    #[test]
+    fn new_session_has_empty_unlimited_recent_atoms() {
+        let session = Session::new();
+
+        assert!(session.recent_atoms.is_empty());
+        assert_eq!(
+            session.settings.behavior.recent_pick_limit(),
+            RecentPickLimit::Unlimited
+        );
+    }
+
+    #[test]
+    fn legacy_named_session_defaults_recent_atoms_and_limit() {
+        let session = Session::new();
+        let mut value = serde_json::to_value(&session).unwrap();
+        let fields = value.as_object_mut().unwrap();
+        fields.remove("recent_atoms");
+        fields
+            .get_mut("settings")
+            .unwrap()
+            .get_mut("behavior")
+            .unwrap()
+            .as_object_mut()
+            .unwrap()
+            .remove("max_recent_picks");
+
+        let restored: Session = serde_json::from_value(value).unwrap();
+
+        assert!(restored.recent_atoms.is_empty());
+        assert_eq!(restored.settings.behavior.max_recent_picks, -1);
+    }
+
+    #[test]
+    fn legacy_positional_session_defaults_recent_atoms() {
+        let session = Session::new();
+        let mut legacy_settings = serde_json::to_value(&session.settings).unwrap();
+        legacy_settings["behavior"]
+            .as_object_mut()
+            .unwrap()
+            .remove("max_recent_picks");
+        let value = serde_json::Value::Array(vec![
+            serde_json::to_value(session.registry.to_snapshot()).unwrap(),
+            serde_json::to_value(&session.camera).unwrap(),
+            serde_json::to_value(&session.selections).unwrap(),
+            serde_json::to_value(&session.scenes).unwrap(),
+            serde_json::to_value(&session.views).unwrap(),
+            serde_json::to_value(&session.movie).unwrap(),
+            legacy_settings,
+            serde_json::to_value(&session.named_palette).unwrap(),
+            serde_json::to_value(&session.palette).unwrap(),
+            serde_json::to_value(session.clear_color).unwrap(),
+            serde_json::to_value(session.clear_color_set).unwrap(),
+        ]);
+
+        let restored: Session = serde_json::from_value(value).unwrap();
+
+        assert!(restored.recent_atoms.is_empty());
+        assert_eq!(restored.settings.behavior.max_recent_picks, -1);
+    }
+
+    #[test]
+    fn session_load_deduplicates_then_applies_recent_atom_limit() {
+        let mut session = Session::new();
+        for name in ["one", "two", "three"] {
+            session.registry.add(MoleculeObject::with_name(
+                single_atom_molecule(name, "CA", "A"),
+                name,
+            ));
+        }
+        let one = atom_path(&session, "one", 0);
+        let two = atom_path(&session, "two", 0);
+        let three = atom_path(&session, "three", 0);
+        session.settings.behavior.max_recent_picks = 2;
+        let mut value = serde_json::to_value(&session).unwrap();
+        value["recent_atoms"] = serde_json::json!([one, two, one, three]);
+
+        let restored: Session = serde_json::from_value(value).unwrap();
+
+        assert_eq!(
+            restored.recent_atoms.paths().collect::<Vec<_>>(),
+            [two, three]
+        );
+    }
+
+    #[test]
+    fn reconcile_recent_atoms_keeps_only_exact_singletons_in_stable_order() {
+        let mut session = Session::new();
+        session.registry.add(MoleculeObject::with_name(
+            single_atom_molecule("first", "CA", "A"),
+            "first",
+        ));
+        session.registry.add(MoleculeObject::with_name(
+            single_atom_molecule("second", "CA", "A"),
+            "second",
+        ));
+        let valid = atom_path(&session, "first", 0);
+        let zero = valid.replacen("/first/", "/missing/", 1);
+        let multiple = r#"/*/""/A/GLY`"1 "/CA`" ""#.to_string();
+
+        session
+            .recent_atoms
+            .insert("not a path", RecentPickLimit::Unlimited);
+        session
+            .recent_atoms
+            .insert(valid.clone(), RecentPickLimit::Unlimited);
+        let valid_id = session.recent_atoms.row_id(&valid).unwrap();
+        session
+            .recent_atoms
+            .insert(zero, RecentPickLimit::Unlimited);
+        session
+            .recent_atoms
+            .insert(multiple, RecentPickLimit::Unlimited);
+
+        assert!(session.reconcile_recent_atoms());
+
+        assert_eq!(session.recent_atoms.paths().collect::<Vec<_>>(), [valid]);
+        assert_eq!(session.recent_atoms.rows()[0].id(), valid_id);
+    }
+
+    #[test]
+    fn resolved_recent_atoms_return_object_local_atom_indices() {
+        let mut session = Session::new();
+        session.registry.add(MoleculeObject::with_name(
+            single_atom_molecule("first", "CA", "A"),
+            "first",
+        ));
+        session.registry.add(MoleculeObject::with_name(
+            single_atom_molecule("second", "CB", "B"),
+            "second",
+        ));
+        let first = atom_path(&session, "first", 0);
+        let second = atom_path(&session, "second", 0);
+        session
+            .recent_atoms
+            .insert(first, RecentPickLimit::Unlimited);
+        session
+            .recent_atoms
+            .insert(second, RecentPickLimit::Unlimited);
+
+        assert_eq!(
+            session.resolved_recent_atoms(),
+            vec![
+                ("first".to_string(), patinae_mol::AtomIndex(0)),
+                ("second".to_string(), patinae_mol::AtomIndex(0)),
+            ]
+        );
+    }
+
+    #[test]
+    fn singleton_validation_keeps_case_insensitive_model_ambiguity() {
+        let mut session = Session::new();
+        for name in ["Obj", "obj"] {
+            session.registry.add(MoleculeObject::with_name(
+                single_atom_molecule(name, "CA", "A"),
+                name,
+            ));
+        }
+        let path = atom_path(&session, "Obj", 0);
+
+        session.settings.behavior.ignore_case = false;
+        assert!(session.recent_atom_path_is_singleton(&path));
+        session.settings.behavior.ignore_case = true;
+        assert!(!session.recent_atom_path_is_singleton(&path));
+    }
+
+    #[test]
+    fn object_rename_rewrites_exact_model_and_preserves_row_identity() {
+        let old_name = "old/model*";
+        let new_name = "new?model";
+        let mut session = Session::new();
+        session.registry.add(MoleculeObject::with_name(
+            single_atom_molecule(old_name, "CA", "A"),
+            old_name,
+        ));
+        let old_path = atom_path(&session, old_name, 0);
+        session
+            .recent_atoms
+            .insert(old_path.clone(), RecentPickLimit::Unlimited);
+        let old_id = session.recent_atoms.row_id(&old_path).unwrap();
+        let mut target = Session::new();
+        target.registry.add(MoleculeObject::with_name(
+            single_atom_molecule(new_name, "CA", "A"),
+            new_name,
+        ));
+        let colliding_path = atom_path(&target, new_name, 0);
+        session
+            .recent_atoms
+            .insert(colliding_path, RecentPickLimit::Unlimited);
+
+        session.rename_object(old_name, new_name).unwrap();
+        let rewritten_path = atom_path(&session, new_name, 0);
+
+        assert_eq!(
+            session.recent_atoms.paths().collect::<Vec<_>>(),
+            [rewritten_path]
+        );
+        assert_eq!(session.recent_atoms.rows()[0].id(), old_id);
+    }
+
+    #[test]
+    fn object_and_atom_removal_prune_only_affected_recent_rows() {
+        let mut session = Session::new();
+        for name in ["removed", "trimmed", "kept"] {
+            session.registry.add(MoleculeObject::with_name(
+                single_atom_molecule(name, "CA", "A"),
+                name,
+            ));
+        }
+        let removed = atom_path(&session, "removed", 0);
+        let trimmed = atom_path(&session, "trimmed", 0);
+        let kept = atom_path(&session, "kept", 0);
+        for path in [&removed, &trimmed, &kept] {
+            session
+                .recent_atoms
+                .insert(path.clone(), RecentPickLimit::Unlimited);
+        }
+
+        session.remove_object("removed");
+        session
+            .remove_molecule_atoms("trimmed", &[patinae_mol::AtomIndex(0)])
+            .unwrap();
+
+        assert_eq!(session.recent_atoms.paths().collect::<Vec<_>>(), [kept]);
+    }
+
+    #[test]
+    fn inserting_same_named_non_molecule_prunes_recent_atom_path() {
+        let mut session = Session::new();
+        session.registry.add(MoleculeObject::with_name(
+            single_atom_molecule("picked", "CA", "A"),
+            "picked",
+        ));
+        let path = atom_path(&session, "picked", 0);
+        session
+            .recent_atoms
+            .insert(path, RecentPickLimit::Unlimited);
+
+        session.insert_object(Box::new(crate::object::GroupObject::new("picked")));
+
+        assert!(session.recent_atoms.is_empty());
+        assert!(session.registry.get_group("picked").is_some());
+    }
+
+    #[test]
+    fn batch_insertion_reconciles_recent_atoms_once_after_all_objects() {
+        let mut session = Session::new();
+        for name in ["first", "second"] {
+            session.registry.add(MoleculeObject::with_name(
+                single_atom_molecule(name, "CA", "A"),
+                name,
+            ));
+            let path = atom_path(&session, name, 0);
+            session
+                .recent_atoms
+                .insert(path, RecentPickLimit::Unlimited);
+        }
+        let recent_generation = session.recent_atoms.generation();
+        let registry_generation = session.registry.generation();
+
+        session.insert_objects(
+            ["first", "second"]
+                .into_iter()
+                .map(|name| Box::new(crate::object::GroupObject::new(name)) as Box<dyn Object>),
+        );
+
+        assert!(session.recent_atoms.is_empty());
+        assert_eq!(session.recent_atoms.generation(), recent_generation + 1);
+        assert_eq!(session.registry.generation(), registry_generation + 2);
     }
 }

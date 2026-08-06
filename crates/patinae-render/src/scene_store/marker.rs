@@ -8,7 +8,8 @@
 //! |-------|---------------------------------------------------------------|
 //! | 0     | selected — atom is in any visible host selection              |
 //! | 1     | hover — atom is the current hover target (≤ 1 atom per scene) |
-//! | 2-3   | reserved (transparency class / future lighting flags)         |
+//! | 2     | recent — atom is present in the session's recent atom list    |
+//! | 3     | reserved (transparency class / future lighting flags)         |
 //! | 4-7   | reserved (marker color palette index)                         |
 //! | 8-31  | reserved                                                      |
 //!
@@ -16,6 +17,7 @@
 
 pub const MARKER_SELECTED: u32 = 1 << 0;
 pub const MARKER_HOVER: u32 = 1 << 1;
+pub const MARKER_RECENT: u32 = 1 << 2;
 
 /// Pack the MVP marker bits (selected, hover) into a single `u32`.
 #[inline]

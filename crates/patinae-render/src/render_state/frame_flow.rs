@@ -145,6 +145,7 @@ impl RenderState {
         self.record_wboit_composite(encoder, effective_target, n_wboit);
         self.record_stroke_overlay(encoder, effective_target);
         self.record_silhouette_overlay(encoder, effective_target);
+        self.record_atom_markers(encoder, effective_target);
         if has_selection_overlay {
             if let Some(overlay_target) = if self.screen.fxaa_enabled {
                 self.targets.overlay_color_scratch.as_ref()
@@ -154,7 +155,6 @@ impl RenderState {
                 self.record_marking_overlay(encoder, overlay_target, true);
             }
         }
-        self.record_selection_dots(encoder, effective_target);
         self.record_fxaa(encoder, target, has_selection_overlay);
 
         self.scene.scene_dirty = false;

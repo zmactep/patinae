@@ -276,8 +276,8 @@ pub struct RenderObjectInput<'a> {
     pub atom_rep_colors: &'a [RepColorLutEntry],
     /// Pre-packed per-atom marker bits, indexed by local `AtomIndex`. Length
     /// must equal `molecule.atoms().len()`. Bit layout in
-    /// `crate::scene_store::marker` (bit 0 = selected, bit 1 = hover; higher
-    /// bits reserved). The renderer uploads this directly into the
+    /// `crate::scene_store::marker` (bit 0 = selected, bit 1 = hover, bit 2 =
+    /// recent atom; higher bits reserved). The renderer uploads this directly into the
     /// scene-wide `marker_lut` slice owned by this object — no aliasing
     /// across multi-object scenes. Hosts that don't have selection state
     /// can pass `&[]`, in which case the renderer treats every atom as
@@ -287,7 +287,8 @@ pub struct RenderObjectInput<'a> {
     /// hover-only updates so large assemblies do not upload an object's
     /// whole marker LUT when only one atom changed.
     pub marker_updates: &'a [MarkerUpdate],
-    /// True when this object currently has at least one non-zero marker bit.
+    /// True when this object has a selection or hover marker that needs the
+    /// full screen-space marking overlay. Recent-atom spheres do not set it.
     pub has_markers: bool,
     /// Scene-wide LOD bucket — copied from [`RenderInput::lod`] by the
     /// caller. Reps that produce O(N²)-ish vertex buffers (cartoon,

@@ -24,6 +24,8 @@ use super::{
 pub struct CachedRenderScene {
     colors: ResolvedSceneColors,
     markers: ResolvedSceneMarkers,
+    recent_atom_targets: Vec<(String, patinae_mol::AtomIndex)>,
+    recent_atom_target_key: Option<(u64, u64, u64)>,
     annotation_strokes: ResolvedSceneStrokes,
     object_names: Vec<Option<String>>,
 }
@@ -40,9 +42,24 @@ impl CachedRenderScene {
             );
         }
 
-        self.markers.rebuild(
+        let recent_observation = (
+            session.recent_atoms.incarnation(),
+            session.recent_atoms.generation(),
+        );
+        let recent_target_key = (
+            session.registry.generation(),
+            recent_observation.0,
+            recent_observation.1,
+        );
+        if self.recent_atom_target_key != Some(recent_target_key) {
+            self.recent_atom_targets = session.resolved_recent_atoms();
+            self.recent_atom_target_key = Some(recent_target_key);
+        }
+        self.markers.rebuild_with_recent(
             &mut session.selections,
             &session.registry,
+            &self.recent_atom_targets,
+            recent_observation,
             session.hover_target.as_ref(),
         );
         if self.annotation_strokes.needs_rebuild(
@@ -139,10 +156,105 @@ mod tests {
     use lin_alg::f32::Vec3;
     use patinae_color::ColorIndex;
     use patinae_mol::{Atom, AtomIndex, CoordSet, DirtyFlags, Element, ObjectMolecule};
+    use patinae_settings::groups::RecentPickLimit;
 
     use crate::{AtomAnchor, LabelEntity, LabelObject, MoleculeObject};
 
     use super::{CachedRenderScene, Session};
+
+    #[test]
+    fn prepared_frame_marks_recent_atoms_without_enabling_selection_overlay() {
+        let mut molecule = ObjectMolecule::new("source");
+        molecule.add_atom(Atom::new("CA", Element::Carbon));
+        molecule.add_coord_set(CoordSet::from_vec3(&[Vec3::new(1.0, 2.0, 3.0)]));
+        let mut session = Session::new();
+        session
+            .registry
+            .add(MoleculeObject::with_name(molecule, "source"));
+        let source = session.registry.get_molecule("source").unwrap();
+        let path =
+            crate::canonical_atom_path_for_atom("source", source.molecule(), AtomIndex(0)).unwrap();
+        session
+            .recent_atoms
+            .insert(path, RecentPickLimit::Unlimited);
+
+        let mut cache = CachedRenderScene::default();
+        let frame = cache.prepare(&mut session);
+        let input = frame.render_input();
+
+        assert_eq!(input.objects[0].atom_markers, [super::super::MARKER_RECENT]);
+        assert!(!input.objects[0].has_markers);
+    }
+
+    #[test]
+    fn prepared_frame_clears_removed_recent_atom_from_reused_cache() {
+        let mut molecule = ObjectMolecule::new("source");
+        molecule.add_atom(Atom::new("CA", Element::Carbon));
+        molecule.add_coord_set(CoordSet::from_vec3(&[Vec3::new(1.0, 2.0, 3.0)]));
+        let mut session = Session::new();
+        session
+            .registry
+            .add(MoleculeObject::with_name(molecule, "source"));
+        let source = session.registry.get_molecule("source").unwrap();
+        let path =
+            crate::canonical_atom_path_for_atom("source", source.molecule(), AtomIndex(0)).unwrap();
+        session
+            .recent_atoms
+            .insert(path.clone(), RecentPickLimit::Unlimited);
+        let mut cache = CachedRenderScene::default();
+
+        drop(cache.prepare(&mut session));
+        assert!(session.recent_atoms.remove_path(&path));
+        let frame = cache.prepare(&mut session);
+        let input = frame.render_input();
+
+        assert_eq!(input.objects[0].atom_markers, [0]);
+        assert_eq!(
+            input.objects[0].marker_updates,
+            [patinae_render::MarkerUpdate {
+                atom_index: 0,
+                bits: 0,
+            }]
+        );
+    }
+
+    #[test]
+    fn prepared_frame_re_resolves_recent_atom_after_index_remap() {
+        let mut molecule = ObjectMolecule::new("source");
+        molecule.add_atom(Atom::new("first", Element::Carbon));
+        molecule.add_atom(Atom::new("picked", Element::Nitrogen));
+        molecule.add_coord_set(CoordSet::from_vec3(&[
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(1.0, 0.0, 0.0),
+        ]));
+        let mut session = Session::new();
+        session
+            .registry
+            .add(MoleculeObject::with_name(molecule, "source"));
+        let source = session.registry.get_molecule("source").unwrap();
+        let path =
+            crate::canonical_atom_path_for_atom("source", source.molecule(), AtomIndex(1)).unwrap();
+        session
+            .recent_atoms
+            .insert(path, RecentPickLimit::Unlimited);
+        let mut cache = CachedRenderScene::default();
+
+        let first = cache.prepare(&mut session);
+        assert_eq!(
+            first.render_input().objects[0].atom_markers,
+            [0, super::super::MARKER_RECENT]
+        );
+        drop(first);
+        session
+            .remove_molecule_atoms("source", &[AtomIndex(0)])
+            .unwrap();
+        let second = cache.prepare(&mut session);
+
+        assert_eq!(
+            second.render_input().objects[0].atom_markers,
+            [super::super::MARKER_RECENT]
+        );
+    }
 
     #[test]
     fn unchanged_bulk_labels_reuse_resolved_strokes() {

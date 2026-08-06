@@ -197,7 +197,7 @@ fn is_unquoted_exact_selector_value(value: &str) -> bool {
 fn is_unquoted_digit_selector_value(value: &str) -> bool {
     let rest = value.trim_start_matches(|ch: char| ch.is_ascii_digit());
     if rest.is_empty() {
-        return true;
+        return value.parse::<i32>().is_ok();
     }
 
     let mut chars = rest.chars();
@@ -258,6 +258,18 @@ mod tests {
         assert_eq!(format_exact_selector_value("A").as_ref(), "A");
         assert_eq!(format_exact_selector_value("1abc").as_ref(), "1abc");
         assert_eq!(format_exact_selector_value("10").as_ref(), "10");
+    }
+
+    #[test]
+    fn format_exact_selector_value_quotes_overflowing_integer() {
+        let overflow = (i64::from(i32::MAX) + 1).to_string();
+        let formatted = format_exact_selector_value(&overflow);
+
+        assert_eq!(formatted.as_ref(), format!("\"{overflow}\""));
+        assert!(matches!(
+            parse(&format!("name {formatted}")),
+            Ok(SelectionExpr::Name(Pattern::Exact(value))) if value == overflow
+        ));
     }
 
     #[test]

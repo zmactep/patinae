@@ -10,6 +10,8 @@ import { ColorPopover } from "components/panels/color-popover.slint";
 import { RepPopover } from "components/panels/rep-popover.slint";
 import { OverflowMenu } from "components/panels/overflow-menu.slint";
 import { NameInputPopup } from "components/panels/name-input-popup.slint";
+import { MeasurementTargetPopover } from "components/panels/measurement-target-popover.slint";
+import { LabelPopover } from "components/panels/label-popover.slint";
 import { LayoutState } from "states/layout-state.slint";
 import { ObjectsState } from "states/objects-state.slint";
 import { NotificationState } from "states/notification-state.slint";
@@ -265,6 +267,16 @@ export component MainLayout inherits Rectangle {
     }
 
     if ObjectsState.popover-kind == "N": NameInputPopup {
+        x: parent.width - root.rw + (root.rw - self.width) / 2;
+        y: max(0px, min(ObjectsState.popover-anchor-y - self.height - 4px, parent.height - self.height));
+    }
+
+    if ObjectsState.popover-kind == "AM": MeasurementTargetPopover {
+        x: parent.width - root.rw + (root.rw - self.width) / 2;
+        y: max(0px, min(ObjectsState.popover-anchor-y - self.height - 4px, parent.height - self.height));
+    }
+
+    if ObjectsState.popover-kind == "AL": LabelPopover {
         x: parent.width - root.rw + (root.rw - self.width) / 2;
         y: max(0px, min(ObjectsState.popover-anchor-y - self.height - 4px, parent.height - self.height));
     }

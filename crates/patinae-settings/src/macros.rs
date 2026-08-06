@@ -398,6 +398,7 @@ impl SettingDescriptor {
         settings: &mut crate::groups::Settings,
         value: SettingValue,
     ) -> Result<(), SettingError> {
+        self.validate_range(&value)?;
         (self.set)(settings, value)
     }
 
@@ -417,6 +418,7 @@ impl SettingDescriptor {
     ) -> Result<bool, SettingError> {
         match &self.set_override {
             Some(set) => {
+                self.validate_range(&value)?;
                 set(overrides, value)?;
                 Ok(true)
             }
@@ -465,6 +467,25 @@ impl SettingDescriptor {
     /// Whether this setting supports per-object overrides.
     pub fn is_object_overridable(&self) -> bool {
         self.set_override.is_some()
+    }
+
+    fn validate_range(&self, value: &SettingValue) -> Result<(), SettingError> {
+        let Some(value) = value.as_float() else {
+            return Ok(());
+        };
+        let below_minimum = self.min.is_some_and(|minimum| value < minimum);
+        let above_maximum = self.max.is_some_and(|maximum| value > maximum);
+        if below_minimum || above_maximum {
+            return Err(SettingError::InvalidValue {
+                name: self.name.to_string(),
+                reason: format!(
+                    "value {value} is outside range [{}, {}]",
+                    self.min.map_or("unbounded".to_string(), |v| v.to_string()),
+                    self.max.map_or("unbounded".to_string(), |v| v.to_string())
+                ),
+            });
+        }
+        Ok(())
     }
 }
 
@@ -554,8 +575,8 @@ macro_rules! define_settings_group {
             )*
         }
     ) => {
-        $(#[$meta])*
         #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+        $(#[$meta])*
         pub struct $Name {
             $(
                 $(#[$field_meta])*
@@ -629,8 +650,8 @@ macro_rules! define_settings_group {
             )*
         }
     ) => {
-        $(#[$meta])*
         #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+        $(#[$meta])*
         pub struct $Name {
             $(
                 $(#[$field_meta])*

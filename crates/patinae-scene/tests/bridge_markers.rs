@@ -6,7 +6,7 @@ use patinae_render::{MarkerUpdate, ObjectId, PickHit as RenderPickHit, RepKind};
 use patinae_scene::{
     bridge::{
         resolve_pick, visit_render_objects, visit_render_scene, ResolvedSceneColors,
-        ResolvedSceneMarkers,
+        ResolvedSceneMarkers, MARKER_RECENT,
     },
     HoverTarget, MapDisplayMode, MapObject, MoleculeObject, ObjectRegistry, SelectionManager,
     Session,
@@ -108,6 +108,125 @@ fn marker_dirty_tracks_content_changes() {
             .as_slice()
         )
     );
+}
+
+#[test]
+fn recent_atom_changes_emit_sparse_marker_updates() {
+    let registry = registry_with_two_atoms();
+    let mut selections = SelectionManager::new();
+    let mut markers = ResolvedSceneMarkers::default();
+
+    markers.rebuild_with_recent(&mut selections, &registry, &[], (0, 0), None);
+    markers.rebuild_with_recent(
+        &mut selections,
+        &registry,
+        &[("obj".to_string(), AtomIndex(1))],
+        (0, 1),
+        None,
+    );
+
+    assert_eq!(markers.get("obj"), Some([0, MARKER_RECENT].as_slice()));
+    assert!(!markers.has_markers("obj"));
+    assert!(markers.dirty_flags("obj").contains(DirtyFlags::SELECTION));
+    assert_eq!(
+        markers.updates("obj"),
+        Some(
+            [MarkerUpdate {
+                atom_index: 1,
+                bits: MARKER_RECENT,
+            }]
+            .as_slice()
+        )
+    );
+
+    markers.rebuild_with_recent(
+        &mut selections,
+        &registry,
+        &[
+            ("obj".to_string(), AtomIndex(1)),
+            ("obj".to_string(), AtomIndex(0)),
+        ],
+        (0, 2),
+        None,
+    );
+    assert_eq!(markers.get("obj"), Some([MARKER_RECENT; 2].as_slice()));
+    assert_eq!(
+        markers.updates("obj"),
+        Some(
+            [MarkerUpdate {
+                atom_index: 0,
+                bits: MARKER_RECENT,
+            }]
+            .as_slice()
+        )
+    );
+
+    markers.rebuild_with_recent(&mut selections, &registry, &[], (0, 3), None);
+    assert_eq!(markers.get("obj"), Some([0, 0].as_slice()));
+    assert_eq!(
+        markers.updates("obj"),
+        Some(
+            [
+                MarkerUpdate {
+                    atom_index: 1,
+                    bits: 0,
+                },
+                MarkerUpdate {
+                    atom_index: 0,
+                    bits: 0,
+                },
+            ]
+            .as_slice()
+        )
+    );
+}
+
+#[test]
+fn recent_updates_preserve_selected_and_hover_bits() {
+    const SELECTED: u32 = 1 << 0;
+    const HOVER: u32 = 1 << 1;
+
+    let registry = registry_with_two_atoms();
+    let mut selections = SelectionManager::new();
+    let selected = SelectionResult::from_indices(2, std::iter::once(AtomIndex(1)));
+    selections.define_with_results("sel", "name B", vec![("obj".to_string(), selected)]);
+    let hover = HoverTarget {
+        object: "obj".to_string(),
+        selection: SelectionResult::from_indices(2, std::iter::once(AtomIndex(1))),
+    };
+    let mut markers = ResolvedSceneMarkers::default();
+
+    markers.rebuild_with_recent(&mut selections, &registry, &[], (0, 0), Some(&hover));
+    markers.rebuild_with_recent(
+        &mut selections,
+        &registry,
+        &[("obj".to_string(), AtomIndex(1))],
+        (0, 1),
+        Some(&hover),
+    );
+    assert_eq!(
+        markers.updates("obj"),
+        Some(
+            [MarkerUpdate {
+                atom_index: 1,
+                bits: SELECTED | HOVER | MARKER_RECENT,
+            }]
+            .as_slice()
+        )
+    );
+
+    markers.rebuild_with_recent(&mut selections, &registry, &[], (0, 2), Some(&hover));
+    assert_eq!(
+        markers.updates("obj"),
+        Some(
+            [MarkerUpdate {
+                atom_index: 1,
+                bits: SELECTED | HOVER,
+            }]
+            .as_slice()
+        )
+    );
+    assert!(markers.has_markers("obj"));
 }
 
 #[test]

@@ -124,18 +124,7 @@ impl<'a> ViewerLike for SessionAdapter<'a> {
     }
 
     fn replace_session(&mut self, session: Session) {
-        let old_registry_generation = self.session.registry.generation();
-        let old_selection_generation = self.session.selections.generation();
-
-        *self.session = session;
-        // Mark all objects dirty so representations rebuild
-        self.session.registry.mark_all_dirty();
-        if self.session.registry.generation() == old_registry_generation {
-            self.session.registry.invalidate();
-        }
-        if self.session.selections.generation() == old_selection_generation {
-            self.session.selections.invalidate();
-        }
+        self.session.replace_contents(session);
         *self.needs_redraw = true;
     }
 
@@ -366,6 +355,7 @@ mod tests {
     use crate::ViewerError;
     use lin_alg::f32::Vec3;
     use patinae_mol::{Atom, CoordSet, Element, ObjectMolecule};
+    use patinae_settings::groups::RecentPickLimit;
     use std::sync::Arc;
 
     struct StateCheckingRenderer {
@@ -446,8 +436,31 @@ mod tests {
         session
             .registry
             .add(MoleculeObject::with_name(multi_state_molecule(), "mol"));
+        session
+            .recent_atoms
+            .insert("stale", RecentPickLimit::Unlimited);
         let old_registry_generation = session.registry.generation();
         let old_selection_generation = session.selections.generation();
+        let old_recent_generation = session.recent_atoms.generation();
+        let old_recent_incarnation = session.recent_atoms.incarnation();
+        let mut replacement = Session::new();
+        replacement
+            .registry
+            .add(MoleculeObject::with_name(multi_state_molecule(), "mol"));
+        let path = crate::canonical_atom_path_for_hit(
+            &crate::PickHit {
+                object_name: "mol".to_string(),
+                object_type: crate::ObjectType::Molecule,
+                atom_index: Some(patinae_mol::AtomIndex(0)),
+                position: Vec3::new(0.0, 0.0, 0.0),
+                distance: 0.0,
+            },
+            replacement.registry.get_molecule("mol").unwrap().molecule(),
+        )
+        .unwrap();
+        replacement
+            .recent_atoms
+            .insert(path.clone(), RecentPickLimit::Unlimited);
         let mut needs_redraw = false;
 
         {
@@ -458,11 +471,18 @@ mod tests {
                 needs_redraw: &mut needs_redraw,
                 async_fetch_fn: None,
             };
-            adapter.replace_session(Session::new());
+            adapter.replace_session(replacement);
         }
 
         assert_ne!(session.registry.generation(), old_registry_generation);
         assert_ne!(session.selections.generation(), old_selection_generation);
+        assert_ne!(session.recent_atoms.generation(), old_recent_generation);
+        assert_ne!(
+            session.recent_atoms.incarnation(),
+            old_recent_incarnation,
+            "replacement must invalidate row identity even when restored IDs collide"
+        );
+        assert_eq!(session.recent_atoms.paths().collect::<Vec<_>>(), [path]);
         assert!(needs_redraw);
     }
 }

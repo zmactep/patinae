@@ -1,5 +1,6 @@
 //! File I/O commands: load, save, png, fetch, cd, pwd, ls
 
+use std::collections::HashSet;
 use std::env;
 use std::path::{Path, PathBuf};
 
@@ -7,7 +8,7 @@ use patinae_algos::surface::Grid3D;
 use patinae_io::FileFormat;
 use patinae_mol::dss::{assign_secondary_structure, assigner_for};
 use patinae_mol::ObjectMolecule;
-use patinae_scene::{MapData, MapObject, MoleculeObject, ObjectRegistry};
+use patinae_scene::{MapData, MapObject, MoleculeObject, Object, ObjectRegistry};
 
 use crate::args::ParsedCommand;
 use crate::command::{ArgHint, Command, CommandContext, CommandRegistry, ViewerLike};
@@ -60,9 +61,7 @@ pub fn finalize_fetched_molecule(
         apply_dss(&mut mol, dss_algorithm);
     }
 
-    viewer
-        .objects_mut()
-        .add(MoleculeObject::with_name(mol, name));
+    viewer.insert_object(Box::new(MoleculeObject::with_name(mol, name)));
     viewer.zoom_on(name, 0.0);
     viewer.update_movie_state_count();
 }
@@ -246,7 +245,7 @@ impl Command for LoadCommand {
             let grid = Grid3D::from_dims(ccp4.origin, ccp4.spacing, ccp4.dims, ccp4.values);
             let map_data = MapData::new(grid);
             let map_obj = MapObject::from_map_data(&object_name, map_data);
-            ctx.viewer.objects_mut().add(map_obj);
+            ctx.viewer.insert_object(Box::new(map_obj));
 
             if !quiet {
                 ctx.print(&format!(
@@ -302,16 +301,25 @@ impl Command for LoadCommand {
         }
 
         let mut inserted_names = Vec::with_capacity(molecules.len());
+        let mut reserved_names = HashSet::with_capacity(molecules.len());
+        let mut inserted_objects: Vec<Box<dyn Object>> = Vec::with_capacity(molecules.len());
         for (index, mol) in molecules.into_iter().enumerate() {
             let name = if index == 0 {
                 object_name.clone()
             } else {
-                derive_extra_object_name(&object_name, index + 1, ctx.viewer.objects())
+                derive_extra_object_name(
+                    &object_name,
+                    index + 1,
+                    ctx.viewer.objects(),
+                    &reserved_names,
+                )
             };
             let mol_obj = MoleculeObject::with_name(mol, &name);
-            ctx.viewer.objects_mut().add(mol_obj);
+            inserted_objects.push(Box::new(mol_obj));
+            reserved_names.insert(name.clone());
             inserted_names.push(name);
         }
+        ctx.viewer.insert_objects(inserted_objects);
 
         if !quiet {
             print_loaded_molecules_message(ctx, filename, &inserted_names);
@@ -350,11 +358,16 @@ fn sanitize_load_object_name(name: &str) -> String {
     name.replace('-', "_")
 }
 
-fn derive_extra_object_name(base: &str, index: usize, registry: &ObjectRegistry) -> String {
+fn derive_extra_object_name(
+    base: &str,
+    index: usize,
+    registry: &ObjectRegistry,
+    reserved: &HashSet<String>,
+) -> String {
     let mut suffix = index;
     loop {
         let candidate = format!("{base}_{suffix}");
-        if !registry.contains(&candidate) {
+        if !registry.contains(&candidate) && !reserved.contains(&candidate) {
             return candidate;
         }
         suffix += 1;

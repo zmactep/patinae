@@ -680,6 +680,7 @@ mod tests {
                 registry: &self.session.registry,
                 camera: &self.session.camera,
                 selections: &self.session.selections,
+                recent_atoms: &self.session.recent_atoms,
                 named_palette: &self.session.named_palette,
                 movie: &self.session.movie,
                 settings: &self.session.settings,

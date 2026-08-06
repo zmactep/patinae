@@ -8,7 +8,7 @@ use patinae_select::AtomIndex;
 use crate::args::ParsedCommand;
 use crate::command::{ArgHint, Command, CommandContext, CommandRegistry, ViewerLike};
 use crate::command_help;
-use crate::commands::selecting::evaluate_selection;
+use crate::commands::selecting::{evaluate_selection, select_with_context};
 use crate::error::{CmdError, CmdResult};
 use crate::helpers::{
     for_each_selected_molecule_mut, resolve_object_names, set_enabled_with_group_awareness,
@@ -980,20 +980,28 @@ impl Command for SetColorCommand {
 // label command
 // ============================================================================
 
-/// Label expression — what property to display as label text
-enum LabelExpression {
+/// Selects which atom value a typed label displays.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LabelExpression {
+    /// Atom name.
     Name,
+    /// Residue name.
     Resn,
+    /// Residue number plus insertion code.
     Resi,
+    /// Chain identifier.
     Chain,
     /// Occupancy (PyMOL convention: q = occupancy)
     Q,
     /// B-factor
     B,
+    /// Segment identifier.
     Segi,
     /// "ATOM" or "HETATM"
     Type,
+    /// Formal charge.
     FormalCharge,
+    /// Partial charge.
     PartialCharge,
     /// Element symbol (e.g., "C", "N", "O")
     Elem,
@@ -1001,7 +1009,74 @@ enum LabelExpression {
     Vdw,
     /// One-letter amino acid code
     Oneletter,
-    StringLiteral(String),
+    /// Literal text preserved exactly as supplied by the native UI.
+    Literal(String),
+}
+
+impl LabelExpression {
+    /// Parses a built-in label expression key.
+    pub fn from_builtin_key(key: &str) -> Option<Self> {
+        Some(match key.to_ascii_lowercase().as_str() {
+            "name" => Self::Name,
+            "resn" => Self::Resn,
+            "resi" => Self::Resi,
+            "chain" => Self::Chain,
+            "q" => Self::Q,
+            "b" => Self::B,
+            "segi" => Self::Segi,
+            "type" => Self::Type,
+            "formal_charge" => Self::FormalCharge,
+            "partial_charge" => Self::PartialCharge,
+            "elem" | "element" => Self::Elem,
+            "vdw" => Self::Vdw,
+            "oneletter" | "one_letter" => Self::Oneletter,
+            _ => return None,
+        })
+    }
+}
+
+/// Selects whether a typed label request creates or appends an object.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LabelTarget {
+    /// Create a new object with a registry-allocated `labelNN` name.
+    New,
+    /// Append to an existing label object.
+    Existing(String),
+}
+
+/// Requests ordered labels for one through four singleton atom paths.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LabelRequest {
+    /// Ordered atom selection paths shown in the native operand queue.
+    pub operands: Vec<String>,
+    /// Expression evaluated independently for every atom.
+    pub expression: LabelExpression,
+    /// Destination for the resulting label entities.
+    pub target: LabelTarget,
+}
+
+impl LabelRequest {
+    /// Creates a typed label request.
+    pub fn new<I, S>(operands: I, expression: LabelExpression, target: LabelTarget) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        Self {
+            operands: operands.into_iter().map(Into::into).collect(),
+            expression,
+            target,
+        }
+    }
+}
+
+/// Describes one successfully applied typed label request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LabelOutcome {
+    /// Object created or appended by the request.
+    pub object_name: String,
+    /// Number of appended entities.
+    pub entity_count: usize,
 }
 
 /// Parse a label expression string into a LabelExpression
@@ -1026,26 +1101,12 @@ fn parse_label_expr(s: &str) -> Result<LabelExpression, CmdError> {
                 "label expression must not be empty",
             ));
         }
-        return Ok(LabelExpression::StringLiteral(inner.to_string()));
+        return Ok(LabelExpression::Literal(inner.to_string()));
     }
 
-    match trimmed.to_lowercase().as_str() {
-        "name" => Ok(LabelExpression::Name),
-        "resn" => Ok(LabelExpression::Resn),
-        "resi" => Ok(LabelExpression::Resi),
-        "chain" => Ok(LabelExpression::Chain),
-        "q" => Ok(LabelExpression::Q),
-        "b" => Ok(LabelExpression::B),
-        "segi" => Ok(LabelExpression::Segi),
-        "type" => Ok(LabelExpression::Type),
-        "formal_charge" => Ok(LabelExpression::FormalCharge),
-        "partial_charge" => Ok(LabelExpression::PartialCharge),
-        "elem" | "element" => Ok(LabelExpression::Elem),
-        "vdw" => Ok(LabelExpression::Vdw),
-        "oneletter" | "one_letter" => Ok(LabelExpression::Oneletter),
-        // Anything else is a string literal (quotes are stripped by the command parser)
-        _ => Ok(LabelExpression::StringLiteral(trimmed.to_string())),
-    }
+    // Anything else is a string literal (quotes are stripped by the command parser).
+    Ok(LabelExpression::from_builtin_key(trimmed)
+        .unwrap_or_else(|| LabelExpression::Literal(trimmed.to_string())))
 }
 
 /// Evaluate a label expression for a given atom
@@ -1078,8 +1139,114 @@ fn eval_label_expr(expr: &LabelExpression, atom: &Atom) -> String {
         LabelExpression::Oneletter => three_to_one(&atom.residue.resn)
             .map(|c| c.to_string())
             .unwrap_or_else(|| atom.residue.resn.clone()),
-        LabelExpression::StringLiteral(s) => s.clone(),
+        LabelExpression::Literal(s) => s.clone(),
     }
+}
+
+fn typed_label_entity(
+    viewer: &dyn ViewerLike,
+    operand: &str,
+    expression: &LabelExpression,
+) -> CmdResult<LabelEntity> {
+    let (total_count, results) = select_with_context(viewer, operand)?;
+    if total_count != 1 {
+        return Err(CmdError::selection(format!(
+            "operand '{operand}' does not resolve to exactly one atom"
+        )));
+    }
+    for (object_name, selected) in results {
+        let Some(molecule) = viewer.objects().get_molecule(&object_name) else {
+            continue;
+        };
+        if let Some(atom_index) = selected.indices().next() {
+            let atom = molecule.molecule().get_atom(atom_index).ok_or_else(|| {
+                CmdError::selection(format!("operand '{operand}' refers to a stale atom"))
+            })?;
+            return Ok(LabelEntity::new(
+                AtomAnchor::new(object_name.clone(), atom_index),
+                eval_label_expr(expression, atom),
+            ));
+        }
+    }
+    Err(CmdError::selection(format!(
+        "operand '{operand}' does not resolve to exactly one atom"
+    )))
+}
+
+fn validate_label_target(viewer: &dyn ViewerLike, name: &str, require_existing: bool) -> CmdResult {
+    match viewer.objects().get(name) {
+        Some(existing) if viewer.objects().get_label(name).is_none() => Err(CmdError::invalid_arg(
+            "object",
+            format!("object '{name}' is {}, not a label", existing.object_type()),
+        )),
+        Some(_) => Ok(()),
+        None if require_existing => Err(CmdError::object_not_found(name)),
+        None => Ok(()),
+    }
+}
+
+fn add_labels_to_scene(
+    viewer: &mut dyn ViewerLike,
+    object_name: &str,
+    entities: Vec<LabelEntity>,
+) -> CmdResult {
+    validate_label_target(viewer, object_name, false)?;
+    if let Some(label_object) = viewer.objects_mut().get_label_mut(object_name) {
+        label_object.extend_entities(entities);
+    } else {
+        viewer.objects_mut().add(LabelObject::with_entities(
+            object_name.to_string(),
+            entities,
+        ));
+    }
+    viewer.request_redraw();
+    Ok(())
+}
+
+/// Validates and applies one typed label request transactionally.
+///
+/// Every operand and the target object are validated before any label is
+/// appended. Automatic names are allocated only after validation succeeds.
+///
+/// # Errors
+///
+/// Returns an error for invalid cardinality, empty literal text, stale or
+/// non-singleton operands, and missing or incompatible existing targets.
+pub fn execute_label_request(
+    viewer: &mut dyn ViewerLike,
+    request: &LabelRequest,
+) -> CmdResult<LabelOutcome> {
+    if !(1..=4).contains(&request.operands.len()) {
+        return Err(CmdError::invalid_arg(
+            "operands",
+            "labels require between 1 and 4 atoms",
+        ));
+    }
+    if matches!(&request.expression, LabelExpression::Literal(text) if text.trim().is_empty()) {
+        return Err(CmdError::invalid_arg(
+            "expression",
+            "literal label text must not be empty",
+        ));
+    }
+    if let LabelTarget::Existing(name) = &request.target {
+        validate_label_target(viewer, name, true)?;
+    }
+
+    let entities = request
+        .operands
+        .iter()
+        .map(|operand| typed_label_entity(viewer, operand, &request.expression))
+        .collect::<CmdResult<Vec<_>>>()?;
+    let entity_count = entities.len();
+    let object_name = match &request.target {
+        LabelTarget::New => viewer.objects().first_free_label_name(),
+        LabelTarget::Existing(name) => name.clone(),
+    };
+    add_labels_to_scene(viewer, &object_name, entities)?;
+    Ok(LabelOutcome {
+        object_name,
+        entity_count,
+    })
 }
 
 struct LabelCommand;
@@ -1182,14 +1349,7 @@ impl Command for LabelCommand {
                     "label object name must not be empty",
                 ));
             }
-            if let Some(existing) = ctx.viewer.objects().get(name) {
-                if ctx.viewer.objects().get_label(name).is_none() {
-                    return Err(CmdError::invalid_arg(
-                        "object",
-                        format!("object '{name}' is {}, not a label", existing.object_type()),
-                    ));
-                }
-            }
+            validate_label_target(ctx.viewer, name, false)?;
         }
 
         let entities = collect_label_entities(ctx.viewer, selection, &expression)?;
@@ -1198,15 +1358,7 @@ impl Command for LabelCommand {
             .map(str::to_string)
             .unwrap_or_else(|| ctx.viewer.objects().first_free_label_name());
 
-        if let Some(label_object) = ctx.viewer.objects_mut().get_label_mut(&object_name) {
-            label_object.extend_entities(entities);
-        } else {
-            ctx.viewer
-                .objects_mut()
-                .add(LabelObject::with_entities(object_name.clone(), entities));
-        }
-
-        ctx.viewer.request_redraw();
+        add_labels_to_scene(ctx.viewer, &object_name, entities)?;
 
         if !ctx.quiet {
             ctx.print(&format!(
@@ -1220,7 +1372,9 @@ impl Command for LabelCommand {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_rep;
+    use super::{
+        execute_label_request, parse_rep, LabelExpression, LabelOutcome, LabelRequest, LabelTarget,
+    };
     use crate::commands::selecting::evaluate_selection;
     use crate::error::CmdResult;
     use crate::CommandExecutor;
@@ -1253,6 +1407,21 @@ mod tests {
         execute_display_command(session, command).unwrap()
     }
 
+    fn execute_typed_label(
+        session: &mut Session,
+        request: &LabelRequest,
+    ) -> CmdResult<LabelOutcome> {
+        let mut needs_redraw = false;
+        let mut adapter = SessionAdapter {
+            session,
+            render_context: None,
+            default_size: (64, 64),
+            needs_redraw: &mut needs_redraw,
+            async_fetch_fn: None,
+        };
+        execute_label_request(&mut adapter, request)
+    }
+
     fn cartoon_object_named(name: &str) -> MoleculeObject {
         let mut mol = ObjectMolecule::new(name);
         mol.add_atom(Atom::new("CA", Element::Carbon));
@@ -1262,6 +1431,131 @@ mod tests {
             Vec3::new(1.0, 0.0, 0.0),
         ]));
         MoleculeObject::new(mol)
+    }
+
+    #[test]
+    fn typed_labels_cover_expressions_and_preserve_escaped_literal() {
+        let mut session = Session::new();
+        session.registry.add(cartoon_object_named("source"));
+        let expressions = [
+            LabelExpression::Name,
+            LabelExpression::Resn,
+            LabelExpression::Resi,
+            LabelExpression::Chain,
+            LabelExpression::Q,
+            LabelExpression::B,
+            LabelExpression::Segi,
+            LabelExpression::Type,
+            LabelExpression::FormalCharge,
+            LabelExpression::PartialCharge,
+            LabelExpression::Elem,
+            LabelExpression::Vdw,
+            LabelExpression::Oneletter,
+            LabelExpression::Literal("quoted \"text\" \\ path".to_string()),
+        ];
+
+        for expression in expressions {
+            let request = LabelRequest::new(["name CA"], expression, LabelTarget::New);
+            execute_typed_label(&mut session, &request).unwrap();
+        }
+
+        assert_eq!(session.registry.get_label("label01").unwrap().len(), 1);
+        assert_eq!(
+            session.registry.get_label("label14").unwrap().entities()[0].text(),
+            "quoted \"text\" \\ path"
+        );
+    }
+
+    #[test]
+    fn typed_labels_allocate_at_execution_and_append_ordered_operands() {
+        let mut session = Session::new();
+        session.registry.add(cartoon_object_named("source"));
+        let requests = [
+            LabelRequest::new(["name CA"], LabelExpression::Name, LabelTarget::New),
+            LabelRequest::new(["name CB"], LabelExpression::Name, LabelTarget::New),
+        ];
+
+        let first = execute_typed_label(&mut session, &requests[0]).unwrap();
+        let second = execute_typed_label(&mut session, &requests[1]).unwrap();
+        assert_eq!(first.object_name, "label01");
+        assert_eq!(second.object_name, "label02");
+
+        let append = LabelRequest::new(
+            ["name CA", "name CB", "name CA", "name CB"],
+            LabelExpression::Name,
+            LabelTarget::Existing("label01".to_string()),
+        );
+        execute_typed_label(&mut session, &append).unwrap();
+        let labels = session.registry.get_label("label01").unwrap();
+        assert_eq!(
+            labels
+                .entities()
+                .iter()
+                .map(LabelEntity::text)
+                .collect::<Vec<_>>(),
+            ["CA", "CA", "CB", "CA", "CB"]
+        );
+    }
+
+    #[test]
+    fn typed_label_rejects_invalid_operand_and_target_without_partial_append() {
+        let mut session = Session::new();
+        session.registry.add(cartoon_object_named("source"));
+        session.registry.add(LabelObject::new("labels"));
+        session.registry.add(MeasurementObject::new(
+            "distance",
+            MeasurementKind::Distance,
+        ));
+
+        let invalid_operand = LabelRequest::new(
+            ["name CA", "all"],
+            LabelExpression::Name,
+            LabelTarget::Existing("labels".to_string()),
+        );
+        assert!(execute_typed_label(&mut session, &invalid_operand).is_err());
+        assert!(session.registry.get_label("labels").unwrap().is_empty());
+
+        let wrong_target = LabelRequest::new(
+            ["name CA"],
+            LabelExpression::Name,
+            LabelTarget::Existing("distance".to_string()),
+        );
+        assert!(execute_typed_label(&mut session, &wrong_target).is_err());
+        assert!(session.registry.get_label("labels").unwrap().is_empty());
+
+        let stale_target = LabelRequest::new(
+            ["name CA"],
+            LabelExpression::Name,
+            LabelTarget::Existing("missing".to_string()),
+        );
+        assert!(execute_typed_label(&mut session, &stale_target).is_err());
+        assert!(session.registry.get_label("missing").is_none());
+
+        let empty_literal = LabelRequest::new(
+            ["name CA"],
+            LabelExpression::Literal("   ".to_string()),
+            LabelTarget::Existing("labels".to_string()),
+        );
+        assert!(execute_typed_label(&mut session, &empty_literal).is_err());
+        assert!(session.registry.get_label("labels").unwrap().is_empty());
+    }
+
+    #[test]
+    fn typed_labels_accept_each_supported_operand_count() {
+        let mut session = Session::new();
+        session.registry.add(cartoon_object_named("source"));
+        session.registry.add(LabelObject::new("labels"));
+
+        for count in 1..=4 {
+            let request = LabelRequest::new(
+                std::iter::repeat_n("name CA", count),
+                LabelExpression::Name,
+                LabelTarget::Existing("labels".to_string()),
+            );
+            execute_typed_label(&mut session, &request).unwrap();
+        }
+
+        assert_eq!(session.registry.get_label("labels").unwrap().len(), 10);
     }
 
     fn prepare_partial_cartoon_then_full_hide(obj: &mut MoleculeObject) {

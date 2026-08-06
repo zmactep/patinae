@@ -83,6 +83,8 @@ component SelectionRowItem inherits Rectangle {
     border-color: root.data.selected
         ? Theme.cyan.with-alpha(0.5)
         : transparent;
+    accessible-role: list-item;
+    accessible-label: root.data.name + ", " + root.data.atom-count + " atoms";
 
     // Name in parentheses, magenta
     Text {
@@ -116,6 +118,7 @@ component SelectionRowItem inherits Rectangle {
         y: 0;
         width: parent.width - 2 * Tokens.row-h;
         height: parent.height;
+        mouse-cursor: pointer;
         pointer-event(event) => {
             if (event.kind == PointerEventKind.down) {
                 root.click-shift = event.modifiers.shift;
@@ -154,33 +157,50 @@ component SelectionRowItem inherits Rectangle {
     }
 }
 
-// ── Selection list panel ─────────────────────────────────────────────
-
-export component SelectionList inherits VerticalLayout {
-    SelectionHeader {}
-
-    // Empty state
-    if ObjectsState.selections.length == 0: Text {
-        text: "no selections yet";
-        color: Theme.text-ghost;
-        font-size: Tokens.font-sm;
-        letter-spacing: 0.6px;
-        horizontal-alignment: left;
-        vertical-alignment: top;
-        x: Tokens.space-md;
-    }
-
-    // Selection rows
-    if ObjectsState.selections.length > 0: Flickable {
-        vertical-stretch: 1;
+component SelectionRowsList inherits Rectangle {
+    Flickable {
+        TouchArea {
+            width: parent.width;
+            height: parent.height;
+            clicked => { ObjectsState.selection-list-background-clicked(); }
+        }
 
         VerticalLayout {
-            padding: Tokens.space-xs;
-            spacing: Tokens.row-gap;
+            for item in ObjectsState.selections: Rectangle {
+                height: Tokens.row-h + Tokens.row-gap;
 
-            for item in ObjectsState.selections: SelectionRowItem {
-                data: item;
+                SelectionRowItem {
+                    x: Tokens.space-xs;
+                    width: parent.width - 2 * Tokens.space-xs;
+                    data: item;
+                }
             }
+        }
+    }
+}
+
+export component SelectionList inherits Rectangle {
+    TouchArea {
+        clicked => { ObjectsState.selection-list-background-clicked(); }
+    }
+
+    VerticalLayout {
+        width: root.width;
+
+        SelectionHeader {}
+
+        if ObjectsState.selections.length == 0: Text {
+            text: "no selections yet";
+            color: Theme.text-ghost;
+            font-size: Tokens.font-sm;
+            letter-spacing: 0.6px;
+            horizontal-alignment: left;
+            vertical-alignment: top;
+            x: Tokens.space-md;
+        }
+
+        if ObjectsState.selections.length > 0: SelectionRowsList {
+            vertical-stretch: 1;
         }
     }
 }

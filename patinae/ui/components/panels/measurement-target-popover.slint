@@ -1,0 +1,53 @@
+import { Tokens } from "../../tokens.slint";
+import { ObjectsState } from "../../states/objects-state.slint";
+import {
+    AnnotationActionButton,
+    AnnotationFieldLabel,
+    AnnotationPopoverFrame,
+    AnnotationTargetDropdown,
+} from "annotation-popover-controls.slint";
+
+export component MeasurementTargetPopover inherits Rectangle {
+    property <string> selected-target:
+        ObjectsState.measurement-targets.length > 0
+            ? ObjectsState.measurement-targets[0].name
+            : "";
+
+    width: frame.width;
+    height: frame.height;
+
+    frame := AnnotationPopoverFrame {
+        title: "Add " + ObjectsState.recent-measurement-kind + " to…";
+        description: "Append the selected atoms to an existing measurement object.";
+        dismiss => { ObjectsState.popover-close(); }
+
+        VerticalLayout {
+            spacing: Tokens.space-xs;
+
+            AnnotationFieldLabel { text: "Destination"; }
+            AnnotationTargetDropdown {
+                targets: ObjectsState.measurement-targets;
+                selected-key: root.selected-target;
+                open-upward: true;
+                selected(key) => { root.selected-target = key; }
+            }
+        }
+
+        HorizontalLayout {
+            spacing: Tokens.space-sm;
+
+            AnnotationActionButton {
+                label: "Cancel";
+                clicked => { ObjectsState.popover-close(); }
+            }
+            AnnotationActionButton {
+                label: "Add";
+                primary: true;
+                enabled: root.selected-target != "";
+                clicked => {
+                    ObjectsState.measurement-target-confirm(root.selected-target);
+                }
+            }
+        }
+    }
+}

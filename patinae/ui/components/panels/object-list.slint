@@ -536,38 +536,50 @@ component GroupSection inherits VerticalLayout {
 
 // ── Object list panel ────────────────────────────────────────────────
 
-export component ObjectList inherits VerticalLayout {
-    SectionHeader {}
-
-    // Empty state
-    if ObjectsState.top-level.length == 0: Text {
-        text: "no objects yet";
-        color: Theme.text-ghost;
-        font-size: Tokens.font-sm;
-        letter-spacing: 0.6px;
-        horizontal-alignment: left;
-        vertical-alignment: top;
-        x: Tokens.space-md;
+export component ObjectList inherits Rectangle {
+    TouchArea {
+        clicked => { ObjectsState.object-list-background-clicked(); }
     }
 
-    // Object tree
-    Flickable {
-        vertical-stretch: 1;
+    VerticalLayout {
+        SectionHeader {}
 
-        VerticalLayout {
-            padding: Tokens.space-xs;
-            spacing: Tokens.row-gap;
+        // Empty state
+        if ObjectsState.top-level.length == 0: Text {
+            text: "no objects yet";
+            color: Theme.text-ghost;
+            font-size: Tokens.font-sm;
+            letter-spacing: 0.6px;
+            horizontal-alignment: left;
+            vertical-alignment: top;
+            x: Tokens.space-md;
+        }
 
-            for row in ObjectsState.top-level: VerticalLayout {
+        // Object tree
+        Flickable {
+            vertical-stretch: 1;
+
+            TouchArea {
+                width: parent.width;
+                height: parent.height;
+                clicked => { ObjectsState.object-list-background-clicked(); }
+            }
+
+            VerticalLayout {
+                padding: Tokens.space-xs;
                 spacing: Tokens.row-gap;
 
-                if row.is-group: GroupSection {
-                    data: row;
-                }
+                for row in ObjectsState.top-level: VerticalLayout {
+                    spacing: Tokens.row-gap;
 
-                if !row.is-group: ObjectSection {
-                    obj: row.object;
-                    in-group: false;
+                    if row.is-group: GroupSection {
+                        data: row;
+                    }
+
+                    if !row.is-group: ObjectSection {
+                        obj: row.object;
+                        in-group: false;
+                    }
                 }
             }
         }

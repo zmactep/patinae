@@ -11,7 +11,7 @@ use lin_alg::f32::{Mat4, Vec3, Vec4};
 use patinae_algos::crystal::CrystalCell;
 use patinae_mol::spatial::SpatialGrid;
 use patinae_mol::{translation_matrix, RepMask};
-use patinae_scene::MoleculeObject;
+use patinae_scene::{MoleculeObject, Object};
 
 use crate::args::ParsedCommand;
 use crate::command::{ArgHint, Command, CommandContext, CommandRegistry, ViewerLike};
@@ -119,11 +119,13 @@ impl Command for SymExpCommand {
         );
 
         let count = mates.len();
+        let mut objects: Vec<Box<dyn Object>> = Vec::with_capacity(count);
         for mate in mates {
             let mut obj = MoleculeObject::from_raw_with_name(mate.molecule, &mate.name);
             obj.set_visible_reps(source.visible_reps);
-            ctx.viewer.objects_mut().add(obj);
+            objects.push(Box::new(obj));
         }
+        ctx.viewer.insert_objects(objects);
 
         ctx.viewer.request_redraw();
 

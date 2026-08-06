@@ -5,16 +5,24 @@ import { ObjectsState } from "../../states/objects-state.slint";
 import { PluginState } from "../../states/plugin-state.slint";
 import { ObjectList } from "../panels/object-list.slint";
 import { SelectionList } from "../panels/selection-list.slint";
+import { RecentAtomsList } from "../panels/recent-atoms-list.slint";
 import { ActionPill } from "../panels/action-pill.slint";
 import { PluginPanelView } from "../panels/plugin-panel-view.slint";
 
-// Right dock — hosts Objects + Selections panels with action pill overlay.
+// Right dock — hosts built-in panels with action pill overlay.
 export component RightDock inherits Rectangle {
     clip: true;
     background: Theme.bg-raised;
 
     property <bool> builtins-visible:
-        !LayoutState.empty-mode && (LayoutState.objects-visible || LayoutState.selections-visible);
+        !LayoutState.empty-mode
+        && (LayoutState.objects-visible
+            || LayoutState.selections-visible
+            || LayoutState.recent-atoms-visible);
+    property <int> builtin-panel-count:
+        (LayoutState.objects-visible ? 1 : 0)
+        + (LayoutState.selections-visible ? 1 : 0)
+        + (LayoutState.recent-atoms-visible ? 1 : 0);
 
     VerticalLayout {
         if root.builtins-visible: Rectangle {
@@ -25,15 +33,17 @@ export component RightDock inherits Rectangle {
                 // Objects
                 if LayoutState.objects-visible: Rectangle {
                     clip: true;
-                    height: LayoutState.selections-visible ? 50% : 100%;
+                    height: root.builtin-panel-count == 1
+                        ? 100%
+                        : root.builtin-panel-count == 2 ? 50% : 33.333%;
                     ObjectList {
                         width: 100%;
                         height: 100%;
                     }
                 }
 
-                // Separator (only when both are visible)
-                if LayoutState.objects-visible && LayoutState.selections-visible: Rectangle {
+                if LayoutState.objects-visible
+                    && (LayoutState.selections-visible || LayoutState.recent-atoms-visible): Rectangle {
                     height: Tokens.hairline;
                     background: Theme.line;
                 }
@@ -41,8 +51,27 @@ export component RightDock inherits Rectangle {
                 // Selections
                 if LayoutState.selections-visible: Rectangle {
                     clip: true;
-                    height: LayoutState.objects-visible ? 50% : 100%;
+                    height: root.builtin-panel-count == 1
+                        ? 100%
+                        : root.builtin-panel-count == 2 ? 50% : 33.333%;
                     SelectionList {
+                        width: 100%;
+                        height: 100%;
+                    }
+                }
+
+                if LayoutState.selections-visible && LayoutState.recent-atoms-visible: Rectangle {
+                    height: Tokens.hairline;
+                    background: Theme.line;
+                }
+
+                // Recent atom operands
+                if LayoutState.recent-atoms-visible: Rectangle {
+                    clip: true;
+                    height: root.builtin-panel-count == 1
+                        ? 100%
+                        : root.builtin-panel-count == 2 ? 50% : 33.333%;
+                    RecentAtomsList {
                         width: 100%;
                         height: 100%;
                     }
@@ -103,7 +132,7 @@ export component RightDock inherits Rectangle {
     }
 
     // Action pill overlay — docked at the bottom, centered horizontally.
-    if ObjectsState.selected-count > 0: ActionPill {
+    if ObjectsState.selected-count > 0 || ObjectsState.recent-operand-count > 0: ActionPill {
         x: (parent.width - self.width) / 2;
         y: parent.height - self.height - Tokens.action-pill-bottom-gap;
     }

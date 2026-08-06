@@ -172,6 +172,53 @@ export component OverflowIcon {
     }
 }
 
+// Atom centered in a four-corner picking reticle.
+export component AtomPickIcon {
+    in property <color> tint: Theme.magenta;
+
+    width: 14px;
+    height: 14px;
+
+    Rectangle {
+        x: 5px;
+        y: 5px;
+        width: 4px;
+        height: 4px;
+        border-radius: 2px;
+        background: tint;
+    }
+
+    Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 14;
+        viewbox-height: 14;
+        stroke: tint;
+        stroke-width: 1px;
+        fill: transparent;
+        commands: "M 1 5 L 1 1 L 5 1 M 9 1 L 13 1 L 13 5 M 13 9 L 13 13 L 9 13 M 5 13 L 1 13 L 1 9";
+    }
+}
+
+// Small close/remove glyph for row-local destructive actions.
+export component RemoveIcon {
+    in property <color> tint: Theme.text-faint;
+
+    width: 10px;
+    height: 10px;
+
+    Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 10;
+        viewbox-height: 10;
+        stroke: tint;
+        stroke-width: 1.2px;
+        fill: transparent;
+        commands: "M 2 2 L 8 8 M 8 2 L 2 8";
+    }
+}
+
 // ── Chain kind indicators (object-list chain sub-rows) ──────────────
 
 // Biopolymer — chain color dot.

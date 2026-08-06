@@ -67,19 +67,19 @@ impl std::fmt::Display for CompareOp {
 /// Format: `/model/segi/chain/resn`resi/name`alt`
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct MacroSpec {
-    /// Model/object name (None = any)
+    /// Model/object name (`None` = any; exact empty remains `Some`)
     pub model: Option<Pattern>,
-    /// Segment identifier (None = any)
+    /// Segment identifier (`None` = any; exact empty remains `Some`)
     pub segi: Option<Pattern>,
-    /// Chain identifier (None = any)
+    /// Chain identifier (`None` = any; exact empty remains `Some`)
     pub chain: Option<Pattern>,
-    /// Residue name (None = any)
+    /// Residue name (`None` = any; exact empty remains `Some`)
     pub resn: Option<Pattern>,
     /// Residue identifier (None = any)
     pub resi: Option<ResiSpec>,
-    /// Atom name (None = any)
+    /// Atom name (`None` = any; exact empty remains `Some`)
     pub name: Option<Pattern>,
-    /// Alternate location (None = any)
+    /// Alternate location (`None` = any; exact empty remains `Some`)
     pub alt: Option<Pattern>,
 }
 

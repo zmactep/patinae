@@ -1,0 +1,114 @@
+import { Tokens } from "../../tokens.slint";
+import { ObjectsState } from "../../states/objects-state.slint";
+import {
+    AnnotationActionButton,
+    AnnotationChoice,
+    AnnotationChoiceDropdown,
+    AnnotationFieldLabel,
+    AnnotationPopoverFrame,
+    AnnotationTargetDropdown,
+    AnnotationTextField,
+} from "annotation-popover-controls.slint";
+
+export component LabelPopover inherits Rectangle {
+    property <string> selected-expression: "name";
+    property <string> selected-expression-label: "Atom name";
+    property <string> selected-target: "";
+    property <string> literal-text: "";
+    property <bool> can-confirm:
+        root.selected-expression != "literal"
+        || ObjectsState.label-literal-valid(root.literal-text);
+    property <[AnnotationChoice]> expression-options: [
+        { key: "name", label: "Atom name" },
+        { key: "resn", label: "Residue name" },
+        { key: "resi", label: "Residue ID" },
+        { key: "chain", label: "Chain" },
+        { key: "elem", label: "Element" },
+        { key: "type", label: "Record type" },
+        { key: "q", label: "Occupancy" },
+        { key: "b", label: "B-factor" },
+        { key: "formal_charge", label: "Formal charge" },
+        { key: "partial_charge", label: "Partial charge" },
+        { key: "vdw", label: "VDW radius" },
+        { key: "oneletter", label: "One-letter code" },
+        { key: "segi", label: "Segment" },
+        { key: "literal", label: "Literal text" },
+    ];
+
+    width: frame.width;
+    height: frame.height;
+
+    frame := AnnotationPopoverFrame {
+        title: "Add label";
+        description: "Choose the label value and its destination.";
+        dismiss => { ObjectsState.popover-close(); }
+
+        VerticalLayout {
+            spacing: Tokens.space-xs;
+
+            AnnotationFieldLabel { text: "Label value"; }
+            AnnotationChoiceDropdown {
+                options: root.expression-options;
+                selected-key: root.selected-expression;
+                selected-label: root.selected-expression-label;
+                selected(key, label) => {
+                    root.selected-expression = key;
+                    root.selected-expression-label = label;
+                }
+            }
+        }
+
+        if root.selected-expression == "literal": VerticalLayout {
+            spacing: Tokens.space-xs;
+
+            AnnotationFieldLabel { text: "Text"; }
+            literal-field := AnnotationTextField {
+                text <=> root.literal-text;
+                accepted => {
+                    if root.can-confirm {
+                        ObjectsState.label-confirm(
+                            root.selected-expression,
+                            root.literal-text,
+                            root.selected-target
+                        );
+                    }
+                }
+                escape => { ObjectsState.popover-close(); }
+            }
+        }
+
+        VerticalLayout {
+            spacing: Tokens.space-xs;
+
+            AnnotationFieldLabel { text: "Destination"; }
+            AnnotationTargetDropdown {
+                targets: ObjectsState.label-targets;
+                selected-key: root.selected-target;
+                new-option-label: "New label object";
+                open-upward: true;
+                selected(key) => { root.selected-target = key; }
+            }
+        }
+
+        HorizontalLayout {
+            spacing: Tokens.space-sm;
+
+            AnnotationActionButton {
+                label: "Cancel";
+                clicked => { ObjectsState.popover-close(); }
+            }
+            AnnotationActionButton {
+                label: "Add label";
+                primary: true;
+                enabled: root.can-confirm;
+                clicked => {
+                    ObjectsState.label-confirm(
+                        root.selected-expression,
+                        root.literal-text,
+                        root.selected-target
+                    );
+                }
+            }
+        }
+    }
+}

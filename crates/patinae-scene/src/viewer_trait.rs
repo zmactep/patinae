@@ -16,6 +16,7 @@ use patinae_settings::Settings;
 use serde::{Deserialize, Serialize};
 
 use crate::camera::Camera;
+use crate::error::SceneResult;
 use crate::movie::{LoopMode, Movie};
 use crate::object::{MeasurementResolveOptions, Object, ObjectRegistry};
 use crate::scene::SceneManager;
@@ -79,6 +80,60 @@ pub trait ViewerLike {
 
     /// Get a mutable reference to the full session
     fn session_mut(&mut self) -> &mut Session;
+
+    /// Reconcile durable recent atom paths against current scene state.
+    fn reconcile_recent_atoms(&mut self) {
+        self.session_mut().reconcile_recent_atoms();
+    }
+
+    /// Inserts an object through the shared session mutation seam.
+    fn insert_object(&mut self, object: Box<dyn Object>) {
+        self.session_mut().insert_object(object);
+    }
+
+    /// Inserts objects sequentially and reconciles recent paths once.
+    fn insert_objects(&mut self, objects: Vec<Box<dyn Object>>) {
+        self.session_mut().insert_objects(objects);
+    }
+
+    /// Rename an object through the shared session mutation seam.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the registry rejects the rename.
+    fn rename_object(&mut self, old_name: &str, new_name: &str) -> SceneResult<()> {
+        self.session_mut().rename_object(old_name, new_name)
+    }
+
+    /// Remove an object through the shared session mutation seam.
+    fn remove_object(&mut self, name: &str) -> bool {
+        self.session_mut().remove_object(name)
+    }
+
+    /// Remove molecule atoms through the shared session mutation seam.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `source_name` is not a molecule object.
+    fn remove_molecule_atoms(
+        &mut self,
+        source_name: &str,
+        indices: &[patinae_mol::AtomIndex],
+    ) -> SceneResult<usize> {
+        self.session_mut()
+            .remove_molecule_atoms(source_name, indices)
+    }
+
+    /// Clear all objects through the shared session mutation seam.
+    fn clear_objects(&mut self) {
+        self.session_mut().clear_objects();
+    }
+
+    /// Apply immediate recent-atom effects for one changed global setting.
+    fn reconcile_recent_atom_setting(&mut self, setting_name: &str) {
+        self.session_mut()
+            .reconcile_recent_atom_setting(setting_name);
+    }
 
     /// Replace the entire session (for loading .pse/.prs files)
     ///

@@ -16,7 +16,7 @@ use patinae_framework::plugin_ui::{
     PanelAction, PanelDescriptor, PanelEvent, PanelEventKind, PanelPlacement,
     PanelRuntimeRequirements, PanelSnapshot, PanelValue, PluginPanel,
 };
-use patinae_mol::{Atom, ObjectMolecule};
+use patinae_mol::{Atom, AtomIndex, ObjectMolecule};
 use patinae_plugin::ffi::{
     AbiBytesSinkFn, AbiCommandDescriptor, AbiCommandVTable, AbiPanelDescriptor, AbiPanelVTable,
     AbiSettingDescriptor, AbiSettingValue, AbiStatus, AbiStr, AbiStrSlice, AbiU8Slice,
@@ -31,7 +31,11 @@ use patinae_plugin::wire::{
     self, WireCommandInput, WireCommandOutput, WireHostQuery, WireHostQueryValue,
     WirePanelEventOutput, WirePanelSnapshotOutput, RUNTIME_WIRE_VERSION,
 };
-use patinae_scene::{GroupObject, KeyBindings, MoleculeObject, Session, SessionAdapter};
+use patinae_scene::{
+    canonical_atom_path_for_hit, GroupObject, KeyBindings, MoleculeObject, ObjectType, PickHit,
+    Session, SessionAdapter,
+};
+use patinae_settings::groups::RecentPickLimit;
 use serde::{de::DeserializeOwned, Serialize};
 
 use crate::loader::{
@@ -117,6 +121,7 @@ impl SharedFixture {
             registry: &self.session.registry,
             camera: &self.session.camera,
             selections: &self.session.selections,
+            recent_atoms: &self.session.recent_atoms,
             named_palette: &self.session.named_palette,
             movie: &self.session.movie,
             settings: &self.session.settings,
@@ -206,19 +211,37 @@ fn panel_input_without_full_session_omits_registry() {
 }
 
 #[test]
-fn panel_input_with_full_session_preserves_registry() {
+fn panel_input_with_full_session_preserves_registry_and_recent_atoms() {
     let mut fixture = SharedFixture::new();
+    add_test_molecule(&mut fixture.session);
+    let path = canonical_atom_path_for_hit(
+        &PickHit {
+            object_name: "obj".to_string(),
+            object_type: ObjectType::Molecule,
+            atom_index: Some(AtomIndex(0)),
+            position: Default::default(),
+            distance: 0.0,
+        },
+        fixture
+            .session
+            .registry
+            .get_molecule("obj")
+            .unwrap()
+            .molecule(),
+    )
+    .unwrap();
     fixture
         .session
-        .registry
-        .add(GroupObject::new("panel_group"));
+        .recent_atoms
+        .insert(path.clone(), RecentPickLimit::Unlimited);
 
     let input =
         shared_input_from_context(&fixture.shared(), PanelRuntimeRequirements::FULL_SESSION)
             .unwrap();
     let decoded = decoded_wire_session(&input.session);
 
-    assert!(decoded.registry.get("panel_group").is_some());
+    assert!(decoded.registry.get("obj").is_some());
+    assert_eq!(decoded.recent_atoms.paths().collect::<Vec<_>>(), vec![path]);
 }
 
 #[test]

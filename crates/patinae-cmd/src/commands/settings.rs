@@ -264,6 +264,7 @@ impl SetCommand {
                     setting
                         .set_global(ctx.viewer, value.clone())
                         .map_err(CmdError::execution)?;
+                    ctx.viewer.reconcile_recent_atom_setting(&name);
                     apply_side_effects_from_slice(ctx, setting.side_effects(), &name, &value);
                     ctx.viewer.request_redraw();
                     if !ctx.quiet {
@@ -309,6 +310,13 @@ impl SetCommand {
             .validate_range(&value)
             .map_err(|msg| CmdError::invalid_arg("value", msg))?;
 
+        if selection.is_some() && name == "max_recent_picks" {
+            return Err(CmdError::invalid_arg(
+                "selection",
+                format!("Setting '{name}' does not support object overrides"),
+            ));
+        }
+
         if let Some(desc) = setting.built_in_descriptor() {
             // Built-in object override
             if let Some(sel) = selection {
@@ -350,6 +358,7 @@ impl SetCommand {
         setting
             .set_global(ctx.viewer, value.clone())
             .map_err(CmdError::execution)?;
+        ctx.viewer.reconcile_recent_atom_setting(&name);
         apply_side_effects_from_slice(ctx, setting.side_effects(), &name, &value);
         ctx.viewer.request_redraw();
 
@@ -556,6 +565,13 @@ impl Command for UnsetCommand {
             .ok_or_else(|| unknown_setting(name))?;
         let selection = args.str_arg(1, "selection");
 
+        if selection.is_some() && name == "max_recent_picks" {
+            return Err(CmdError::invalid_arg(
+                "selection",
+                format!("Setting '{name}' does not support object overrides"),
+            ));
+        }
+
         if let Some(desc) = setting.built_in_descriptor() {
             if let Some(sel) = selection {
                 if desc.is_object_overridable() {
@@ -604,6 +620,7 @@ impl Command for UnsetCommand {
         let default_value = setting
             .unset_global(ctx.viewer)
             .map_err(CmdError::execution)?;
+        ctx.viewer.reconcile_recent_atom_setting(name);
         apply_side_effects_from_slice(ctx, setting.side_effects(), name, &default_value);
 
         ctx.viewer.request_redraw();
@@ -712,8 +729,9 @@ impl Command for SetupCcdCommand {
 mod tests {
     use super::*;
     use crate::CommandExecutor;
-    use patinae_mol::{AtomBuilder, ObjectMolecule, COLOR_UNSET};
+    use patinae_mol::{AtomBuilder, AtomIndex, ObjectMolecule, COLOR_UNSET};
     use patinae_scene::{Session, SessionAdapter};
+    use patinae_settings::groups::RecentPickLimit;
     use patinae_settings::registry;
 
     fn execute(session: &mut Session, executor: &mut CommandExecutor, cmd: &str) -> CmdResult {
@@ -734,6 +752,41 @@ mod tests {
 
         let mut session = Session::new();
         session.registry.add(MoleculeObject::with_name(mol, name));
+        session
+    }
+
+    fn recent_path(session: &Session, object_name: &str, atom_index: u32) -> String {
+        let molecule = session.registry.get_molecule(object_name).unwrap();
+        patinae_scene::canonical_atom_path_for_hit(
+            &patinae_scene::PickHit {
+                object_name: object_name.to_string(),
+                object_type: patinae_scene::ObjectType::Molecule,
+                atom_index: Some(AtomIndex(atom_index)),
+                position: lin_alg::f32::Vec3::new(0.0, 0.0, 0.0),
+                distance: 0.0,
+            },
+            molecule.molecule(),
+        )
+        .unwrap()
+    }
+
+    fn session_with_case_collisions(chains: (&str, &str), names: (&str, &str)) -> Session {
+        let mut molecule = ObjectMolecule::new("obj");
+        for (chain, name) in [(chains.0, names.0), (chains.1, names.1)] {
+            molecule.add_atom(
+                AtomBuilder::new()
+                    .name(name)
+                    .element_symbol("C")
+                    .resn("GLY")
+                    .resv(1)
+                    .chain(chain)
+                    .build(),
+            );
+        }
+        let mut session = Session::new();
+        session
+            .registry
+            .add(MoleculeObject::with_name(molecule, "obj"));
         session
     }
 
@@ -1001,5 +1054,86 @@ mod tests {
             patinae_settings::RenderMemoryProfileSetting::Auto
         );
         assert_eq!(session.settings.renderer.memory_budget_mib, 0);
+    }
+
+    #[test]
+    fn max_recent_picks_changes_apply_immediately_and_reject_object_override() {
+        let mut session = Session::new();
+        for name in ["one", "two", "three"] {
+            let object = session_with_single_atom_object(name)
+                .registry
+                .remove(name)
+                .unwrap();
+            session.registry.insert_boxed(name, object);
+        }
+        let paths = ["one", "two", "three"].map(|name| recent_path(&session, name, 0));
+        for path in &paths {
+            session
+                .recent_atoms
+                .insert(path.clone(), RecentPickLimit::Unlimited);
+        }
+        let mut executor = CommandExecutor::new();
+
+        execute(&mut session, &mut executor, "set max_recent_picks, 2").unwrap();
+        assert_eq!(
+            session.recent_atoms.paths().collect::<Vec<_>>(),
+            [&paths[1], &paths[2]]
+        );
+        execute(&mut session, &mut executor, "set max_recent_picks, 0").unwrap();
+        assert!(session.recent_atoms.is_empty());
+        execute(&mut session, &mut executor, "set max_recent_picks, 5").unwrap();
+        assert!(session.recent_atoms.is_empty());
+
+        session
+            .recent_atoms
+            .insert(paths[0].clone(), RecentPickLimit::Unlimited);
+        execute(&mut session, &mut executor, "unset max_recent_picks").unwrap();
+        assert_eq!(
+            session.recent_atoms.paths().collect::<Vec<_>>(),
+            [&paths[0]]
+        );
+        assert_eq!(session.settings.behavior.max_recent_picks, -1);
+
+        let error =
+            execute(&mut session, &mut executor, "set max_recent_picks, 1, one").unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("does not support object overrides"));
+        assert_eq!(session.settings.behavior.max_recent_picks, -1);
+
+        let error =
+            execute(&mut session, &mut executor, "unset max_recent_picks, one").unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("does not support object overrides"));
+        assert_eq!(session.settings.behavior.max_recent_picks, -1);
+    }
+
+    #[test]
+    fn selection_case_settings_reconcile_paths_that_become_ambiguous() {
+        let mut executor = CommandExecutor::new();
+        let mut name_session = session_with_case_collisions(("A", "A"), ("CA", "ca"));
+        execute(&mut name_session, &mut executor, "set ignore_case, off").unwrap();
+        let name_path = recent_path(&name_session, "obj", 0);
+        name_session
+            .recent_atoms
+            .insert(name_path, RecentPickLimit::Unlimited);
+
+        execute(&mut name_session, &mut executor, "set ignore_case, on").unwrap();
+        assert!(name_session.recent_atoms.is_empty());
+
+        let mut chain_session = session_with_case_collisions(("A", "a"), ("CA", "CA"));
+        let chain_path = recent_path(&chain_session, "obj", 0);
+        chain_session
+            .recent_atoms
+            .insert(chain_path, RecentPickLimit::Unlimited);
+
+        execute(
+            &mut chain_session,
+            &mut executor,
+            "set ignore_case_chain, on",
+        )
+        .unwrap();
+        assert!(chain_session.recent_atoms.is_empty());
     }
 }

@@ -830,18 +830,22 @@ fn try_consume_inscode(stream: &mut TokenStream) -> Option<char> {
 
 /// Parse a residue number with optional insertion code (e.g., "100A")
 fn parse_resi_with_inscode(s: &str) -> Result<(i32, Option<char>), ParseError> {
+    let mut chars = s.chars().peekable();
     let mut num_part = String::new();
-    let mut ins_code = None;
-
-    for c in s.chars() {
-        if c.is_ascii_digit() || (num_part.is_empty() && c == '-') {
-            num_part.push(c);
-        } else if c.is_alphabetic() && ins_code.is_none() {
-            ins_code = Some(c);
-        } else {
-            return Err(ParseError::InvalidResidue(s.to_string()));
-        }
+    if chars.peek() == Some(&'-') {
+        num_part.push('-');
+        chars.next();
     }
+    while chars.peek().is_some_and(char::is_ascii_digit) {
+        num_part.push(chars.next().expect("peeked digit must be present"));
+    }
+
+    let remainder: Vec<char> = chars.collect();
+    let ins_code = match remainder.as_slice() {
+        [] => None,
+        [code] if code.is_alphabetic() || *code == ' ' => Some(*code),
+        _ => return Err(ParseError::InvalidResidue(s.to_string())),
+    };
 
     let num: i32 = num_part
         .parse()
@@ -895,62 +899,61 @@ fn parse_macro(stream: &mut TokenStream) -> Result<SelectionExpr, ParseError> {
     }
 
     // Collect slash-separated components
-    let mut components: Vec<Option<String>> = Vec::new();
-    let mut current = String::new();
-    let mut has_content = false;
+    let mut components = Vec::new();
+    let mut current = MacroComponent::default();
 
     loop {
         let peeked = stream.peek().cloned();
         match peeked {
             Some(Token::Slash) => {
                 stream.next();
-                if has_content {
-                    components.push(Some(current.clone()));
-                } else {
-                    components.push(None);
-                }
-                current.clear();
-                has_content = false;
+                components.push(current);
+                current = MacroComponent::default();
             }
             Some(Token::Ident(s)) => {
                 stream.next();
-                current.push_str(&s);
-                has_content = true;
+                current.push_unquoted(&s);
             }
             Some(Token::Integer(n)) => {
                 stream.next();
-                current.push_str(&n.to_string());
-                has_content = true;
+                current.push_unquoted(&n.to_string());
+            }
+            Some(Token::QuotedString(s)) => {
+                stream.next();
+                current.push_quoted(&s);
             }
             Some(Token::Backtick) => {
                 stream.next();
-                current.push('`');
-                has_content = true;
+                current.push_backtick();
             }
             Some(Token::Asterisk) => {
                 stream.next();
-                current.push('*');
-                has_content = true;
+                current.push_unquoted("*");
+            }
+            Some(Token::Question) => {
+                stream.next();
+                current.push_unquoted("?");
             }
             Some(Token::Minus) => {
                 stream.next();
-                current.push('-');
-                has_content = true;
+                current.push_unquoted("-");
             }
             Some(Token::Plus) => {
                 stream.next();
-                current.push('+');
-                has_content = true;
+                current.push_unquoted("+");
             }
             Some(Token::Colon) => {
                 stream.next();
-                current.push(':');
-                has_content = true;
+                current.push_unquoted(":");
+            }
+            Some(Token::Of) => {
+                stream.next();
+                current.push_unquoted("of");
             }
             _ => {
                 // End of macro — push final component
-                if has_content {
-                    components.push(Some(current.clone()));
+                if current.is_present() {
+                    components.push(current);
                 }
                 break;
             }
@@ -969,25 +972,103 @@ fn parse_macro(stream: &mut TokenStream) -> Result<SelectionExpr, ParseError> {
 
     for (i, component) in components.into_iter().enumerate() {
         let field = offset + i;
-        let pattern = component.map(|s| {
-            if s.contains('*') || s.contains('?') {
-                Pattern::Wildcard(s)
-            } else {
-                Pattern::Exact(s)
-            }
-        });
 
         match field {
-            0 => spec.model = pattern,
-            1 => spec.segi = pattern,
-            2 => spec.chain = pattern,
-            3 => assign_resn_resi(&mut spec, pattern)?,
-            4 => assign_name_alt(&mut spec, pattern),
+            0 => spec.model = component.into_single_pattern(),
+            1 => spec.segi = component.into_single_pattern(),
+            2 => spec.chain = component.into_single_pattern(),
+            3 => assign_resn_resi(&mut spec, component)?,
+            4 => assign_name_alt(&mut spec, component),
             _ => {} // Ignore extra components
         }
     }
 
     Ok(SelectionExpr::Macro(spec))
+}
+
+#[derive(Debug, Default)]
+struct MacroPart {
+    value: String,
+    present: bool,
+    quoted: bool,
+}
+
+impl MacroPart {
+    fn push_unquoted(&mut self, value: &str) {
+        self.value.push_str(value);
+        self.present = true;
+    }
+
+    fn push_quoted(&mut self, value: &str) {
+        self.value.push_str(value);
+        self.present = true;
+        self.quoted = true;
+    }
+
+    fn into_pattern(self) -> Option<Pattern> {
+        if !self.present {
+            return None;
+        }
+
+        if self.quoted || !self.value.contains(['*', '?']) {
+            Some(Pattern::Exact(self.value))
+        } else {
+            Some(Pattern::Wildcard(self.value))
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct MacroComponent {
+    left: MacroPart,
+    right: Option<MacroPart>,
+}
+
+impl MacroComponent {
+    fn active_part(&mut self) -> &mut MacroPart {
+        self.right.as_mut().unwrap_or(&mut self.left)
+    }
+
+    fn push_unquoted(&mut self, value: &str) {
+        self.active_part().push_unquoted(value);
+    }
+
+    fn push_quoted(&mut self, value: &str) {
+        self.active_part().push_quoted(value);
+    }
+
+    fn push_backtick(&mut self) {
+        if let Some(right) = &mut self.right {
+            right.push_unquoted("`");
+        } else {
+            self.right = Some(MacroPart::default());
+        }
+    }
+
+    fn is_present(&self) -> bool {
+        self.left.present || self.right.is_some()
+    }
+
+    fn into_single_pattern(self) -> Option<Pattern> {
+        let mut left = self.left;
+        if let Some(right) = self.right {
+            left.push_unquoted("`");
+            if right.quoted {
+                left.quoted = true;
+            }
+            if right.present {
+                left.push_unquoted(&right.value);
+            }
+        }
+        left.into_pattern()
+    }
+
+    fn into_patterns(self) -> (Option<Pattern>, Option<Pattern>) {
+        (
+            self.left.into_pattern(),
+            self.right.and_then(MacroPart::into_pattern),
+        )
+    }
 }
 
 /// Parse a resi string that may contain ranges (e.g. "3-5", "3:5") or lists (e.g. "3+5+7")
@@ -1021,47 +1102,15 @@ fn parse_resi_string(s: &str) -> Result<ResiSpec, ParseError> {
     }
 }
 
-/// Split a pattern on backtick into `(left_pattern, right_string)`.
-///
-/// - Wildcard patterns are returned as-is in the left slot.
-/// - Exact patterns containing `` ` `` are split: `"ALA`100"` → `(Some(Exact("ALA")), Some("100"))`.
-/// - Exact patterns without backtick are returned as-is in the left slot.
-fn split_on_backtick(pattern: &Option<Pattern>) -> (Option<Pattern>, Option<String>) {
-    let Some(ref p) = pattern else {
-        return (None, None);
-    };
-    let Pattern::Exact(ref s) = p else {
-        return (pattern.clone(), None);
-    };
-    match s.find('`') {
-        Some(pos) => {
-            let left = &s[..pos];
-            let right = &s[pos + 1..];
-            let left_pat = if left.is_empty() {
-                None
-            } else {
-                Some(Pattern::Exact(left.to_string()))
-            };
-            let right_str = if right.is_empty() {
-                None
-            } else {
-                Some(right.to_string())
-            };
-            (left_pat, right_str)
-        }
-        None => (pattern.clone(), None),
-    }
-}
-
 /// Assign field 3 of a macro spec: resn, resi, or resn`resi
-fn assign_resn_resi(spec: &mut MacroSpec, pattern: Option<Pattern>) -> Result<(), ParseError> {
-    let (left, right) = split_on_backtick(&pattern);
-    if let Some(resi_str) = right {
+fn assign_resn_resi(spec: &mut MacroSpec, component: MacroComponent) -> Result<(), ParseError> {
+    let (left, right) = component.into_patterns();
+    if let Some(right) = right {
         // resn`resi syntax
         spec.resn = left;
-        spec.resi = Some(parse_resi_string(&resi_str)?);
+        spec.resi = Some(parse_resi_string(&right.to_string())?);
     } else if let Some(Pattern::Exact(ref s)) = left {
-        if s.starts_with(|c: char| c.is_ascii_digit()) {
+        if s.starts_with(|c: char| c.is_ascii_digit() || c == '-') {
             spec.resi = Some(parse_resi_string(s)?);
         } else {
             spec.resn = left;
@@ -1073,12 +1122,10 @@ fn assign_resn_resi(spec: &mut MacroSpec, pattern: Option<Pattern>) -> Result<()
 }
 
 /// Assign field 4 of a macro spec: name or name`alt
-fn assign_name_alt(spec: &mut MacroSpec, pattern: Option<Pattern>) {
-    let (left, right) = split_on_backtick(&pattern);
+fn assign_name_alt(spec: &mut MacroSpec, component: MacroComponent) {
+    let (left, right) = component.into_patterns();
     spec.name = left;
-    if let Some(alt_str) = right {
-        spec.alt = Some(Pattern::Exact(alt_str));
-    }
+    spec.alt = right;
 }
 
 #[cfg(test)]
@@ -1365,6 +1412,61 @@ mod tests {
             assert!(matches!(spec.name, Some(Pattern::Wildcard(ref s)) if s == "C*"));
         } else {
             panic!("Expected Macro");
+        }
+    }
+
+    #[test]
+    fn test_parse_macro_quoted_empty_and_escaped_components_are_exact() {
+        let expr =
+            parse_selection(r#"/"model/\"quoted\"\\tail"/""/""/"ALA"`"42A"/"CA"`"""#).unwrap();
+
+        let SelectionExpr::Macro(spec) = expr else {
+            panic!("Expected Macro");
+        };
+        assert!(matches!(spec.model, Some(Pattern::Exact(ref s)) if s == "model/\"quoted\"\\tail"));
+        assert!(matches!(spec.segi, Some(Pattern::Exact(ref s)) if s.is_empty()));
+        assert!(matches!(spec.chain, Some(Pattern::Exact(ref s)) if s.is_empty()));
+        assert!(matches!(spec.resn, Some(Pattern::Exact(ref s)) if s == "ALA"));
+        assert!(matches!(
+            spec.resi,
+            Some(ref r) if r.items == vec![ResiItem::InsCode(42, 'A')]
+        ));
+        assert!(matches!(spec.name, Some(Pattern::Exact(ref s)) if s == "CA"));
+        assert!(matches!(spec.alt, Some(Pattern::Exact(ref s)) if s.is_empty()));
+    }
+
+    #[test]
+    fn test_parse_macro_quoted_wildcards_are_literal() {
+        let expr = parse_selection(r#"/"*"/"?"/*/?/"C*""#).unwrap();
+
+        let SelectionExpr::Macro(spec) = expr else {
+            panic!("Expected Macro");
+        };
+        assert!(matches!(spec.model, Some(Pattern::Exact(ref s)) if s == "*"));
+        assert!(matches!(spec.segi, Some(Pattern::Exact(ref s)) if s == "?"));
+        assert!(matches!(spec.chain, Some(Pattern::Wildcard(ref s)) if s == "*"));
+        assert!(matches!(spec.resn, Some(Pattern::Wildcard(ref s)) if s == "?"));
+        assert!(matches!(spec.name, Some(Pattern::Exact(ref s)) if s == "C*"));
+    }
+
+    #[test]
+    fn test_parse_macro_compound_fields_preserve_blank_and_nonblank_alt() {
+        for (input, expected_inscode, expected_alt) in [
+            (r#"////"GLY"`"42 "/"CA"`" ""#, ' ', " "),
+            (r#"////"GLY"`"42A"/"CA"`"B""#, 'A', "B"),
+        ] {
+            let expr = parse_selection(input).unwrap();
+            let SelectionExpr::Macro(spec) = expr else {
+                panic!("Expected Macro");
+            };
+
+            assert!(matches!(spec.resn, Some(Pattern::Exact(ref s)) if s == "GLY"));
+            assert!(matches!(
+                spec.resi,
+                Some(ref r) if r.items == vec![ResiItem::InsCode(42, expected_inscode)]
+            ));
+            assert!(matches!(spec.name, Some(Pattern::Exact(ref s)) if s == "CA"));
+            assert!(matches!(spec.alt, Some(Pattern::Exact(ref s)) if s == expected_alt));
         }
     }
 

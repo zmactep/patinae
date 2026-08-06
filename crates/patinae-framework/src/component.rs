@@ -5,7 +5,7 @@
 
 use patinae_cmd::{CommandRegistry, DynamicSettingRegistry, ResolvedSetting};
 use patinae_color::NamedPalette;
-use patinae_scene::{Camera, Movie, ObjectRegistry, SelectionManager, ViewportImage};
+use patinae_scene::{Camera, Movie, ObjectRegistry, RecentAtoms, SelectionManager, ViewportImage};
 use patinae_settings::{SettingValue, Settings};
 
 use crate::atom_stream::{AtomStreamPlan, AtomStreamRequest, AtomStreamRows};
@@ -20,6 +20,7 @@ pub struct SharedContext<'a> {
     pub registry: &'a ObjectRegistry,
     pub camera: &'a Camera,
     pub selections: &'a SelectionManager,
+    pub recent_atoms: &'a RecentAtoms,
     pub named_palette: &'a NamedPalette,
     pub movie: &'a Movie,
     pub settings: &'a Settings,

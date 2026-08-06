@@ -1202,7 +1202,12 @@ impl ObjectRegistry {
             molecule.invalidate(DirtyFlags::ALL);
             remap
         };
+        let generation_before_remap = self.generation;
+        let topology_changed = !remap.is_identity();
         self.remap_atom_anchors(source_name, &remap);
+        if topology_changed && self.generation == generation_before_remap {
+            self.generation = self.generation.saturating_add(1);
+        }
         Ok(indices.len())
     }
 
@@ -1263,6 +1268,32 @@ impl ObjectRegistry {
     pub fn first_free_label_name(&self) -> String {
         let mut index = 1;
         self.first_free_label_name_from(&mut index)
+    }
+
+    /// Returns the first free kind-specific measurement name.
+    ///
+    /// The generated `distanceNN`, `angleNN`, or `dihedralNN` name is checked
+    /// against the registry's shared object namespace.
+    ///
+    /// # Panics
+    ///
+    /// Panics if every suffix representable by `u32` is already occupied.
+    pub fn first_free_measurement_name(&self, kind: MeasurementKind) -> String {
+        let prefix = match kind {
+            MeasurementKind::Distance => "distance",
+            MeasurementKind::Angle => "angle",
+            MeasurementKind::Dihedral => "dihedral",
+        };
+        let mut index = 1_u32;
+        loop {
+            let name = format!("{prefix}{index:02}");
+            if !self.objects.contains_key(&name) {
+                return name;
+            }
+            index = index
+                .checked_add(1)
+                .expect("measurement object name space exhausted");
+        }
     }
 
     fn first_free_label_name_from(&self, index: &mut u32) -> String {
@@ -2277,5 +2308,27 @@ mod tests {
         assert!(!top.contains(&"obj1"));
         assert!(!top.contains(&"obj2"));
         assert_eq!(top.len(), 2);
+    }
+
+    #[test]
+    fn first_free_measurement_names_are_kind_specific_and_share_namespace() {
+        let mut registry = ObjectRegistry::new();
+        registry.add(MockObject::new("distance01"));
+        registry.add(MockObject::new("angle01"));
+        registry.add(MockObject::new("dihedral01"));
+        registry.add(MockObject::new("distance03"));
+
+        assert_eq!(
+            registry.first_free_measurement_name(MeasurementKind::Distance),
+            "distance02"
+        );
+        assert_eq!(
+            registry.first_free_measurement_name(MeasurementKind::Angle),
+            "angle02"
+        );
+        assert_eq!(
+            registry.first_free_measurement_name(MeasurementKind::Dihedral),
+            "dihedral02"
+        );
     }
 }

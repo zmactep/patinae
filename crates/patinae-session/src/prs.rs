@@ -771,6 +771,7 @@ mod tests {
         MeasurementEntry, MeasurementKind, MeasurementObject, MoleculeObject, Object, SceneManager,
         SelectionManager, ViewManager,
     };
+    use patinae_settings::groups::RecentPickLimit;
     use patinae_settings::{ObjectOverrides, Settings};
     use serde::Serialize;
     use std::fs;
@@ -797,7 +798,45 @@ mod tests {
 
     #[test]
     fn test_prs_round_trip() {
-        let session = cartoon_session_with_restore();
+        let mut session = cartoon_session_with_restore();
+        let mut recent_molecule = ObjectMolecule::new("recent");
+        for (name, resv) in [("CA", 1), ("CB", 2)] {
+            recent_molecule.add_atom(
+                patinae_mol::AtomBuilder::new()
+                    .name(name)
+                    .element_symbol("C")
+                    .resn("GLY")
+                    .resv(resv)
+                    .chain("A")
+                    .build(),
+            );
+        }
+        recent_molecule.add_coord_set(CoordSet::from_vec3(&[
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(1.0, 0.0, 0.0),
+        ]));
+        session
+            .registry
+            .add(MoleculeObject::with_name(recent_molecule, "recent"));
+        session.settings.behavior.max_recent_picks = 2;
+        let recent_paths = [0, 1].map(|atom_index| {
+            patinae_scene::canonical_atom_path_for_hit(
+                &patinae_scene::PickHit {
+                    object_name: "recent".to_string(),
+                    object_type: patinae_scene::ObjectType::Molecule,
+                    atom_index: Some(patinae_mol::AtomIndex(atom_index)),
+                    position: Default::default(),
+                    distance: 0.0,
+                },
+                session.registry.get_molecule("recent").unwrap().molecule(),
+            )
+            .unwrap()
+        });
+        for path in &recent_paths {
+            session
+                .recent_atoms
+                .insert(path.clone(), RecentPickLimit::Bounded(2));
+        }
         let (dir, path) = temp_prs_path("roundtrip");
 
         save_prs(&session, &path).unwrap();
@@ -817,6 +856,11 @@ mod tests {
             .unwrap()
             .draw_mask_restorable_reps()
             .is_visible(RepMask::CARTOON));
+        assert_eq!(document.session.settings.behavior.max_recent_picks, 2);
+        assert_eq!(
+            document.session.recent_atoms.paths().collect::<Vec<_>>(),
+            recent_paths.iter().map(String::as_str).collect::<Vec<_>>()
+        );
 
         let loaded = load_prs(&path).unwrap();
         assert_eq!(loaded.clear_color, session.clear_color);
@@ -910,6 +954,74 @@ mod tests {
         assert_eq!(decoded.prs_format_version, PRS_FORMAT_VERSION);
         assert_eq!(decoded.producer.as_deref(), Some(PRS_PRODUCER));
         assert!(decoded.session.registry.get_molecule("mol").is_some());
+    }
+
+    #[test]
+    fn legacy_named_and_positional_documents_default_recent_fields() {
+        for named in [true, false] {
+            let session = Session::new();
+            let document = PrsDocumentRef {
+                prs_format_version: PRS_FORMAT_VERSION,
+                producer: PRS_PRODUCER,
+                producer_version: PRS_PRODUCER_VERSION,
+                session: &session,
+            };
+            let bytes = if named {
+                rmp_serde::to_vec_named(&document).unwrap()
+            } else {
+                rmp_serde::to_vec(&document).unwrap()
+            };
+            let mut cursor = Cursor::new(bytes);
+            let mut value = rmpv::decode::read_value(&mut cursor).unwrap();
+            strip_recent_fields(&mut value);
+            let mut legacy_bytes = Vec::new();
+            rmpv::encode::write_value(&mut legacy_bytes, &value).unwrap();
+
+            let decoded = decode_prs_document(legacy_bytes).unwrap();
+
+            assert_eq!(decoded.prs_format_version, PRS_FORMAT_VERSION);
+            assert!(decoded.session.recent_atoms.is_empty());
+            assert_eq!(decoded.session.settings.behavior.max_recent_picks, -1);
+        }
+    }
+
+    fn strip_recent_fields(root: &mut Value) {
+        let session = session_value_mut(root).unwrap();
+        match session {
+            Value::Map(session_fields) => {
+                session_fields.retain(|(key, _)| key.as_str() != Some("recent_atoms"));
+                let settings = session_fields
+                    .iter_mut()
+                    .find(|(key, _)| key.as_str() == Some("settings"))
+                    .map(|(_, value)| value)
+                    .unwrap();
+                let Value::Map(setting_fields) = settings else {
+                    panic!("named Settings must be a map");
+                };
+                let behavior = setting_fields
+                    .iter_mut()
+                    .find(|(key, _)| key.as_str() == Some("behavior"))
+                    .map(|(_, value)| value)
+                    .unwrap();
+                let Value::Map(behavior_fields) = behavior else {
+                    panic!("named BehaviorSettings must be a map");
+                };
+                behavior_fields.retain(|(key, _)| key.as_str() != Some("max_recent_picks"));
+            }
+            Value::Array(session_fields) => {
+                assert_eq!(session_fields.len(), 12);
+                session_fields.pop();
+                let Value::Array(setting_fields) = &mut session_fields[6] else {
+                    panic!("positional Settings must be an array");
+                };
+                let Value::Array(behavior_fields) = &mut setting_fields[4] else {
+                    panic!("positional BehaviorSettings must be an array");
+                };
+                assert_eq!(behavior_fields.len(), 6);
+                behavior_fields.pop();
+            }
+            _ => panic!("Session must be a map or array"),
+        }
     }
 
     #[test]

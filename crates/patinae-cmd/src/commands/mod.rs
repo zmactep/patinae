@@ -11,6 +11,7 @@ pub mod map;
 pub mod measuring;
 pub mod movie;
 pub mod objects;
+pub mod picking;
 pub mod scene;
 pub mod selecting;
 pub mod settings;
@@ -32,6 +33,7 @@ pub fn register_all(registry: &mut CommandRegistry) {
 
     // Selection commands
     selecting::register(registry);
+    picking::register(registry);
 
     // Object commands
     objects::register(registry);

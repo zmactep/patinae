@@ -123,9 +123,10 @@ impl RenderState {
                 buffer_usage(&silhouette.uniform_buffer),
             );
         }
-        if let Some(selection_dots) = self.screen.selection_dots.as_ref() {
-            ledger.add_usage(GpuMemoryCategory::Overlay, selection_dots.memory_usage());
-        }
+        ledger.add_usage(
+            GpuMemoryCategory::Overlay,
+            self.screen.atom_markers.memory_usage(),
+        );
 
         ledger.add_usage(
             GpuMemoryCategory::Postprocess,

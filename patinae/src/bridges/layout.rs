@@ -57,6 +57,7 @@ fn get_panel_visible(id: &str, ls: &LayoutState) -> bool {
     match id {
         "objects" => ls.get_objects_visible(),
         "selections" => ls.get_selections_visible(),
+        "recent-atoms" => ls.get_recent_atoms_visible(),
         "sequence" => ls.get_sequence_visible(),
         "movie" => ls.get_movie_visible(),
         "repl" => ls.get_repl_visible(),
@@ -68,6 +69,7 @@ fn set_panel_visible(id: &str, visible: bool, window: &AppWindow, ls: &LayoutSta
     match id {
         "objects" => ls.set_objects_visible(visible),
         "selections" => ls.set_selections_visible(visible),
+        "recent-atoms" => ls.set_recent_atoms_visible(visible),
         "sequence" => {
             ls.set_sequence_visible(visible);
             if visible {

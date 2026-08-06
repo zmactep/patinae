@@ -20,7 +20,7 @@ use crate::context::RenderContext;
 use crate::frame::FrameTargets;
 use crate::passes::atlas_ao::AtlasAoPass;
 use crate::passes::lighting::DEFAULT_SHADOW_MAP_SIZE;
-use crate::passes::selection_dots::{uses_selection_dots_fallback, SelectionDotsPass};
+use crate::passes::selection_dots::{uses_selection_dots_fallback, AtomMarkersPass};
 use crate::passes::shadow::DirectionalShadowPass;
 use crate::picking::pass::PickingPass;
 use crate::picking::readback::PickingReadback;
@@ -245,8 +245,7 @@ impl RenderState {
         let marking = selection_overlay_enabled.then(|| MarkingPass::new(&ctx));
         let selection_dots_enabled =
             config.selection_overlay && uses_selection_dots_fallback(memory_policy);
-        let selection_dots =
-            selection_dots_enabled.then(|| SelectionDotsPass::new(&ctx, &scene_layout));
+        let atom_markers = AtomMarkersPass::new(&ctx, &scene_layout);
 
         let readback = with_picking.then(|| PickingReadback::new(&ctx.device));
 
@@ -413,7 +412,7 @@ impl RenderState {
                 composite,
                 silhouette,
                 marking,
-                selection_dots,
+                atom_markers,
                 composite_bind_group,
                 silhouette_bind_group,
                 marking_bind_groups: None,
@@ -421,7 +420,7 @@ impl RenderState {
                 marking_params_dirty: true,
                 marking_offsets_dirty: true,
                 selection_dots_enabled,
-                selection_dots_rebuild_all: selection_dots_enabled,
+                atom_markers_rebuild_all: true,
                 selection_overlay_enabled,
                 marking_width: 1.0,
                 silhouette_params: None,

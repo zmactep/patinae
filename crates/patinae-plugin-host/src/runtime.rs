@@ -16,7 +16,7 @@ use patinae_plugin::wire::{
     self, WireAtomStreamOpened, WireHostQuery, WireHostQueryResult, WireHostQueryValue,
     WirePollSharedInput, WireViewerAction, WireViewportImageSummary, RUNTIME_WIRE_VERSION,
 };
-use patinae_scene::{label_object_view, parse_key_string, KeyBinding, ViewportImage};
+use patinae_scene::{label_object_view, parse_key_string, KeyBinding, ViewerLike, ViewportImage};
 
 use crate::host::{PluginHost, TriggeredHotkey};
 use crate::panic::panic_payload_to_string;
@@ -497,98 +497,200 @@ fn apply_local_viewer_action(
         }
         WireViewerAction::ApplyAtomPropertyChanges(changes) => {
             mutation_queue.push(Box::new(move |viewer| {
-                let mut changed = false;
-                for change in &changes {
-                    let Some(molecule) = viewer.objects_mut().get_molecule_mut(&change.object)
-                    else {
-                        continue;
-                    };
-                    let Some(atom) = molecule
-                        .molecule_mut()
-                        .get_atom_mut(AtomIndex(change.atom_index))
-                    else {
-                        continue;
-                    };
-                    changed |= apply_atom_property_changes(atom, &change.changes);
-                }
-                if changed {
-                    viewer.request_redraw();
-                }
+                apply_atom_property_change_batch(viewer, &changes);
             }));
         }
     }
 }
 
+pub(crate) fn apply_atom_property_change_batch<V: ViewerLike + ?Sized>(
+    viewer: &mut V,
+    changes: &[wire::WireAtomPropertyChange],
+) -> bool {
+    let mut applied = false;
+    let mut changed = false;
+    let mut identity_changed = false;
+    for change in changes {
+        let Some(molecule) = viewer.objects_mut().get_molecule_mut(&change.object) else {
+            continue;
+        };
+        let Some(atom) = molecule
+            .molecule_mut()
+            .get_atom_mut(AtomIndex(change.atom_index))
+        else {
+            continue;
+        };
+        let outcome = apply_atom_property_changes(atom, &change.changes);
+        applied |= outcome.applied;
+        changed |= outcome.changed;
+        identity_changed |= outcome.identity_changed;
+    }
+    if identity_changed {
+        viewer.reconcile_recent_atoms();
+    }
+    if changed {
+        viewer.request_redraw();
+    }
+    applied
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct AtomPropertyChangeOutcome {
+    applied: bool,
+    changed: bool,
+    identity_changed: bool,
+}
+
 fn apply_atom_property_changes(
     atom: &mut Atom,
     changes: &[(String, wire::WireAtomPropertyValue)],
-) -> bool {
-    let mut changed = false;
+) -> AtomPropertyChangeOutcome {
+    let mut outcome = AtomPropertyChangeOutcome::default();
     for (key, value) in changes {
-        changed |= apply_atom_property_change(atom, key, value);
+        let change = apply_atom_property_change(atom, key, value);
+        outcome.applied |= change.applied;
+        outcome.changed |= change.changed;
+        outcome.identity_changed |= change.identity_changed;
     }
-    changed
+    outcome
 }
 
 fn apply_atom_property_change(
     atom: &mut Atom,
     key: &str,
     value: &wire::WireAtomPropertyValue,
-) -> bool {
-    match (key, value) {
+) -> AtomPropertyChangeOutcome {
+    let (changed, identity_changed) = match (key, value) {
         ("name", wire::WireAtomPropertyValue::Str(value)) => {
-            atom.name = Arc::from(value.as_str());
+            let changed = atom.name.as_ref() != value.as_str();
+            if changed {
+                atom.name = Arc::from(value.as_str());
+            }
+            (changed, changed)
         }
-        ("b", wire::WireAtomPropertyValue::F32(value)) => atom.b_factor = *value,
-        ("q", wire::WireAtomPropertyValue::F32(value)) => atom.occupancy = *value,
-        ("vdw", wire::WireAtomPropertyValue::F32(value)) => atom.vdw = *value,
+        ("b", wire::WireAtomPropertyValue::F32(value)) => {
+            let changed = atom.b_factor.to_bits() != value.to_bits();
+            if changed {
+                atom.b_factor = *value;
+            }
+            (changed, false)
+        }
+        ("q", wire::WireAtomPropertyValue::F32(value)) => {
+            let changed = atom.occupancy.to_bits() != value.to_bits();
+            if changed {
+                atom.occupancy = *value;
+            }
+            (changed, false)
+        }
+        ("vdw", wire::WireAtomPropertyValue::F32(value)) => {
+            let changed = atom.vdw.to_bits() != value.to_bits();
+            if changed {
+                atom.vdw = *value;
+            }
+            (changed, false)
+        }
         ("partial_charge", wire::WireAtomPropertyValue::F32(value)) => {
-            atom.partial_charge = *value;
+            let changed = atom.partial_charge.to_bits() != value.to_bits();
+            if changed {
+                atom.partial_charge = *value;
+            }
+            (changed, false)
         }
         ("formal_charge", wire::WireAtomPropertyValue::I8(value)) => {
-            atom.formal_charge = *value;
+            let changed = atom.formal_charge != *value;
+            if changed {
+                atom.formal_charge = *value;
+            }
+            (changed, false)
         }
-        ("color", wire::WireAtomPropertyValue::I32(value)) => atom.repr.colors.base = *value,
+        ("color", wire::WireAtomPropertyValue::I32(value)) => {
+            let changed = atom.repr.colors.base != *value;
+            if changed {
+                atom.repr.colors.base = *value;
+            }
+            (changed, false)
+        }
         ("elem", wire::WireAtomPropertyValue::Str(value)) => {
             let Some(element) = Element::from_symbol(value) else {
-                return false;
+                return AtomPropertyChangeOutcome::default();
             };
-            atom.element = element;
+            let changed = atom.element != element;
+            if changed {
+                atom.element = element;
+            }
+            (changed, false)
         }
         ("ss", wire::WireAtomPropertyValue::Str(value)) => {
-            atom.ss_type = match value.as_str() {
+            let ss_type = match value.as_str() {
                 "H" => SecondaryStructure::Helix,
                 "S" => SecondaryStructure::Sheet,
                 _ => SecondaryStructure::Loop,
             };
+            let changed = atom.ss_type != ss_type;
+            if changed {
+                atom.ss_type = ss_type;
+            }
+            (changed, false)
         }
-        ("type", wire::WireAtomPropertyValue::Str(value)) => atom.state.hetatm = value == "HETATM",
+        ("type", wire::WireAtomPropertyValue::Str(value)) => {
+            let hetatm = value == "HETATM";
+            let changed = atom.state.hetatm != hetatm;
+            if changed {
+                atom.state.hetatm = hetatm;
+            }
+            (changed, false)
+        }
         ("alt", wire::WireAtomPropertyValue::Str(value)) => {
-            atom.alt = value.chars().next().unwrap_or(' ');
+            let alt = value.chars().next().unwrap_or(' ');
+            let changed = atom.alt != alt;
+            if changed {
+                atom.alt = alt;
+            }
+            (changed, changed)
         }
         ("chain", wire::WireAtomPropertyValue::Str(value)) => {
-            let mut residue = (*atom.residue).clone();
-            residue.key.chain = value.clone();
-            atom.residue = Arc::new(residue);
+            let changed = atom.residue.key.chain.as_str() != value.as_str();
+            if changed {
+                let mut residue = (*atom.residue).clone();
+                residue.key.chain = value.clone();
+                atom.residue = Arc::new(residue);
+            }
+            (changed, changed)
         }
         ("resn", wire::WireAtomPropertyValue::Str(value)) => {
-            let mut residue = (*atom.residue).clone();
-            residue.key.resn = value.clone();
-            atom.residue = Arc::new(residue);
+            let changed = atom.residue.key.resn.as_str() != value.as_str();
+            if changed {
+                let mut residue = (*atom.residue).clone();
+                residue.key.resn = value.clone();
+                atom.residue = Arc::new(residue);
+            }
+            (changed, changed)
         }
         ("resv", wire::WireAtomPropertyValue::I32(value)) => {
-            let mut residue = (*atom.residue).clone();
-            residue.key.resv = *value;
-            atom.residue = Arc::new(residue);
+            let changed = atom.residue.key.resv != *value;
+            if changed {
+                let mut residue = (*atom.residue).clone();
+                residue.key.resv = *value;
+                atom.residue = Arc::new(residue);
+            }
+            (changed, changed)
         }
         ("segi", wire::WireAtomPropertyValue::Str(value)) => {
-            let mut residue = (*atom.residue).clone();
-            residue.segi = value.clone();
-            atom.residue = Arc::new(residue);
+            let changed = atom.residue.segi.as_str() != value.as_str();
+            if changed {
+                let mut residue = (*atom.residue).clone();
+                residue.segi = value.clone();
+                atom.residue = Arc::new(residue);
+            }
+            (changed, changed)
         }
-        _ => return false,
+        _ => return AtomPropertyChangeOutcome::default(),
+    };
+    AtomPropertyChangeOutcome {
+        applied: true,
+        changed,
+        identity_changed,
     }
-    true
 }
 
 fn triggered_hotkeys_by_plugin(
@@ -643,5 +745,134 @@ fn poll_handler(plugin: &mut LoadedPlugin, ctx: &mut PollContext<'_>) {
                 plugin.faulted = true;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod recent_atom_tests {
+    use super::*;
+    use patinae_mol::{AtomBuilder, ObjectMolecule};
+    use patinae_scene::{MoleculeObject, PickHit, Session, SessionAdapter};
+    use patinae_settings::groups::RecentPickLimit;
+
+    #[test]
+    fn atom_identity_outcome_ignores_no_op_assignments() {
+        let mut atom = AtomBuilder::new()
+            .name("CA")
+            .element_symbol("C")
+            .resn("GLY")
+            .resv(1)
+            .chain("A")
+            .build();
+
+        let no_op = apply_atom_property_changes(
+            &mut atom,
+            &[(
+                "name".to_string(),
+                wire::WireAtomPropertyValue::Str("CA".to_string()),
+            )],
+        );
+        assert_eq!(
+            no_op,
+            AtomPropertyChangeOutcome {
+                applied: true,
+                changed: false,
+                identity_changed: false,
+            }
+        );
+
+        let changed = apply_atom_property_changes(
+            &mut atom,
+            &[(
+                "chain".to_string(),
+                wire::WireAtomPropertyValue::Str("B".to_string()),
+            )],
+        );
+        assert_eq!(
+            changed,
+            AtomPropertyChangeOutcome {
+                applied: true,
+                changed: true,
+                identity_changed: true,
+            }
+        );
+    }
+
+    #[test]
+    fn plugin_identity_changes_reconcile_recent_atoms_but_visual_changes_do_not() {
+        let mut molecule = ObjectMolecule::new("obj");
+        molecule.add_atom(
+            AtomBuilder::new()
+                .name("CA")
+                .element_symbol("C")
+                .resn("GLY")
+                .resv(1)
+                .chain("A")
+                .build(),
+        );
+        let mut session = Session::new();
+        session
+            .registry
+            .add(MoleculeObject::with_name(molecule, "obj"));
+        let path = patinae_scene::canonical_atom_path_for_hit(
+            &PickHit {
+                object_name: "obj".to_string(),
+                object_type: patinae_scene::ObjectType::Molecule,
+                atom_index: Some(AtomIndex(0)),
+                position: Default::default(),
+                distance: 0.0,
+            },
+            session.registry.get_molecule("obj").unwrap().molecule(),
+        )
+        .unwrap();
+        session
+            .recent_atoms
+            .insert(path, RecentPickLimit::Unlimited);
+        let mut needs_redraw = false;
+        let mut viewer = SessionAdapter {
+            session: &mut session,
+            render_context: None,
+            default_size: (64, 64),
+            needs_redraw: &mut needs_redraw,
+            async_fetch_fn: None,
+        };
+
+        assert!(apply_atom_property_change_batch(
+            &mut viewer,
+            &[wire::WireAtomPropertyChange {
+                object: "obj".to_string(),
+                atom_index: 0,
+                changes: vec![(
+                    "name".to_string(),
+                    wire::WireAtomPropertyValue::Str("CA".to_string()),
+                )],
+            }],
+        ));
+        assert!(!*viewer.needs_redraw);
+        assert_eq!(viewer.session().recent_atoms.len(), 1);
+
+        apply_atom_property_change_batch(
+            &mut viewer,
+            &[wire::WireAtomPropertyChange {
+                object: "obj".to_string(),
+                atom_index: 0,
+                changes: vec![("b".to_string(), wire::WireAtomPropertyValue::F32(5.0))],
+            }],
+        );
+        assert!(*viewer.needs_redraw);
+        assert_eq!(viewer.session().recent_atoms.len(), 1);
+
+        apply_atom_property_change_batch(
+            &mut viewer,
+            &[wire::WireAtomPropertyChange {
+                object: "obj".to_string(),
+                atom_index: 0,
+                changes: vec![(
+                    "name".to_string(),
+                    wire::WireAtomPropertyValue::Str("CB".to_string()),
+                )],
+            }],
+        );
+        assert!(viewer.session().recent_atoms.is_empty());
     }
 }

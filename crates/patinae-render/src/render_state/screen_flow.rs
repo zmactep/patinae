@@ -1,63 +1,77 @@
 use super::state::*;
 use std::collections::HashMap;
 
-use crate::passes::selection_dots::{
-    object_marker_bits, should_rebuild_selected_indices, SelectionDotsPass,
-};
+use crate::passes::selection_dots::{object_marker_bits, should_rebuild_marker_indices};
 use crate::render_input::RenderInput;
 #[cfg(feature = "stats")]
 use crate::stats::Pass as StatsPass;
 
 impl RenderState {
-    pub(super) fn sync_selection_dots(
+    pub(super) fn sync_atom_markers(
         &mut self,
         input: &RenderInput<'_>,
         effective_dirty_by_object: &HashMap<u32, patinae_mol::DirtyFlags>,
     ) {
-        if !self.screen.selection_dots_enabled {
-            if let Some(selection_dots) = self.screen.selection_dots.as_mut() {
-                selection_dots.clear();
-            }
-            self.screen.selection_dots_rebuild_all = false;
-            return;
-        }
-        let mut rebuild_all = self.screen.selection_dots_rebuild_all;
-        if self.screen.selection_dots.is_none() {
-            self.screen.selection_dots =
-                Some(SelectionDotsPass::new(&self.ctx, &self.scene.scene_layout));
-            rebuild_all = true;
-        }
-        let Some(selection_dots) = self.screen.selection_dots.as_mut() else {
-            return;
-        };
+        let rebuild_all = self.screen.atom_markers_rebuild_all;
+        let atom_markers = &mut self.screen.atom_markers;
 
-        selection_dots.retain_objects(input.objects.iter().map(|object| object.object_id.0));
+        atom_markers.retain_objects(input.objects.iter().map(|object| object.object_id.0));
         for object in input.objects {
             let dirty = effective_dirty_by_object
                 .get(&object.object_id.0)
                 .copied()
                 .unwrap_or(object.dirty);
+            let recent_radius_scale = if object.draw_reps.is_visible(patinae_mol::RepMask::SPHERES)
+            {
+                object
+                    .object_settings
+                    .as_ref()
+                    .unwrap_or(input.settings)
+                    .sphere
+                    .scale
+                    .max(1.0)
+            } else {
+                1.0
+            };
             let rebuild = rebuild_all
-                || should_rebuild_selected_indices(
+                || should_rebuild_marker_indices(
                     dirty,
-                    selection_dots.selected_indices(object.object_id.0),
+                    atom_markers.selected_indices(object.object_id.0),
+                    atom_markers.recent_indices(object.object_id.0),
                     object.marker_updates,
+                    self.screen.selection_dots_enabled,
                 );
             if !rebuild {
+                continue;
+            }
+            if !rebuild_all
+                && !dirty.contains(patinae_mol::DirtyFlags::TOPOLOGY)
+                && !object.marker_updates.is_empty()
+            {
+                atom_markers.sync_object_updates(
+                    &self.ctx.device,
+                    &self.ctx.queue,
+                    object.object_id.0,
+                    object.marker_updates,
+                    self.screen.selection_dots_enabled,
+                    recent_radius_scale,
+                );
                 continue;
             }
             let Some(slot) = self.scene.scene_store.slot(object.object_id).copied() else {
                 continue;
             };
             let marker_bits = object_marker_bits(self.scene.scene_store.marker_lut.cpu(), slot);
-            selection_dots.sync_object(
+            atom_markers.sync_object(
                 &self.ctx.device,
                 &self.ctx.queue,
                 object.object_id.0,
                 marker_bits,
+                self.screen.selection_dots_enabled,
+                recent_radius_scale,
             );
         }
-        self.screen.selection_dots_rebuild_all = false;
+        self.screen.atom_markers_rebuild_all = false;
     }
 
     pub(super) fn refresh_marking_resources(&mut self) {
@@ -257,19 +271,17 @@ impl RenderState {
         marking.record_composite(encoder, target, &marking_bg.composite);
     }
 
-    pub(super) fn record_selection_dots(
+    pub(super) fn record_atom_markers(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
     ) {
-        if !self.screen.selection_dots_enabled {
+        let atom_markers = &self.screen.atom_markers;
+        if !atom_markers.has_markers() {
             return;
         }
-        let Some(selection_dots) = self.screen.selection_dots.as_ref() else {
-            return;
-        };
-        selection_dots.upload_params(&self.ctx.queue, self.screen.marking_width);
-        selection_dots.record(
+        atom_markers.upload_params(&self.ctx.queue, self.screen.marking_width);
+        atom_markers.record(
             encoder,
             target,
             &self.targets.depth,

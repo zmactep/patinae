@@ -1,4 +1,4 @@
-//! Lite selected atom dots.
+//! Compact selected-atom dots and recent-atom spheres.
 
 use std::collections::{BTreeMap, HashSet};
 use std::num::NonZeroU64;
@@ -12,11 +12,11 @@ use crate::memory::{buffer_usage, GpuMemoryUsage};
 use crate::memory_policy::{RenderMemoryPolicy, RenderMemoryProfile};
 use crate::picking::ObjectId;
 use crate::render_input::MarkerUpdate;
-use crate::scene_store::marker::MARKER_SELECTED;
+use crate::scene_store::marker::{MARKER_RECENT, MARKER_SELECTED};
 use crate::scene_store::{ObjectSlot, SceneStore, SceneStoreLayout};
 use crate::shader_source;
 
-const SELECTED_INDEX_MIN_CAPACITY: usize = 16;
+const MARKER_INSTANCE_MIN_CAPACITY: usize = 16;
 const DOT_RADIUS_BASE_PX: f32 = 7.0;
 const DOT_RADIUS_PER_MARKING_PX: f32 = 3.0;
 const DOT_RADIUS_MIN_PX: f32 = 8.0;
@@ -24,45 +24,60 @@ const DOT_RADIUS_MAX_PX: f32 = 20.0;
 // Push the dot center slightly toward the camera so selected atoms remain
 // visible on top of their own molecular surface without becoming X-ray marks.
 const DOT_VIEW_BIAS_ANGSTROM: f32 = 0.25;
+// Keep the marker outside visible sphere reps without adding a bulky halo.
+const RECENT_SPHERE_SHELL_ANGSTROM: f32 = 0.12;
+const MARKER_KIND_SELECTED: u32 = 0;
+const MARKER_KIND_RECENT: u32 = 1;
 
 #[repr(C, align(16))]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
-struct SelectionDotsParams {
+struct AtomMarkerParams {
     radius_px: f32,
     view_bias: f32,
+    recent_shell: f32,
     _pad0: f32,
-    _pad1: f32,
 }
 
-impl SelectionDotsParams {
+impl AtomMarkerParams {
     const SIZE: u64 = std::mem::size_of::<Self>() as u64;
 }
 
-struct SelectionDotsObject {
+struct AtomMarkerObject {
     selected_indices: Vec<u32>,
+    recent_indices: Vec<u32>,
+    recent_radius_scale: f32,
     buffer: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
     capacity: usize,
 }
 
-impl SelectionDotsObject {
-    fn selected_count(&self) -> u32 {
-        self.selected_indices.len() as u32
+impl AtomMarkerObject {
+    fn marker_count(&self) -> u32 {
+        (self.selected_indices.len() + self.recent_indices.len()) as u32
     }
 }
 
-pub(crate) struct SelectionDotsPass {
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
+struct MarkerInstance {
+    atom_index: u32,
+    kind: u32,
+    radius_scale: f32,
+    _pad0: f32,
+}
+
+pub(crate) struct AtomMarkersPass {
     pipeline: wgpu::RenderPipeline,
     bind_group_layout: wgpu::BindGroupLayout,
     params_buffer: wgpu::Buffer,
-    objects: BTreeMap<u32, SelectionDotsObject>,
+    objects: BTreeMap<u32, AtomMarkerObject>,
 }
 
-impl SelectionDotsPass {
+impl AtomMarkersPass {
     pub(crate) fn new(ctx: &RenderContext, scene_layout: &SceneStoreLayout) -> Self {
         let device = &ctx.device;
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("patinae.selection_dots.bgl"),
+            label: Some("patinae.atom_markers.bgl"),
             entries: &[
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
@@ -70,7 +85,7 @@ impl SelectionDotsPass {
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
-                        min_binding_size: NonZeroU64::new(SelectionDotsParams::SIZE),
+                        min_binding_size: NonZeroU64::new(AtomMarkerParams::SIZE),
                     },
                     count: None,
                 },
@@ -87,20 +102,20 @@ impl SelectionDotsPass {
             ],
         });
         let params_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("patinae.selection_dots.params"),
-            size: SelectionDotsParams::SIZE,
+            label: Some("patinae.atom_markers.params"),
+            size: AtomMarkerParams::SIZE,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("patinae.selection_dots.shader"),
+            label: Some("patinae.atom_markers.shader"),
             source: wgpu::ShaderSource::Wgsl(
                 shader_source::expand(shader_source::SELECTION_DOTS_WGSL).into(),
             ),
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("patinae.selection_dots.pipeline_layout"),
+            label: Some("patinae.atom_markers.pipeline_layout"),
             bind_group_layouts: &[
                 Some(&ctx.frame.bind_group_layout),
                 Some(&ctx.lighting.bind_group_layout),
@@ -115,7 +130,7 @@ impl SelectionDotsPass {
             write_mask: wgpu::ColorWrites::ALL,
         })];
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("patinae.selection_dots.pipeline"),
+            label: Some("patinae.atom_markers.pipeline"),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &module,
@@ -159,11 +174,11 @@ impl SelectionDotsPass {
         queue.write_buffer(
             &self.params_buffer,
             0,
-            bytemuck::bytes_of(&SelectionDotsParams {
+            bytemuck::bytes_of(&AtomMarkerParams {
                 radius_px,
                 view_bias: DOT_VIEW_BIAS_ANGSTROM,
+                recent_shell: RECENT_SPHERE_SHELL_ANGSTROM,
                 _pad0: 0.0,
-                _pad1: 0.0,
             }),
         );
     }
@@ -175,48 +190,130 @@ impl SelectionDotsPass {
             .unwrap_or(&[])
     }
 
+    pub(crate) fn recent_indices(&self, object_id: u32) -> &[u32] {
+        self.objects
+            .get(&object_id)
+            .map(|object| object.recent_indices.as_slice())
+            .unwrap_or(&[])
+    }
+
     pub(crate) fn sync_object(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         object_id: u32,
         marker_bits: &[u32],
+        include_selection: bool,
+        recent_radius_scale: f32,
     ) -> bool {
-        let selected_indices = collect_selected_indices(marker_bits);
+        let (selected_indices, recent_indices) =
+            collect_marker_indices(marker_bits, include_selection);
+        self.sync_indices(
+            device,
+            queue,
+            object_id,
+            selected_indices,
+            recent_indices,
+            recent_radius_scale,
+        )
+    }
+
+    pub(crate) fn sync_object_updates(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        object_id: u32,
+        marker_updates: &[MarkerUpdate],
+        include_selection: bool,
+        recent_radius_scale: f32,
+    ) -> bool {
+        let (mut selected_indices, mut recent_indices) = self
+            .objects
+            .get(&object_id)
+            .map(|object| {
+                (
+                    object.selected_indices.clone(),
+                    object.recent_indices.clone(),
+                )
+            })
+            .unwrap_or_default();
+        for update in marker_updates {
+            set_sorted_membership(
+                &mut selected_indices,
+                update.atom_index,
+                include_selection && update.bits & MARKER_SELECTED != 0,
+            );
+            set_sorted_membership(
+                &mut recent_indices,
+                update.atom_index,
+                update.bits & MARKER_RECENT != 0,
+            );
+        }
+        self.sync_indices(
+            device,
+            queue,
+            object_id,
+            selected_indices,
+            recent_indices,
+            recent_radius_scale,
+        )
+    }
+
+    fn sync_indices(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        object_id: u32,
+        selected_indices: Vec<u32>,
+        recent_indices: Vec<u32>,
+        recent_radius_scale: f32,
+    ) -> bool {
         let Some(existing) = self.objects.get_mut(&object_id) else {
-            if selected_indices.is_empty() {
+            if selected_indices.is_empty() && recent_indices.is_empty() {
                 return false;
             }
-            let object = make_selection_dots_object(
+            let object = make_atom_markers_object(
                 device,
                 queue,
                 &self.bind_group_layout,
                 &self.params_buffer,
                 &selected_indices,
+                &recent_indices,
+                recent_radius_scale,
             );
             self.objects.insert(object_id, object);
             return true;
         };
 
-        if existing.selected_indices == selected_indices {
+        if existing.selected_indices == selected_indices
+            && existing.recent_indices == recent_indices
+            && existing.recent_radius_scale == recent_radius_scale
+        {
             return false;
         }
-        if selected_indices.is_empty() {
+        if selected_indices.is_empty() && recent_indices.is_empty() {
             self.objects.remove(&object_id);
             return true;
         }
 
-        if selected_indices.len() > existing.capacity {
-            *existing = make_selection_dots_object(
+        let marker_count = selected_indices.len() + recent_indices.len();
+        if marker_count > existing.capacity {
+            *existing = make_atom_markers_object(
                 device,
                 queue,
                 &self.bind_group_layout,
                 &self.params_buffer,
                 &selected_indices,
+                &recent_indices,
+                recent_radius_scale,
             );
         } else {
-            queue.write_buffer(&existing.buffer, 0, bytemuck::cast_slice(&selected_indices));
+            let instances =
+                marker_instances(&selected_indices, &recent_indices, recent_radius_scale);
+            queue.write_buffer(&existing.buffer, 0, bytemuck::cast_slice(&instances));
             existing.selected_indices = selected_indices;
+            existing.recent_indices = recent_indices;
+            existing.recent_radius_scale = recent_radius_scale;
         }
         true
     }
@@ -225,17 +322,16 @@ impl SelectionDotsPass {
     where
         I: IntoIterator<Item = u32>,
     {
+        if self.objects.is_empty() {
+            return false;
+        }
         let live: HashSet<u32> = live_object_ids.into_iter().collect();
         let before = self.objects.len();
         self.objects.retain(|object_id, _| live.contains(object_id));
         self.objects.len() != before
     }
 
-    pub(crate) fn clear(&mut self) {
-        self.objects.clear();
-    }
-
-    pub(crate) fn has_selected_atoms(&self) -> bool {
+    pub(crate) fn has_markers(&self) -> bool {
         !self.objects.is_empty()
     }
 
@@ -256,7 +352,7 @@ impl SelectionDotsPass {
         lighting_bind_group: &wgpu::BindGroup,
         scene_store: &SceneStore,
     ) {
-        if !self.has_selected_atoms() {
+        if !self.has_markers() {
             return;
         }
         let Some(scene_bind_group) = scene_store.bind_group() else {
@@ -264,7 +360,7 @@ impl SelectionDotsPass {
         };
 
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("patinae.selection_dots_pass"),
+            label: Some("patinae.atom_markers_pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: target,
                 depth_slice: None,
@@ -295,31 +391,34 @@ impl SelectionDotsPass {
             };
             pass.set_bind_group(2, scene_bind_group, &[slot.dynamic_offset()]);
             pass.set_bind_group(3, &object.bind_group, &[]);
-            pass.draw(0..6, 0..object.selected_count());
+            pass.draw(0..6, 0..object.marker_count());
         }
     }
 }
 
-fn make_selection_dots_object(
+fn make_atom_markers_object(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     bind_group_layout: &wgpu::BindGroupLayout,
     params_buffer: &wgpu::Buffer,
     selected_indices: &[u32],
-) -> SelectionDotsObject {
-    let capacity = selected_indices
+    recent_indices: &[u32],
+    recent_radius_scale: f32,
+) -> AtomMarkerObject {
+    let instances = marker_instances(selected_indices, recent_indices, recent_radius_scale);
+    let capacity = instances
         .len()
         .next_power_of_two()
-        .max(SELECTED_INDEX_MIN_CAPACITY);
+        .max(MARKER_INSTANCE_MIN_CAPACITY);
     let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("patinae.selection_dots.indices"),
-        size: (capacity * std::mem::size_of::<u32>()) as u64,
+        label: Some("patinae.atom_markers.instances"),
+        size: (capacity * std::mem::size_of::<MarkerInstance>()) as u64,
         usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
-    queue.write_buffer(&buffer, 0, bytemuck::cast_slice(selected_indices));
+    queue.write_buffer(&buffer, 0, bytemuck::cast_slice(&instances));
     let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("patinae.selection_dots.bg"),
+        label: Some("patinae.atom_markers.bg"),
         layout: bind_group_layout,
         entries: &[
             wgpu::BindGroupEntry {
@@ -332,8 +431,10 @@ fn make_selection_dots_object(
             },
         ],
     });
-    SelectionDotsObject {
+    AtomMarkerObject {
         selected_indices: selected_indices.to_vec(),
+        recent_indices: recent_indices.to_vec(),
+        recent_radius_scale,
         buffer,
         bind_group,
         capacity,
@@ -347,16 +448,25 @@ pub(crate) fn uses_selection_dots_fallback(policy: RenderMemoryPolicy) -> bool {
     ) && !policy.overlays.selection_enabled
 }
 
-pub(crate) fn should_rebuild_selected_indices(
+pub(crate) fn should_rebuild_marker_indices(
     dirty: DirtyFlags,
     old_selected_indices: &[u32],
+    old_recent_indices: &[u32],
     marker_updates: &[MarkerUpdate],
+    include_selection: bool,
 ) -> bool {
-    if dirty.intersects(DirtyFlags::TOPOLOGY | DirtyFlags::SELECTION) {
+    if dirty.intersects(DirtyFlags::TOPOLOGY | DirtyFlags::REPS | DirtyFlags::DRAW_MASK) {
         return true;
     }
-    dirty.intersects(DirtyFlags::HOVER)
-        && marker_updates_change_selected(old_selected_indices, marker_updates)
+    if !marker_updates.is_empty() {
+        return marker_updates_change_visible(
+            old_selected_indices,
+            old_recent_indices,
+            marker_updates,
+            include_selection,
+        );
+    }
+    dirty.contains(DirtyFlags::SELECTION)
 }
 
 pub(crate) fn object_marker_bits(marker_lut: &[u32], slot: ObjectSlot) -> &[u32] {
@@ -370,30 +480,66 @@ pub(crate) fn object_marker_bits(marker_lut: &[u32], slot: ObjectSlot) -> &[u32]
     &marker_lut[start..end]
 }
 
-fn collect_selected_indices(marker_bits: &[u32]) -> Vec<u32> {
-    marker_bits
-        .iter()
-        .enumerate()
-        .filter_map(|(index, bits)| {
-            if bits & MARKER_SELECTED != 0 {
-                Some(index as u32)
-            } else {
-                None
-            }
-        })
-        .collect()
+fn collect_marker_indices(marker_bits: &[u32], include_selection: bool) -> (Vec<u32>, Vec<u32>) {
+    let mut selected = Vec::new();
+    let mut recent = Vec::new();
+    for (index, bits) in marker_bits.iter().enumerate() {
+        let index = index as u32;
+        if include_selection && bits & MARKER_SELECTED != 0 {
+            selected.push(index);
+        }
+        if bits & MARKER_RECENT != 0 {
+            recent.push(index);
+        }
+    }
+    (selected, recent)
 }
 
-fn marker_updates_change_selected(
+fn marker_instances(
+    selected_indices: &[u32],
+    recent_indices: &[u32],
+    recent_radius_scale: f32,
+) -> Vec<MarkerInstance> {
+    let mut instances = Vec::with_capacity(selected_indices.len() + recent_indices.len());
+    instances.extend(selected_indices.iter().map(|&atom_index| MarkerInstance {
+        atom_index,
+        kind: MARKER_KIND_SELECTED,
+        radius_scale: 1.0,
+        _pad0: 0.0,
+    }));
+    instances.extend(recent_indices.iter().map(|&atom_index| MarkerInstance {
+        atom_index,
+        kind: MARKER_KIND_RECENT,
+        radius_scale: recent_radius_scale,
+        _pad0: 0.0,
+    }));
+    instances
+}
+
+fn set_sorted_membership(indices: &mut Vec<u32>, atom_index: u32, present: bool) {
+    match (indices.binary_search(&atom_index), present) {
+        (Err(position), true) => indices.insert(position, atom_index),
+        (Ok(position), false) => {
+            indices.remove(position);
+        }
+        _ => {}
+    }
+}
+
+fn marker_updates_change_visible(
     old_selected_indices: &[u32],
+    old_recent_indices: &[u32],
     marker_updates: &[MarkerUpdate],
+    include_selection: bool,
 ) -> bool {
     marker_updates.iter().any(|update| {
         let was_selected = old_selected_indices
             .binary_search(&update.atom_index)
             .is_ok();
-        let is_selected = update.bits & MARKER_SELECTED != 0;
-        was_selected != is_selected
+        let is_selected = include_selection && update.bits & MARKER_SELECTED != 0;
+        let was_recent = old_recent_indices.binary_search(&update.atom_index).is_ok();
+        let is_recent = update.bits & MARKER_RECENT != 0;
+        was_selected != is_selected || was_recent != is_recent
     })
 }
 
@@ -411,15 +557,58 @@ mod tests {
 
     #[test]
     fn selected_indices_ignore_hover_bits() {
-        assert_eq!(
-            collect_selected_indices(&[
+        let (selected, recent) = collect_marker_indices(
+            &[
                 0,
                 MARKER_SELECTED,
                 MARKER_HOVER,
                 MARKER_SELECTED | MARKER_HOVER,
-            ]),
-            vec![1, 3]
+            ],
+            true,
         );
+        assert_eq!(selected, [1, 3]);
+        assert!(recent.is_empty());
+    }
+
+    #[test]
+    fn recent_indices_are_kept_when_selection_dots_are_disabled() {
+        let marker_bits = [
+            MARKER_SELECTED,
+            MARKER_RECENT,
+            MARKER_SELECTED | MARKER_RECENT,
+            MARKER_HOVER,
+        ];
+
+        let (selected, recent) = collect_marker_indices(&marker_bits, false);
+        assert!(selected.is_empty());
+        assert_eq!(recent, [1, 2]);
+
+        let (selected, recent) = collect_marker_indices(&marker_bits, true);
+        assert_eq!(selected, [0, 2]);
+        assert_eq!(recent, [1, 2]);
+    }
+
+    #[test]
+    fn sparse_marker_membership_stays_sorted_and_deduplicated() {
+        let mut indices = vec![1, 4];
+
+        set_sorted_membership(&mut indices, 3, true);
+        set_sorted_membership(&mut indices, 1, true);
+        set_sorted_membership(&mut indices, 4, false);
+        set_sorted_membership(&mut indices, 9, false);
+
+        assert_eq!(indices, [1, 3]);
+    }
+
+    #[test]
+    fn recent_instances_carry_resolved_sphere_radius_scale() {
+        let instances = marker_instances(&[1], &[2], 3.5);
+
+        assert_eq!(instances[0].kind, MARKER_KIND_SELECTED);
+        assert_eq!(instances[0].radius_scale, 1.0);
+        assert_eq!(instances[1].kind, MARKER_KIND_RECENT);
+        assert_eq!(instances[1].radius_scale, 3.5);
+        assert_eq!(std::mem::size_of::<MarkerInstance>(), 16);
     }
 
     #[test]
@@ -436,10 +625,12 @@ mod tests {
             },
         ];
 
-        assert!(!should_rebuild_selected_indices(
+        assert!(!should_rebuild_marker_indices(
             DirtyFlags::HOVER,
             &old_selected,
+            &[],
             &updates,
+            true,
         ));
     }
 
@@ -454,39 +645,58 @@ mod tests {
             bits: MARKER_HOVER,
         }];
 
-        assert!(should_rebuild_selected_indices(
+        assert!(should_rebuild_marker_indices(
             DirtyFlags::HOVER,
             &[],
+            &[],
             &add_selected,
+            true,
         ));
-        assert!(should_rebuild_selected_indices(
+        assert!(should_rebuild_marker_indices(
             DirtyFlags::HOVER,
             &[3],
+            &[],
             &clear_selected,
+            true,
         ));
     }
 
     #[test]
     fn selection_and_topology_dirty_rebuild_selected_indices() {
-        assert!(should_rebuild_selected_indices(
+        assert!(should_rebuild_marker_indices(
             DirtyFlags::SELECTION,
             &[],
             &[],
+            &[],
+            true,
         ));
-        assert!(should_rebuild_selected_indices(
+        assert!(should_rebuild_marker_indices(
             DirtyFlags::TOPOLOGY,
             &[],
             &[],
+            &[],
+            true,
         ));
-        assert!(!should_rebuild_selected_indices(
+        assert!(should_rebuild_marker_indices(
+            DirtyFlags::REPS | DirtyFlags::DRAW_MASK,
+            &[],
+            &[],
+            &[],
+            true,
+        ));
+        assert!(!should_rebuild_marker_indices(
             DirtyFlags::COLOR,
             &[],
-            &[]
+            &[],
+            &[],
+            true,
         ));
-        assert!(!should_rebuild_selected_indices(
+        assert!(!should_rebuild_marker_indices(
             DirtyFlags::empty(),
             &[],
-            &[]
+            &[],
+            &[],
+            true,
         ));
     }
 

@@ -1,9 +1,9 @@
 //! Per-atom marker pre-resolution. Owns the buffers so `RenderInput`'s
 //! borrowed slices stay valid during `RenderState::sync`.
 //!
-//! Markers carry UI state (selected / hover / future transparency class)
+//! Markers carry UI state (selected / hover / recent atom)
 //! per atom. Bit layout lives in `patinae_render::scene_store::marker`;
-//! this bridge only sets bits 0 (selected) and 1 (hover). Indexed by
+//! this bridge sets bits 0 (selected), 1 (hover), and 2 (recent atom). Indexed by
 //! object-local atom id; the renderer offsets to global on upload.
 //!
 //! Replaces the old `apply_highlight()` flow which wrote to a flat,
@@ -16,6 +16,7 @@ use std::collections::{hash_map::DefaultHasher, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 
 use patinae_mol::DirtyFlags;
+pub use patinae_render::scene_store::marker::MARKER_RECENT;
 use patinae_render::MarkerUpdate;
 use patinae_select::SelectionOptions;
 
@@ -27,10 +28,11 @@ use crate::session::HoverTarget;
 pub const MARKER_SELECTED: u32 = 1 << 0;
 /// Marker bit 1 — atom is the current hover target.
 pub const MARKER_HOVER: u32 = 1 << 1;
+const MARKER_SCREEN_OVERLAY: u32 = MARKER_SELECTED | MARKER_HOVER;
 
 /// Pre-packed per-atom marker bits keyed by object name. Same caching
 /// shape as [`super::ResolvedSceneColors`] — owned `Vec`s persist between
-/// frames; only objects with a selection/hover state change get repacked.
+/// frames; only objects with a marker-state change get repacked.
 #[derive(Default)]
 pub struct ResolvedSceneMarkers {
     by_object: HashMap<String, Vec<u32>>,
@@ -38,11 +40,13 @@ pub struct ResolvedSceneMarkers {
     dirty_objects: HashSet<String>,
     dirty_flags_by_object: HashMap<String, DirtyFlags>,
     updates_by_object: HashMap<String, Vec<MarkerUpdate>>,
-    marker_counts: HashMap<String, usize>,
+    screen_overlay_marker_counts: HashMap<String, usize>,
     last_selection_atoms: Vec<(String, u32)>,
+    last_recent_atoms: Vec<(String, u32)>,
     last_hover_atoms: Vec<(String, u32)>,
     last_registry_generation: Option<u64>,
     last_selection_generation: Option<u64>,
+    last_recent_observation: Option<(u64, u64)>,
     last_hover_hash: u64,
 }
 
@@ -70,6 +74,18 @@ impl ResolvedSceneMarkers {
         registry: &ObjectRegistry,
         hover: Option<&HoverTarget>,
     ) {
+        self.rebuild_with_recent(selections, registry, &[], (0, 0), hover);
+    }
+
+    /// Rebuilds marker state including resolved recent atom targets.
+    pub fn rebuild_with_recent(
+        &mut self,
+        selections: &mut SelectionManager,
+        registry: &ObjectRegistry,
+        recent_atoms: &[(String, patinae_mol::AtomIndex)],
+        recent_observation: (u64, u64),
+        hover: Option<&HoverTarget>,
+    ) {
         self.dirty_objects.clear();
         self.dirty_flags_by_object.clear();
         self.updates_by_object.clear();
@@ -78,16 +94,21 @@ impl ResolvedSceneMarkers {
         let hover_hash = hash_hover(hover);
         let registry_unchanged = self.last_registry_generation == Some(registry_generation);
         let selection_unchanged = self.last_selection_generation == Some(selection_generation);
+        let recent_unchanged = self.last_recent_observation == Some(recent_observation);
         let cache_matches_registry = self.cache_matches_registry(registry);
         if registry_unchanged && selection_unchanged && cache_matches_registry {
+            if !recent_unchanged {
+                self.rebuild_recent_only(recent_atoms, recent_observation);
+            }
             if self.last_hover_hash == hover_hash {
                 return;
             }
             self.rebuild_hover_only(hover, hover_hash);
+            self.invalidate_dirty_hashes();
             return;
         }
 
-        if registry_unchanged && cache_matches_registry {
+        if registry_unchanged && recent_unchanged && cache_matches_registry {
             self.rebuild_selection_only(
                 selections,
                 registry,
@@ -103,6 +124,7 @@ impl ResolvedSceneMarkers {
             registry,
             registry_generation,
             selection_generation,
+            recent_observation,
             hover_hash,
         ) {
             return;
@@ -116,7 +138,7 @@ impl ResolvedSceneMarkers {
         });
         let by_object = &self.by_object;
         self.hashes.retain(|name, _| by_object.contains_key(name));
-        self.marker_counts
+        self.screen_overlay_marker_counts
             .retain(|name, _| by_object.contains_key(name));
         self.dirty_flags_by_object
             .retain(|name, _| by_object.contains_key(name));
@@ -157,6 +179,19 @@ impl ResolvedSceneMarkers {
             }
         }
 
+        self.last_recent_atoms.clear();
+        for (object_name, atom_index) in recent_atoms {
+            let Some(buf) = self.by_object.get_mut(object_name) else {
+                continue;
+            };
+            let id = atom_index.as_usize();
+            if id < buf.len() {
+                buf[id] |= MARKER_RECENT;
+                self.last_recent_atoms
+                    .push((object_name.clone(), atom_index.as_u32()));
+            }
+        }
+
         // Hover — at most one atom per scene, scoped to a specific object.
         self.last_hover_atoms.clear();
         if let Some(hover) = hover {
@@ -180,11 +215,16 @@ impl ResolvedSceneMarkers {
                     .insert(name.clone(), DirtyFlags::SELECTION | DirtyFlags::HOVER);
             }
             self.hashes.insert(name.clone(), hash);
-            self.marker_counts
-                .insert(name.clone(), buf.iter().filter(|&&bits| bits != 0).count());
+            self.screen_overlay_marker_counts.insert(
+                name.clone(),
+                buf.iter()
+                    .filter(|&&bits| bits & MARKER_SCREEN_OVERLAY != 0)
+                    .count(),
+            );
         }
         self.last_registry_generation = Some(registry_generation);
         self.last_selection_generation = Some(selection_generation);
+        self.last_recent_observation = Some(recent_observation);
         self.last_hover_hash = hover_hash;
     }
 
@@ -196,8 +236,13 @@ impl ResolvedSceneMarkers {
         self.updates_by_object.get(name).map(|v| v.as_slice())
     }
 
+    /// Returns whether an object needs the selection and hover screen overlay.
     pub fn has_markers(&self, name: &str) -> bool {
-        self.marker_counts.get(name).copied().unwrap_or(0) > 0
+        self.screen_overlay_marker_counts
+            .get(name)
+            .copied()
+            .unwrap_or(0)
+            > 0
     }
 
     pub fn dirty_flags(&self, name: &str) -> DirtyFlags {
@@ -234,6 +279,53 @@ impl ResolvedSceneMarkers {
         self.last_hover_hash = hover_hash;
     }
 
+    fn rebuild_recent_only(
+        &mut self,
+        recent_atoms: &[(String, patinae_mol::AtomIndex)],
+        recent_observation: (u64, u64),
+    ) {
+        let previous = std::mem::take(&mut self.last_recent_atoms);
+        let next = recent_atoms
+            .iter()
+            .filter_map(|(object, atom_index)| {
+                let atom_index = atom_index.as_u32();
+                self.marker_bits(object, atom_index)
+                    .is_some()
+                    .then(|| (object.clone(), atom_index))
+            })
+            .collect::<Vec<_>>();
+        {
+            let previous_set = previous
+                .iter()
+                .map(|(object, atom_index)| (object.as_str(), *atom_index))
+                .collect::<HashSet<_>>();
+            let next_set = next
+                .iter()
+                .map(|(object, atom_index)| (object.as_str(), *atom_index))
+                .collect::<HashSet<_>>();
+
+            for (object, atom_index) in &previous {
+                if !next_set.contains(&(object.as_str(), *atom_index)) {
+                    if let Some(bits) = self.marker_bits(object, *atom_index) {
+                        self.set_marker_bits(object, *atom_index, bits & !MARKER_RECENT);
+                    }
+                }
+            }
+
+            for (object, atom_index) in &next {
+                if !previous_set.contains(&(object.as_str(), *atom_index)) {
+                    if let Some(bits) = self.marker_bits(object, *atom_index) {
+                        self.set_marker_bits(object, *atom_index, bits | MARKER_RECENT);
+                    }
+                }
+            }
+        }
+
+        self.last_recent_atoms = next;
+        self.invalidate_dirty_hashes();
+        self.last_recent_observation = Some(recent_observation);
+    }
+
     fn rebuild_selection_only(
         &mut self,
         selections: &mut SelectionManager,
@@ -268,7 +360,7 @@ impl ResolvedSceneMarkers {
         } else {
             self.last_hover_hash = hover_hash;
         }
-        self.refresh_dirty_hashes();
+        self.invalidate_dirty_hashes();
         self.last_selection_generation = Some(selection_generation);
     }
 
@@ -290,8 +382,14 @@ impl ResolvedSceneMarkers {
             return;
         }
         *slot = bits;
-        let count = self.marker_counts.entry(object.to_string()).or_default();
-        match (old == 0, bits == 0) {
+        let count = self
+            .screen_overlay_marker_counts
+            .entry(object.to_string())
+            .or_default();
+        match (
+            old & MARKER_SCREEN_OVERLAY == 0,
+            bits & MARKER_SCREEN_OVERLAY == 0,
+        ) {
             (true, false) => *count = count.saturating_add(1),
             (false, true) => *count = count.saturating_sub(1),
             _ => {}
@@ -305,6 +403,9 @@ impl ResolvedSceneMarkers {
         if changed & MARKER_HOVER != 0 {
             dirty |= DirtyFlags::HOVER;
         }
+        if changed & MARKER_RECENT != 0 {
+            dirty |= DirtyFlags::SELECTION;
+        }
         self.dirty_flags_by_object
             .entry(object.to_string())
             .and_modify(|flags| *flags |= dirty)
@@ -315,11 +416,9 @@ impl ResolvedSceneMarkers {
             .push(MarkerUpdate { atom_index, bits });
     }
 
-    fn refresh_dirty_hashes(&mut self) {
+    fn invalidate_dirty_hashes(&mut self) {
         for object in &self.dirty_objects {
-            if let Some(buf) = self.by_object.get(object) {
-                self.hashes.insert(object.clone(), marker_hash(buf));
-            }
+            self.hashes.remove(object);
         }
     }
 
@@ -328,10 +427,12 @@ impl ResolvedSceneMarkers {
         registry: &ObjectRegistry,
         registry_generation: u64,
         selection_generation: u64,
+        recent_observation: (u64, u64),
         hover_hash: u64,
     ) -> bool {
         if self.last_registry_generation != Some(registry_generation)
             || self.last_selection_generation != Some(selection_generation)
+            || self.last_recent_observation != Some(recent_observation)
             || self.last_hover_hash != hover_hash
         {
             return true;

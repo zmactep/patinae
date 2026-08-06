@@ -259,7 +259,7 @@ impl RenderState {
         }
 
         let t0 = sync_now(&mut now_ms);
-        self.sync_selection_dots(input, &effective_dirty_by_object);
+        self.sync_atom_markers(input, &effective_dirty_by_object);
         self.refresh_marking_resources();
         timings.marking_resources_ms = sync_elapsed(&mut now_ms, t0);
 

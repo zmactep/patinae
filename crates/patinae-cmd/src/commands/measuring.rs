@@ -8,7 +8,7 @@ use ahash::AHashSet;
 use crate::args::ParsedCommand;
 use crate::command::{ArgHint, Command, CommandContext, CommandRegistry, ViewerLike};
 use crate::command_help;
-use crate::commands::selecting::evaluate_selection;
+use crate::commands::selecting::{evaluate_selection, select_with_context};
 use crate::error::{CmdError, CmdResult};
 
 use patinae_color::ColorIndex;
@@ -21,6 +21,75 @@ pub fn register(registry: &mut CommandRegistry) {
     registry.register(DistanceCommand);
     registry.register(AngleCommand);
     registry.register(DihedralCommand);
+}
+
+/// Selects whether a typed measurement creates or appends an object.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MeasurementTarget {
+    /// Create a new object with a registry-allocated kind-specific name.
+    New,
+    /// Append to an existing measurement object.
+    Existing(String),
+}
+
+/// Requests one measurement from ordered singleton atom paths.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MeasurementRequest {
+    /// Ordered atom selection paths shown in the native operand queue.
+    pub operands: Vec<String>,
+    /// Destination for the new measurement entity.
+    pub target: MeasurementTarget,
+}
+
+impl MeasurementRequest {
+    /// Creates a typed measurement request.
+    pub fn new<I, S>(operands: I, target: MeasurementTarget) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        Self {
+            operands: operands.into_iter().map(Into::into).collect(),
+            target,
+        }
+    }
+
+    /// Infers the measurement kind from the operand count.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error unless exactly two, three, or four operands exist.
+    pub fn inferred_kind(&self) -> CmdResult<MeasurementKind> {
+        measurement_kind_for_count(self.operands.len())
+    }
+}
+
+/// Describes one successfully applied typed measurement request.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MeasurementOutcome {
+    /// Object created or appended by the request.
+    pub object_name: String,
+    /// Inferred measurement kind.
+    pub kind: MeasurementKind,
+    /// Current value of the added entity.
+    pub value: f64,
+}
+
+/// Infers a measurement kind from its ordered operand count.
+///
+/// # Errors
+///
+/// Returns an error unless `count` is two, three, or four.
+pub fn measurement_kind_for_count(count: usize) -> CmdResult<MeasurementKind> {
+    match count {
+        2 => Ok(MeasurementKind::Distance),
+        3 => Ok(MeasurementKind::Angle),
+        4 => Ok(MeasurementKind::Dihedral),
+        _ => Err(CmdError::invalid_arg(
+            "operands",
+            "measurement requires exactly 2, 3, or 4 atoms",
+        )),
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -82,6 +151,66 @@ fn resolve_atom_anchor(viewer: &dyn ViewerLike, selection: &str) -> CmdResult<Me
     )))
 }
 
+fn resolve_singleton_atom_anchor(
+    viewer: &dyn ViewerLike,
+    selection: &str,
+) -> CmdResult<MeasurementAnchor> {
+    let (total_count, results) = select_with_context(viewer, selection)?;
+    if total_count != 1 {
+        return Err(CmdError::selection(format!(
+            "operand '{selection}' does not resolve to exactly one atom"
+        )));
+    }
+    for (object_name, selected) in results {
+        if viewer.objects().get_molecule(&object_name).is_none() {
+            continue;
+        }
+        if let Some(atom_index) = selected.indices().next() {
+            return Ok(MeasurementAnchor::new(object_name, atom_index));
+        }
+    }
+    Err(CmdError::selection(format!(
+        "operand '{selection}' does not resolve to exactly one atom"
+    )))
+}
+
+fn validate_measurement_target(
+    viewer: &dyn ViewerLike,
+    name: &str,
+    kind: MeasurementKind,
+    require_existing: bool,
+) -> CmdResult {
+    let Some(existing) = viewer.objects().get(name) else {
+        return if require_existing {
+            Err(CmdError::object_not_found(name))
+        } else {
+            Ok(())
+        };
+    };
+    let Some(measurement) = viewer.objects().get_measurement(name) else {
+        return Err(CmdError::invalid_arg(
+            "name",
+            format!(
+                "object '{}' is {}, not a measurement",
+                name,
+                existing.object_type()
+            ),
+        ));
+    };
+    if measurement.kind() != kind {
+        return Err(CmdError::invalid_arg(
+            "name",
+            format!(
+                "measurement '{}' is {:?}, not {:?}",
+                name,
+                measurement.kind(),
+                kind
+            ),
+        ));
+    }
+    Ok(())
+}
+
 /// Validate and add homogeneous measurement entries as one mutation.
 fn add_measurements_to_scene(
     viewer: &mut dyn ViewerLike,
@@ -89,29 +218,7 @@ fn add_measurements_to_scene(
     kind: MeasurementKind,
     entries: Vec<MeasurementEntry>,
 ) -> CmdResult<Vec<f64>> {
-    if let Some(existing) = viewer.objects().get(name) {
-        let Some(measurement) = viewer.objects().get_measurement(name) else {
-            return Err(CmdError::invalid_arg(
-                "name",
-                format!(
-                    "object '{}' is {}, not a measurement",
-                    name,
-                    existing.object_type()
-                ),
-            ));
-        };
-        if measurement.kind() != kind {
-            return Err(CmdError::invalid_arg(
-                "name",
-                format!(
-                    "measurement '{}' is {:?}, not {:?}",
-                    name,
-                    measurement.kind(),
-                    kind
-                ),
-            ));
-        }
-    }
+    validate_measurement_target(viewer, name, kind, false)?;
 
     if entries.is_empty() {
         return Err(CmdError::invalid_arg(
@@ -146,6 +253,45 @@ fn add_measurements_to_scene(
     }
     viewer.request_redraw();
     Ok(values)
+}
+
+/// Validates and applies one typed measurement request transactionally.
+///
+/// All operands and geometry are resolved before the registry is mutated.
+/// Automatic object names are allocated only after that validation.
+///
+/// # Errors
+///
+/// Returns an error for invalid cardinality, stale or non-singleton operands,
+/// undefined geometry, missing targets, and targets of another object kind.
+pub fn execute_measurement_request(
+    viewer: &mut dyn ViewerLike,
+    request: &MeasurementRequest,
+) -> CmdResult<MeasurementOutcome> {
+    let kind = request.inferred_kind()?;
+    if let MeasurementTarget::Existing(name) = &request.target {
+        validate_measurement_target(viewer, name, kind, true)?;
+    }
+    let anchors = request
+        .operands
+        .iter()
+        .map(|operand| resolve_singleton_atom_anchor(viewer, operand))
+        .collect::<CmdResult<Vec<_>>>()?;
+    let entry = MeasurementEntry::new(anchors);
+    let object_name = match &request.target {
+        MeasurementTarget::New => viewer.objects().first_free_measurement_name(kind),
+        MeasurementTarget::Existing(name) => name.clone(),
+    };
+    let values = add_measurements_to_scene(viewer, &object_name, kind, vec![entry])?;
+    let value = values
+        .into_iter()
+        .next()
+        .ok_or_else(|| CmdError::invalid_arg("operands", "measurement geometry is undefined"))?;
+    Ok(MeasurementOutcome {
+        object_name,
+        kind,
+        value,
+    })
 }
 
 fn distance_entries(
@@ -453,7 +599,10 @@ mod tests {
     use super::*;
     use lin_alg::f32::Vec3;
     use patinae_mol::{Atom, AtomIndex, CoordSet, Element, ObjectMolecule};
-    use patinae_scene::{LabelObject, MoleculeObject, Session, SessionAdapter};
+    use patinae_scene::{
+        canonical_atom_path_for_hit, LabelObject, MoleculeObject, ObjectType, PickHit, Session,
+        SessionAdapter,
+    };
 
     use crate::CommandExecutor;
 
@@ -485,6 +634,143 @@ mod tests {
             async_fetch_fn: None,
         };
         CommandExecutor::new().do_(&mut adapter, command)
+    }
+
+    fn execute_typed(
+        session: &mut Session,
+        request: &MeasurementRequest,
+    ) -> CmdResult<MeasurementOutcome> {
+        let mut needs_redraw = false;
+        let mut adapter = SessionAdapter {
+            session,
+            render_context: None,
+            default_size: (64, 64),
+            needs_redraw: &mut needs_redraw,
+            async_fetch_fn: None,
+        };
+        execute_measurement_request(&mut adapter, request)
+    }
+
+    fn canonical_path(session: &Session, atom_index: usize) -> String {
+        let molecule = session.registry.get_molecule("source").unwrap();
+        canonical_atom_path_for_hit(
+            &PickHit {
+                object_name: "source".to_string(),
+                object_type: ObjectType::Molecule,
+                atom_index: Some(AtomIndex::from(atom_index)),
+                position: Vec3::new(0.0, 0.0, 0.0),
+                distance: 0.0,
+            },
+            molecule.molecule(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn typed_measurements_preserve_operand_order_and_allocate_at_execution() {
+        let mut session = measurement_session();
+        let paths = (0..4)
+            .map(|index| canonical_path(&session, index))
+            .collect::<Vec<_>>();
+        let requests = [
+            MeasurementRequest::new(paths[..2].iter().cloned(), MeasurementTarget::New),
+            MeasurementRequest::new(paths[2..].iter().cloned(), MeasurementTarget::New),
+        ];
+
+        let first = execute_typed(&mut session, &requests[0]).unwrap();
+        let second = execute_typed(&mut session, &requests[1]).unwrap();
+
+        assert_eq!(first.object_name, "distance01");
+        assert_eq!(second.object_name, "distance02");
+        assert_eq!(first.kind, MeasurementKind::Distance);
+        let entry = &session
+            .registry
+            .get_measurement("distance01")
+            .unwrap()
+            .entries()[0];
+        assert_eq!(
+            entry
+                .anchors
+                .iter()
+                .map(|anchor| anchor.atom_index)
+                .collect::<Vec<_>>(),
+            [AtomIndex(0), AtomIndex(1)]
+        );
+    }
+
+    #[test]
+    fn typed_measurements_infer_all_kinds_and_filter_append_targets() {
+        let mut session = measurement_session();
+        for (operands, expected_kind, expected_name) in [
+            (
+                vec!["name A", "name B"],
+                MeasurementKind::Distance,
+                "distance01",
+            ),
+            (
+                vec!["name A", "name B", "name C"],
+                MeasurementKind::Angle,
+                "angle01",
+            ),
+            (
+                vec!["name A", "name B", "name C", "name D"],
+                MeasurementKind::Dihedral,
+                "dihedral01",
+            ),
+        ] {
+            let request = MeasurementRequest::new(operands, MeasurementTarget::New);
+            let outcome = execute_typed(&mut session, &request).unwrap();
+            assert_eq!(outcome.kind, expected_kind);
+            assert_eq!(outcome.object_name, expected_name);
+        }
+
+        let before = session
+            .registry
+            .get_measurement("distance01")
+            .unwrap()
+            .len();
+        let wrong_kind = MeasurementRequest::new(
+            ["name A", "name B", "name C"],
+            MeasurementTarget::Existing("distance01".to_string()),
+        );
+        let error = execute_typed(&mut session, &wrong_kind).unwrap_err();
+        assert!(error.to_string().contains("not Angle"));
+        assert_eq!(
+            session
+                .registry
+                .get_measurement("distance01")
+                .unwrap()
+                .len(),
+            before
+        );
+
+        let stale_target = MeasurementRequest::new(
+            ["name A", "name B"],
+            MeasurementTarget::Existing("missing".to_string()),
+        );
+        assert!(execute_typed(&mut session, &stale_target).is_err());
+        assert!(session.registry.get_measurement("missing").is_none());
+
+        let wrong_object = MeasurementRequest::new(
+            ["name A", "name B"],
+            MeasurementTarget::Existing("source".to_string()),
+        );
+        assert!(execute_typed(&mut session, &wrong_object).is_err());
+        assert!(session.registry.get_molecule("source").is_some());
+    }
+
+    #[test]
+    fn typed_measurement_rejects_stale_non_singleton_and_undefined_without_mutation() {
+        let mut session = measurement_session();
+        for request in [
+            MeasurementRequest::new(["name missing", "name B"], MeasurementTarget::New),
+            MeasurementRequest::new(["all", "name B"], MeasurementTarget::New),
+            MeasurementRequest::new(["name B", "name A", "name A"], MeasurementTarget::New),
+        ] {
+            assert!(execute_typed(&mut session, &request).is_err());
+        }
+        assert!(session.registry.get_measurement("distance01").is_none());
+        assert!(session.registry.get_measurement("angle01").is_none());
     }
 
     #[test]

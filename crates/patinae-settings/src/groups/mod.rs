@@ -23,7 +23,7 @@ pub mod stick;
 pub mod surface;
 pub mod ui;
 
-pub use behavior::BehaviorSettings;
+pub use behavior::{BehaviorSettings, RecentPickLimit};
 pub use cartoon::{CartoonOverrides, CartoonSettings};
 pub use dot::{DotOverrides, DotSettings};
 pub use ellipsoid::{EllipsoidOverrides, EllipsoidSettings};

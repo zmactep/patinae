@@ -1073,7 +1073,7 @@ pub fn decode<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, String> {
 ///
 /// Returns a string if session serialization fails.
 pub fn encode_session(session: &Session) -> Result<Vec<u8>, String> {
-    encode(session)
+    rmp_serde::to_vec_named(session).map_err(|error| error.to_string())
 }
 
 /// Decode a session from MessagePack bytes.
@@ -1121,6 +1121,108 @@ mod tests {
         GpuVertexStepMode, RenderArtifactBufferDescriptor, RenderArtifactBufferRole,
         RenderArtifactPrimitiveTopology, RenderArtifactRepDescriptor, RenderArtifactRepKind,
     };
+    use patinae_settings::groups::RecentPickLimit;
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn session_codec_is_named_and_preserves_recent_state() {
+        let mut session = Session::new();
+        let mut molecule = patinae_mol::ObjectMolecule::new("obj");
+        for name in ["CA", "CB"] {
+            molecule.add_atom(
+                patinae_mol::AtomBuilder::new()
+                    .name(name)
+                    .element_symbol("C")
+                    .resn("GLY")
+                    .resv(1)
+                    .chain("A")
+                    .build(),
+            );
+        }
+        session
+            .registry
+            .add(patinae_scene::MoleculeObject::with_name(molecule, "obj"));
+        session.settings.behavior.max_recent_picks = 3;
+        let paths = [0, 1].map(|atom_index| {
+            patinae_scene::canonical_atom_path_for_hit(
+                &patinae_scene::PickHit {
+                    object_name: "obj".to_string(),
+                    object_type: patinae_scene::ObjectType::Molecule,
+                    atom_index: Some(patinae_select::AtomIndex(atom_index)),
+                    position: Default::default(),
+                    distance: 0.0,
+                },
+                session.registry.get_molecule("obj").unwrap().molecule(),
+            )
+            .unwrap()
+        });
+        for path in &paths {
+            session
+                .recent_atoms
+                .insert(path.clone(), RecentPickLimit::Bounded(3));
+        }
+
+        let bytes = encode_session(&session).unwrap();
+        let generic_bytes = encode(&session).unwrap();
+        let shape: BTreeMap<String, serde::de::IgnoredAny> = rmp_serde::from_slice(&bytes).unwrap();
+        let decoded = decode_session(&bytes).unwrap();
+
+        assert!(shape.contains_key("recent_atoms"));
+        assert!(
+            rmp_serde::from_slice::<BTreeMap<String, serde::de::IgnoredAny>>(&generic_bytes)
+                .is_err()
+        );
+        assert_eq!(decoded.settings.behavior.max_recent_picks, 3);
+        assert_eq!(
+            decoded.recent_atoms.paths().collect::<Vec<_>>(),
+            paths.iter().map(String::as_str).collect::<Vec<_>>()
+        );
+        assert_eq!(RUNTIME_WIRE_VERSION, 13);
+    }
+
+    #[test]
+    fn session_decoder_accepts_legacy_positional_shape() {
+        let session = Session::new();
+        let registry = session.registry.to_snapshot();
+        let legacy = (
+            registry,
+            &session.camera,
+            &session.selections,
+            &session.scenes,
+            &session.views,
+            &session.movie,
+            &session.settings,
+            &session.named_palette,
+            &session.palette,
+            session.clear_color,
+            session.clear_color_set,
+        );
+        let bytes = rmp_serde::to_vec(&legacy).unwrap();
+
+        let decoded = decode_session(&bytes).unwrap();
+
+        assert!(decoded.recent_atoms.is_empty());
+        assert_eq!(decoded.settings.behavior.max_recent_picks, -1);
+    }
+
+    #[test]
+    fn legacy_named_decoder_ignores_new_session_fields() {
+        #[derive(Deserialize)]
+        struct LegacySessionView {
+            clear_color_set: bool,
+        }
+
+        let mut session = Session::new();
+        session.clear_color_set = true;
+        session
+            .recent_atoms
+            .insert("/new", RecentPickLimit::Unlimited);
+        let bytes = encode_session(&session).unwrap();
+
+        let decoded: LegacySessionView = rmp_serde::from_slice(&bytes).unwrap();
+
+        assert!(decoded.clear_color_set);
+    }
 
     #[test]
     fn render_artifact_snapshot_value_roundtrips() {

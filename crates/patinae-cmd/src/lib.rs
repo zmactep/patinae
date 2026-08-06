@@ -56,6 +56,15 @@ pub use command::{
     DynamicSettingRegistry, FetchFormatCode, FetchRequest, FormatHandler, MessageKind,
     OutputMessage, PluginReaderFn, PluginWriterFn, ScriptHandler, ViewerLike,
 };
+#[doc(inline)]
+pub use commands::display::{
+    execute_label_request, LabelExpression, LabelOutcome, LabelRequest, LabelTarget,
+};
+#[doc(inline)]
+pub use commands::measuring::{
+    execute_measurement_request, measurement_kind_for_count, MeasurementOutcome,
+    MeasurementRequest, MeasurementTarget,
+};
 pub use dynamic::{DynamicCommand, DynamicCommandInvocation};
 pub use error::{CmdError, CmdResult, ParseError};
 pub use executor::{CommandExecutor, CommandOutput};
@@ -63,6 +72,54 @@ pub use history::CommandHistory;
 pub use parser::{join_continued_lines, parse_command, parse_commands};
 pub use script::ScriptEngine;
 pub use setting_access::{ResolvedSetting, SettingSource};
+
+/// Represents one native annotation mutation request.
+#[derive(Debug, Clone, PartialEq)]
+pub enum AnnotationRequest {
+    /// Creates or appends a measurement.
+    Measurement(MeasurementRequest),
+    /// Creates or appends atom labels.
+    Label(LabelRequest),
+}
+
+/// Describes one successfully applied annotation request.
+#[derive(Debug, Clone, PartialEq)]
+pub enum AnnotationOutcome {
+    /// Measurement mutation details.
+    Measurement(MeasurementOutcome),
+    /// Label mutation details.
+    Label(LabelOutcome),
+}
+
+impl AnnotationOutcome {
+    /// Returns the object created or appended by the request.
+    pub fn object_name(&self) -> &str {
+        match self {
+            Self::Measurement(outcome) => &outcome.object_name,
+            Self::Label(outcome) => &outcome.object_name,
+        }
+    }
+}
+
+/// Validates and applies one native annotation request.
+///
+/// # Errors
+///
+/// Returns the underlying command error without partially mutating an
+/// annotation object.
+pub fn execute_annotation_request(
+    viewer: &mut dyn ViewerLike,
+    request: &AnnotationRequest,
+) -> CmdResult<AnnotationOutcome> {
+    match request {
+        AnnotationRequest::Measurement(request) => {
+            execute_measurement_request(viewer, request).map(AnnotationOutcome::Measurement)
+        }
+        AnnotationRequest::Label(request) => {
+            execute_label_request(viewer, request).map(AnnotationOutcome::Label)
+        }
+    }
+}
 
 /// Prelude for convenient imports
 pub mod prelude {

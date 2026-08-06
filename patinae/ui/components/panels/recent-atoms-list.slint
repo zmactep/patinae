@@ -1,0 +1,200 @@
+import { Theme } from "../../theme.slint";
+import { Tokens } from "../../tokens.slint";
+import { ObjectsState, RecentAtomItem } from "../../states/objects-state.slint";
+import { AtomPickIcon, RemoveIcon } from "../icons.slint";
+
+component RecentAtomsHeader inherits Rectangle {
+    height: Tokens.tab-bar-h;
+    background: transparent;
+
+    HorizontalLayout {
+        padding-left: Tokens.space-md;
+        padding-right: Tokens.space-md;
+        alignment: space-between;
+
+        HorizontalLayout {
+            spacing: Tokens.space-sm;
+            alignment: start;
+
+            Text {
+                text: "RECENT ATOMS";
+                color: Theme.magenta;
+                font-size: Tokens.font-md;
+                font-weight: 500;
+                letter-spacing: 1.1px;
+                vertical-alignment: center;
+            }
+
+            Text {
+                text: ObjectsState.recent-atoms.length;
+                color: Theme.text-ghost;
+                font-size: Tokens.font-md;
+                vertical-alignment: center;
+            }
+        }
+
+        if ObjectsState.recent-atoms.length > 0: VerticalLayout {
+            alignment: center;
+
+            Rectangle {
+                width: clear-label.preferred-width + 2 * Tokens.space-sm;
+                height: Tokens.row-btn-h;
+                border-radius: Tokens.radius-sm;
+                background: clear-touch.has-hover ? Theme.bg-inset : transparent;
+                accessible-role: button;
+                accessible-label: "Clear recent atoms";
+
+                clear-label := Text {
+                    text: "Clear";
+                    color: clear-touch.has-hover ? Theme.text : Theme.text-faint;
+                    font-size: Tokens.font-md;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                clear-touch := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { ObjectsState.recent-atoms-clear(); }
+                }
+            }
+        }
+    }
+}
+
+component RecentAtomRowItem inherits Rectangle {
+    in property <RecentAtomItem> data;
+
+    property <bool> click-shift: false;
+    property <bool> click-meta: false;
+
+    height: Tokens.row-h;
+    border-radius: Tokens.radius-md;
+    background: root.data.selected
+        ? Theme.cyan.with-alpha(0.06)
+        : row-touch.has-hover
+            ? Theme.bg-inset.with-alpha(0.5)
+            : transparent;
+    border-width: root.data.selected ? Tokens.hairline : 0px;
+    border-color: root.data.selected ? Theme.cyan.with-alpha(0.5) : transparent;
+    accessible-role: list-item;
+    accessible-label: root.data.display-path
+        + (root.data.operand-position > 0 ? ", operand " + root.data.operand-position : "");
+
+    AtomPickIcon {
+        x: Tokens.space-md;
+        y: (parent.height - self.height) / 2;
+        tint: root.data.selected ? Theme.cyan : Theme.text-ghost;
+    }
+
+    Text {
+        x: Tokens.space-md + 14px + Tokens.space-sm;
+        width: parent.width - self.x - 2 * Tokens.row-h;
+        height: parent.height;
+        text: root.data.display-path;
+        color: root.data.selected ? Theme.text : Theme.text-dim;
+        font-size: Tokens.font-lg;
+        font-weight: root.data.selected ? 500 : 400;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+
+    if root.data.operand-position > 0: Rectangle {
+        x: parent.width - 2 * Tokens.row-h + (Tokens.row-h - Tokens.badge-size) / 2;
+        y: (parent.height - self.height) / 2;
+        width: Tokens.badge-size;
+        height: Tokens.badge-size;
+        border-radius: Tokens.badge-radius;
+        background: Theme.cyan.with-alpha(0.18);
+        border-width: Tokens.hairline;
+        border-color: Theme.cyan.with-alpha(0.4);
+
+        Text {
+            text: root.data.operand-position;
+            color: Theme.cyan;
+            font-size: Tokens.font-sm;
+            font-weight: 500;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+
+    // The row target ends before quick remove, so removal never selects it.
+    row-touch := TouchArea {
+        width: parent.width - Tokens.row-h;
+        height: parent.height;
+        mouse-cursor: pointer;
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down) {
+                root.click-shift = event.modifiers.shift;
+                root.click-meta = event.modifiers.meta || event.modifiers.control;
+            }
+        }
+        clicked => {
+            ObjectsState.recent-atom-clicked(root.data.key,
+                                             root.click-shift, root.click-meta);
+        }
+    }
+
+    Rectangle {
+        x: parent.width - Tokens.row-h;
+        width: Tokens.row-h;
+        height: parent.height;
+        border-radius: Tokens.radius-sm;
+        background: remove-touch.has-hover ? Theme.bg-inset : transparent;
+        accessible-role: button;
+        accessible-label: "Remove " + root.data.display-path + " from recent atoms";
+
+        RemoveIcon {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            tint: remove-touch.has-hover ? Theme.text : Theme.text-faint;
+        }
+
+        remove-touch := TouchArea {
+            mouse-cursor: pointer;
+            clicked => { ObjectsState.recent-atom-remove-clicked(root.data.key); }
+        }
+    }
+}
+
+export component RecentAtomsList inherits Rectangle {
+    TouchArea {
+        clicked => { ObjectsState.recent-atoms-background-clicked(); }
+    }
+
+    VerticalLayout {
+        RecentAtomsHeader {}
+
+        if ObjectsState.recent-atoms.length == 0: Text {
+            text: "no recent atoms yet";
+            color: Theme.text-ghost;
+            font-size: Tokens.font-sm;
+            letter-spacing: 0.6px;
+            horizontal-alignment: left;
+            vertical-alignment: top;
+            x: Tokens.space-md;
+        }
+
+        if ObjectsState.recent-atoms.length > 0: Flickable {
+            vertical-stretch: 1;
+
+            TouchArea {
+                width: parent.width;
+                height: parent.height;
+                clicked => { ObjectsState.recent-atoms-background-clicked(); }
+            }
+
+            VerticalLayout {
+                for item in ObjectsState.recent-atoms: Rectangle {
+                    height: Tokens.row-h + Tokens.row-gap;
+
+                    RecentAtomRowItem {
+                        x: Tokens.space-xs;
+                        width: parent.width - 2 * Tokens.space-xs;
+                        data: item;
+                    }
+                }
+            }
+        }
+    }
+}

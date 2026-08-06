@@ -1,0 +1,380 @@
+import { Theme } from "../../theme.slint";
+import { Tokens } from "../../tokens.slint";
+import { AnnotationTargetItem } from "../../states/objects-state.slint";
+import { ChevronDown } from "../icons.slint";
+
+export struct AnnotationChoice {
+    key: string,
+    label: string,
+}
+
+component DropdownOptionRow inherits Rectangle {
+    in property <string> key;
+    in property <string> label;
+    in property <bool> selected;
+    callback clicked();
+
+    height: Tokens.row-h;
+    border-radius: Tokens.radius-sm;
+    background: root.selected
+        ? Theme.cyan.with-alpha(0.10)
+        : option-touch.has-hover ? Theme.bg-inset : transparent;
+    accessible-role: button;
+    accessible-label: root.label;
+
+    if root.selected: Rectangle {
+        x: 0px;
+        y: Tokens.space-xs;
+        width: 2px;
+        height: parent.height - 2 * Tokens.space-xs;
+        border-radius: 1px;
+        background: Theme.cyan;
+    }
+
+    Text {
+        x: Tokens.space-sm;
+        width: parent.width - 2 * Tokens.space-sm;
+        height: parent.height;
+        text: root.label;
+        color: root.selected
+            ? Theme.cyan
+            : option-touch.has-hover ? Theme.text : Theme.text-dim;
+        font-size: Tokens.font-lg;
+        font-weight: root.selected ? 500 : 400;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+
+    option-touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+component DropdownField inherits Rectangle {
+    in property <string> label;
+    in property <bool> open;
+    in property <bool> enabled: true;
+    callback clicked();
+
+    height: Tokens.annotation-field-h;
+    border-radius: Tokens.radius-md;
+    background: field-touch.pressed
+        ? Theme.bg-inset
+        : field-touch.has-hover || root.open ? Theme.bg-inset.with-alpha(0.75) : Theme.bg-raised;
+    border-width: Tokens.hairline;
+    border-color: root.open
+        ? Theme.cyan.with-alpha(0.75)
+        : field-touch.has-hover ? Theme.line-strong : Theme.line;
+    opacity: root.enabled ? 1.0 : 0.45;
+    accessible-role: button;
+    accessible-label: root.label;
+
+    Text {
+        x: Tokens.space-sm;
+        width: parent.width - 2 * Tokens.space-sm - Tokens.chevron-w;
+        height: parent.height;
+        text: root.label;
+        color: Theme.text;
+        font-size: Tokens.font-lg;
+        font-weight: 500;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+
+    ChevronDown {
+        x: parent.width - Tokens.space-sm - self.width;
+        y: (parent.height - self.height) / 2;
+        tint: root.open || field-touch.has-hover ? Theme.text-dim : Theme.text-faint;
+    }
+
+    field-touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component AnnotationChoiceDropdown inherits Rectangle {
+    in property <[AnnotationChoice]> options;
+    in property <string> selected-key;
+    in property <string> selected-label;
+    in property <bool> open-upward: false;
+    callback selected(string, string);
+
+    height: Tokens.annotation-field-h;
+    horizontal-stretch: 1;
+
+    DropdownField {
+        label: root.selected-label;
+        open: options-popup.is-open;
+        enabled: root.options.length > 0;
+        clicked => {
+            if options-popup.is-open {
+                options-popup.close();
+            } else {
+                options-popup.show();
+            }
+        }
+    }
+
+    options-popup := PopupWindow {
+        x: 0px;
+        y: root.open-upward ? -self.height - Tokens.space-xs : root.height + Tokens.space-xs;
+        width: root.width;
+        height: min(
+            Tokens.annotation-dropdown-max-h,
+            2 * Tokens.space-xs + root.options.length * (Tokens.row-h + Tokens.row-gap)
+        );
+        close-policy: PopupClosePolicy.close-on-click-outside;
+
+        Rectangle {
+            clip: true;
+            border-radius: Tokens.radius-md;
+            background: Theme.bg-card;
+            border-width: Tokens.hairline;
+            border-color: Theme.line-strong;
+
+            Flickable {
+                width: parent.width;
+                height: parent.height;
+
+                VerticalLayout {
+                    width: parent.width;
+                    padding: Tokens.space-xs;
+                    spacing: Tokens.row-gap;
+
+                    for option in root.options: DropdownOptionRow {
+                        key: option.key;
+                        label: option.label;
+                        selected: option.key == root.selected-key;
+                        clicked => {
+                            root.selected(option.key, option.label);
+                            options-popup.close();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component AnnotationTargetDropdown inherits Rectangle {
+    in property <[AnnotationTargetItem]> targets;
+    in property <string> selected-key;
+    in property <string> new-option-label: "";
+    in property <bool> open-upward: false;
+    callback selected(string);
+
+    property <bool> has-options: root.new-option-label != "" || root.targets.length > 0;
+    property <string> selected-label: root.selected-key != ""
+        ? root.selected-key
+        : root.new-option-label != "" ? root.new-option-label : "No destinations";
+    property <int> option-count: root.targets.length + (root.new-option-label != "" ? 1 : 0);
+
+    height: Tokens.annotation-field-h;
+    horizontal-stretch: 1;
+
+    DropdownField {
+        label: root.selected-label;
+        open: targets-popup.is-open;
+        enabled: root.has-options;
+        clicked => {
+            if targets-popup.is-open {
+                targets-popup.close();
+            } else {
+                targets-popup.show();
+            }
+        }
+    }
+
+    targets-popup := PopupWindow {
+        x: 0px;
+        y: root.open-upward ? -self.height - Tokens.space-xs : root.height + Tokens.space-xs;
+        width: root.width;
+        height: min(
+            Tokens.annotation-dropdown-max-h,
+            2 * Tokens.space-xs + root.option-count * (Tokens.row-h + Tokens.row-gap)
+        );
+        close-policy: PopupClosePolicy.close-on-click-outside;
+
+        Rectangle {
+            clip: true;
+            border-radius: Tokens.radius-md;
+            background: Theme.bg-card;
+            border-width: Tokens.hairline;
+            border-color: Theme.line-strong;
+
+            Flickable {
+                width: parent.width;
+                height: parent.height;
+
+                VerticalLayout {
+                    width: parent.width;
+                    padding: Tokens.space-xs;
+                    spacing: Tokens.row-gap;
+
+                    if root.new-option-label != "": DropdownOptionRow {
+                        key: "";
+                        label: root.new-option-label;
+                        selected: root.selected-key == "";
+                        clicked => {
+                            root.selected("");
+                            targets-popup.close();
+                        }
+                    }
+
+                    for target in root.targets: DropdownOptionRow {
+                        key: target.name;
+                        label: target.name;
+                        selected: target.name == root.selected-key;
+                        clicked => {
+                            root.selected(target.name);
+                            targets-popup.close();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component AnnotationPopoverFrame inherits Rectangle {
+    in property <string> title;
+    in property <string> description;
+    callback dismiss();
+
+    forward-focus: key-scope;
+    width: Tokens.popover-w;
+    height: inner.preferred-height;
+    clip: true;
+    border-radius: Tokens.radius-lg;
+    background: Theme.bg-card;
+    border-width: Tokens.hairline;
+    border-color: Theme.line-strong;
+
+    TouchArea {}
+
+    key-scope := FocusScope {
+        focus-on-click: true;
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                root.dismiss();
+                return accept;
+            }
+            return reject;
+        }
+    }
+
+    inner := VerticalLayout {
+        padding: Tokens.space-md;
+        spacing: Tokens.space-sm;
+
+        VerticalLayout {
+            spacing: Tokens.space-xs;
+
+            Text {
+                height: 18px;
+                text: root.title;
+                color: Theme.text;
+                font-size: Tokens.font-lg;
+                font-weight: 500;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+
+            Text {
+                text: root.description;
+                color: Theme.text-muted;
+                font-size: Tokens.font-md;
+                wrap: word-wrap;
+            }
+        }
+
+        @children
+    }
+}
+
+export component AnnotationFieldLabel inherits Text {
+    height: 14px;
+    color: Theme.text-muted;
+    font-size: Tokens.font-md;
+    font-weight: 500;
+    vertical-alignment: center;
+}
+
+export component AnnotationTextField inherits Rectangle {
+    in-out property <string> text;
+    callback accepted();
+    callback escape();
+
+    height: Tokens.annotation-field-h;
+    horizontal-stretch: 1;
+    border-radius: Tokens.radius-md;
+    background: Theme.bg-raised;
+    border-width: Tokens.hairline;
+    border-color: input.has-focus ? Theme.cyan.with-alpha(0.75) : Theme.line;
+
+    input := TextInput {
+        x: Tokens.space-sm;
+        width: parent.width - 2 * Tokens.space-sm;
+        height: parent.height;
+        vertical-alignment: center;
+        single-line: true;
+        text <=> root.text;
+        color: Theme.text;
+        font-size: Tokens.font-lg;
+        selection-background-color: Theme.cyan.with-alpha(0.3);
+        selection-foreground-color: Theme.text;
+        accessible-role: text-input;
+        accessible-label: "Literal label text";
+        accepted => { root.accepted(); }
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                root.escape();
+                return accept;
+            }
+            return reject;
+        }
+    }
+
+    public function focus-input() {
+        input.focus();
+    }
+}
+
+export component AnnotationActionButton inherits Rectangle {
+    in property <string> label;
+    in property <bool> enabled: true;
+    in property <bool> primary: false;
+    callback clicked();
+
+    height: Tokens.annotation-action-h;
+    horizontal-stretch: 1;
+    border-radius: Tokens.radius-md;
+    opacity: root.enabled ? 1.0 : 0.4;
+    background: root.primary
+        ? Theme.cyan.with-alpha(action-touch.pressed ? 0.32 : action-touch.has-hover ? 0.24 : 0.14)
+        : action-touch.pressed ? Theme.bg-inset : action-touch.has-hover ? Theme.bg-raised : transparent;
+    border-width: root.primary ? Tokens.hairline : 0px;
+    border-color: root.primary ? Theme.cyan.with-alpha(0.5) : transparent;
+    accessible-role: button;
+    accessible-label: root.label;
+
+    Text {
+        width: parent.width;
+        height: parent.height;
+        text: root.label;
+        color: root.primary ? Theme.cyan : Theme.text-dim;
+        font-size: Tokens.font-lg;
+        font-weight: 500;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    action-touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}

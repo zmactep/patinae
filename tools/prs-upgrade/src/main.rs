@@ -1677,6 +1677,7 @@ mod tests {
 
     fn downgrade_positional_session(session: &mut Value) -> Result<()> {
         let fields = array_mut(session, "current Session")?;
+        remove_current_recent_atoms(fields)?;
         downgrade_positional_settings(
             fields
                 .get_mut(SESSION_SETTINGS_INDEX)
@@ -1686,6 +1687,7 @@ mod tests {
 
     fn downgrade_v033_positional_session(session: &mut Value) -> Result<()> {
         let fields = array_mut(session, "current Session")?;
+        remove_current_recent_atoms(fields)?;
         downgrade_v033_positional_registry(
             fields
                 .get_mut(SESSION_REGISTRY_INDEX)
@@ -1718,6 +1720,16 @@ mod tests {
         fields[V033_SESSION_ELEMENT_COLORS_INDEX] = element_colors;
         fields[SESSION_CLEAR_COLOR_INDEX] = Value::Nil;
         fields[V033_SESSION_CLEAR_COLOR_INDEX] = clear_color;
+        Ok(())
+    }
+
+    fn remove_current_recent_atoms(fields: &mut Vec<Value>) -> Result<()> {
+        ensure!(
+            fields.len() == 12,
+            "current Session has {} fields; expected 12",
+            fields.len()
+        );
+        fields.pop();
         Ok(())
     }
 

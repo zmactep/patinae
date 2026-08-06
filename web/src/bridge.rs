@@ -1128,8 +1128,7 @@ impl WebViewer {
             let document = patinae_session::decode_prs_document(data)
                 .map_err(|e| JsValue::from_str(&format!("PRS parse error: {}", e)))?;
             self.pending_warnings.extend(document.warning_messages());
-            self.session = document.session;
-            self.session.registry.mark_all_dirty();
+            self.session.replace_contents(document.session);
             self.needs_redraw = true;
             return Ok(());
         }
@@ -1145,7 +1144,7 @@ impl WebViewer {
             );
             let map_data = patinae_scene::MapData::new(grid);
             let map_obj = patinae_scene::MapObject::from_map_data(name, map_data);
-            self.session.registry.add(map_obj);
+            self.session.insert_object(Box::new(map_obj));
             if let Some((min, max)) = self.session.registry.extent() {
                 self.session.camera.zoom_to(min, max, 0.0);
             }
@@ -1185,7 +1184,7 @@ impl WebViewer {
                 }
 
                 let mol_obj = MoleculeObject::with_name(molecule, name);
-                self.session.registry.add(mol_obj);
+                self.session.insert_object(Box::new(mol_obj));
                 self.session.refresh_movie_state_count();
                 if let Some((min, max)) = self.session.registry.extent() {
                     self.session.camera.zoom_to(min, max, 0.0);
@@ -1510,6 +1509,22 @@ mod tests {
         AtomAnchor, LabelAlignment, LabelEntity, LabelEntityPresentation, LabelObject,
         MeasurementObject, MoleculeObject, RenderObjectId,
     };
+
+    #[test]
+    fn loaded_session_replacement_validates_rows_and_invalidates_colliding_generation() {
+        let mut current = Session::new();
+        let old_generation = current.recent_atoms.generation();
+        current.replace_contents(Session::new());
+        assert_ne!(current.recent_atoms.generation(), old_generation);
+
+        let mut replacement = Session::new();
+        replacement.recent_atoms.insert(
+            "not a canonical atom path",
+            patinae_settings::groups::RecentPickLimit::Unlimited,
+        );
+        current.replace_contents(replacement);
+        assert!(current.recent_atoms.is_empty());
+    }
 
     #[test]
     fn projected_label_info_preserves_shared_style_alignment_and_order() {

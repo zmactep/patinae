@@ -21,7 +21,7 @@ use patinae_framework::plugin_ui::{
     PanelControl, PanelDescriptor, PanelEvent, PanelPlacement, PanelRuntimeRequirements,
     PanelSnapshot, PluginPanel,
 };
-use patinae_mol::{Atom, AtomIndex, Element, ObjectMolecule, SecondaryStructure};
+use patinae_mol::ObjectMolecule;
 use patinae_plugin::ffi::{
     AbiBytesSinkFn, AbiCommandDescriptor, AbiCommandVTable, AbiFormatHandlerDescriptor,
     AbiFormatHandlerVTable, AbiHotkeyDescriptor, AbiHotkeyVTable, AbiMessageHandlerDescriptor,
@@ -86,6 +86,7 @@ use crate::host::PluginHost;
 use crate::panic::panic_payload_to_string;
 use crate::paths::{is_plugin_library_path, PluginDiscovery};
 use crate::plugin::{LibraryHandle, LoadedPanel, LoadedPlugin};
+use crate::runtime::apply_atom_property_change_batch;
 
 mod gpu_validation;
 mod render_artifacts;
@@ -5641,6 +5642,7 @@ fn session_from_shared_context(
     session.registry = patinae_scene::ObjectRegistry::from_snapshot(ctx.registry.to_snapshot());
     session.camera = ctx.camera.clone();
     session.selections = ctx.selections.clone();
+    session.recent_atoms = ctx.recent_atoms.clone();
     session.named_palette = clone_wire(ctx.named_palette)?;
     session.movie = clone_wire(ctx.movie)?;
     session.settings = ctx.settings.clone();
@@ -5802,23 +5804,7 @@ fn apply_viewer_action(ctx: &mut PollContext<'_>, action: WireViewerAction) {
     match action {
         WireViewerAction::ApplyAtomPropertyChanges(changes) => {
             ctx.queue_viewer_mutation(move |viewer| {
-                let mut changed = false;
-                for change in &changes {
-                    let Some(mol_obj) = viewer.objects_mut().get_molecule_mut(&change.object)
-                    else {
-                        continue;
-                    };
-                    let Some(atom) = mol_obj
-                        .molecule_mut()
-                        .get_atom_mut(AtomIndex(change.atom_index))
-                    else {
-                        continue;
-                    };
-                    changed |= apply_atom_property_changes(atom, &change.changes);
-                }
-                if changed {
-                    viewer.request_redraw();
-                }
+                apply_atom_property_change_batch(viewer, &changes);
             });
         }
         WireViewerAction::SetViewportImage(image) => {
@@ -5836,78 +5822,6 @@ fn apply_viewer_action(ctx: &mut PollContext<'_>, action: WireViewerAction) {
         }
         WireViewerAction::RequestPanelUpdate => ctx.request_panel_update(),
     }
-}
-
-fn apply_atom_property_changes(
-    atom: &mut Atom,
-    changes: &[(String, wire::WireAtomPropertyValue)],
-) -> bool {
-    let mut changed = false;
-    for (key, value) in changes {
-        changed |= apply_atom_property_change(atom, key, value);
-    }
-    changed
-}
-
-fn apply_atom_property_change(
-    atom: &mut Atom,
-    key: &str,
-    value: &wire::WireAtomPropertyValue,
-) -> bool {
-    match (key, value) {
-        ("name", wire::WireAtomPropertyValue::Str(value)) => {
-            atom.name = Arc::from(value.as_str());
-        }
-        ("b", wire::WireAtomPropertyValue::F32(value)) => atom.b_factor = *value,
-        ("q", wire::WireAtomPropertyValue::F32(value)) => atom.occupancy = *value,
-        ("vdw", wire::WireAtomPropertyValue::F32(value)) => atom.vdw = *value,
-        ("partial_charge", wire::WireAtomPropertyValue::F32(value)) => {
-            atom.partial_charge = *value;
-        }
-        ("formal_charge", wire::WireAtomPropertyValue::I8(value)) => {
-            atom.formal_charge = *value;
-        }
-        ("color", wire::WireAtomPropertyValue::I32(value)) => atom.repr.colors.base = *value,
-        ("elem", wire::WireAtomPropertyValue::Str(value)) => {
-            let Some(element) = Element::from_symbol(value) else {
-                return false;
-            };
-            atom.element = element;
-        }
-        ("ss", wire::WireAtomPropertyValue::Str(value)) => {
-            atom.ss_type = match value.as_str() {
-                "H" => SecondaryStructure::Helix,
-                "S" => SecondaryStructure::Sheet,
-                _ => SecondaryStructure::Loop,
-            };
-        }
-        ("type", wire::WireAtomPropertyValue::Str(value)) => atom.state.hetatm = value == "HETATM",
-        ("alt", wire::WireAtomPropertyValue::Str(value)) => {
-            atom.alt = value.chars().next().unwrap_or(' ');
-        }
-        ("chain", wire::WireAtomPropertyValue::Str(value)) => {
-            let mut residue = (*atom.residue).clone();
-            residue.key.chain = value.clone();
-            atom.residue = Arc::new(residue);
-        }
-        ("resn", wire::WireAtomPropertyValue::Str(value)) => {
-            let mut residue = (*atom.residue).clone();
-            residue.key.resn = value.clone();
-            atom.residue = Arc::new(residue);
-        }
-        ("resv", wire::WireAtomPropertyValue::I32(value)) => {
-            let mut residue = (*atom.residue).clone();
-            residue.key.resv = *value;
-            atom.residue = Arc::new(residue);
-        }
-        ("segi", wire::WireAtomPropertyValue::Str(value)) => {
-            let mut residue = (*atom.residue).clone();
-            residue.segi = value.clone();
-            atom.residue = Arc::new(residue);
-        }
-        _ => return false,
-    }
-    true
 }
 
 fn send_bus_messages(messages: Vec<AppMessage>, bus: &mut MessageBus) {
@@ -6147,6 +6061,7 @@ fn side_effect_from_abi(value: u8) -> Result<SideEffectCategory, String> {
 #[cfg(test)]
 mod loader_tests {
     use super::*;
+    use patinae_mol::AtomIndex;
     use patinae_scene::GpuFragmentState;
 
     struct TraceFixtureViewer {
@@ -6286,6 +6201,56 @@ mod loader_tests {
             }
             Ok(())
         }
+    }
+
+    #[test]
+    fn isolated_plugin_identity_changes_reconcile_recent_atoms() {
+        let mut molecule = ObjectMolecule::new("obj");
+        molecule.add_atom(
+            patinae_mol::AtomBuilder::new()
+                .name("CA")
+                .element_symbol("C")
+                .resn("GLY")
+                .resv(1)
+                .chain("A")
+                .build(),
+        );
+        let mut session = Session::new();
+        session
+            .registry
+            .add(patinae_scene::MoleculeObject::with_name(molecule, "obj"));
+        let path = patinae_scene::canonical_atom_path_for_hit(
+            &patinae_scene::PickHit {
+                object_name: "obj".to_string(),
+                object_type: patinae_scene::ObjectType::Molecule,
+                atom_index: Some(AtomIndex(0)),
+                position: Default::default(),
+                distance: 0.0,
+            },
+            session.registry.get_molecule("obj").unwrap().molecule(),
+        )
+        .unwrap();
+        session
+            .recent_atoms
+            .insert(path, patinae_settings::groups::RecentPickLimit::Unlimited);
+        let mut viewer = TraceFixtureViewer {
+            session,
+            chunks: Vec::new(),
+        };
+
+        apply_atom_property_change_batch(
+            &mut viewer,
+            &[wire::WireAtomPropertyChange {
+                object: "obj".to_string(),
+                atom_index: 0,
+                changes: vec![(
+                    "chain".to_string(),
+                    wire::WireAtomPropertyValue::Str("B".to_string()),
+                )],
+            }],
+        );
+
+        assert!(viewer.session.recent_atoms.is_empty());
     }
 
     fn trace_material() -> patinae_render::TraceMaterial {

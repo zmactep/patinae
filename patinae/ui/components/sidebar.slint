@@ -2,6 +2,7 @@ import { Theme } from "../theme.slint";
 import { Tokens } from "../tokens.slint";
 import { LayoutState } from "../states/layout-state.slint";
 import { PluginState } from "../states/plugin-state.slint";
+import { AtomPickIcon } from "icons.slint";
 
 // A single sidebar icon button (32×32, 7px radius).
 component SidebarButton inherits Rectangle {
@@ -133,6 +134,28 @@ export component Sidebar inherits Rectangle {
                 font-size: 16px;
                 horizontal-alignment: center;
                 vertical-alignment: center;
+            }
+        }
+
+        // Recent atoms — atom reticle → toggles the recent atom list
+        SidebarButton {
+            active: root.builtins-enabled && LayoutState.recent-atoms-visible;
+            clicked => {
+                if root.builtins-enabled {
+                    if LayoutState.recent-atoms-visible {
+                        LayoutState.hide-panel("recent-atoms");
+                    } else {
+                        LayoutState.show-panel("recent-atoms");
+                    }
+                }
+            }
+
+            AtomPickIcon {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                tint: root.builtins-enabled && LayoutState.recent-atoms-visible
+                    ? Theme.cyan
+                    : Theme.text-faint;
             }
         }
 

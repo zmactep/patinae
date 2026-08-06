@@ -2276,6 +2276,7 @@ impl RuntimeShared {
             registry: &self.viewer.session.registry,
             camera: &self.viewer.session.camera,
             selections: &self.viewer.session.selections,
+            recent_atoms: &self.viewer.session.recent_atoms,
             named_palette: &self.viewer.session.named_palette,
             movie: &self.viewer.session.movie,
             settings: &self.viewer.session.settings,

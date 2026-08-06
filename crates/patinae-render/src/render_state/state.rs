@@ -19,7 +19,7 @@ use crate::frame::FrameTargets;
 use crate::map_contour::MapEntry;
 use crate::memory_policy::RenderMemoryPolicy;
 use crate::passes::atlas_ao::AtlasAoPass;
-use crate::passes::selection_dots::SelectionDotsPass;
+use crate::passes::selection_dots::AtomMarkersPass;
 use crate::passes::shadow::DirectionalShadowPass;
 use crate::picking::pass::PickingPass;
 use crate::picking::readback::PickingReadback;
@@ -127,7 +127,7 @@ pub(super) struct SceneRuntime {
     /// View-projection hash that produced the cached compacted cull buffers.
     pub(super) last_cull_view_proj_hash: u64,
     /// Cheap CPU heuristic refreshed in `sync` — `true` if any object
-    /// supplied a non-zero `atom_markers` entry (selected or hovered atom).
+    /// supplied a selection or hover marker.
     /// Used to skip selection overlay work over scenes with no selection /
     /// hover state.
     pub(super) has_any_marker: bool,
@@ -243,9 +243,9 @@ pub(super) struct ScreenRuntime {
     /// Lazily created when the selection overlay is enabled. Marking reads the
     /// overlay id texture and marker LUT.
     pub(super) marking: Option<MarkingPass>,
-    /// Lite selection-only fallback. Draws compact selected atom dots
-    /// without allocating overlay id, marking mask, or color scratch targets.
-    pub(super) selection_dots: Option<SelectionDotsPass>,
+    /// Compact atom marker overlay. Always draws recent-atom spheres and also
+    /// draws selection dots when the lite memory fallback is active.
+    pub(super) atom_markers: AtomMarkersPass,
     pub(super) composite_bind_group: wgpu::BindGroup,
     /// `None` until overlay id resources exist and silhouettes are enabled.
     pub(super) silhouette_bind_group: Option<wgpu::BindGroup>,
@@ -258,7 +258,7 @@ pub(super) struct ScreenRuntime {
     /// Host requested selection visuals, but the memory policy denied the full
     /// selection/hover overlay and selected atom dots are used instead.
     pub(super) selection_dots_enabled: bool,
-    pub(super) selection_dots_rebuild_all: bool,
+    pub(super) atom_markers_rebuild_all: bool,
     pub(super) selection_overlay_enabled: bool,
     /// Screen-space selection / hover outline width, in target pixels.
     pub(super) marking_width: f32,

@@ -124,6 +124,27 @@ export struct SelectionRow {
     selected: bool,
 }
 
+// ── Recent atom row ────────────────────────────────────────────
+
+/// A durable recent atom path with transient desktop selection state.
+export struct RecentAtomItem {
+    /// Opaque runtime key used only for callbacks during this process.
+    key: string,
+    /// Canonical slash path stored in the session.
+    path: string,
+    /// Presentation path with exact empty values rendered as blank components.
+    display-path: string,
+    /// Whether this atom is in the manual annotation operand queue.
+    selected: bool,
+    /// One-based operand position, or zero when not selected.
+    operand-position: int,
+}
+
+/// Existing annotation object offered as an append target.
+export struct AnnotationTargetItem {
+    name: string,
+}
+
 // ── Overflow menu item ─────────────────────────────────────────────
 
 /// A single row in the action pill overflow menu.
@@ -142,11 +163,19 @@ export global ObjectsState {
     // ── Models (Rust → Slint) ──
     in-out property <[TopLevelRow]> top-level;
     in-out property <[SelectionRow]> selections;
+    in-out property <[RecentAtomItem]> recent-atoms;
 
     // ── Counts ──
     in-out property <int> object-count: 0;
     in-out property <int> selected-count: 0;
     in-out property <int> selected-selection-count: 0;
+    in-out property <int> recent-operand-count: 0;
+    in-out property <bool> recent-can-add-measurement: false;
+    in-out property <bool> recent-can-add-label: false;
+    in-out property <bool> recent-has-measurement-targets: false;
+    in-out property <string> recent-measurement-kind: "";
+    in-out property <[AnnotationTargetItem]> measurement-targets;
+    in-out property <[AnnotationTargetItem]> label-targets;
 
     /// Current selection level: "none" | "groups" | "objects" | "subchains".
     in-out property <string> selection-level: "none";
@@ -163,6 +192,7 @@ export global ObjectsState {
 
     // ── Object callbacks ──
     callback object-clicked(/* name */ string, /* shift */ bool, /* meta */ bool);
+    callback object-list-background-clicked();
     callback toggle-object-expand(/* name */ string);
     callback object-right-clicked(/* name */ string);
 
@@ -175,6 +205,20 @@ export global ObjectsState {
     // ── Selection callbacks ──
     callback selection-clicked(/* name */ string, /* shift */ bool, /* meta */ bool);
     callback selection-right-clicked(/* name */ string);
+    callback selection-list-background-clicked();
+
+    // ── Recent atom callbacks ──
+    callback recent-atom-clicked(/* key */ string, /* shift */ bool, /* meta */ bool);
+    callback recent-atom-remove-clicked(/* key */ string);
+    callback recent-atoms-clear();
+    callback recent-atoms-background-clicked();
+    callback action-add-measurement();
+    callback action-add-measurement-to();
+    callback measurement-target-confirm(/* name */ string);
+    callback action-add-label();
+    pure callback label-literal-valid(/* literal */ string) -> bool;
+    callback label-confirm(/* expression */ string, /* literal */ string,
+                           /* target name, empty means new */ string);
 
     // ── Row button callback ──
     callback row-btn-clicked(/* kind */ string, /* source */ string, /* obj-name */ string, /* chain-id */ string,

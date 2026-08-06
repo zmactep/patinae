@@ -151,9 +151,10 @@ impl Command for ReinitializeCommand {
             }
             "settings" => {
                 *ctx.viewer.settings_mut() = patinae_settings::Settings::default();
+                ctx.viewer.reconcile_recent_atoms();
             }
             "objects" => {
-                ctx.viewer.objects_mut().clear();
+                ctx.viewer.clear_objects();
                 ctx.viewer.selections_mut().clear();
                 ctx.viewer.update_movie_state_count();
             }
@@ -439,7 +440,9 @@ impl Command for RunCommand {
 #[cfg(test)]
 mod tests {
     use crate::{CmdError, CommandAction, CommandExecutor, DynamicCommand};
-    use patinae_scene::{Session, SessionAdapter};
+    use patinae_mol::{AtomBuilder, AtomIndex, ObjectMolecule};
+    use patinae_scene::{MoleculeObject, Session, SessionAdapter};
+    use patinae_settings::groups::RecentPickLimit;
     use std::sync::{Arc, Mutex};
 
     fn execute_control_command(command: &str) -> Result<crate::CommandOutput, CmdError> {
@@ -455,6 +458,48 @@ mod tests {
         let mut executor = CommandExecutor::new();
 
         executor.do_with_options(&mut adapter, command, false)
+    }
+
+    fn execute_in_session(session: &mut Session, command: &str) -> Result<(), CmdError> {
+        let mut needs_redraw = false;
+        let mut adapter = SessionAdapter {
+            session,
+            render_context: None,
+            default_size: (800, 600),
+            needs_redraw: &mut needs_redraw,
+            async_fetch_fn: None,
+        };
+        CommandExecutor::new().do_(&mut adapter, command)
+    }
+
+    fn add_case_colliding_molecule(session: &mut Session) -> String {
+        let mut molecule = ObjectMolecule::new("obj");
+        for name in ["CA", "ca"] {
+            molecule.add_atom(
+                AtomBuilder::new()
+                    .name(name)
+                    .element_symbol("C")
+                    .resn("GLY")
+                    .resv(1)
+                    .chain("A")
+                    .build(),
+            );
+        }
+        session
+            .registry
+            .add(MoleculeObject::with_name(molecule, "obj"));
+        let molecule = session.registry.get_molecule("obj").unwrap();
+        patinae_scene::canonical_atom_path_for_hit(
+            &patinae_scene::PickHit {
+                object_name: "obj".to_string(),
+                object_type: patinae_scene::ObjectType::Molecule,
+                atom_index: Some(AtomIndex(0)),
+                position: lin_alg::f32::Vec3::new(0.0, 0.0, 0.0),
+                distance: 0.0,
+            },
+            molecule.molecule(),
+        )
+        .unwrap()
     }
 
     fn temp_script_path(name: &str) -> std::path::PathBuf {
@@ -491,6 +536,31 @@ mod tests {
         let err = execute_control_command("clear extra").unwrap_err();
 
         assert!(err.is_too_many_arguments());
+    }
+
+    #[test]
+    fn reinitialize_objects_clears_recent_atoms_and_settings_revalidates_them() {
+        let mut objects_session = Session::new();
+        objects_session.settings.behavior.ignore_case = false;
+        let path = add_case_colliding_molecule(&mut objects_session);
+        objects_session
+            .recent_atoms
+            .insert(path, RecentPickLimit::Unlimited);
+
+        execute_in_session(&mut objects_session, "reinitialize objects").unwrap();
+        assert!(objects_session.registry.is_empty());
+        assert!(objects_session.recent_atoms.is_empty());
+
+        let mut settings_session = Session::new();
+        settings_session.settings.behavior.ignore_case = false;
+        let path = add_case_colliding_molecule(&mut settings_session);
+        settings_session
+            .recent_atoms
+            .insert(path, RecentPickLimit::Unlimited);
+
+        execute_in_session(&mut settings_session, "reinitialize settings").unwrap();
+        assert!(settings_session.settings.behavior.ignore_case);
+        assert!(settings_session.recent_atoms.is_empty());
     }
 
     #[test]

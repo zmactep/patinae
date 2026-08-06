@@ -285,6 +285,10 @@ export component ReplPill inherits Rectangle {
             property <bool> forwarding-viewport-input: false;
 
             pointer-event(event) => {
+                ViewportState.shift-held   = event.modifiers.shift;
+                ViewportState.control-held = event.modifiers.control;
+                ViewportState.alt-held     = event.modifiers.alt;
+                ViewportState.meta-held    = event.modifiers.meta;
                 if event.kind == PointerEventKind.down {
                     self.forwarding-viewport-input = !self.over-repl-ui;
                     if self.forwarding-viewport-input {

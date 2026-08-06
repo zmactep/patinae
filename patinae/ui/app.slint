@@ -301,6 +301,16 @@ export component AppWindow inherits Window {
             }
 
             MenuItem {
+                title: "Recent Atoms Panel";
+                checkable: true;
+                checked: !LayoutState.empty-mode && LayoutState.recent-atoms-visible;
+                enabled: !LayoutState.empty-mode;
+                activated => {
+                    MenuState.action("panel:recent-atoms");
+                }
+            }
+
+            MenuItem {
                 title: "Sequence Panel";
                 checkable: true;
                 checked: !LayoutState.empty-mode && LayoutState.sequence-visible;
@@ -353,6 +363,13 @@ export component AppWindow inherits Window {
 
     app-focus := FocusScope {
         focus-on-click: false;
+        key-pressed(event) => {
+            if ObjectsState.popover-kind != "" && event.text == Key.Escape {
+                ObjectsState.popover-close();
+                return accept;
+            }
+            return reject;
+        }
     }
 
     main-layout := MainLayout {

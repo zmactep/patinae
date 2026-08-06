@@ -7,6 +7,8 @@ use patinae_settings::{Settings, ShadingMode};
 use crate::camera::{Camera, Projection};
 use crate::session::Session;
 
+const PROJECTION_INVERSE_EPSILON: f32 = 1.0e-8;
+
 /// Build `patinae_render::FrameUniforms` from the host's `Session`.
 /// `clear_color` is used as the fog tint when depth-cue / fog are on.
 pub fn frame_uniforms_from_session(
@@ -49,14 +51,12 @@ pub fn frame_uniforms_from_camera(
         .inverse()
         .map(|m| mat4_to_cols(&m))
         .unwrap_or(view_cols);
-    // `proj_inv` is needed by the SSAO compute kernel (reconstructs
-    // view-space position from screen UV + depth). Identity fallback
-    // matches `proj_cols` when the projection is non-invertible (would
-    // never happen in practice — perspective and ortho both invert).
-    let proj_inv_cols = proj
-        .inverse()
-        .map(|m| mat4_to_cols(&m))
-        .unwrap_or(proj_cols);
+    // `lin_alg::Mat4::inverse` does not preserve the projective `w` row for
+    // this column-major perspective matrix. Use the closed-form inverse of
+    // the projection shapes produced by `SceneView::projection_matrix` so
+    // depth unprojection remains finite in both camera modes.
+    let proj_inv_cols = projection_inverse_cols(&proj, projection)
+        .unwrap_or_else(|| FrameUniforms::default().proj_inv);
     let view_proj = proj.clone() * view.clone();
     u.view = view_cols;
     u.proj = proj_cols;
@@ -172,9 +172,71 @@ fn mat4_to_cols(m: &lin_alg::f32::Mat4) -> [[f32; 4]; 4] {
     ]
 }
 
+fn projection_inverse_cols(
+    projection: &lin_alg::f32::Mat4,
+    kind: Projection,
+) -> Option<[[f32; 4]; 4]> {
+    let d = projection.data;
+    match kind {
+        Projection::Perspective => {
+            let scale_x = d[0];
+            let scale_y = d[5];
+            let depth_scale = d[10];
+            let depth_offset = d[14];
+            if scale_x.abs() <= PROJECTION_INVERSE_EPSILON
+                || scale_y.abs() <= PROJECTION_INVERSE_EPSILON
+                || depth_offset.abs() <= PROJECTION_INVERSE_EPSILON
+            {
+                return None;
+            }
+            Some([
+                [scale_x.recip(), 0.0, 0.0, 0.0],
+                [0.0, scale_y.recip(), 0.0, 0.0],
+                [0.0, 0.0, 0.0, depth_offset.recip()],
+                [0.0, 0.0, -1.0, depth_scale / depth_offset],
+            ])
+        }
+        Projection::Orthographic => {
+            let scale_x = d[0];
+            let scale_y = d[5];
+            let scale_z = d[10];
+            if scale_x.abs() <= PROJECTION_INVERSE_EPSILON
+                || scale_y.abs() <= PROJECTION_INVERSE_EPSILON
+                || scale_z.abs() <= PROJECTION_INVERSE_EPSILON
+            {
+                return None;
+            }
+            Some([
+                [scale_x.recip(), 0.0, 0.0, 0.0],
+                [0.0, scale_y.recip(), 0.0, 0.0],
+                [0.0, 0.0, scale_z.recip(), 0.0],
+                [-d[12] / scale_x, -d[13] / scale_y, -d[14] / scale_z, 1.0],
+            ])
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn unproject_center_depth(proj_inv: [[f32; 4]; 4], depth: f32) -> [f32; 3] {
+        let homogeneous = [
+            proj_inv[2][0] * depth + proj_inv[3][0],
+            proj_inv[2][1] * depth + proj_inv[3][1],
+            proj_inv[2][2] * depth + proj_inv[3][2],
+            proj_inv[2][3] * depth + proj_inv[3][3],
+        ];
+        assert!(
+            homogeneous[3].abs() > 1.0e-6,
+            "projection inverse produced a point at infinity: {homogeneous:?}"
+        );
+        [
+            homogeneous[0] / homogeneous[3],
+            homogeneous[1] / homogeneous[3],
+            homogeneous[2] / homogeneous[3],
+        ]
+    }
 
     #[test]
     fn skripkin_mode_writes_ambient_ao_lighting_uniforms() {
@@ -219,5 +281,25 @@ mod tests {
 
         assert_ne!(perspective.proj, ortho.proj);
         assert_eq!(ortho.proj, mat4_to_cols(&expected));
+    }
+
+    #[test]
+    fn projection_inverse_reconstructs_perspective_and_orthographic_clip_planes() {
+        let camera = Camera::new();
+        let view = camera.current_view();
+
+        for orthoscopic in [false, true] {
+            let mut settings = Settings::default();
+            settings.ui.orthoscopic = orthoscopic;
+            let uniforms = frame_uniforms_from_camera(&camera, &settings, (512, 512), [0.0; 3]);
+
+            let near = unproject_center_depth(uniforms.proj_inv, 0.0);
+            let far = unproject_center_depth(uniforms.proj_inv, 1.0);
+
+            assert!(near[0].abs() < 1.0e-5);
+            assert!(near[1].abs() < 1.0e-5);
+            assert!((near[2] + view.clip_front).abs() < 1.0e-3);
+            assert!((far[2] + view.clip_back).abs() < view.clip_back * 1.0e-3);
+        }
     }
 }
