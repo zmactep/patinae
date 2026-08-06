@@ -1,6 +1,6 @@
 [package]
 name = "patinae-python"
-version = "0.4.5"
+version = "0.4.6"
 edition = "2021"
 authors = ["Pavel Yakovlev"]
 license = "BSD-3-Clause"

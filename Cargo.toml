@@ -46,7 +46,7 @@ default-members = [
 exclude = ["python", "web"]
 
 [workspace.package]
-version = "0.4.5"
+version = "0.4.6"
 edition = "2021"
 authors = ["Pavel Yakovlev"]
 license = "BSD-3-Clause"
@@ -67,20 +67,20 @@ undocumented_unsafe_blocks = "warn"
 
 [workspace.dependencies]
 # Internal crates
-patinae-settings = { version = "0.4.5", path = "crates/patinae-settings" }
-patinae-color = { version = "0.4.5", path = "crates/patinae-color" }
-patinae-mol = { version = "0.4.5", path = "crates/patinae-mol" }
-patinae-select = { version = "0.4.5", path = "crates/patinae-select" }
-patinae-io = { version = "0.4.5", path = "crates/patinae-io" }
-patinae-render = { version = "0.4.5", path = "crates/patinae-render", default-features = false }
-patinae-scene = { version = "0.4.5", path = "crates/patinae-scene", default-features = false }
-patinae-cmd = { version = "0.4.5", path = "crates/patinae-cmd", default-features = false }
-patinae-algos = { version = "0.4.5", path = "crates/patinae-algos" }
-patinae-session = { version = "0.4.5", path = "crates/patinae-session" }
-patinae-framework = { version = "0.4.5", path = "crates/patinae-framework" }
-patinae-plugin = { version = "0.4.5", path = "crates/patinae-plugin" }
-patinae-plugin-host = { version = "0.4.5", path = "crates/patinae-plugin-host" }
-patinae-mm = { version = "0.4.5", path = "crates/patinae-mm" }
+patinae-settings = { version = "0.4.6", path = "crates/patinae-settings" }
+patinae-color = { version = "0.4.6", path = "crates/patinae-color" }
+patinae-mol = { version = "0.4.6", path = "crates/patinae-mol" }
+patinae-select = { version = "0.4.6", path = "crates/patinae-select" }
+patinae-io = { version = "0.4.6", path = "crates/patinae-io" }
+patinae-render = { version = "0.4.6", path = "crates/patinae-render", default-features = false }
+patinae-scene = { version = "0.4.6", path = "crates/patinae-scene", default-features = false }
+patinae-cmd = { version = "0.4.6", path = "crates/patinae-cmd", default-features = false }
+patinae-algos = { version = "0.4.6", path = "crates/patinae-algos" }
+patinae-session = { version = "0.4.6", path = "crates/patinae-session" }
+patinae-framework = { version = "0.4.6", path = "crates/patinae-framework" }
+patinae-plugin = { version = "0.4.6", path = "crates/patinae-plugin" }
+patinae-plugin-host = { version = "0.4.6", path = "crates/patinae-plugin-host" }
+patinae-mm = { version = "0.4.6", path = "crates/patinae-mm" }
 
 # External dependencies
 anyhow = "1"

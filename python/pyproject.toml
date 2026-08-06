@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "patinae"
-version = "0.4.5"
+version = "0.4.6"
 description = "Patinae: Modern molecular visualization in Rust with WebGPU rendering"
 readme = "README.md"
 requires-python = ">=3.8"

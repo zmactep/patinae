@@ -1,6 +1,6 @@
 {
   "name": "@patinae/viewer",
-  "version": "0.4.5",
+  "version": "0.4.6",
   "description": "Embeddable WebGPU molecular visualization component powered by Patinae",
   "type": "module",
   "main": "dist/patinae-viewer.js",

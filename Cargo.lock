@@ -2027,7 +2027,7 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
 name = "hello-plugin"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "patinae-plugin",
 ]
@@ -2779,7 +2779,7 @@ dependencies = [
 
 [[package]]
 name = "ipc-plugin"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "log",
  "patinae-plugin",
@@ -4071,7 +4071,7 @@ checksum = "35fb2e5f958ec131621fdd531e9fc186ed768cbe395337403ae56c17a74c68ec"
 
 [[package]]
 name = "patinae"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "ab_glyph",
  "copypasta",
@@ -4104,7 +4104,7 @@ dependencies = [
 
 [[package]]
 name = "patinae-algos"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "bitflags 2.10.0",
  "lin_alg",
@@ -4116,7 +4116,7 @@ dependencies = [
 
 [[package]]
 name = "patinae-bench"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "criterion",
  "flate2",
@@ -4137,7 +4137,7 @@ dependencies = [
 
 [[package]]
 name = "patinae-cmd"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "ahash",
  "flate2",
@@ -4161,7 +4161,7 @@ dependencies = [
 
 [[package]]
 name = "patinae-color"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "ahash",
  "patinae-mol",
@@ -4171,7 +4171,7 @@ dependencies = [
 
 [[package]]
 name = "patinae-framework"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "dirs 5.0.1",
  "lin_alg",
@@ -4192,7 +4192,7 @@ dependencies = [
 
 [[package]]
 name = "patinae-io"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "byteorder",
  "flate2",
@@ -4211,7 +4211,7 @@ dependencies = [
 
 [[package]]
 name = "patinae-mm"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "lin_alg",
  "log",
@@ -4223,7 +4223,7 @@ dependencies = [
 
 [[package]]
 name = "patinae-mol"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "ahash",
  "bitflags 2.10.0",
@@ -4240,7 +4240,7 @@ dependencies = [
 
 [[package]]
 name = "patinae-plugin"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "log",
  "patinae-cmd",
@@ -4256,7 +4256,7 @@ dependencies = [
 
 [[package]]
 name = "patinae-plugin-host"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "ahash",
  "libloading",
@@ -4276,7 +4276,7 @@ dependencies = [
 
 [[package]]
 name = "patinae-render"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "bytemuck",
  "half",
@@ -4297,7 +4297,7 @@ dependencies = [
 
 [[package]]
 name = "patinae-scene"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "ahash",
  "bitflags 2.10.0",
@@ -4319,7 +4319,7 @@ dependencies = [
 
 [[package]]
 name = "patinae-select"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "ahash",
  "bitvec",
@@ -4332,7 +4332,7 @@ dependencies = [
 
 [[package]]
 name = "patinae-session"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "ahash",
  "flate2",
@@ -4350,7 +4350,7 @@ dependencies = [
 
 [[package]]
 name = "patinae-settings"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "ahash",
  "dirs 5.0.1",
@@ -4622,7 +4622,7 @@ dependencies = [
 
 [[package]]
 name = "prs-upgrade"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "anyhow",
  "flate2",
@@ -4725,7 +4725,7 @@ dependencies = [
 
 [[package]]
 name = "python-plugin"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "log",
  "numpy",
@@ -4929,7 +4929,7 @@ dependencies = [
 
 [[package]]
 name = "raytracer-plugin"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "bytemuck",
  "image",
