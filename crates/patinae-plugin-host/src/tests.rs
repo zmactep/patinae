@@ -22,11 +22,14 @@ use patinae_plugin::ffi::{
     AbiSettingDescriptor, AbiSettingValue, AbiStatus, AbiStr, AbiStrSlice, AbiU8Slice,
     HostCallbacks, HostCommandRuntimeCallbacks, HostCommandRuntimeHandle, HostRegistrarHandle,
     PluginCommandHandle, PluginDeclaration, PluginPanelHandle, PluginRegisterFn, ABI_VERSION,
-    CAPABILITY_COMMANDS, CAPABILITY_DIAGNOSTICS, CAPABILITY_PANELS, CAPABILITY_REGISTRATION,
-    CAPABILITY_SETTINGS, HOST_CALLBACKS_VERSION, MAX_ABI_STRING_LEN, PANEL_PLACEMENT_RIGHT,
-    SDK_VERSION, SETTING_TYPE_BOOL, SETTING_VALUE_BOOL,
+    CAPABILITY_COMMANDS, CAPABILITY_DIAGNOSTICS, CAPABILITY_FORMAT_HANDLERS, CAPABILITY_PANELS,
+    CAPABILITY_REGISTRATION, CAPABILITY_SETTINGS, HOST_CALLBACKS_VERSION, MAX_ABI_STRING_LEN,
+    PANEL_PLACEMENT_RIGHT, SDK_VERSION, SETTING_TYPE_BOOL, SETTING_VALUE_BOOL,
 };
-use patinae_plugin::registrar::{DynCmdRegistration, MessageHandler, PluginMetadata, PollContext};
+use patinae_plugin::registrar::{
+    DynCmdRegistration, FormatHandler, MessageHandler, PluginMetadata, PluginReaderFn,
+    PluginRegistrar, PluginWriterFn, PollContext,
+};
 use patinae_plugin::wire::{
     self, WireCommandInput, WireCommandOutput, WireHostQuery, WireHostQueryValue,
     WirePanelEventOutput, WirePanelSnapshotOutput, RUNTIME_WIRE_VERSION,
@@ -158,6 +161,23 @@ fn command_input_for_session(
 
 fn decoded_wire_session(bytes: &[u8]) -> Session {
     wire::decode_session(bytes).unwrap()
+}
+
+fn execute_text(executor: &mut CommandExecutor, command: &str) -> String {
+    let mut session = Session::new();
+    let mut needs_redraw = false;
+    let mut adapter = SessionAdapter {
+        session: &mut session,
+        render_context: None,
+        default_size: (64, 64),
+        needs_redraw: &mut needs_redraw,
+        async_fetch_fn: None,
+    };
+    let output = executor
+        .do_with_options(&mut adapter, command, false)
+        .expect("capabilities command should succeed");
+    assert_eq!(output.messages.len(), 1);
+    output.messages[0].text.clone()
 }
 
 #[test]
@@ -681,6 +701,7 @@ fn test_capabilities() -> u64 {
         | CAPABILITY_PANELS
         | CAPABILITY_SETTINGS
         | CAPABILITY_DIAGNOSTICS
+        | CAPABILITY_FORMAT_HANDLERS
 }
 
 fn test_declaration(register: Option<PluginRegisterFn>) -> PluginDeclaration {
@@ -711,6 +732,49 @@ fn fixture_panel_handle() -> PluginPanelHandle {
             .as_ptr()
             .cast::<c_void>(),
     )
+}
+
+fn register_fixture_metadata(
+    handle: HostRegistrarHandle,
+    callbacks: &HostCallbacks,
+    name: &'static str,
+    version: &'static str,
+    description: &'static str,
+) -> AbiStatus {
+    let Some(register_metadata) = callbacks.register_metadata else {
+        return AbiStatus::INVALID;
+    };
+    // SAFETY: The host supplied `handle`; all string views remain static.
+    unsafe {
+        register_metadata(
+            handle,
+            AbiStr::from_static(name),
+            AbiStr::from_static(version),
+            AbiStr::from_static(description),
+        )
+    }
+}
+
+fn fixture_format_reader(_reader: Box<dyn std::io::Read>) -> Result<Vec<ObjectMolecule>, String> {
+    Ok(Vec::new())
+}
+
+fn fixture_format_writer(
+    _writer: Box<dyn std::io::Write>,
+    _molecules: &[ObjectMolecule],
+) -> Result<(), String> {
+    Ok(())
+}
+
+fn fixture_format(name: &str, extension: &str, readable: bool, writable: bool) -> FormatHandler {
+    let reader = readable.then(|| Arc::new(fixture_format_reader) as PluginReaderFn);
+    let writer = writable.then(|| Arc::new(fixture_format_writer) as PluginWriterFn);
+    FormatHandler {
+        name: name.to_string(),
+        extensions: vec![extension.to_string()],
+        reader,
+        writer,
+    }
 }
 
 fn fixture_decode<T: DeserializeOwned>(input: AbiU8Slice) -> Result<T, AbiStatus> {
@@ -944,6 +1008,87 @@ unsafe extern "C" fn failing_register(
     AbiStatus::INVALID
 }
 
+unsafe extern "C" fn partially_failing_register(
+    handle: HostRegistrarHandle,
+    callbacks: *const HostCallbacks,
+) -> AbiStatus {
+    if callbacks.is_null() {
+        return AbiStatus::INVALID;
+    }
+    // SAFETY: The host supplies a valid callback table for this registration call.
+    let callbacks = unsafe { &*callbacks };
+    let status = register_fixture_metadata(
+        handle,
+        callbacks,
+        "partial-fixture",
+        "0.1.0",
+        "Must not be reported",
+    );
+    if status.is_ok() {
+        AbiStatus::INVALID
+    } else {
+        status
+    }
+}
+
+unsafe extern "C" fn register_reader_format_fixture(
+    handle: HostRegistrarHandle,
+    callbacks: *const HostCallbacks,
+) -> AbiStatus {
+    // SAFETY: The host supplies matching live ABI inputs for this registration call.
+    let Ok(mut registrar) = (unsafe { PluginRegistrar::from_abi(handle, callbacks) }) else {
+        return AbiStatus::INVALID;
+    };
+    registrar.set_metadata(PluginMetadata::new(
+        "reader-fixture",
+        "1.0.0",
+        "Reader format fixture",
+    ));
+    registrar.register_format_handler(fixture_format("reader-only", "reader_only", true, false));
+    registrar.register_format_handler(fixture_format(
+        "reader-collision",
+        "runtime_collision",
+        true,
+        false,
+    ));
+    registrar.register_format_handler(fixture_format(
+        "load-built-in-collision",
+        "xtc",
+        true,
+        false,
+    ));
+    registrar.finish()
+}
+
+unsafe extern "C" fn register_writer_format_fixture(
+    handle: HostRegistrarHandle,
+    callbacks: *const HostCallbacks,
+) -> AbiStatus {
+    // SAFETY: The host supplies matching live ABI inputs for this registration call.
+    let Ok(mut registrar) = (unsafe { PluginRegistrar::from_abi(handle, callbacks) }) else {
+        return AbiStatus::INVALID;
+    };
+    registrar.set_metadata(PluginMetadata::new(
+        "writer-fixture",
+        "2.0.0",
+        "Writer format fixture",
+    ));
+    registrar.register_format_handler(fixture_format("writer-only", "writer_only", false, true));
+    registrar.register_format_handler(fixture_format(
+        "writer-collision",
+        "runtime_collision",
+        false,
+        true,
+    ));
+    registrar.register_format_handler(fixture_format(
+        "save-built-in-collision",
+        "bcif",
+        false,
+        true,
+    ));
+    registrar.finish()
+}
+
 #[test]
 fn plugin_extension_filter_matches_platform() {
     assert_eq!(
@@ -1037,6 +1182,94 @@ fn loads_abi_fixture_into_host_owned_registrations() {
     assert!(executor.registry().contains("af"));
     assert!(executor.dynamic_settings().lookup("abi_enabled").is_some());
     assert!(host.has_panel("abi_panel"));
+}
+
+#[test]
+fn reports_only_successfully_retained_plugin_instances_with_exact_metadata() {
+    let mut executor = CommandExecutor::new();
+    let mut host = PluginHost::new();
+
+    assert_eq!(
+        execute_text(&mut executor, "capabilities plugins"),
+        "Loaded plugins:\n(none)"
+    );
+
+    let error = load_declaration_for_test(
+        &mut host,
+        &mut executor,
+        test_declaration(Some(failing_register)),
+    )
+    .unwrap_err();
+    assert!(error.contains("Plugin register failed: invalid ABI input"));
+    let error = load_declaration_for_test(
+        &mut host,
+        &mut executor,
+        test_declaration(Some(partially_failing_register)),
+    )
+    .unwrap_err();
+    assert!(error.contains("Plugin register failed: invalid ABI input"));
+    assert_eq!(host.plugin_count(), 0);
+    assert_eq!(
+        execute_text(&mut executor, "capabilities plugins"),
+        "Loaded plugins:\n(none)"
+    );
+
+    for _ in 0..2 {
+        load_declaration_for_test(
+            &mut host,
+            &mut executor,
+            test_declaration(Some(register_fixture)),
+        )
+        .unwrap();
+    }
+
+    assert_eq!(host.plugin_count(), 2);
+    assert_eq!(
+        execute_text(&mut executor, "capabilities plugins"),
+        concat!(
+            "Loaded plugins:\n",
+            "abi-fixture\t1.2.3\tABI fixture plugin\n",
+            "abi-fixture\t1.2.3\tABI fixture plugin"
+        )
+    );
+}
+
+#[test]
+fn reports_effective_format_access_and_current_plugin_winner() {
+    let mut executor = CommandExecutor::new();
+    let mut host = PluginHost::new();
+
+    load_declaration_for_test(
+        &mut host,
+        &mut executor,
+        test_declaration(Some(register_reader_format_fixture)),
+    )
+    .unwrap();
+
+    let reader_load = execute_text(&mut executor, "capabilities formats load");
+    let reader_save = execute_text(&mut executor, "capabilities formats save");
+    assert!(reader_load.lines().any(|line| line == ".reader_only"));
+    assert!(reader_load.lines().any(|line| line == ".runtime_collision"));
+    assert!(!reader_load.lines().any(|line| line == ".xtc"));
+    assert!(!reader_save.lines().any(|line| line == ".reader_only"));
+    assert!(!reader_save.lines().any(|line| line == ".runtime_collision"));
+
+    load_declaration_for_test(
+        &mut host,
+        &mut executor,
+        test_declaration(Some(register_writer_format_fixture)),
+    )
+    .unwrap();
+
+    let load = execute_text(&mut executor, "capabilities formats load");
+    let save = execute_text(&mut executor, "capabilities formats save");
+    assert!(load.lines().any(|line| line == ".reader_only"));
+    assert!(!load.lines().any(|line| line == ".writer_only"));
+    assert!(!load.lines().any(|line| line == ".runtime_collision"));
+    assert!(!save.lines().any(|line| line == ".reader_only"));
+    assert!(save.lines().any(|line| line == ".writer_only"));
+    assert!(save.lines().any(|line| line == ".runtime_collision"));
+    assert!(!save.lines().any(|line| line == ".bcif"));
 }
 
 #[test]

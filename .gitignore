@@ -8,9 +8,11 @@ target
 CLAUDE.md
 AGENTS.md
 .claude
+.agents
 .cargo
 .env
 .DS_Store
+.compound-engineering
 node_modules
 dist
 pkg

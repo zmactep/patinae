@@ -12,8 +12,8 @@ use wgpu::util::DeviceExt;
 
 use patinae_cmd::{
     ArgHint, CmdError, CmdResult, Command, CommandAction, CommandContext, CommandExecutor,
-    CommandRuntimeRequirements, DynamicSettingRegistry, FormatHandler, MessageKind, ParsedCommand,
-    PluginReaderFn, PluginWriterFn, ScriptHandler,
+    CommandRuntimeRequirements, DynamicSettingRegistry, FormatHandler, LoadedPluginCapability,
+    MessageKind, ParsedCommand, PluginReaderFn, PluginWriterFn, ScriptHandler,
 };
 use patinae_framework::component::SharedContext;
 use patinae_framework::message::{AppMessage, MessageBus};
@@ -493,6 +493,16 @@ fn finish_registration(
         hotkeys,
         atom_streams: Default::default(),
         faulted: false,
+    });
+    let retained_metadata = &host
+        .plugins
+        .last()
+        .expect("plugin was just retained by the host")
+        .metadata;
+    executor.record_loaded_plugin_capability(LoadedPluginCapability {
+        name: retained_metadata.name.clone(),
+        version: retained_metadata.version.clone(),
+        description: retained_metadata.description.clone(),
     });
     host.ensure_single_active_per_placement();
     host.bump_panel_ui_generation();

@@ -207,7 +207,26 @@ Restart Patinae after every rebuild. Plugins are loaded before startup scripts
 and before files from the command line are opened, so plugin commands, script
 handlers, and format handlers are available during startup workflows.
 
-After restart, run:
+After restart, first verify that the plugin completed loading and registration:
+
+```text
+capabilities plugins
+```
+
+For the tutorial plugin, the relevant output is:
+
+```text
+Loaded plugins:
+hello	0.1.0	Example plugin: registers a hello command
+```
+
+The three fields are separated by tab characters. This command lists only
+successfully loaded plugin instances retained in the current process, using
+their declared name, version, and description. It does not list failed plugins
+or every library found on disk. If no plugin was retained, the fixed body is
+`(none)`.
+
+Then verify the registered command:
 
 ```text
 hello Alice
@@ -488,6 +507,29 @@ matches a registered readable extension; plugin writers are used when
 `save file.ext` matches a registered writable extension. Startup argv, menu
 opens, and drag-and-drop route through the same native file-action path, so a
 registered readable format is available through all file-open surfaces.
+
+After rebuilding and restarting Patinae, verify the effective handlers in that
+process:
+
+```text
+capabilities formats run
+capabilities formats load
+capabilities formats save
+```
+
+The script example above should add `.foo` under `Formats for run:`. The format
+example should add `.names` under both `Formats for load:` and
+`Formats for save:` because it supplies both a reader and a writer. A
+reader-only handler appears only under `load`; a writer-only handler appears
+only under `save`.
+
+These leaves report normalized suffixes accepted by the actual current command
+maps. Built-in handlers shadow plugin registrations for the same suffix, and a
+collision between plugins reports only the current map winner. The output does
+not identify providers or define plugin discovery precedence, so verify the
+suffix and then exercise the matching command. Treat this runtime output as the
+canonical format list instead of copying the full matrix into plugin
+documentation.
 
 ## Add a docked GUI panel
 

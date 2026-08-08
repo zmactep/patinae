@@ -11,7 +11,9 @@ use patinae_mol::ObjectMolecule;
 use patinae_scene::{MapData, MapObject, MoleculeObject, Object, ObjectRegistry};
 
 use crate::args::ParsedCommand;
-use crate::command::{ArgHint, Command, CommandContext, CommandRegistry, ViewerLike};
+use crate::command::{
+    ArgHint, BuiltinCommandCapability, Command, CommandContext, CommandRegistry, ViewerLike,
+};
 #[cfg(any(feature = "fetch", feature = "fetch-async"))]
 use crate::command::{AsyncCommandRequest, FetchFormatCode, FetchRequest};
 use crate::command_help;
@@ -80,6 +82,57 @@ pub fn register(registry: &mut CommandRegistry) {
     registry.register(FetchCommand);
 }
 
+pub(crate) const LOAD_CAPABILITY: BuiltinCommandCapability = BuiltinCommandCapability {
+    command: "load",
+    aliases: &[],
+    suffixes: &[
+        "pdb", "pdb.gz", "ent", "ent.gz", "sdf", "sdf.gz", "mol", "mol.gz", "sd", "sd.gz", "mol2",
+        "mol2.gz", "ml2", "ml2.gz", "cif", "cif.gz", "mmcif", "mmcif.gz", "bcif", "bcif.gz", "xyz",
+        "xyz.gz", "gro", "gro.gz", "ccp4", "ccp4.gz", "map", "map.gz", "mrc", "mrc.gz", "pse",
+        "pze", "prs",
+    ],
+    available: true,
+};
+
+pub(crate) const LOAD_TRAJ_CAPABILITY: BuiltinCommandCapability = BuiltinCommandCapability {
+    command: "load_traj",
+    aliases: &[],
+    suffixes: &["xtc", "xtc.gz", "trr", "trr.gz"],
+    available: cfg!(feature = "traj"),
+};
+
+pub(crate) const SAVE_CAPABILITY: BuiltinCommandCapability = BuiltinCommandCapability {
+    command: "save",
+    aliases: &[],
+    suffixes: &[
+        "pdb", "ent", "sdf", "mol", "sd", "mol2", "ml2", "cif", "mmcif", "xyz", "gro", "prs", "pml",
+    ],
+    available: true,
+};
+
+fn normalized_path_suffix(path: &Path) -> String {
+    let filename = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let Some(extension) = Path::new(&filename)
+        .extension()
+        .and_then(|ext| ext.to_str())
+    else {
+        return String::new();
+    };
+    if extension != "gz" {
+        return extension.to_string();
+    }
+
+    let inner = filename.strip_suffix(".gz").unwrap_or(&filename);
+    Path::new(inner)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map_or_else(|| "gz".to_string(), |ext| format!("{ext}.gz"))
+}
+
 // ============================================================================
 // load command
 // ============================================================================
@@ -89,7 +142,7 @@ struct LoadCommand;
 
 impl Command for LoadCommand {
     fn name(&self) -> &str {
-        "load"
+        LOAD_CAPABILITY.command
     }
 
     command_help! {
@@ -207,7 +260,15 @@ impl Command for LoadCommand {
         }
 
         // Detect format
-        let builtin_format = format.unwrap_or_else(|| FileFormat::from_path(&path));
+        let builtin_format = format.unwrap_or_else(|| {
+            let detected = FileFormat::from_path(&path);
+            let suffix = normalized_path_suffix(&path);
+            if LOAD_CAPABILITY.supports_suffix(&suffix) || detected.is_trajectory_only() {
+                detected
+            } else {
+                FileFormat::Unknown
+            }
+        });
 
         // Reject trajectory-only formats (no topology)
         if builtin_format.is_trajectory_only() {
@@ -428,6 +489,43 @@ mod load_tests {
     use crate::{CommandAction, CommandExecutor, CommandOutput, FormatHandler, MessageKind};
 
     use super::*;
+
+    #[test]
+    fn builtin_io_capabilities_match_supported_command_suffixes() {
+        assert_eq!(LOAD_CAPABILITY.command, "load");
+        assert!(LOAD_CAPABILITY.suffixes.contains(&"pdb"));
+        assert!(LOAD_CAPABILITY.suffixes.contains(&"pdb.gz"));
+        for alias in ["ent", "sd", "ml2", "mmcif"] {
+            assert!(LOAD_CAPABILITY.suffixes.contains(&alias));
+            assert!(SAVE_CAPABILITY.suffixes.contains(&alias));
+        }
+        assert!(LOAD_CAPABILITY.suffixes.contains(&"bcif.gz"));
+        assert!(LOAD_CAPABILITY.suffixes.contains(&"mrc.gz"));
+        assert!(LOAD_CAPABILITY.suffixes.contains(&"pze"));
+        for unsupported in ["xtc", "trr", "png"] {
+            assert!(!LOAD_CAPABILITY.suffixes.contains(&unsupported));
+        }
+
+        assert_eq!(SAVE_CAPABILITY.command, "save");
+        assert!(SAVE_CAPABILITY.suffixes.contains(&"pml"));
+        assert!(SAVE_CAPABILITY.suffixes.contains(&"prs"));
+        for unsupported in [
+            "pse", "pze", "bcif", "xtc", "trr", "ccp4", "map", "mrc", "pdb.gz", "png",
+        ] {
+            assert!(!SAVE_CAPABILITY.suffixes.contains(&unsupported));
+        }
+
+        assert_eq!(LOAD_TRAJ_CAPABILITY.command, "load_traj");
+        assert_eq!(LOAD_TRAJ_CAPABILITY.available, cfg!(feature = "traj"));
+        assert_eq!(
+            CommandRegistry::with_builtins().contains("load_traj"),
+            LOAD_TRAJ_CAPABILITY.available
+        );
+        assert_eq!(
+            LOAD_TRAJ_CAPABILITY.suffixes,
+            &["xtc", "xtc.gz", "trr", "trr.gz"]
+        );
+    }
 
     fn temp_dir(name: &str) -> PathBuf {
         let unique = SystemTime::now()
@@ -665,6 +763,41 @@ _atom_site.Cartn_z
     }
 
     #[test]
+    fn load_builtin_format_keeps_precedence_over_plugin_handler() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let dir = temp_dir("builtin_precedence");
+        let path = dir.join("structure.pdb");
+        patinae_io::write_all_format(
+            &path,
+            &[single_atom_molecule("builtin", 0.0)],
+            FileFormat::Pdb,
+        )
+        .expect("PDB fixture should be writable");
+        let plugin_called = Arc::new(AtomicBool::new(false));
+        let plugin_called_by_reader = plugin_called.clone();
+        let mut session = Session::new();
+        let mut executor = CommandExecutor::new();
+        executor.register_format_handler(FormatHandler {
+            name: "Shadow PDB".to_string(),
+            extensions: vec!["pdb".to_string()],
+            reader: Some(Arc::new(move |_| {
+                plugin_called_by_reader.store(true, Ordering::SeqCst);
+                Ok(vec![single_atom_molecule("plugin", 1.0)])
+            })),
+            writer: None,
+        });
+
+        let command = format!("load {}", path.display());
+        run_command(&mut session, &mut executor, &command);
+
+        assert!(!plugin_called.load(Ordering::SeqCst));
+        assert_eq!(object_names(&session), ["structure"]);
+
+        fs::remove_dir_all(&dir).expect("temporary directory should be removed");
+    }
+
+    #[test]
     fn load_cif_gz_default_name_strips_double_extension_and_sanitizes_hyphens() {
         let dir = temp_dir("cif_gz");
         let path = dir.join("my-name.cif.gz");
@@ -717,7 +850,7 @@ struct LoadTrajCommand;
 #[cfg(feature = "traj")]
 impl Command for LoadTrajCommand {
     fn name(&self) -> &str {
-        "load_traj"
+        LOAD_TRAJ_CAPABILITY.command
     }
 
     command_help! {
@@ -818,7 +951,14 @@ impl Command for LoadTrajCommand {
                 "trr" => FileFormat::Trr,
                 _ => FileFormat::from_path(&path),
             })
-            .unwrap_or_else(|| FileFormat::from_path(&path));
+            .unwrap_or_else(|| {
+                let suffix = normalized_path_suffix(&path);
+                if LOAD_TRAJ_CAPABILITY.supports_suffix(&suffix) {
+                    FileFormat::from_path(&path)
+                } else {
+                    FileFormat::Unknown
+                }
+            });
 
         // Read trajectory frames
         let opts = patinae_io::TrajectoryReadOptions {
@@ -882,7 +1022,7 @@ struct SaveCommand;
 
 impl Command for SaveCommand {
     fn name(&self) -> &str {
-        "save"
+        SAVE_CAPABILITY.command
     }
 
     command_help! {

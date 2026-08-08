@@ -44,6 +44,37 @@ pub struct FormatHandler {
     pub writer: Option<PluginWriterFn>,
 }
 
+/// Describes one loaded plugin without depending on plugin-host types.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoadedPluginCapability {
+    /// Plugin display name.
+    pub name: String,
+    /// Plugin version reported during registration.
+    pub version: String,
+    /// Plugin description reported during registration.
+    pub description: String,
+}
+
+/// Describes the file suffixes accepted by one built-in command.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct BuiltinCommandCapability {
+    /// Canonical command name.
+    pub command: &'static str,
+    /// Registered aliases for the command.
+    pub aliases: &'static [&'static str],
+    /// Normalized suffixes accepted by the command, without a leading dot.
+    pub suffixes: &'static [&'static str],
+    /// Whether the command is available in this build.
+    pub available: bool,
+}
+
+impl BuiltinCommandCapability {
+    /// Returns whether this command accepts `suffix`.
+    pub fn supports_suffix(&self, suffix: &str) -> bool {
+        self.available && self.suffixes.contains(&suffix)
+    }
+}
+
 // =============================================================================
 // Async command requests
 // =============================================================================
@@ -374,6 +405,8 @@ pub struct CommandContext<'v, 'r, V: ViewerLike + ?Sized> {
     history: Option<&'r CommandHistory>,
     /// Dynamic settings registered by plugins
     dynamic_settings: Option<&'r DynamicSettingRegistry>,
+    /// Metadata for plugins loaded into the owning executor.
+    loaded_plugin_capabilities: Option<&'r [LoadedPluginCapability]>,
     /// Host-provided async request sink.
     async_command_sink: Option<AsyncCommandSink<'r>>,
 }
@@ -391,6 +424,7 @@ impl<'v, 'r, V: ViewerLike + ?Sized> CommandContext<'v, 'r, V> {
             format_handlers: None,
             history: None,
             dynamic_settings: None,
+            loaded_plugin_capabilities: None,
             async_command_sink: None,
         }
     }
@@ -462,6 +496,27 @@ impl<'v, 'r, V: ViewerLike + ?Sized> CommandContext<'v, 'r, V> {
     pub fn with_dynamic_settings(mut self, registry: &'r DynamicSettingRegistry) -> Self {
         self.dynamic_settings = Some(registry);
         self
+    }
+
+    /// Sets the loaded-plugin metadata visible to commands.
+    pub fn with_loaded_plugin_capabilities(
+        mut self,
+        capabilities: &'r [LoadedPluginCapability],
+    ) -> Self {
+        self.loaded_plugin_capabilities = Some(capabilities);
+        self
+    }
+
+    /// Returns metadata for plugins loaded into the current executor.
+    pub fn loaded_plugin_capabilities(&self) -> &[LoadedPluginCapability] {
+        self.loaded_plugin_capabilities.unwrap_or_default()
+    }
+
+    /// Clones loaded-plugin metadata for a child command executor.
+    pub(crate) fn clone_loaded_plugin_capabilities_for_child_executor(
+        &self,
+    ) -> Vec<LoadedPluginCapability> {
+        self.loaded_plugin_capabilities().to_vec()
     }
 
     /// Resolve a built-in or dynamic setting by name.

@@ -9,7 +9,7 @@ use ahash::AHashMap;
 
 use crate::command::{
     AsyncCommandSink, CommandAction, CommandContext, CommandRegistry, DynamicSettingRegistry,
-    FormatHandler, OutputMessage, ScriptHandler, ViewerLike,
+    FormatHandler, LoadedPluginCapability, OutputMessage, ScriptHandler, ViewerLike,
 };
 use crate::error::{CmdError, CmdResult};
 use crate::history::CommandHistory;
@@ -56,6 +56,8 @@ pub struct CommandExecutor {
     format_handlers: AHashMap<String, Arc<FormatHandler>>,
     /// Dynamic settings registered by plugins
     dynamic_settings: DynamicSettingRegistry,
+    /// Metadata for plugins loaded into this executor.
+    loaded_plugin_capabilities: Vec<LoadedPluginCapability>,
 }
 
 impl Default for CommandExecutor {
@@ -73,6 +75,7 @@ impl CommandExecutor {
             script_handlers: AHashMap::new(),
             format_handlers: AHashMap::new(),
             dynamic_settings: DynamicSettingRegistry::new(),
+            loaded_plugin_capabilities: Vec::new(),
         }
     }
 
@@ -92,7 +95,17 @@ impl CommandExecutor {
             script_handlers,
             format_handlers,
             dynamic_settings,
+            loaded_plugin_capabilities: Vec::new(),
         }
+    }
+
+    /// Sets loaded-plugin metadata while constructing a child executor.
+    pub(crate) fn with_loaded_plugin_capabilities(
+        mut self,
+        capabilities: Vec<LoadedPluginCapability>,
+    ) -> Self {
+        self.loaded_plugin_capabilities = capabilities;
+        self
     }
 
     /// Get a reference to the command registry
@@ -158,6 +171,16 @@ impl CommandExecutor {
     /// Get mutable dynamic settings for plugin registration.
     pub fn dynamic_settings_mut(&mut self) -> &mut DynamicSettingRegistry {
         &mut self.dynamic_settings
+    }
+
+    /// Records metadata for one successfully loaded plugin.
+    pub fn record_loaded_plugin_capability(&mut self, capability: LoadedPluginCapability) {
+        self.loaded_plugin_capabilities.push(capability);
+    }
+
+    /// Returns metadata for plugins loaded into this executor.
+    pub fn loaded_plugin_capabilities(&self) -> &[LoadedPluginCapability] {
+        &self.loaded_plugin_capabilities
     }
 
     /// Execute a single command string
@@ -234,6 +257,7 @@ impl CommandExecutor {
             .with_format_handlers(&self.format_handlers)
             .with_history(&self.history)
             .with_dynamic_settings(&self.dynamic_settings)
+            .with_loaded_plugin_capabilities(&self.loaded_plugin_capabilities)
             .with_async_command_sink(async_command_sink);
         let start = command_timer_start();
         command.execute(&mut ctx, &parsed)?;
@@ -310,11 +334,32 @@ fn format_command(cmd: &crate::args::ParsedCommand) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::LoadedPluginCapability;
 
     #[test]
     fn test_executor_creation() {
         let executor = CommandExecutor::new();
         assert!(!executor.registry().is_empty() || executor.registry().is_empty());
+        assert!(executor.loaded_plugin_capabilities().is_empty());
+    }
+
+    #[test]
+    fn loaded_plugin_capabilities_are_executor_state() {
+        let mut executor = CommandExecutor::new();
+        executor.record_loaded_plugin_capability(LoadedPluginCapability {
+            name: "python".to_string(),
+            version: "1.2.3".to_string(),
+            description: "Python integration".to_string(),
+        });
+
+        assert_eq!(
+            executor.loaded_plugin_capabilities(),
+            &[LoadedPluginCapability {
+                name: "python".to_string(),
+                version: "1.2.3".to_string(),
+                description: "Python integration".to_string(),
+            }]
+        );
     }
 
     #[test]

@@ -3,6 +3,7 @@
 //! This module contains all built-in command implementations organized by category.
 
 pub mod align;
+pub mod capabilities;
 pub mod control;
 pub mod crystal;
 pub mod display;
@@ -22,6 +23,9 @@ use crate::command::CommandRegistry;
 
 /// Register all built-in commands with the registry
 pub fn register_all(registry: &mut CommandRegistry) {
+    // Runtime capability introspection
+    capabilities::register(registry);
+
     // File I/O commands
     io::register(registry);
 
