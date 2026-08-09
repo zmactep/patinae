@@ -1086,6 +1086,12 @@ unsafe extern "C" fn register_writer_format_fixture(
         false,
         true,
     ));
+    registrar.register_format_handler(fixture_format(
+        "save-advertised-built-in-collision",
+        "pdb",
+        false,
+        true,
+    ));
     registrar.finish()
 }
 
@@ -1269,7 +1275,15 @@ fn reports_effective_format_access_and_current_plugin_winner() {
     assert!(!save.lines().any(|line| line == ".reader_only"));
     assert!(save.lines().any(|line| line == ".writer_only"));
     assert!(save.lines().any(|line| line == ".runtime_collision"));
-    assert!(!save.lines().any(|line| line == ".bcif"));
+    assert_eq!(save.lines().filter(|line| *line == ".pdb").count(), 1);
+    assert_eq!(save.lines().filter(|line| *line == ".pdb.gz").count(), 1);
+    assert!(save.lines().any(|line| line == ".pml"));
+    assert!(save.lines().any(|line| line == ".prs"));
+    for unsupported in [
+        ".pml.gz", ".prs.gz", ".bcif", ".bcif.gz", ".map", ".map.gz", ".xtc", ".xtc.gz",
+    ] {
+        assert!(!save.lines().any(|line| line == unsupported));
+    }
 }
 
 #[test]

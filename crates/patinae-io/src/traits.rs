@@ -320,10 +320,10 @@ pub fn create_trajectory_reader<R: Read + 'static>(
 }
 
 /// Create a writer for the given format to a Write destination
-pub fn create_writer<W: Write + 'static>(
+pub fn create_writer<'writer, W: Write + 'writer>(
     writer: W,
     format: FileFormat,
-) -> IoResult<Box<dyn MoleculeWriter>> {
+) -> IoResult<Box<dyn MoleculeWriter + 'writer>> {
     match format {
         FileFormat::Pdb => Ok(Box::new(crate::pdb::PdbWriter::new(writer))),
         FileFormat::Sdf => Ok(Box::new(crate::sdf::SdfWriter::new(writer))),

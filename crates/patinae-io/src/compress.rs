@@ -109,6 +109,19 @@ mod tests {
     use super::*;
     use std::io::Cursor;
 
+    #[derive(Debug)]
+    struct FailingWriter;
+
+    impl Write for FailingWriter {
+        fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("injected write failure"))
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
     #[test]
     fn test_is_gzip_path() {
         assert!(is_gzip_path(Path::new("file.pdb.gz")));
@@ -136,5 +149,16 @@ mod tests {
         }
 
         assert_eq!(original.as_slice(), decompressed.as_slice());
+    }
+
+    #[test]
+    fn gzip_finish_propagates_output_failure() {
+        let writer = MaybeGzWriter::Gzip(gzip_writer(FailingWriter));
+
+        let error = writer
+            .finish()
+            .expect_err("gzip finalization failure should be returned");
+
+        assert_eq!(error.kind(), std::io::ErrorKind::Other);
     }
 }

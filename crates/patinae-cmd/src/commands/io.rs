@@ -105,7 +105,9 @@ pub(crate) const SAVE_CAPABILITY: BuiltinCommandCapability = BuiltinCommandCapab
     command: "save",
     aliases: &[],
     suffixes: &[
-        "pdb", "ent", "sdf", "mol", "sd", "mol2", "ml2", "cif", "mmcif", "xyz", "gro", "prs", "pml",
+        "pdb", "pdb.gz", "ent", "ent.gz", "sdf", "sdf.gz", "mol", "mol.gz", "sd", "sd.gz", "mol2",
+        "mol2.gz", "ml2", "ml2.gz", "cif", "cif.gz", "mmcif", "mmcif.gz", "xyz", "xyz.gz", "gro",
+        "gro.gz", "prs", "pml",
     ],
     available: true,
 };
@@ -507,10 +509,17 @@ mod load_tests {
         }
 
         assert_eq!(SAVE_CAPABILITY.command, "save");
-        assert!(SAVE_CAPABILITY.suffixes.contains(&"pml"));
-        assert!(SAVE_CAPABILITY.suffixes.contains(&"prs"));
+        assert_eq!(
+            SAVE_CAPABILITY.suffixes,
+            &[
+                "pdb", "pdb.gz", "ent", "ent.gz", "sdf", "sdf.gz", "mol", "mol.gz", "sd", "sd.gz",
+                "mol2", "mol2.gz", "ml2", "ml2.gz", "cif", "cif.gz", "mmcif", "mmcif.gz", "xyz",
+                "xyz.gz", "gro", "gro.gz", "prs", "pml",
+            ]
+        );
         for unsupported in [
-            "pse", "pze", "bcif", "xtc", "trr", "ccp4", "map", "mrc", "pdb.gz", "png",
+            "pse", "pze", "bcif", "bcif.gz", "xtc", "xtc.gz", "trr", "trr.gz", "ccp4", "ccp4.gz",
+            "map", "map.gz", "mrc", "mrc.gz", "pml.gz", "prs.gz", "png",
         ] {
             assert!(!SAVE_CAPABILITY.suffixes.contains(&unsupported));
         }
@@ -584,6 +593,14 @@ _atom_site.Cartn_z
         executor: &mut CommandExecutor,
         command: &str,
     ) -> CommandOutput {
+        run_command_result(session, executor, command).expect("I/O command should succeed")
+    }
+
+    fn run_command_result(
+        session: &mut Session,
+        executor: &mut CommandExecutor,
+        command: &str,
+    ) -> CmdResult<CommandOutput> {
         let mut needs_redraw = false;
         let mut adapter = SessionAdapter {
             session,
@@ -593,9 +610,7 @@ _atom_site.Cartn_z
             async_fetch_fn: None,
         };
 
-        executor
-            .do_with_options(&mut adapter, command, false)
-            .expect("load command should succeed")
+        executor.do_with_options(&mut adapter, command, false)
     }
 
     fn object_names(session: &Session) -> Vec<String> {
@@ -834,6 +849,357 @@ _atom_site.Cartn_z
         );
         assert!(output.messages.is_empty());
         assert_recent_file_recorded_once(&output);
+
+        fs::remove_dir_all(&dir).expect("temporary directory should be removed");
+    }
+
+    #[test]
+    fn save_plain_pdb_uses_builtin_writer() {
+        let dir = temp_dir("save_plain_pdb");
+        let path = dir.join("molecule.pdb");
+        let mut session = Session::new();
+        session.registry.add(MoleculeObject::with_name(
+            single_atom_molecule("molecule", 1.25),
+            "molecule",
+        ));
+        let mut executor = CommandExecutor::new();
+
+        let command = format!("save {}", path.display());
+        let output = run_command(&mut session, &mut executor, &command);
+
+        let bytes = fs::read(&path).expect("plain PDB output should be readable");
+        assert!(!bytes.starts_with(&[0x1f, 0x8b]));
+        assert_eq!(
+            patinae_io::read_file(&path)
+                .expect("plain PDB output should parse")
+                .atom_count(),
+            1
+        );
+        assert_eq!(output.messages.len(), 1);
+        assert_eq!(
+            output.messages[0].text,
+            format!(" Saved 1 atoms to \"{}\" (PDB format)", path.display())
+        );
+
+        fs::remove_dir_all(&dir).expect("temporary directory should be removed");
+    }
+
+    #[test]
+    fn save_plain_plugin_suffix_uses_registered_writer() {
+        let dir = temp_dir("save_plain_plugin");
+        let path = dir.join("molecule.custom");
+        let mut session = Session::new();
+        session.registry.add(MoleculeObject::with_name(
+            single_atom_molecule("molecule", 2.5),
+            "molecule",
+        ));
+        let mut executor = CommandExecutor::new();
+        executor.register_format_handler(FormatHandler {
+            name: "Custom".to_string(),
+            extensions: vec!["custom".to_string()],
+            reader: None,
+            writer: Some(Arc::new(|mut writer, molecules| {
+                assert_eq!(molecules.len(), 1);
+                writer
+                    .write_all(b"custom output")
+                    .map_err(|e| e.to_string())?;
+                writer.flush().map_err(|e| e.to_string())
+            })),
+        });
+
+        let command = format!("save {}", path.display());
+        let output = run_command(&mut session, &mut executor, &command);
+
+        assert_eq!(
+            fs::read(&path).expect("plugin output should be readable"),
+            b"custom output"
+        );
+        assert_eq!(output.messages.len(), 1);
+        assert_eq!(
+            output.messages[0].text,
+            format!(" Saved 1 atoms to \"{}\" (Custom format)", path.display())
+        );
+
+        fs::remove_dir_all(&dir).expect("temporary directory should be removed");
+    }
+
+    #[test]
+    fn save_recognized_read_only_suffix_uses_registered_writer() {
+        let dir = temp_dir("save_recognized_plugin");
+        let path = dir.join("molecule.xtc");
+        let mut session = Session::new();
+        session.registry.add(MoleculeObject::with_name(
+            single_atom_molecule("molecule", 3.0),
+            "molecule",
+        ));
+        let mut executor = CommandExecutor::new();
+        executor.register_format_handler(FormatHandler {
+            name: "Plugin XTC".to_string(),
+            extensions: vec!["xtc".to_string()],
+            reader: None,
+            writer: Some(Arc::new(|mut writer, molecules| {
+                assert_eq!(molecules.len(), 1);
+                writer
+                    .write_all(b"plugin xtc output")
+                    .map_err(|e| e.to_string())?;
+                writer.flush().map_err(|e| e.to_string())
+            })),
+        });
+
+        let capabilities = run_command(&mut session, &mut executor, "capabilities formats save");
+        assert!(capabilities
+            .messages
+            .iter()
+            .any(|message| message.text.lines().any(|line| line == ".xtc")));
+
+        let command = format!("save {}", path.display());
+        let output = run_command(&mut session, &mut executor, &command);
+
+        assert_eq!(
+            fs::read(&path).expect("plugin XTC output should be readable"),
+            b"plugin xtc output"
+        );
+        assert_eq!(output.messages.len(), 1);
+        assert!(output.messages[0].text.ends_with("(Plugin XTC format)"));
+
+        fs::remove_dir_all(&dir).expect("temporary directory should be removed");
+    }
+
+    #[test]
+    fn save_pdb_gzip_uses_builtin_writer_and_reports_success() {
+        let dir = temp_dir("save_pdb_gzip");
+        let path = dir.join("molecule.pdb.gz");
+        let mut session = Session::new();
+        session.registry.add(MoleculeObject::with_name(
+            single_atom_molecule("molecule", 3.75),
+            "molecule",
+        ));
+        let mut executor = CommandExecutor::new();
+
+        let command = format!("save {}", path.display());
+        let output = run_command(&mut session, &mut executor, &command);
+
+        let bytes = fs::read(&path).expect("gzip PDB output should be readable");
+        assert!(bytes.starts_with(&[0x1f, 0x8b]));
+        assert_eq!(
+            patinae_io::read_file(&path)
+                .expect("completed gzip PDB output should parse")
+                .atom_count(),
+            1
+        );
+        assert_eq!(output.messages.len(), 1);
+        assert_eq!(
+            output.messages[0].text,
+            format!(" Saved 1 atoms to \"{}\" (PDB format)", path.display())
+        );
+
+        fs::remove_dir_all(&dir).expect("temporary directory should be removed");
+    }
+
+    #[test]
+    fn save_mixed_case_ent_gzip_uses_builtin_pdb_writer() {
+        let dir = temp_dir("save_ent_gzip");
+        let path = dir.join("molecule.ENT.GZ");
+        let mut session = Session::new();
+        session.registry.add(MoleculeObject::with_name(
+            single_atom_molecule("molecule", 5.0),
+            "molecule",
+        ));
+        let mut executor = CommandExecutor::new();
+
+        let command = format!("save {}", path.display());
+        let output = run_command(&mut session, &mut executor, &command);
+
+        assert_eq!(
+            patinae_io::read_file(&path)
+                .expect("mixed-case gzip PDB output should parse")
+                .atom_count(),
+            1
+        );
+        assert_eq!(output.messages.len(), 1);
+        assert!(output.messages[0].text.ends_with("(PDB format)"));
+
+        fs::remove_dir_all(&dir).expect("temporary directory should be removed");
+    }
+
+    #[test]
+    fn save_builtin_gzip_precedes_outer_extension_plugin() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let dir = temp_dir("save_builtin_gzip_precedence");
+        let path = dir.join("molecule.pdb.gz");
+        let plugin_called = Arc::new(AtomicBool::new(false));
+        let plugin_called_by_writer = plugin_called.clone();
+        let mut session = Session::new();
+        session.registry.add(MoleculeObject::with_name(
+            single_atom_molecule("molecule", 6.25),
+            "molecule",
+        ));
+        let mut executor = CommandExecutor::new();
+        executor.register_format_handler(FormatHandler {
+            name: "Outer gzip".to_string(),
+            extensions: vec!["gz".to_string()],
+            reader: None,
+            writer: Some(Arc::new(move |mut writer, _| {
+                plugin_called_by_writer.store(true, Ordering::SeqCst);
+                writer
+                    .write_all(b"plugin output")
+                    .map_err(|e| e.to_string())
+            })),
+        });
+
+        let command = format!("save {}", path.display());
+        run_command(&mut session, &mut executor, &command);
+
+        assert!(!plugin_called.load(Ordering::SeqCst));
+        assert_eq!(
+            patinae_io::read_file(&path)
+                .expect("built-in gzip PDB output should parse")
+                .atom_count(),
+            1
+        );
+
+        fs::remove_dir_all(&dir).expect("temporary directory should be removed");
+    }
+
+    #[test]
+    fn save_unadvertised_compound_suffix_keeps_outer_plugin_dispatch() {
+        let dir = temp_dir("save_outer_plugin");
+        let path = dir.join("molecule.custom.gz");
+        let mut session = Session::new();
+        session.registry.add(MoleculeObject::with_name(
+            single_atom_molecule("molecule", 6.5),
+            "molecule",
+        ));
+        let mut executor = CommandExecutor::new();
+        executor.register_format_handler(FormatHandler {
+            name: "Outer gzip".to_string(),
+            extensions: vec!["gz".to_string()],
+            reader: None,
+            writer: Some(Arc::new(|mut writer, _| {
+                writer
+                    .write_all(b"outer plugin output")
+                    .map_err(|e| e.to_string())
+            })),
+        });
+
+        let command = format!("save {}", path.display());
+        let output = run_command(&mut session, &mut executor, &command);
+
+        assert_eq!(
+            fs::read(&path).expect("outer plugin output should be readable"),
+            b"outer plugin output"
+        );
+        assert!(output.messages[0].text.ends_with("(Outer gzip format)"));
+
+        fs::remove_dir_all(&dir).expect("temporary directory should be removed");
+    }
+
+    #[test]
+    fn save_deferred_compound_suffixes_do_not_use_builtin_writer() {
+        let dir = temp_dir("save_deferred_compound");
+        let mut session = Session::new();
+        session.registry.add(MoleculeObject::with_name(
+            single_atom_molecule("molecule", 7.5),
+            "molecule",
+        ));
+        let mut executor = CommandExecutor::new();
+
+        for filename in [
+            "commands.pml.gz",
+            "session.prs.gz",
+            "molecule.custom.gz",
+            "molecule.gz",
+        ] {
+            let path = dir.join(filename);
+            let command = format!("save {}", path.display());
+            let error = run_command_result(&mut session, &mut executor, &command)
+                .expect_err("deferred compound suffix should be unsupported");
+
+            assert!(error.to_string().contains("Unknown file format: .gz"));
+            assert!(!path.exists());
+        }
+
+        fs::remove_dir_all(&dir).expect("temporary directory should be removed");
+    }
+
+    #[test]
+    fn save_plain_pml_keeps_command_log_route() {
+        let dir = temp_dir("save_plain_pml");
+        let path = dir.join("commands.pml");
+        let mut session = Session::new();
+        let mut executor = CommandExecutor::new();
+
+        let command = format!("save {}", path.display());
+        let output = run_command(&mut session, &mut executor, &command);
+
+        let text = fs::read_to_string(&path).expect("plain PML output should be readable");
+        assert!(text.starts_with("# Command log\n"));
+        assert!(text.contains(&command));
+        assert_eq!(output.messages.len(), 1);
+        assert_eq!(
+            output.messages[0].text,
+            format!(" Saved 1 commands to \"{}\"", path.display())
+        );
+
+        fs::remove_dir_all(&dir).expect("temporary directory should be removed");
+    }
+
+    #[test]
+    fn save_plain_prs_keeps_session_route() {
+        let dir = temp_dir("save_plain_prs");
+        let path = dir.join("session.prs");
+        let mut session = Session::new();
+        session.registry.add(MoleculeObject::with_name(
+            single_atom_molecule("molecule", 8.75),
+            "molecule",
+        ));
+        let mut executor = CommandExecutor::new();
+
+        let command = format!("save {}", path.display());
+        let output = run_command(&mut session, &mut executor, &command);
+
+        let document = patinae_session::load_prs_document(&path)
+            .expect("plain PRS route should write a readable session");
+        assert!(document.session.registry.get_molecule("molecule").is_some());
+        assert_eq!(output.messages.len(), 1);
+        assert_eq!(
+            output.messages[0].text,
+            format!(" Saved session to \"{}\"", path.display())
+        );
+
+        fs::remove_dir_all(&dir).expect("temporary directory should be removed");
+    }
+
+    #[test]
+    fn save_write_error_does_not_report_success() {
+        let dir = temp_dir("save_write_error");
+        let path = dir.join("missing").join("molecule.pdb.gz");
+        let mut session = Session::new();
+        session.registry.add(MoleculeObject::with_name(
+            single_atom_molecule("molecule", 10.0),
+            "molecule",
+        ));
+        let mut needs_redraw = false;
+        let mut adapter = SessionAdapter {
+            session: &mut session,
+            render_context: None,
+            default_size: (64, 64),
+            needs_redraw: &mut needs_redraw,
+            async_fetch_fn: None,
+        };
+        let viewer: &mut dyn ViewerLike = &mut adapter;
+        let mut ctx = CommandContext::new(viewer);
+        let command = format!("save {}", path.display());
+        let args = crate::parse_command(&command).expect("save command should parse");
+
+        let error = SaveCommand
+            .execute(&mut ctx, &args)
+            .expect_err("uncreatable output path should fail");
+
+        assert!(error.is_file_format());
+        assert!(ctx.output().is_empty());
+        assert!(!path.exists());
 
         fs::remove_dir_all(&dir).expect("temporary directory should be removed");
     }
@@ -1112,7 +1478,12 @@ impl Command for SaveCommand {
             _ => {}
         }
 
-        let format = FileFormat::from_extension(&ext);
+        let suffix = normalized_path_suffix(&path);
+        let format = if SAVE_CAPABILITY.supports_suffix(&suffix) {
+            FileFormat::from_path(&path)
+        } else {
+            FileFormat::Unknown
+        };
         if format == FileFormat::Unknown && ctx.format_handler(&ext).is_none() {
             return Err(CmdError::execution(format!(
                 "Unknown file format: .{} (supported: pdb, cif, mol2, sdf, xyz, gro, prs + plugins)",

@@ -237,7 +237,7 @@ fn format_extensions(
         .flat_map(|handlers| handlers.iter())
         .filter(|(_, handler)| supports_access(handler, access))
         .filter_map(|(extension, _)| canonical_extension(extension))
-        .filter(|extension| !builtin_claims_format(extension, capability, access))
+        .filter(|extension| plugin_extension_should_be_listed(extension, capability, access))
         .map(|extension| format!(".{extension}"))
         .collect()
 }
@@ -249,19 +249,20 @@ fn supports_access(handler: &FormatHandler, access: FormatAccess) -> bool {
     }
 }
 
-fn builtin_claims_format(
+fn plugin_extension_should_be_listed(
     extension: &str,
     capability: BuiltinCommandCapability,
     access: FormatAccess,
 ) -> bool {
     if capability.supports_suffix(extension) {
-        return true;
+        return false;
     }
 
-    let recognized = FileFormat::from_extension(extension);
     match access {
-        FormatAccess::Read => recognized.is_trajectory_only(),
-        FormatAccess::Write => recognized != FileFormat::Unknown || extension == "pse",
+        // XTC and TRR belong to `load_traj`, not the ordinary `load` command.
+        FormatAccess::Read => !FileFormat::from_extension(extension).is_trajectory_only(),
+        // `save` intercepts these suffixes and rejects them before plugin dispatch.
+        FormatAccess::Write => !matches!(extension, "bcif" | "pse"),
     }
 }
 
@@ -411,18 +412,29 @@ mod tests {
             concat!(
                 "Formats for save:\n",
                 ".cif\n",
+                ".cif.gz\n",
                 ".ent\n",
+                ".ent.gz\n",
                 ".gro\n",
+                ".gro.gz\n",
                 ".ml2\n",
+                ".ml2.gz\n",
                 ".mmcif\n",
+                ".mmcif.gz\n",
                 ".mol\n",
+                ".mol.gz\n",
                 ".mol2\n",
+                ".mol2.gz\n",
                 ".pdb\n",
+                ".pdb.gz\n",
                 ".pml\n",
                 ".prs\n",
                 ".sd\n",
+                ".sd.gz\n",
                 ".sdf\n",
-                ".xyz"
+                ".sdf.gz\n",
+                ".xyz\n",
+                ".xyz.gz"
             )
         );
     }
@@ -508,28 +520,29 @@ mod tests {
         executor.register_script_handler("foo.gz", Arc::new(|_| Ok(())));
 
         let load = execute_text(&mut executor, "capabilities formats load");
-        assert!(load.contains("\n.both\n"));
-        assert_eq!(load.matches("\n.both").count(), 1);
-        assert!(load.contains("\n.reader_only\n"));
+        assert_eq!(load.lines().filter(|line| *line == ".both").count(), 1);
+        assert!(load.lines().any(|line| line == ".reader_only"));
         assert!(!load.contains("writer_only"));
         assert!(!load.contains("winner"));
-        assert_eq!(load.matches("\n.pdb").count(), 2);
-        assert_eq!(load.matches("\n.bcif").count(), 2);
-        assert!(!load.contains("\n.xtc"));
+        assert_eq!(load.lines().filter(|line| *line == ".pdb").count(), 1);
+        assert_eq!(load.lines().filter(|line| *line == ".pdb.gz").count(), 1);
+        assert_eq!(load.lines().filter(|line| *line == ".bcif").count(), 1);
+        assert_eq!(load.lines().filter(|line| *line == ".bcif.gz").count(), 1);
+        assert!(!load.lines().any(|line| line == ".xtc"));
         assert!(!load.contains("dotted"));
         assert!(!load.contains("upper"));
         assert!(!load.contains("spaced"));
         assert!(!load.contains("foo.gz"));
 
         let save = execute_text(&mut executor, "capabilities formats save");
-        assert!(save.contains("\n.both\n"));
-        assert_eq!(save.matches("\n.both").count(), 1);
-        assert!(save.contains("\n.writer_only\n"));
-        assert!(save.contains("\n.winner\n"));
+        assert_eq!(save.lines().filter(|line| *line == ".both").count(), 1);
+        assert!(save.lines().any(|line| line == ".writer_only"));
+        assert!(save.lines().any(|line| line == ".winner"));
         assert!(!save.contains("reader_only"));
-        assert_eq!(save.matches("\n.pdb").count(), 1);
-        assert!(!save.contains("\n.bcif"));
-        assert!(!save.contains("\n.xtc"));
+        assert_eq!(save.lines().filter(|line| *line == ".pdb").count(), 1);
+        assert_eq!(save.lines().filter(|line| *line == ".pdb.gz").count(), 1);
+        assert!(!save.lines().any(|line| line == ".bcif"));
+        assert_eq!(save.lines().filter(|line| *line == ".xtc").count(), 1);
         assert!(!save.contains("dotted"));
         assert!(!save.contains("upper"));
         assert!(!save.contains("spaced"));

@@ -95,7 +95,7 @@ pub use fetch::{
 };
 
 use std::fs::File;
-use std::io::BufWriter;
+use std::io::{BufWriter, Write};
 use std::path::Path;
 
 use patinae_mol::ObjectMolecule;
@@ -175,13 +175,33 @@ pub fn write_file(path: &Path, mol: &ObjectMolecule) -> IoResult<()> {
     write_file_format(path, mol, format)
 }
 
-/// Write a molecule to a file with a specific format
-pub fn write_file_format(path: &Path, mol: &ObjectMolecule, format: FileFormat) -> IoResult<()> {
+fn write_path_format(
+    path: &Path,
+    format: FileFormat,
+    write: impl FnOnce(&mut dyn MoleculeWriter) -> IoResult<()>,
+) -> IoResult<()> {
     let file = File::create(path)?;
     let writer = BufWriter::new(file);
-    let mut mol_writer = create_writer(writer, format)?;
-    mol_writer.write(mol)?;
-    mol_writer.flush()
+    let mut output = if compress::is_gzip_path(path) {
+        compress::MaybeGzWriter::Gzip(compress::gzip_writer(writer))
+    } else {
+        compress::MaybeGzWriter::Plain(writer)
+    };
+
+    {
+        let mut mol_writer = create_writer(&mut output, format)?;
+        write(mol_writer.as_mut())?;
+        mol_writer.flush()?;
+    }
+
+    let mut writer = output.finish()?;
+    writer.flush()?;
+    Ok(())
+}
+
+/// Write a molecule to a file with a specific format
+pub fn write_file_format(path: &Path, mol: &ObjectMolecule, format: FileFormat) -> IoResult<()> {
+    write_path_format(path, format, |writer| writer.write(mol))
 }
 
 /// Write multiple molecules to a file (for multi-molecule formats like SDF)
@@ -196,11 +216,7 @@ pub fn write_all_format(
     molecules: &[ObjectMolecule],
     format: FileFormat,
 ) -> IoResult<()> {
-    let file = File::create(path)?;
-    let writer = BufWriter::new(file);
-    let mut mol_writer = create_writer(writer, format)?;
-    mol_writer.write_all(molecules)?;
-    mol_writer.flush()
+    write_path_format(path, format, |writer| writer.write_all(molecules))
 }
 
 #[cfg(feature = "traj")]
@@ -251,8 +267,10 @@ pub fn parse_str(content: &str, format: FileFormat) -> IoResult<ObjectMolecule> 
 mod tests {
     use super::*;
     use crate::bcif::test_support::{atom_row, atom_site_block, encode_bcif_file};
+    use flate2::read::GzDecoder;
     use lin_alg::f32::Vec3;
     use patinae_mol::{Atom, CoordSet, Element};
+    use std::io::Read;
     use tempfile::tempdir;
 
     fn single_atom_molecule(name: &str, x: f32) -> ObjectMolecule {
@@ -282,6 +300,107 @@ mod tests {
                 .expect("MOL2 fixture should be writable");
         }
         std::fs::write(path, output).expect("MOL2 fixture should be written to disk");
+    }
+
+    fn assert_gzip_file(path: &Path) -> String {
+        let bytes = std::fs::read(path).expect("written file should be readable");
+        assert_eq!(&bytes[..2], &[0x1f, 0x8b]);
+
+        let mut text = String::new();
+        GzDecoder::new(bytes.as_slice())
+            .read_to_string(&mut text)
+            .expect("gzip stream should be complete and decompressible");
+        text
+    }
+
+    #[test]
+    fn write_file_gzip_supports_all_builtin_aliases() {
+        let dir = tempdir().expect("temporary directory should be created");
+        let molecule = single_atom_molecule("mixed-case", 1.25);
+
+        for suffix in [
+            "pdb.gz", "ENT.GZ", "sdf.gz", "mol.gz", "sd.gz", "mol2.gz", "ml2.gz", "cif.gz",
+            "mmcif.gz", "xyz.gz", "gro.gz",
+        ] {
+            let path = dir.path().join(format!("molecule.{suffix}"));
+
+            write_file(&path, &molecule)
+                .unwrap_or_else(|error| panic!("{suffix} should be writable: {error}"));
+
+            assert_gzip_file(&path);
+            let parsed = read_file(&path)
+                .unwrap_or_else(|error| panic!("{suffix} should read back: {error}"));
+            assert_eq!(parsed.atom_count(), 1, "suffix: {suffix}");
+        }
+    }
+
+    #[test]
+    fn write_file_format_gzip_keeps_explicit_format_authoritative() {
+        let dir = tempdir().expect("temporary directory should be created");
+        let path = dir.path().join("molecule.data.gz");
+        let molecule = single_atom_molecule("explicit-xyz", 2.5);
+
+        write_file_format(&path, &molecule, FileFormat::Xyz)
+            .expect("explicit-format gzip XYZ should be written");
+
+        let text = assert_gzip_file(&path);
+        assert!(text.starts_with("1\nexplicit-xyz\n"));
+        let parsed = read_file_format(&path, FileFormat::Xyz)
+            .expect("explicit-format gzip XYZ should read back");
+        assert_eq!(parsed.name, "explicit-xyz");
+    }
+
+    #[test]
+    fn write_file_format_plain_output_stays_uncompressed() {
+        let dir = tempdir().expect("temporary directory should be created");
+        let path = dir.path().join("molecule.xyz");
+        let molecule = single_atom_molecule("plain-xyz", 3.75);
+
+        write_file_format(&path, &molecule, FileFormat::Xyz).expect("plain XYZ should be written");
+
+        let bytes = std::fs::read(&path).expect("plain XYZ should be readable");
+        assert_ne!(&bytes[..2], &[0x1f, 0x8b]);
+        let parsed =
+            read_file_format(&path, FileFormat::Xyz).expect("plain XYZ should remain readable");
+        assert_eq!(parsed.name, "plain-xyz");
+    }
+
+    #[test]
+    fn write_all_gzip_roundtrips_multiple_molecules() {
+        let dir = tempdir().expect("temporary directory should be created");
+        let path = dir.path().join("molecules.SD.GZ");
+        let molecules = [
+            single_atom_molecule("first", 0.0),
+            single_atom_molecule("second", 1.0),
+        ];
+
+        write_all(&path, &molecules).expect("multi-record gzip SDF should be written");
+
+        let text = assert_gzip_file(&path);
+        assert_eq!(text.matches("$$$$").count(), 2);
+        let parsed = read_all(&path).expect("multi-record gzip SDF should read back");
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[0].name, "first");
+        assert_eq!(parsed[1].name, "second");
+    }
+
+    #[test]
+    fn write_all_format_gzip_uses_explicit_format() {
+        let dir = tempdir().expect("temporary directory should be created");
+        let path = dir.path().join("molecules.data.gz");
+        let molecules = [
+            single_atom_molecule("first", 0.0),
+            single_atom_molecule("second", 1.0),
+        ];
+
+        write_all_format(&path, &molecules, FileFormat::Sdf)
+            .expect("explicit-format multi-record gzip SDF should be written");
+
+        let text = assert_gzip_file(&path);
+        assert_eq!(text.matches("$$$$").count(), 2);
+        let parsed = read_all_format(&path, FileFormat::Sdf)
+            .expect("explicit-format multi-record gzip SDF should read back");
+        assert_eq!(parsed.len(), 2);
     }
 
     #[test]
