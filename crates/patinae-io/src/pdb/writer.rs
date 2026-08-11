@@ -11,6 +11,8 @@ use crate::error::{IoError, IoResult};
 use crate::pdb::hybrid36::hy36encode;
 use crate::traits::MoleculeWriter;
 
+use super::chain_ids::source_chain_id;
+
 /// PDB file writer
 pub struct PdbWriter<W> {
     writer: W,
@@ -167,11 +169,7 @@ impl<W: Write> PdbWriter<W> {
                 SecondaryStructure::HelixPi => 3,
                 _ => 1,
             };
-            let chain = if run.chain.is_empty() {
-                " "
-            } else {
-                &run.chain[..1.min(run.chain.len())]
-            };
+            let chain = pdb_chain_column(&run.chain);
             // PDB HELIX format:
             // HELIX  ser hid iResN iChn iSeq iIC  eResN eChn eSeq eIC cls
             writeln!(
@@ -215,16 +213,12 @@ impl<W: Write> PdbWriter<W> {
                 continue;
             }
             sheet_serial += 1;
-            let chain = if run.chain.is_empty() {
-                " "
-            } else {
-                &run.chain[..1.min(run.chain.len())]
-            };
+            let chain = pdb_chain_column(&run.chain);
             // PDB SHEET format:
             // SHEET  str shID nStr iResN iChn iSeq iIC  eResN eChn eSeq eIC sense
             writeln!(
                 self.writer,
-                "SHEET  {:3} {:>3}{:2} {:3} {}{:4}{}  {:3} {}{:4}{}{:2}",
+                "SHEET  {:3} {:>3}{:2} {:3} {}{:4}{} {:3} {}{:4}{}{:2}",
                 sheet_serial,
                 sheet_serial,
                 1, // num_strands (1 = single strand, simplified)
@@ -278,11 +272,7 @@ impl<W: Write> PdbWriter<W> {
         let name = format_atom_name(&atom.name, atom.element.symbol());
 
         // Format chain (single character)
-        let chain = if atom.residue.chain.is_empty() {
-            " "
-        } else {
-            &atom.residue.chain[..1.min(atom.residue.chain.len())]
-        };
+        let chain = pdb_chain_column(&atom.residue.chain);
 
         // Format insertion code
         let icode = if atom.residue.inscode == ' ' {
@@ -337,11 +327,7 @@ impl<W: Write> PdbWriter<W> {
             "TER   {}      {:3} {:1}{}",
             serial_str,
             if resn.len() > 3 { &resn[..3] } else { resn },
-            if chain.is_empty() {
-                " "
-            } else {
-                &chain[..1.min(chain.len())]
-            },
+            pdb_chain_column(chain),
             resv_str
         )?;
         Ok(())
@@ -442,14 +428,17 @@ impl<W: Write> PdbWriter<W> {
             }
 
             let mut serial = 1;
-            let mut last_chain = String::new();
+            let mut last_chain: Option<String> = None;
 
             for (atom_idx, atom) in mol.atoms_indexed() {
                 // Get coordinates for this state
                 let coord = mol.get_coord(atom_idx, *state_idx).unwrap_or_default();
 
                 // Write TER between chains
-                if !last_chain.is_empty() && atom.residue.chain != last_chain {
+                if last_chain
+                    .as_deref()
+                    .is_some_and(|chain| atom.residue.chain != chain)
+                {
                     // Get the previous atom's info for TER record
                     if let Some(prev_atom) = mol.get_atom(AtomIndex(atom_idx.0.saturating_sub(1))) {
                         self.write_ter(
@@ -461,7 +450,7 @@ impl<W: Write> PdbWriter<W> {
                         serial += 1;
                     }
                 }
-                last_chain = atom.residue.chain.clone();
+                last_chain = Some(atom.residue.chain.clone());
 
                 // Record the mapping from atom index to written serial number
                 index_to_serial.insert(atom_idx, serial);
@@ -527,6 +516,17 @@ fn format_atom_name(name: &str, element: &str) -> String {
     }
 }
 
+/// Format one internal chain identifier for a fixed-width PDB column.
+fn pdb_chain_column(effective: &str) -> &str {
+    let source = source_chain_id(effective);
+    let source_len = source.chars().next().map_or(0, char::len_utf8);
+    if source_len == 0 {
+        " "
+    } else {
+        &source[..source_len]
+    }
+}
+
 /// Format charge for PDB format (e.g., "2+" or "1-")
 fn format_charge(charge: i8) -> String {
     match charge {
@@ -539,6 +539,7 @@ fn format_charge(charge: i8) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pdb::read_pdb_str;
     use lin_alg::f32::Vec3;
     use patinae_mol::{Atom, BondOrder, CoordSet, Element};
 
@@ -559,6 +560,45 @@ mod tests {
         mol.add_coord_set(coords);
 
         mol
+    }
+
+    fn molecule_with_chains(
+        atoms: &[(&str, i32, SecondaryStructure, bool)],
+        state_count: usize,
+    ) -> ObjectMolecule {
+        let mut mol = ObjectMolecule::new("chain_segments");
+
+        for (chain, resv, ss_type, hetatm) in atoms {
+            let mut atom = Atom::new("CA", Element::Carbon);
+            atom.set_residue("ALA", *resv, *chain);
+            atom.ss_type = *ss_type;
+            atom.state.hetatm = *hetatm;
+            mol.add_atom(atom);
+        }
+
+        for state in 0..state_count {
+            let coords = atoms
+                .iter()
+                .enumerate()
+                .map(|(index, _)| Vec3::new(index as f32, state as f32, 0.0))
+                .collect::<Vec<_>>();
+            mol.add_coord_set(CoordSet::from_vec3(&coords));
+        }
+
+        mol
+    }
+
+    fn write_to_string(mol: &ObjectMolecule) -> String {
+        let mut output = Vec::new();
+        PdbWriter::new(&mut output).write(mol).unwrap();
+        String::from_utf8(output).unwrap()
+    }
+
+    fn chains(mol: &ObjectMolecule) -> Vec<&str> {
+        mol.atoms_slice()
+            .iter()
+            .map(|atom| atom.residue.chain.as_str())
+            .collect()
     }
 
     #[test]
@@ -639,6 +679,138 @@ mod tests {
         // SHEET should cover residues 4-5
         let sheet_line = pdb_string.lines().find(|l| l.starts_with("SHEET")).unwrap();
         assert!(sheet_line.contains("VAL"));
+    }
+
+    #[test]
+    fn ter_round_trip_preserves_contextual_chain_segments_and_states() {
+        let mol = molecule_with_chains(
+            &[
+                ("A", 1, SecondaryStructure::Loop, false),
+                ("A2", 2, SecondaryStructure::Loop, true),
+                ("A3", 3, SecondaryStructure::Loop, false),
+            ],
+            2,
+        );
+
+        let pdb = write_to_string(&mol);
+        let reparsed = read_pdb_str(&pdb).unwrap();
+
+        assert_eq!(chains(&reparsed), ["A", "A2", "A3"]);
+        assert_eq!(reparsed.state_count(), 2);
+        assert_eq!(
+            pdb.lines().filter(|line| line.starts_with("TER")).count(),
+            6
+        );
+        assert!(pdb
+            .lines()
+            .filter(|line| line.starts_with("ATOM") || line.starts_with("HETATM"))
+            .all(|line| line.as_bytes().get(21) == Some(&b'A')));
+    }
+
+    #[test]
+    fn ter_round_trip_preserves_blank_and_literal_underscore_segments() {
+        let mol = molecule_with_chains(
+            &[
+                ("", 1, SecondaryStructure::Loop, false),
+                ("_2", 2, SecondaryStructure::Loop, false),
+                ("_3", 3, SecondaryStructure::Loop, false),
+                ("_", 4, SecondaryStructure::Loop, false),
+                ("__2", 5, SecondaryStructure::Loop, false),
+                ("__3", 6, SecondaryStructure::Loop, false),
+            ],
+            1,
+        );
+
+        let pdb = write_to_string(&mol);
+        let reparsed = read_pdb_str(&pdb).unwrap();
+
+        assert_eq!(chains(&reparsed), ["", "_2", "_3", "_", "__2", "__3"]);
+        let chain_columns = pdb
+            .lines()
+            .filter(|line| line.starts_with("ATOM"))
+            .map(|line| line.as_bytes()[21])
+            .collect::<Vec<_>>();
+        assert_eq!(chain_columns, [b' ', b' ', b' ', b'_', b'_', b'_']);
+    }
+
+    #[test]
+    fn ter_subset_exports_restart_contextual_ordinals() {
+        let a2 = molecule_with_chains(&[("A2", 2, SecondaryStructure::Loop, false)], 1);
+        let a2_a3 = molecule_with_chains(
+            &[
+                ("A2", 2, SecondaryStructure::Loop, false),
+                ("A3", 3, SecondaryStructure::Loop, false),
+            ],
+            1,
+        );
+
+        let reparsed_a2 = read_pdb_str(&write_to_string(&a2)).unwrap();
+        let reparsed_a2_a3 = read_pdb_str(&write_to_string(&a2_a3)).unwrap();
+
+        assert_eq!(chains(&reparsed_a2), ["A"]);
+        assert_eq!(chains(&reparsed_a2_a3), ["A", "A2"]);
+    }
+
+    #[test]
+    fn ter_secondary_structure_applies_to_all_contextual_siblings() {
+        let mol = molecule_with_chains(
+            &[
+                ("A", 1, SecondaryStructure::Helix, false),
+                ("A", 2, SecondaryStructure::Sheet, false),
+                ("A2", 1, SecondaryStructure::Helix, false),
+                ("A2", 2, SecondaryStructure::Sheet, false),
+                ("A3", 1, SecondaryStructure::Helix, false),
+                ("A3", 2, SecondaryStructure::Sheet, false),
+            ],
+            1,
+        );
+
+        let pdb = write_to_string(&mol);
+        let reparsed = read_pdb_str(&pdb).unwrap();
+        let secondary = reparsed
+            .atoms_slice()
+            .iter()
+            .map(|atom| atom.ss_type)
+            .collect::<Vec<_>>();
+
+        assert_eq!(chains(&reparsed), ["A", "A", "A2", "A2", "A3", "A3"]);
+        assert_eq!(
+            secondary,
+            [
+                SecondaryStructure::Helix,
+                SecondaryStructure::Sheet,
+                SecondaryStructure::Helix,
+                SecondaryStructure::Sheet,
+                SecondaryStructure::Helix,
+                SecondaryStructure::Sheet,
+            ]
+        );
+    }
+
+    #[test]
+    fn ter_contextual_chain_columns_use_the_source_identifier() {
+        let mol = molecule_with_chains(
+            &[
+                ("A2", 1, SecondaryStructure::Helix, false),
+                ("A2", 2, SecondaryStructure::Sheet, true),
+            ],
+            1,
+        );
+
+        let pdb = write_to_string(&mol);
+        let atom = pdb.lines().find(|line| line.starts_with("ATOM")).unwrap();
+        let hetatm = pdb.lines().find(|line| line.starts_with("HETATM")).unwrap();
+        let ter = pdb.lines().find(|line| line.starts_with("TER")).unwrap();
+        let helix = pdb.lines().find(|line| line.starts_with("HELIX")).unwrap();
+        let sheet = pdb.lines().find(|line| line.starts_with("SHEET")).unwrap();
+
+        assert_eq!(atom.as_bytes()[21], b'A');
+        assert_eq!(hetatm.as_bytes()[21], b'A');
+        assert_eq!(ter.as_bytes()[21], b'A');
+        assert_eq!(helix.as_bytes()[19], b'A');
+        assert_eq!(helix.as_bytes()[31], b'A');
+        assert_eq!(sheet.as_bytes()[21], b'A');
+        assert_eq!(sheet.as_bytes()[32], b'A');
     }
 
     #[test]

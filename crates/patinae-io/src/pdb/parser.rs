@@ -13,6 +13,7 @@ use crate::logical_models::{build_molecules, ParsedAtom, ParsedModel};
 use crate::pdb::hybrid36::hy36decode;
 use crate::traits::MoleculeReader;
 
+use super::chain_ids::{source_chain_id, ChainIdTracker};
 use super::records::{AtomRecord, ConectRecord, Cryst1Record, HelixRecord, SheetRecord};
 
 /// PDB file reader
@@ -67,6 +68,7 @@ impl<R: Read> PdbReader<R> {
         let mut sheets: Vec<SheetRecord> = Vec::new();
         let mut title = String::new();
         let mut next_model_number = 1;
+        let mut chain_ids = ChainIdTracker::default();
 
         while let Some(line) = self.read_line()? {
             let line = line.trim_end();
@@ -83,9 +85,12 @@ impl<R: Read> PdbReader<R> {
                 "ATOM  " | "HETATM" => {
                     if let Some(record) = parse_atom_record(line) {
                         let coord = Vec3::new(record.x, record.y, record.z);
+                        let effective_chain = chain_ids.effective_chain(&record.chain);
                         let model = current_model
                             .get_or_insert_with(|| ParsedModel::new(next_model_number));
-                        model.atoms.push(parsed_atom_from_record(&record));
+                        model
+                            .atoms
+                            .push(parsed_atom_from_record(&record, effective_chain));
                         model.coords.push(coord);
                     }
                 }
@@ -108,7 +113,7 @@ impl<R: Read> PdbReader<R> {
                     title.push_str(line[10..].trim());
                 }
                 "MODEL " => {
-                    flush_model(&mut current_model, &mut models);
+                    flush_model(&mut current_model, &mut models, &mut chain_ids);
                     let parsed_number = line
                         .get(6..)
                         .and_then(|s| s.trim().parse::<i32>().ok())
@@ -117,13 +122,13 @@ impl<R: Read> PdbReader<R> {
                     current_model = Some(ParsedModel::new(parsed_number));
                 }
                 "ENDMDL" => {
-                    flush_model(&mut current_model, &mut models);
+                    flush_model(&mut current_model, &mut models, &mut chain_ids);
                 }
                 "TER   " | "TER" => {
-                    // Chain termination - we handle this implicitly via chain changes
+                    chain_ids.terminate_active();
                 }
                 "END   " | "END" => {
-                    flush_model(&mut current_model, &mut models);
+                    flush_model(&mut current_model, &mut models, &mut chain_ids);
                     break;
                 }
                 _ => {
@@ -132,7 +137,7 @@ impl<R: Read> PdbReader<R> {
             }
         }
 
-        flush_model(&mut current_model, &mut models);
+        flush_model(&mut current_model, &mut models, &mut chain_ids);
 
         let mut molecules = build_molecules("", &title, models)?;
         for mol in &mut molecules {
@@ -206,19 +211,24 @@ impl<R: Read> MoleculeReader for PdbReader<R> {
     }
 }
 
-fn flush_model(current_model: &mut Option<ParsedModel>, models: &mut Vec<ParsedModel>) {
+fn flush_model(
+    current_model: &mut Option<ParsedModel>,
+    models: &mut Vec<ParsedModel>,
+    chain_ids: &mut ChainIdTracker,
+) {
     if let Some(model) = current_model.take() {
         if !model.atoms.is_empty() {
             models.push(model);
         }
     }
+    chain_ids.reset();
 }
 
-fn parsed_atom_from_record(record: &AtomRecord) -> ParsedAtom {
+fn parsed_atom_from_record(record: &AtomRecord, effective_chain: String) -> ParsedAtom {
     ParsedAtom {
         name: record.name.clone(),
         element: record.get_element(),
-        chain: record.chain.clone(),
+        chain: effective_chain,
         resn: record.resn.clone(),
         resv: record.resv,
         icode: record.icode,
@@ -248,7 +258,7 @@ fn apply_secondary_structure(
         .flat_map(|helix| {
             mol.atoms_indexed()
                 .filter(|(_, atom)| {
-                    atom.residue.chain == helix.init_chain
+                    source_chain_id(&atom.residue.chain) == helix.init_chain
                         && atom.residue.resv >= helix.init_seq
                         && atom.residue.resv <= helix.end_seq
                 })
@@ -270,7 +280,7 @@ fn apply_secondary_structure(
         .flat_map(|sheet| {
             mol.atoms_indexed()
                 .filter(|(_, atom)| {
-                    atom.residue.chain == sheet.init_chain
+                    source_chain_id(&atom.residue.chain) == sheet.init_chain
                         && atom.residue.resv >= sheet.init_seq
                         && atom.residue.resv <= sheet.end_seq
                 })
@@ -627,6 +637,143 @@ END
         assert_eq!(mol.atom_count(), 2);
         assert_eq!(mol.atoms_slice()[0].residue.chain, "");
         assert_eq!(mol.atoms_slice()[1].residue.chain, "");
+    }
+
+    #[test]
+    fn ter_separates_repeated_atom_and_hetatm_chains_once() {
+        let pdb = r#"TER
+ATOM      1  N   ALA A   1       0.000   0.000   0.000  1.00 20.00           N
+TER
+TER
+HETATM    2  O   HOH A   2       1.000   0.000   0.000  1.00 20.00           O
+TER
+ATOM      3  N   GLY A   3       2.000   0.000   0.000  1.00 20.00           N
+END
+"#;
+
+        let mut reader = PdbReader::new(pdb.as_bytes());
+        let mol = reader.read().unwrap();
+        let chains: Vec<_> = mol
+            .atoms_slice()
+            .iter()
+            .map(|atom| atom.residue.chain.as_str())
+            .collect();
+
+        assert_eq!(chains, ["A", "A2", "A3"]);
+        assert!(!mol.atoms_slice()[0].state.hetatm);
+        assert!(mol.atoms_slice()[1].state.hetatm);
+    }
+
+    #[test]
+    fn ter_tracks_explicit_and_implicit_source_reopening() {
+        let pdb = r#"ATOM      1  N   ALA A   1       0.000   0.000   0.000  1.00 20.00           N
+TER
+ATOM      2  N   ALA B   1       1.000   0.000   0.000  1.00 20.00           N
+ATOM      3  N   GLY A   2       2.000   0.000   0.000  1.00 20.00           N
+ATOM      4  N   GLY B   2       3.000   0.000   0.000  1.00 20.00           N
+END
+"#;
+
+        let mut reader = PdbReader::new(pdb.as_bytes());
+        let mol = reader.read().unwrap();
+        let chains: Vec<_> = mol
+            .atoms_slice()
+            .iter()
+            .map(|atom| atom.residue.chain.as_str())
+            .collect();
+
+        assert_eq!(chains, ["A", "B", "A2", "B2"]);
+    }
+
+    #[test]
+    fn ter_ignores_malformed_atom_when_advancing_segments() {
+        let pdb = r#"ATOM      1  N   ALA A   1       0.000   0.000   0.000  1.00 20.00           N
+TER
+ATOM                A
+TER
+ATOM      2  N   GLY A   2       1.000   0.000   0.000  1.00 20.00           N
+END
+"#;
+
+        let mut reader = PdbReader::new(pdb.as_bytes());
+        let mol = reader.read().unwrap();
+        let chains: Vec<_> = mol
+            .atoms_slice()
+            .iter()
+            .map(|atom| atom.residue.chain.as_str())
+            .collect();
+
+        assert_eq!(chains, ["A", "A2"]);
+    }
+
+    #[test]
+    fn ter_keeps_blank_and_underscore_segment_names_disjoint() {
+        let pdb = r#"ATOM      1  N   ALA     1       0.000   0.000   0.000  1.00 20.00           N
+TER
+ATOM      2  N   GLY     2       1.000   0.000   0.000  1.00 20.00           N
+TER
+ATOM      3  N   SER     3       2.000   0.000   0.000  1.00 20.00           N
+ATOM      4  N   ALA _   1       3.000   0.000   0.000  1.00 20.00           N
+TER
+ATOM      5  N   GLY _   2       4.000   0.000   0.000  1.00 20.00           N
+TER
+ATOM      6  N   SER _   3       5.000   0.000   0.000  1.00 20.00           N
+END
+"#;
+
+        let mut reader = PdbReader::new(pdb.as_bytes());
+        let mol = reader.read().unwrap();
+        let chains: Vec<_> = mol
+            .atoms_slice()
+            .iter()
+            .map(|atom| atom.residue.chain.as_str())
+            .collect();
+
+        assert_eq!(chains, ["", "_2", "_3", "_", "__2", "__3"]);
+    }
+
+    #[test]
+    fn ter_state_resets_for_matching_models() {
+        let pdb = r#"MODEL        1
+ATOM      1  N   ALA A   1       0.000   0.000   0.000  1.00 20.00           N
+TER
+ATOM      2  N   GLY A   2       1.000   0.000   0.000  1.00 20.00           N
+ENDMDL
+MODEL        2
+ATOM      1  N   ALA A   1       0.500   0.000   0.000  1.00 20.00           N
+TER
+ATOM      2  N   GLY A   2       1.500   0.000   0.000  1.00 20.00           N
+ENDMDL
+"#;
+
+        let mut reader = PdbReader::new(pdb.as_bytes());
+        let molecules = reader.read_all().unwrap();
+
+        assert_eq!(molecules.len(), 1);
+        assert_eq!(molecules[0].state_count(), 2);
+        assert_eq!(molecules[0].atoms_slice()[0].residue.chain, "A");
+        assert_eq!(molecules[0].atoms_slice()[1].residue.chain, "A2");
+    }
+
+    #[test]
+    fn ter_layout_distinguishes_model_topologies() {
+        let pdb = r#"MODEL        1
+ATOM      1  N   ALA A   1       0.000   0.000   0.000  1.00 20.00           N
+TER
+ATOM      2  N   GLY A   2       1.000   0.000   0.000  1.00 20.00           N
+ENDMDL
+MODEL        2
+ATOM      1  N   ALA A   1       0.500   0.000   0.000  1.00 20.00           N
+ATOM      2  N   GLY A   2       1.500   0.000   0.000  1.00 20.00           N
+ENDMDL
+"#;
+
+        let mut reader = PdbReader::new(pdb.as_bytes());
+        let molecules = reader.read_all().unwrap();
+
+        assert_eq!(molecules.len(), 2);
+        assert_eq!(molecules[0].atoms_slice()[1].residue.chain, "A2");
+        assert_eq!(molecules[1].atoms_slice()[1].residue.chain, "A");
     }
 
     /// Regression test: multi-model PDB files were previously returning

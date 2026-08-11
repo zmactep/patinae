@@ -2,6 +2,7 @@
 //!
 //! Provides reading and writing of Protein Data Bank (PDB) format files.
 
+mod chain_ids;
 pub mod hybrid36;
 mod parser;
 mod records;
