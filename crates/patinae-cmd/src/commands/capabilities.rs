@@ -3,6 +3,7 @@
 use std::collections::BTreeSet;
 
 use patinae_io::FileFormat;
+use patinae_settings::setting_names;
 
 use crate::args::ParsedCommand;
 use crate::command::{
@@ -15,7 +16,7 @@ use crate::error::{CmdError, CmdResult};
 use super::control::RUN_CAPABILITY;
 use super::io::{LOAD_CAPABILITY, LOAD_TRAJ_CAPABILITY, SAVE_CAPABILITY};
 
-const TOPIC_HINTS: &[&str] = &["plugins", "formats"];
+const TOPIC_HINTS: &[&str] = &["plugins", "formats", "settings"];
 const FORMAT_HINTS: &[&str] = &["run", "load", "load_traj", "save"];
 const EMPTY_METADATA_FIELD: &str = "\"\"";
 
@@ -41,16 +42,17 @@ impl Command for CapabilitiesCommand {
     command_help! {
         CMD "capabilities"
         DESCRIPTION [
-            "reports effective plugins and file formats in the current runtime.",
+            "reports effective plugins, file formats, and settings in the current runtime.",
         ]
         REQUIRED []
         OPTIONAL [
-            { "topic", "string", "plugins or formats", "short topic index" },
+            { "topic", "string", "plugins, formats, or settings", "short topic index" },
             { "leaf", "string", "run, load, load_traj, or save", "format index" },
         ]
         EXAMPLES [
             "capabilities",
             "capabilities plugins",
+            "capabilities settings",
             "capabilities formats",
             "capabilities formats run",
             "capabilities formats load",
@@ -67,7 +69,7 @@ impl Command for CapabilitiesCommand {
         let path = capability_path(args);
         let got = path.len();
         if got == 0 {
-            ctx.print("Capabilities:\n  plugins\n  formats");
+            ctx.print("Capabilities:\n  plugins\n  formats\n  settings");
             return Ok(());
         }
         let topic = &path[0];
@@ -77,6 +79,12 @@ impl Command for CapabilitiesCommand {
                     return Err(CmdError::too_many_arguments(1, got));
                 }
                 ctx.print(&render_plugins(ctx));
+            }
+            "settings" => {
+                if got > 1 {
+                    return Err(CmdError::too_many_arguments(1, got));
+                }
+                ctx.print(&render_settings(ctx));
             }
             "formats" => {
                 if got == 1 {
@@ -98,7 +106,7 @@ impl Command for CapabilitiesCommand {
                 return Err(CmdError::invalid_arg(
                     "topic",
                     format!(
-                        "unknown capabilities topic '{topic}'; expected 'plugins' or 'formats'"
+                        "unknown capabilities topic '{topic}'; expected 'plugins', 'formats', or 'settings'"
                     ),
                 ));
             }
@@ -162,6 +170,20 @@ fn normalize_metadata(value: &str) -> String {
     } else {
         normalized
     }
+}
+
+fn render_settings(ctx: &CommandContext<'_, '_, dyn ViewerLike + '_>) -> String {
+    let mut names = setting_names().into_iter().collect::<BTreeSet<_>>();
+    names.extend(
+        ctx.dynamic_settings()
+            .into_iter()
+            .flat_map(|settings| settings.names().iter().map(String::as_str)),
+    );
+
+    format!(
+        "Settings:\n{}",
+        names.into_iter().collect::<Vec<_>>().join("\n")
+    )
 }
 
 fn render_formats(
@@ -284,9 +306,12 @@ fn normalized_extension(extension: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::sync::{Arc, RwLock};
 
     use patinae_scene::{Session, SessionAdapter};
+    use patinae_settings::{
+        setting_names, DynamicSettingDescriptor, DynamicSettingStore, SettingType, SettingValue,
+    };
 
     use crate::{
         CmdError, CommandExecutor, CommandOutput, FormatHandler, LoadedPluginCapability,
@@ -341,12 +366,12 @@ mod tests {
     }
 
     #[test]
-    fn all_seven_valid_forms_have_exact_stable_output() {
+    fn all_eight_valid_forms_have_stable_output() {
         let mut executor = CommandExecutor::new();
 
         assert_eq!(
             execute_text(&mut executor, "capabilities"),
-            "Capabilities:\n  plugins\n  formats"
+            "Capabilities:\n  plugins\n  formats\n  settings"
         );
         assert_eq!(
             execute_text(&mut executor, "capabilities plugins"),
@@ -437,6 +462,52 @@ mod tests {
                 ".xyz.gz"
             )
         );
+
+        let settings = execute_text(&mut executor, "capabilities settings");
+        let rows = settings
+            .strip_prefix("Settings:\n")
+            .expect("settings output should have a stable header")
+            .lines()
+            .collect::<Vec<_>>();
+        let mut expected = setting_names();
+        expected.sort_unstable();
+        assert_eq!(rows, expected);
+    }
+
+    #[test]
+    fn settings_include_active_dynamic_entries_in_sorted_order() {
+        let mut executor = CommandExecutor::new();
+        for name in ["zz_plugin_setting", "aa_plugin_setting"] {
+            let descriptor = DynamicSettingDescriptor {
+                name: name.to_string(),
+                setting_type: SettingType::Bool,
+                default: SettingValue::Bool(false),
+                min: None,
+                max: None,
+                value_hints: Vec::new(),
+                side_effects: Vec::new(),
+                object_overridable: false,
+            };
+            executor
+                .dynamic_settings_mut()
+                .register(
+                    descriptor,
+                    Arc::new(RwLock::new(DynamicSettingStore::new())),
+                )
+                .expect("test setting should register");
+        }
+
+        let text = execute_text(&mut executor, "capabilities settings");
+        let rows = text
+            .strip_prefix("Settings:\n")
+            .expect("settings output should have a stable header")
+            .lines()
+            .collect::<Vec<_>>();
+
+        assert_eq!(rows.first(), Some(&"aa_plugin_setting"));
+        assert_eq!(rows.last(), Some(&"zz_plugin_setting"));
+        assert!(rows.contains(&"ambient"));
+        assert_eq!(rows.len(), setting_names().len() + 2);
     }
 
     #[test]
@@ -558,7 +629,7 @@ mod tests {
         let cases = [
             (
                 "capabilities unknown",
-                "invalid argument 'topic': unknown capabilities topic 'unknown'; expected 'plugins' or 'formats'",
+                "invalid argument 'topic': unknown capabilities topic 'unknown'; expected 'plugins', 'formats', or 'settings'",
             ),
             (
                 "capabilities formats read",
@@ -570,6 +641,10 @@ mod tests {
             ),
             (
                 "capabilities plugins extra",
+                "too many arguments: expected at most 1, got 2",
+            ),
+            (
+                "capabilities settings extra",
                 "too many arguments: expected at most 1, got 2",
             ),
             (
@@ -592,6 +667,7 @@ mod tests {
         for invocation in [
             "capabilities",
             "capabilities plugins",
+            "capabilities settings",
             "capabilities formats",
             "capabilities formats run",
             "capabilities formats load",
@@ -614,6 +690,7 @@ mod tests {
         for command in [
             "capabilities",
             "capabilities plugins",
+            "capabilities settings",
             "capabilities formats",
             "capabilities formats run",
             "capabilities formats load",
