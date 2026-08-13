@@ -392,8 +392,13 @@ impl Command for DistanceCommand {
         CMD "distance"
         DESCRIPTION [
             "creates a distance measurement between two atom selections.",
+            "Without arguments, uses pk1 and pk2 and allocates a new object name.",
             "The default broadcast mode requires one singleton selection.",
             "Cartesian mode creates every unique pair across both selections.",
+        ]
+        USAGE [
+            "distance",
+            "distance name, selection1, selection2 [, mode]",
         ]
         REQUIRED [
             { "name", "string", "name for the measurement object" },
@@ -404,6 +409,7 @@ impl Command for DistanceCommand {
             { "mode", "string", "broadcast or cartesian pairing", "broadcast" },
         ]
         EXAMPLES [
+            "distance",
             "distance dist1, /1hpx///A/1/CA, /1hpx///A/10/CA",
             "distance d1, chain A and name CA and resi 1, chain A and name CA and resi 10",
             "distance contacts, chain A and name CA, chain B and name CA, cartesian",
@@ -425,6 +431,16 @@ impl Command for DistanceCommand {
         ctx: &mut CommandContext<'v, 'r, dyn ViewerLike + 'v>,
         args: &ParsedCommand,
     ) -> CmdResult {
+        if args.arg_count() == 0 {
+            let request = MeasurementRequest::new(["pk1", "pk2"], MeasurementTarget::New);
+            let outcome = execute_measurement_request(ctx.viewer, &request)?;
+            ctx.print(&format!(
+                " distance: {:.3} Angstroms (1 measurements)",
+                outcome.value
+            ));
+            return Ok(());
+        }
+
         let name = args
             .str_arg(0, "name")
             .ok_or_else(|| CmdError::missing_argument("name"))?;
@@ -465,7 +481,12 @@ impl Command for AngleCommand {
         CMD "angle"
         DESCRIPTION [
             "creates an angle measurement between three atom selections.",
+            "Without arguments, uses pk1 through pk3 and allocates a new object name.",
             "The angle is measured at the second atom (vertex).",
+        ]
+        USAGE [
+            "angle",
+            "angle name, selection1, selection2, selection3",
         ]
         REQUIRED [
             { "name", "string", "name for the measurement object" },
@@ -475,6 +496,7 @@ impl Command for AngleCommand {
         ]
         OPTIONAL []
         EXAMPLES [
+            "angle",
             "angle ang1, /1hpx///A/1/CA, /1hpx///A/5/CA, /1hpx///A/10/CA",
         ]
     }
@@ -493,6 +515,13 @@ impl Command for AngleCommand {
         ctx: &mut CommandContext<'v, 'r, dyn ViewerLike + 'v>,
         args: &ParsedCommand,
     ) -> CmdResult {
+        if args.arg_count() == 0 {
+            let request = MeasurementRequest::new(["pk1", "pk2", "pk3"], MeasurementTarget::New);
+            let outcome = execute_measurement_request(ctx.viewer, &request)?;
+            ctx.print(&format!(" angle: {:.1} degrees", outcome.value));
+            return Ok(());
+        }
+
         let name = args
             .get_str(0)
             .ok_or_else(|| CmdError::missing_argument("name"))?;
@@ -534,7 +563,12 @@ impl Command for DihedralCommand {
         CMD "dihedral"
         DESCRIPTION [
             "creates a dihedral angle measurement between four atom selections.",
+            "Without arguments, uses pk1 through pk4 and allocates a new object name.",
             "The dihedral is measured around the bond between atoms 2 and 3.",
+        ]
+        USAGE [
+            "dihedral",
+            "dihedral name, selection1, selection2, selection3, selection4",
         ]
         REQUIRED [
             { "name", "string", "name for the measurement object" },
@@ -545,6 +579,7 @@ impl Command for DihedralCommand {
         ]
         OPTIONAL []
         EXAMPLES [
+            "dihedral",
             "dihedral dih1, /1hpx///A/1/N, /1hpx///A/1/CA, /1hpx///A/1/C, /1hpx///A/2/N",
         ]
     }
@@ -564,6 +599,14 @@ impl Command for DihedralCommand {
         ctx: &mut CommandContext<'v, 'r, dyn ViewerLike + 'v>,
         args: &ParsedCommand,
     ) -> CmdResult {
+        if args.arg_count() == 0 {
+            let request =
+                MeasurementRequest::new(["pk1", "pk2", "pk3", "pk4"], MeasurementTarget::New);
+            let outcome = execute_measurement_request(ctx.viewer, &request)?;
+            ctx.print(&format!(" dihedral: {:.1} degrees", outcome.value));
+            return Ok(());
+        }
+
         let name = args
             .get_str(0)
             .ok_or_else(|| CmdError::missing_argument("name"))?;
@@ -603,6 +646,7 @@ mod tests {
         canonical_atom_path_for_hit, LabelObject, MoleculeObject, ObjectType, PickHit, Session,
         SessionAdapter,
     };
+    use patinae_settings::groups::RecentPickLimit;
 
     use crate::CommandExecutor;
 
@@ -664,6 +708,132 @@ mod tests {
             molecule.molecule(),
         )
         .unwrap()
+    }
+
+    fn set_recent_atoms(session: &mut Session, atom_indices: &[usize]) {
+        for &atom_index in atom_indices {
+            let path = canonical_path(session, atom_index);
+            assert!(session
+                .recent_atoms
+                .insert(path, RecentPickLimit::Unlimited));
+        }
+    }
+
+    fn measurement_anchor_indices(session: &Session, name: &str) -> Vec<AtomIndex> {
+        session.registry.get_measurement(name).unwrap().entries()[0]
+            .anchors
+            .iter()
+            .map(|anchor| anchor.atom_index)
+            .collect()
+    }
+
+    #[test]
+    fn argument_free_measurements_use_first_recent_atoms_and_alias() {
+        let mut session = measurement_session();
+        set_recent_atoms(&mut session, &[0, 1, 2, 3]);
+
+        execute(&mut session, "distance").unwrap();
+        execute(&mut session, "angle").unwrap();
+        execute(&mut session, "dihedral").unwrap();
+        execute(&mut session, "dist").unwrap();
+
+        assert_eq!(
+            measurement_anchor_indices(&session, "distance01"),
+            [AtomIndex(0), AtomIndex(1)]
+        );
+        assert_eq!(
+            measurement_anchor_indices(&session, "angle01"),
+            [AtomIndex(0), AtomIndex(1), AtomIndex(2)]
+        );
+        assert_eq!(
+            measurement_anchor_indices(&session, "dihedral01"),
+            [AtomIndex(0), AtomIndex(1), AtomIndex(2), AtomIndex(3)]
+        );
+        assert_eq!(
+            measurement_anchor_indices(&session, "distance02"),
+            [AtomIndex(0), AtomIndex(1)]
+        );
+    }
+
+    #[test]
+    fn argument_free_measurements_use_first_free_kind_names() {
+        let mut session = measurement_session();
+        set_recent_atoms(&mut session, &[0, 1, 2, 3]);
+        for name in ["distance01", "angle01", "dihedral01"] {
+            session.registry.add(LabelObject::new(name));
+        }
+
+        execute(&mut session, "distance").unwrap();
+        execute(&mut session, "angle").unwrap();
+        execute(&mut session, "dihedral").unwrap();
+
+        for name in ["distance01", "angle01", "dihedral01"] {
+            assert!(session.registry.get_label(name).is_some());
+        }
+        assert!(session.registry.get_measurement("distance02").is_some());
+        assert!(session.registry.get_measurement("angle02").is_some());
+        assert!(session.registry.get_measurement("dihedral02").is_some());
+    }
+
+    #[test]
+    fn argument_free_measurements_fail_transactionally() {
+        for (command, atom_indices, missing_alias, default_name) in [
+            ("distance", &[0][..], "pk2", "distance01"),
+            ("angle", &[0, 1][..], "pk3", "angle01"),
+            ("dihedral", &[0, 1, 2][..], "pk4", "dihedral01"),
+        ] {
+            let mut missing = measurement_session();
+            set_recent_atoms(&mut missing, atom_indices);
+            let before = missing.registry.len();
+
+            let error = execute(&mut missing, command).unwrap_err();
+
+            assert!(error.to_string().contains(missing_alias));
+            assert_eq!(missing.registry.len(), before);
+            assert!(missing.registry.get_measurement(default_name).is_none());
+        }
+
+        let mut undefined = measurement_session();
+        undefined
+            .registry
+            .get_molecule_mut("source")
+            .unwrap()
+            .molecule_mut()
+            .set_coord(AtomIndex(1), 0, Vec3::new(1.0, 0.0, 0.0));
+        set_recent_atoms(&mut undefined, &[0, 1]);
+        let before = undefined.registry.len();
+
+        let error = execute(&mut undefined, "distance").unwrap_err();
+
+        assert!(error.to_string().contains("undefined"));
+        assert_eq!(undefined.registry.len(), before);
+        assert!(undefined.registry.get_measurement("distance01").is_none());
+    }
+
+    #[test]
+    fn measurement_help_documents_argument_free_forms() {
+        let registry = CommandRegistry::with_builtins();
+        for (command, usage, operands) in [
+            ("distance", "    distance\n", "uses pk1 and pk2"),
+            ("angle", "    angle\n", "uses pk1 through pk3"),
+            ("dihedral", "    dihedral\n", "uses pk1 through pk4"),
+        ] {
+            let registered = registry.get(command).unwrap();
+            let help = registered.help();
+            assert!(help.contains(usage), "{command}: {help}");
+            assert!(help.contains(operands), "{command}: {help}");
+        }
+    }
+
+    #[test]
+    fn partial_measurement_commands_keep_missing_argument_errors() {
+        let mut session = measurement_session();
+
+        for command in ["distance named", "angle named", "dihedral named"] {
+            let error = execute(&mut session, command).unwrap_err();
+            assert!(error.is_missing_argument(), "{command}: {error}");
+            assert_eq!(error.argument_name(), Some("selection1"));
+        }
     }
 
     #[test]
