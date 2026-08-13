@@ -57,6 +57,14 @@ pub fn register(registry: &mut CommandRegistry) {
 // Selection evaluation helper
 // ============================================================================
 
+fn is_recent_atom_alias(name: &str) -> bool {
+    name == "pk*"
+        || name.strip_prefix("pk").is_some_and(|digits| {
+            matches!(digits.as_bytes().first(), Some(b'1'..=b'9'))
+                && digits.bytes().all(|digit| digit.is_ascii_digit())
+        })
+}
+
 /// Evaluate a selection expression with support for named selections from the viewer.
 ///
 /// This function:
@@ -96,9 +104,37 @@ pub fn select_with_context(
         }
     };
 
+    let recent_aliases = parsed_expr
+        .selection_references()
+        .into_iter()
+        .filter(|name| is_recent_atom_alias(name))
+        .collect::<Vec<_>>();
+    let recent_atoms = if recent_aliases.is_empty() {
+        Vec::new()
+    } else {
+        viewer.session().resolved_recent_atoms()
+    };
+    for alias in &recent_aliases {
+        if *alias == "pk*" {
+            continue;
+        }
+        let position = alias
+            .strip_prefix("pk")
+            .and_then(|digits| digits.parse::<usize>().ok());
+        if !matches!(position, Some(position) if position <= recent_atoms.len()) {
+            return Err(CmdError::selection(format!(
+                "recent atom alias '{alias}' is unavailable; Recent Atoms has {} entries",
+                recent_atoms.len()
+            )));
+        }
+    }
+
     // Validate all name references in the expression against known selections/objects
     let known_selections = viewer.selection_names();
     for name in parsed_expr.selection_references() {
+        if is_recent_atom_alias(name) {
+            continue;
+        }
         let is_known =
             known_selections.iter().any(|s| s == name) || object_names.iter().any(|s| s == name);
         if !is_known {
@@ -156,6 +192,18 @@ pub fn select_with_context(
             &object_names,
             options,
         );
+        if !recent_aliases.is_empty() {
+            let mut union = SelectionResult::none(mol.atom_count());
+            for (index, (target_object, atom_index)) in recent_atoms.iter().enumerate() {
+                let mut singleton = SelectionResult::none(mol.atom_count());
+                if target_object == obj_name {
+                    singleton.set(*atom_index);
+                    union.set(*atom_index);
+                }
+                ctx.add_selection(format!("pk{}", index + 1), singleton);
+            }
+            ctx.add_selection("pk*", union);
+        }
         if let Some(labels) = labels_by_source.get(obj_name.as_str()) {
             for &(atom_index, text) in labels {
                 if mol.get_atom(atom_index).is_some() {
@@ -517,6 +565,54 @@ impl Command for IndicateCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lin_alg::f32::Vec3;
+    use patinae_mol::{Atom, AtomIndex, CoordSet, Element, ObjectMolecule};
+    use patinae_scene::{canonical_atom_path_for_atom, MoleculeObject, Session, SessionAdapter};
+    use patinae_settings::groups::RecentPickLimit;
+
+    fn recent_atom_session() -> Session {
+        let mut molecule = ObjectMolecule::new("source");
+        for name in ["A", "B", "C", "D", "E"] {
+            molecule.add_atom(Atom::new(name, Element::Carbon));
+        }
+        molecule.add_coord_set(CoordSet::from_vec3(&[
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(1.0, 0.0, 0.0),
+            Vec3::new(2.0, 0.0, 0.0),
+            Vec3::new(3.0, 0.0, 0.0),
+            Vec3::new(4.0, 0.0, 0.0),
+        ]));
+
+        let mut session = Session::new();
+        session
+            .registry
+            .add(MoleculeObject::with_name(molecule, "source"));
+        for index in 0usize..5 {
+            let molecule = session.registry.get_molecule("source").unwrap();
+            let path =
+                canonical_atom_path_for_atom("source", molecule.molecule(), AtomIndex::from(index))
+                    .unwrap();
+            session
+                .recent_atoms
+                .insert(path, RecentPickLimit::Unlimited);
+        }
+        session
+    }
+
+    fn evaluate_recent(
+        session: &mut Session,
+        selection: &str,
+    ) -> CmdResult<(usize, Vec<(String, SelectionResult)>)> {
+        let mut needs_redraw = false;
+        let adapter = SessionAdapter {
+            session,
+            render_context: None,
+            default_size: (64, 64),
+            needs_redraw: &mut needs_redraw,
+            async_fetch_fn: None,
+        };
+        select_with_context(&adapter, selection)
+    }
 
     #[test]
     fn test_expand_self_reference_basic() {
@@ -551,9 +647,7 @@ mod tests {
 
     #[test]
     fn test_coordinate_selection_uses_display_state() {
-        use lin_alg::f32::Vec3;
-        use patinae_mol::{AtomBuilder, CoordSet, ObjectMolecule};
-        use patinae_scene::{MoleculeObject, Session, SessionAdapter};
+        use patinae_mol::AtomBuilder;
 
         let mut mol = ObjectMolecule::new("obj");
         mol.add_atom(AtomBuilder::new().name("CA").element_symbol("C").build());
@@ -588,5 +682,51 @@ mod tests {
                 .current_state,
             0
         );
+    }
+
+    #[test]
+    fn recent_atom_aliases_follow_list_order_and_algebra() {
+        let mut session = recent_atom_session();
+
+        let (count, results) = evaluate_recent(&mut session, "pk2").unwrap();
+        assert_eq!(count, 1);
+        assert!(results[0].1.contains(AtomIndex::from(1usize)));
+
+        let (count, results) = evaluate_recent(&mut session, "pk* and name A+E").unwrap();
+        assert_eq!(count, 2);
+        assert!(results[0].1.contains(AtomIndex::from(0usize)));
+        assert!(results[0].1.contains(AtomIndex::from(4usize)));
+
+        let (count, results) = evaluate_recent(&mut session, "pk5").unwrap();
+        assert_eq!(count, 1);
+        assert!(results[0].1.contains(AtomIndex::from(4usize)));
+
+        let (_, stored_results) = evaluate_recent(&mut session, "name E").unwrap();
+        session
+            .selections
+            .define_with_results("pk2", "name E", stored_results);
+        let (_, results) = evaluate_recent(&mut session, "pk2").unwrap();
+        assert!(results[0].1.contains(AtomIndex::from(1usize)));
+        assert!(!results[0].1.contains(AtomIndex::from(4usize)));
+    }
+
+    #[test]
+    fn recent_atom_aliases_compact_and_report_missing_rows() {
+        let mut session = recent_atom_session();
+        let first = session.recent_atoms.paths().next().unwrap().to_string();
+        assert!(session.recent_atoms.remove_path(&first));
+
+        let (count, results) = evaluate_recent(&mut session, "pk1").unwrap();
+        assert_eq!(count, 1);
+        assert!(results[0].1.contains(AtomIndex::from(1usize)));
+
+        let error = evaluate_recent(&mut session, "pk5").unwrap_err();
+        assert!(error.to_string().contains("pk5"));
+        assert!(error.to_string().contains("4 entries"));
+
+        assert!(session.recent_atoms.clear());
+        let (count, results) = evaluate_recent(&mut session, "pk*").unwrap();
+        assert_eq!(count, 0);
+        assert_eq!(results[0].1.count(), 0);
     }
 }

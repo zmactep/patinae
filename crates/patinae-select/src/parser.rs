@@ -307,6 +307,12 @@ fn parse_primary(stream: &mut TokenStream) -> Result<SelectionExpr, ParseError> 
             }
         }
         Token::Ident(ref s) => {
+            if s == "pk" && matches!(stream.peek_n(1), Some(Token::Asterisk)) {
+                stream.next();
+                stream.next();
+                return Ok(SelectionExpr::Selection("pk*".to_string()));
+            }
+
             if let Some(kw) = lookup(s) {
                 // Save position so we can backtrack if keyword parse fails
                 let saved_pos = stream.position();
@@ -1298,6 +1304,13 @@ mod tests {
         } else {
             panic!("Expected Selection");
         }
+    }
+
+    #[test]
+    fn test_parse_recent_atom_union_alias() {
+        let expr = parse_selection("pk* and (pk1 or pk3)").unwrap();
+        assert!(matches!(expr, SelectionExpr::And(_, _)));
+        assert_eq!(expr.selection_references(), ["pk*", "pk1", "pk3"]);
     }
 
     #[test]

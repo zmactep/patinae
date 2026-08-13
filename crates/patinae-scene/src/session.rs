@@ -251,7 +251,7 @@ impl Session {
     }
 
     /// Resolves every valid recent path to an object-local atom index.
-    pub(crate) fn resolved_recent_atoms(&self) -> Vec<(String, patinae_mol::AtomIndex)> {
+    pub fn resolved_recent_atoms(&self) -> Vec<(String, patinae_mol::AtomIndex)> {
         let contexts =
             recent_atom_evaluation_contexts(&self.registry, &self.selections, &self.settings);
         self.recent_atoms
