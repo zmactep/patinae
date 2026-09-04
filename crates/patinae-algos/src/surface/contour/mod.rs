@@ -381,7 +381,7 @@ mod tests {
         assert_eq!(mesh.topology, ContourTopology::Lines);
         assert_eq!(mesh.indices.len() % 2, 0);
         let mut seen = HashSet::new();
-        for pair in mesh.indices.chunks_exact(2) {
+        for pair in mesh.indices.as_chunks::<2>().0 {
             let a = mesh.vertices[pair[0] as usize].position;
             let b = mesh.vertices[pair[1] as usize].position;
             assert!(seen.insert(LineKey::new(a, b)));

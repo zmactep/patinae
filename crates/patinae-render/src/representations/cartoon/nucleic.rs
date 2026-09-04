@@ -665,7 +665,7 @@ mod tests {
                 Vec3::new(0.0, 0.0, 0.0),
             )
         }));
-        for triangle in geometry.vertices.chunks_exact(3) {
+        for triangle in geometry.vertices.as_chunks::<3>().0 {
             let point = |vertex: &StdVertex| {
                 Vec3::new(vertex.position[0], vertex.position[1], vertex.position[2])
             };

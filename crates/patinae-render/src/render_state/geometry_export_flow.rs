@@ -314,7 +314,7 @@ fn append_map_lines(
     input: &RenderMapInput<'_>,
 ) {
     let material = DisplayedMaterial::from_rgba(input.color);
-    for pair in contour.indices.chunks_exact(2) {
+    for pair in contour.indices.as_chunks::<2>().0 {
         let Some(start) = contour.vertices.get(pair[0] as usize) else {
             continue;
         };
@@ -368,7 +368,7 @@ fn append_mesh_lines(
     input: &RenderObjectInput<'_>,
     scene_settings: &patinae_settings::ResolvedSettings,
 ) {
-    for pair in vertices.chunks_exact(2) {
+    for pair in vertices.as_chunks::<2>().0 {
         let a = pair[0];
         let b = pair[1];
         object.primitives.push(DisplayedPrimitive::LineSegment {
@@ -415,7 +415,7 @@ fn trace_chunk_from_mesh_vertices(
         ..TraceGeometryChunk::default()
     };
 
-    for tri in vertices.chunks_exact(3) {
+    for tri in vertices.as_chunks::<3>().0 {
         let a = trace_vertex_from_std(tri[0], rep, input, scene_settings);
         let b = trace_vertex_from_std(tri[1], rep, input, scene_settings);
         let c = trace_vertex_from_std(tri[2], rep, input, scene_settings);
@@ -439,7 +439,7 @@ fn trace_chunk_from_mesh_lines(
         ..TraceGeometryChunk::default()
     };
 
-    for pair in vertices.chunks_exact(2) {
+    for pair in vertices.as_chunks::<2>().0 {
         let a = pair[0];
         let b = pair[1];
         chunk.line_segments.push(TraceLineSegment {

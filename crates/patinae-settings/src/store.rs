@@ -566,9 +566,7 @@ impl UniqueSettings {
     /// Clear all unique settings
     pub fn clear(&mut self) {
         self.id_to_offset.clear();
-        for entry in &mut self.entries {
-            *entry = None;
-        }
+        self.entries.fill(None);
         // Rebuild free list
         for (i, next) in self.next.iter_mut().enumerate() {
             *next = if i + 1 < self.entries.len() { i + 1 } else { 0 };

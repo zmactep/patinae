@@ -163,39 +163,51 @@ fn decode_byte_array(buffer: DecodeBuffer, data_type: i32) -> IoResult<DecodeBuf
         TYPE_INT8 => DecodeBuffer::I32(bytes.iter().map(|&b| b as i8 as i32).collect()),
         TYPE_INT16 => DecodeBuffer::I32(
             bytes
-                .chunks_exact(2)
-                .map(|c| i16::from_le_bytes([c[0], c[1]]) as i32)
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|&c| i16::from_le_bytes(c) as i32)
                 .collect(),
         ),
         TYPE_INT32 => DecodeBuffer::I32(
             bytes
-                .chunks_exact(4)
-                .map(|c| i32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|&c| i32::from_le_bytes(c))
                 .collect(),
         ),
         TYPE_UINT8 => DecodeBuffer::I32(bytes.iter().map(|&b| b as i32).collect()),
         TYPE_UINT16 => DecodeBuffer::I32(
             bytes
-                .chunks_exact(2)
-                .map(|c| u16::from_le_bytes([c[0], c[1]]) as i32)
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|&c| u16::from_le_bytes(c) as i32)
                 .collect(),
         ),
         TYPE_UINT32 => DecodeBuffer::I32(
             bytes
-                .chunks_exact(4)
-                .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]) as i32)
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|&c| u32::from_le_bytes(c) as i32)
                 .collect(),
         ),
         TYPE_FLOAT32 => DecodeBuffer::F32(
             bytes
-                .chunks_exact(4)
-                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|&c| f32::from_le_bytes(c))
                 .collect(),
         ),
         TYPE_FLOAT64 => DecodeBuffer::F64(
             bytes
-                .chunks_exact(8)
-                .map(|c| f64::from_le_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]]))
+                .as_chunks::<8>()
+                .0
+                .iter()
+                .map(|&c| f64::from_le_bytes(c))
                 .collect(),
         ),
         _ => {
@@ -237,7 +249,7 @@ fn decode_interval_quantization(
 fn decode_run_length(buffer: DecodeBuffer, src_size: i32) -> IoResult<DecodeBuffer> {
     let ints = to_i32_vec(buffer)?;
     let mut result = Vec::with_capacity(src_size as usize);
-    for pair in ints.chunks_exact(2) {
+    for pair in ints.as_chunks::<2>().0 {
         let value = pair[0];
         let count = pair[1] as usize;
         result.extend(std::iter::repeat_n(value, count));

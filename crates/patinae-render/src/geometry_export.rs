@@ -285,7 +285,7 @@ pub(crate) fn append_displayed_primitive_to_trace(
 ) {
     match primitive {
         DisplayedPrimitive::Mesh { mesh, .. } => {
-            for tri in mesh.vertices.chunks_exact(3) {
+            for tri in mesh.vertices.as_chunks::<3>().0 {
                 chunk
                     .triangles
                     .push(trace_triangle_from_vertices(&tri[0], &tri[1], &tri[2]));

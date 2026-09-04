@@ -306,9 +306,10 @@ fn read_density_data<R: Read>(
                 .read_exact(&mut buf)
                 .map_err(|e| IoError::parse_msg(format!("Failed to read CCP4 data: {}", e)))?;
             Ok(buf
-                .chunks_exact(2)
-                .map(|c| {
-                    let bytes: [u8; 2] = c.try_into().unwrap();
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|&bytes| {
                     let val = if little_endian {
                         i16::from_le_bytes(bytes)
                     } else {
@@ -325,9 +326,10 @@ fn read_density_data<R: Read>(
                 .read_exact(&mut buf)
                 .map_err(|e| IoError::parse_msg(format!("Failed to read CCP4 data: {}", e)))?;
             Ok(buf
-                .chunks_exact(4)
-                .map(|c| {
-                    let bytes: [u8; 4] = c.try_into().unwrap();
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|&bytes| {
                     if little_endian {
                         f32::from_le_bytes(bytes)
                     } else {

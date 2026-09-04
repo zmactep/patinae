@@ -601,7 +601,7 @@ mod tests {
 
         let mut outward = 0usize;
         let mut total = 0usize;
-        for tri in idx.chunks_exact(3) {
+        for tri in idx.as_chunks::<3>().0 {
             let a = verts[tri[0] as usize];
             let b = verts[tri[1] as usize];
             let c = verts[tri[2] as usize];

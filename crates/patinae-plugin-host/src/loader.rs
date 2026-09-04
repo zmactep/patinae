@@ -301,12 +301,10 @@ impl GpuStageProfile {
 
 fn decode_timestamp_ticks(bytes: &[u8]) -> Vec<u64> {
     bytes
-        .chunks_exact(std::mem::size_of::<u64>())
-        .map(|chunk| {
-            let mut value = [0_u8; std::mem::size_of::<u64>()];
-            value.copy_from_slice(chunk);
-            u64::from_ne_bytes(value)
-        })
+        .as_chunks::<{ std::mem::size_of::<u64>() }>()
+        .0
+        .iter()
+        .map(|&chunk| u64::from_ne_bytes(chunk))
         .collect()
 }
 
