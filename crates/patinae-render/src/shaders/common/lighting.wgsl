@@ -13,11 +13,14 @@
 // All lighting vectors live in view space: camera at origin, fragments at
 // `view_pos`, view_dir = -view_pos. Shadow lookup uses world-space positions.
 
+// Keep in sync with passes::lighting::MAX_ATLAS_DIRECTIONS.
+const MAX_ATLAS_DIRECTIONS: u32 = 254u;
+
 struct LightingOcclusionUniforms {
     view_proj: mat4x4<f32>,
     params: vec4<f32>,
     atlas: vec4<u32>,
-    matrices: array<mat4x4<f32>, 256>,
+    matrices: array<mat4x4<f32>, MAX_ATLAS_DIRECTIONS>,
 };
 
 @group(1) @binding(0) var occlusion_depth: texture_depth_2d;
@@ -155,7 +158,7 @@ fn atlas_tile_depth(world_pos: vec3<f32>, index: u32) -> vec2<f32> {
 }
 
 fn atlas_ambient_occlusion(world_pos: vec3<f32>) -> f32 {
-    let count = min(occlusion.atlas.x, 256u);
+    let count = min(occlusion.atlas.x, MAX_ATLAS_DIRECTIONS);
     let intensity = occlusion.params.y;
     if count == 0u || intensity <= 0.0 {
         return 1.0;

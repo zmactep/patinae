@@ -12,7 +12,11 @@ use crate::memory::{buffer_usage, estimate_texture_2d_bytes, GpuMemoryUsage};
 
 pub const OCCLUSION_DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 pub const DEFAULT_SHADOW_MAP_SIZE: u32 = 1024;
-pub const MAX_ATLAS_DIRECTIONS: usize = 256;
+/// Keep the lighting uniform within wgpu's 16 KiB downlevel binding limit.
+///
+/// `LightingOcclusionUniforms` has a 96-byte fixed header and one 64-byte
+/// matrix per atlas direction, so 254 directions occupy 16,352 bytes.
+pub const MAX_ATLAS_DIRECTIONS: usize = 254;
 
 pub const OCCLUSION_MODE_DISABLED: u32 = 0;
 pub const OCCLUSION_MODE_ATLAS_AO: u32 = 1;
@@ -275,4 +279,31 @@ pub(crate) const fn identity_mat4() -> [[f32; 4]; 4] {
         [0.0, 0.0, 1.0, 0.0],
         [0.0, 0.0, 0.0, 1.0],
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lighting_occlusion_uniforms_fit_downlevel_binding_limit() {
+        let size = std::mem::size_of::<LightingOcclusionUniforms>() as u64;
+        let limit = wgpu::Limits::downlevel_defaults().max_uniform_buffer_binding_size;
+
+        assert!(
+            size <= limit,
+            "lighting occlusion uniform is {size} bytes, exceeding the downlevel {limit}-byte binding limit"
+        );
+    }
+
+    #[test]
+    fn lighting_shader_matches_atlas_direction_capacity() {
+        let shader = include_str!("../shaders/common/lighting.wgsl");
+        let declaration = format!("const MAX_ATLAS_DIRECTIONS: u32 = {MAX_ATLAS_DIRECTIONS}u;");
+
+        assert!(
+            shader.contains(&declaration),
+            "lighting WGSL must keep MAX_ATLAS_DIRECTIONS in sync with Rust"
+        );
+    }
 }
