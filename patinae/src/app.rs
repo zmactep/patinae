@@ -1465,6 +1465,7 @@ fn patinae_wgpu_settings() -> slint::wgpu_29::WGPUSettings {
         slint::wgpu_29::wgpu::Backends::from_env(),
         cfg!(target_os = "windows"),
     );
+    settings.device_required_limits = slint::wgpu_29::wgpu::Limits::default();
     settings
         .device_required_limits
         .max_storage_buffers_per_shader_stage = RENDER_COMPUTE_STORAGE_BUFFERS_PER_STAGE;
@@ -2590,6 +2591,18 @@ mod tests {
 
         assert_eq!(drain_warnings(&mut app).len(), 1);
         assert!(drain_commands(&mut app).is_empty());
+    }
+
+    #[test]
+    fn wgpu_settings_requests_compute_capable_limits() {
+        let settings = patinae_wgpu_settings();
+        let limits = settings.device_required_limits;
+
+        assert!(limits.max_compute_workgroups_per_dimension > 0);
+        assert!(limits.max_compute_workgroup_size_x >= 64);
+        assert!(limits.max_compute_invocations_per_workgroup >= 64);
+        assert!(limits.max_storage_buffer_binding_size > 0);
+        assert!(limits.max_storage_textures_per_shader_stage > 0);
     }
 
     #[test]
