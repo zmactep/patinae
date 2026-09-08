@@ -21,7 +21,7 @@
 use patinae_mol::{AtomIndex, BondOrder, CoordSet, DirtyFlags, ObjectMolecule, RepMask};
 
 use super::{pack_alpha_override, AtomGpu, BondGpu, ObjectEntry, ObjectSlot, SceneStore};
-use crate::render_input::{ColorLutEntry, RenderObjectInput, RepColorLutEntry};
+use crate::render_input::RenderObjectInput;
 
 const VALENCE_EPS: f32 = 1e-4;
 const VALENCE_ALIGNMENT_DOT: f32 = 0.75;
@@ -402,23 +402,9 @@ fn write_color_lut_for_object(
 ) {
     let base = slot.atom_offset as usize;
     let count = slot.atom_count as usize;
-    debug_assert!(
-        input.atom_colors.len() >= count,
-        "scene_store: atom_colors {} < slot count {}",
-        input.atom_colors.len(),
-        count
-    );
-    for i in 0..count {
-        let base_color = input.atom_colors[i];
-        let rep_colors = input
-            .atom_rep_colors
-            .get(i)
-            .copied()
-            .unwrap_or_else(RepColorLutEntry::inherit_all);
-        store
-            .color_lut
-            .set(base + i, ColorLutEntry::new(base_color, rep_colors));
-    }
+    input
+        .colors
+        .write(store.color_lut.range_mut(base..base + count));
 }
 
 /// Populate `mask_lut[…]` bits for the slot's atom range. Bit set ⇒
@@ -577,8 +563,10 @@ mod tests {
             visible_reps: RepMask::ALL,
             draw_reps: RepMask::ALL,
             object_settings: None,
-            atom_colors: colors,
-            atom_rep_colors: &[],
+            colors: crate::RenderAtomColors::Separate {
+                base: colors,
+                reps: &[],
+            },
             atom_markers: &[],
             marker_updates: &[],
             has_markers: false,

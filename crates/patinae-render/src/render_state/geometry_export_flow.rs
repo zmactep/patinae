@@ -4,7 +4,9 @@ use bytemuck::Pod;
 use patinae_algos::surface::{extract_isomesh, extract_isosurface, ContourGeometry};
 
 use super::state::*;
-use crate::geometry_export::analytic::{append_cpu_object_geometry, material_for_atom, oct_decode};
+use crate::geometry_export::analytic::{
+    append_cpu_object_geometry, material_for_atom, oct_decode, ExportObjectInput,
+};
 use crate::geometry_export::{
     append_displayed_primitive_to_trace, trace_triangle_material, DisplayedGeometry,
     DisplayedMaterial, DisplayedMesh, DisplayedMeshVertex, DisplayedObjectGeometry,
@@ -12,7 +14,7 @@ use crate::geometry_export::{
     TraceLineSegment, TraceMaterial, TraceTriangle,
 };
 use crate::picking::RepKind;
-use crate::render_input::{RenderInput, RenderMapInput, RenderMapMode, RenderObjectInput};
+use crate::render_input::{RenderInput, RenderMapInput, RenderMapMode};
 use crate::representations::cartoon::CartoonRep;
 use crate::representations::mesh::StdVertex;
 use crate::representations::surface::SurfaceRep;
@@ -37,6 +39,23 @@ impl RenderState {
         options: &GeometryExportOptions,
     ) -> Result<DisplayedGeometry, GeometryExportError> {
         self.sync(input);
+        let staged_objects: Vec<_> = input
+            .objects
+            .iter()
+            .map(|object| {
+                let slot = self
+                    .scene
+                    .scene_store
+                    .slot(object.object_id)
+                    .expect("sync must create a slot for each input object");
+                let start = slot.atom_offset as usize;
+                ExportObjectInput::new(
+                    object,
+                    &self.scene.scene_store.color_lut.cpu()
+                        [start..start + slot.atom_count as usize],
+                )
+            })
+            .collect();
 
         let mut geometry = DisplayedGeometry {
             objects: Vec::with_capacity(input.objects.len() + input.maps.len()),
@@ -53,10 +72,10 @@ impl RenderState {
                 object_id: map.object_id,
                 primitives: Vec::new(),
             }));
-        let mut object_lookup: HashMap<u32, (usize, &RenderObjectInput<'_>)> =
+        let mut object_lookup: HashMap<u32, (usize, &ExportObjectInput<'_>)> =
             HashMap::with_capacity(input.objects.len());
 
-        for (idx, object) in input.objects.iter().enumerate() {
+        for (idx, object) in staged_objects.iter().enumerate() {
             append_cpu_object_geometry(&mut geometry.objects[idx], object, input.settings, options);
             object_lookup.insert(object.object_id.0, (idx, object));
         }
@@ -162,11 +181,28 @@ impl RenderState {
         visitor: &mut dyn FnMut(TraceGeometryChunk) -> Result<(), String>,
     ) -> Result<(), GeometryExportError> {
         self.sync(input);
+        let staged_objects: Vec<_> = input
+            .objects
+            .iter()
+            .map(|object| {
+                let slot = self
+                    .scene
+                    .scene_store
+                    .slot(object.object_id)
+                    .expect("sync must create a slot for each input object");
+                let start = slot.atom_offset as usize;
+                ExportObjectInput::new(
+                    object,
+                    &self.scene.scene_store.color_lut.cpu()
+                        [start..start + slot.atom_count as usize],
+                )
+            })
+            .collect();
 
-        let mut object_lookup: HashMap<u32, &RenderObjectInput<'_>> =
+        let mut object_lookup: HashMap<u32, &ExportObjectInput<'_>> =
             HashMap::with_capacity(input.objects.len());
 
-        for object in input.objects {
+        for object in &staged_objects {
             object_lookup.insert(object.object_id.0, object);
             let mut displayed = DisplayedObjectGeometry {
                 object_id: object.object_id,
@@ -337,7 +373,7 @@ fn append_mesh_vertices(
     object: &mut DisplayedObjectGeometry,
     rep: RepKind,
     vertices: Vec<StdVertex>,
-    input: &RenderObjectInput<'_>,
+    input: &ExportObjectInput<'_>,
     scene_settings: &patinae_settings::ResolvedSettings,
 ) {
     let exported: Vec<DisplayedMeshVertex> = vertices
@@ -365,7 +401,7 @@ fn append_mesh_vertices(
 fn append_mesh_lines(
     object: &mut DisplayedObjectGeometry,
     vertices: Vec<StdVertex>,
-    input: &RenderObjectInput<'_>,
+    input: &ExportObjectInput<'_>,
     scene_settings: &patinae_settings::ResolvedSettings,
 ) {
     for pair in vertices.as_chunks::<2>().0 {
@@ -407,7 +443,7 @@ fn visit_trace_chunk(
 fn trace_chunk_from_mesh_vertices(
     rep: RepKind,
     vertices: Vec<StdVertex>,
-    input: &RenderObjectInput<'_>,
+    input: &ExportObjectInput<'_>,
     scene_settings: &patinae_settings::ResolvedSettings,
 ) -> TraceGeometryChunk {
     let mut chunk = TraceGeometryChunk {
@@ -431,7 +467,7 @@ fn trace_chunk_from_mesh_vertices(
 
 fn trace_chunk_from_mesh_lines(
     vertices: Vec<StdVertex>,
-    input: &RenderObjectInput<'_>,
+    input: &ExportObjectInput<'_>,
     scene_settings: &patinae_settings::ResolvedSettings,
 ) -> TraceGeometryChunk {
     let mut chunk = TraceGeometryChunk {
@@ -473,7 +509,7 @@ struct TraceVertex {
 fn trace_vertex_from_std(
     vertex: StdVertex,
     rep: RepKind,
-    input: &RenderObjectInput<'_>,
+    input: &ExportObjectInput<'_>,
     scene_settings: &patinae_settings::ResolvedSettings,
 ) -> TraceVertex {
     TraceVertex {

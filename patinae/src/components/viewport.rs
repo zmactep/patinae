@@ -27,8 +27,8 @@ use patinae_settings::{ResolvedSettings, Settings, ShadingMode};
 
 use patinae_scene::bridge::{
     frame_uniforms_from_camera, frame_uniforms_from_session, resolve_pick, resolve_setting_color,
-    visit_render_scene, CachedRenderScene, ProjectedAnnotationLabel, ProjectedSceneLabels,
-    ResolvedSceneColors, ResolvedSceneMarkers, ResolvedSceneStrokes,
+    visit_render_scene_deferred, CachedRenderScene, ProjectedAnnotationLabel, ProjectedSceneLabels,
+    ResolvedSceneMarkers, ResolvedSceneStrokes,
 };
 
 const VIEWPORT_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
@@ -753,17 +753,17 @@ impl CaptureRenderer for ViewportRenderer {
         // Build per-atom colours + render objects via the same bridges the
         // live frame uses, so the captured PNG matches the on-screen scene
         // (modulo resolution).
-        let colors = ResolvedSceneColors::build(registry, settings, named, themed);
         // Capture path doesn't have access to a `Session`; render with no
         // markers (selection / hover overlays are interactive UI affordances
         // and don't belong in offscreen captures).
         let markers = ResolvedSceneMarkers::default();
         let mut object_inputs = Vec::new();
         let mut map_inputs = Vec::new();
-        visit_render_scene(
+        visit_render_scene_deferred(
             registry,
             settings,
-            &colors,
+            named,
+            themed,
             &markers,
             &mut |_name, obj| object_inputs.push(obj),
             &mut |_name, map| map_inputs.push(map),
@@ -812,6 +812,7 @@ impl CaptureRenderer for ViewportRenderer {
 
         patinae_render::capture::capture_png(&mut self.state, path, width, height, &frame, &input)
             .map_err(|e| ViewerError::capture_error(e.to_string()))?;
+        drop(object_inputs);
         registry.clear_all_dirty_objects();
 
         // Restore live viewport size on the next frame — `render_frame`
@@ -869,14 +870,14 @@ impl CaptureRenderer for ViewportRenderer {
         _clear_color: [f32; 3],
         options: &GeometryExportOptions,
     ) -> Result<DisplayedGeometry, ViewerError> {
-        let colors = ResolvedSceneColors::build(registry, settings, named, themed);
         let markers = ResolvedSceneMarkers::default();
         let mut object_inputs = Vec::new();
         let mut map_inputs = Vec::new();
-        visit_render_scene(
+        visit_render_scene_deferred(
             registry,
             settings,
-            &colors,
+            named,
+            themed,
             &markers,
             &mut |_name, obj| object_inputs.push(obj),
             &mut |_name, map| map_inputs.push(map),
@@ -899,6 +900,7 @@ impl CaptureRenderer for ViewportRenderer {
             .state
             .export_displayed_geometry(&input, options)
             .map_err(|e| ViewerError::capture_error(e.to_string()))?;
+        drop(object_inputs);
         registry.clear_all_dirty_objects();
 
         // Restore live viewport size on the next frame, matching capture.
@@ -917,14 +919,14 @@ impl CaptureRenderer for ViewportRenderer {
         options: &GeometryExportOptions,
         visitor: &mut dyn FnMut(TraceGeometryChunk) -> Result<(), String>,
     ) -> Result<(), ViewerError> {
-        let colors = ResolvedSceneColors::build(registry, settings, named, themed);
         let markers = ResolvedSceneMarkers::default();
         let mut object_inputs = Vec::new();
         let mut map_inputs = Vec::new();
-        visit_render_scene(
+        visit_render_scene_deferred(
             registry,
             settings,
-            &colors,
+            named,
+            themed,
             &markers,
             &mut |_name, obj| object_inputs.push(obj),
             &mut |_name, map| map_inputs.push(map),
@@ -946,6 +948,7 @@ impl CaptureRenderer for ViewportRenderer {
         self.state
             .for_each_trace_geometry_chunk(&input, options, visitor)
             .map_err(|e| ViewerError::capture_error(e.to_string()))?;
+        drop(object_inputs);
         registry.clear_all_dirty_objects();
 
         self.last_viewport_size = None;
@@ -962,14 +965,14 @@ impl CaptureRenderer for ViewportRenderer {
         _clear_color: [f32; 3],
         visitor: &mut dyn FnMut(RenderArtifactSnapshot<'_>) -> Result<(), String>,
     ) -> Result<(), ViewerError> {
-        let colors = ResolvedSceneColors::build(registry, settings, named, themed);
         let markers = ResolvedSceneMarkers::default();
         let mut object_inputs = Vec::new();
         let mut map_inputs = Vec::new();
-        visit_render_scene(
+        visit_render_scene_deferred(
             registry,
             settings,
-            &colors,
+            named,
+            themed,
             &markers,
             &mut |_name, obj| object_inputs.push(obj),
             &mut |_name, map| map_inputs.push(map),
@@ -990,6 +993,7 @@ impl CaptureRenderer for ViewportRenderer {
 
         let snapshot = self.state.render_artifact_snapshot(&input);
         visitor(snapshot).map_err(ViewerError::capture_error)?;
+        drop(object_inputs);
         registry.clear_all_dirty_objects();
 
         self.last_viewport_size = None;

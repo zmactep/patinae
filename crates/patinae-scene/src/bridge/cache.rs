@@ -1,6 +1,6 @@
 //! Cached render-scene bridge state.
 //!
-//! Hosts keep this cache alive across frames so per-atom colors, marker bits,
+//! Hosts keep this cache alive across frames so marker bits,
 //! and picking name lookups are rebuilt only when scene state changes.
 
 use std::cell::RefCell;
@@ -11,18 +11,18 @@ use patinae_settings::ResolvedSettings;
 use crate::{session::Session, ResolvedAnnotationBundle};
 
 use super::{
-    picking::render_id_slot_index, visit_render_scene, ResolvedSceneColors, ResolvedSceneMarkers,
+    objects::visit_render_scene_deferred, picking::render_id_slot_index, ResolvedSceneMarkers,
     ResolvedSceneStrokes,
 };
 
 /// Persistent host-side cache for renderer input.
 ///
 /// The renderer input itself borrows from the current [`Session`], so each
-/// frame still owns short-lived input vectors. The expensive per-atom buffers
+/// frame still owns short-lived input vectors. Colors resolve directly into
+/// renderer storage on dirty updates. The expensive marker buffers
 /// and the sparse render-id-to-name picking lookup persist here.
 #[derive(Default)]
 pub struct CachedRenderScene {
-    colors: ResolvedSceneColors,
     markers: ResolvedSceneMarkers,
     recent_atom_targets: Vec<(String, patinae_mol::AtomIndex)>,
     recent_atom_target_key: Option<(u64, u64, u64)>,
@@ -31,17 +31,8 @@ pub struct CachedRenderScene {
 }
 
 impl CachedRenderScene {
-    /// Builds a frame input using cached color and marker buffers.
+    /// Builds a frame with deferred colors and cached marker buffers.
     pub fn prepare<'a>(&'a mut self, session: &'a mut Session) -> CachedRenderFrame<'a> {
-        if self.colors.needs_rebuild(&session.registry) {
-            self.colors.rebuild(
-                &session.registry,
-                &session.settings,
-                &session.named_palette,
-                &session.palette,
-            );
-        }
-
         let recent_observation = (
             session.recent_atoms.incarnation(),
             session.recent_atoms.generation(),
@@ -79,10 +70,11 @@ impl CachedRenderScene {
         {
             let names = RefCell::new(&mut self.object_names);
             names.borrow_mut().clear();
-            visit_render_scene(
+            visit_render_scene_deferred(
                 &session.registry,
                 &session.settings,
-                &self.colors,
+                &session.named_palette,
+                &session.palette,
                 &self.markers,
                 &mut |name, obj| {
                     record_object_name(&mut names.borrow_mut(), obj.object_id.0, name);
@@ -153,10 +145,12 @@ impl<'a> CachedRenderFrame<'a> {
 
 #[cfg(test)]
 mod tests {
+    use crate::bridge::ResolvedSceneColors;
     use lin_alg::f32::Vec3;
-    use patinae_color::ColorIndex;
+    use patinae_color::{Color, ColorIndex, ThemedPalette};
     use patinae_mol::{Atom, AtomIndex, CoordSet, DirtyFlags, Element, ObjectMolecule};
-    use patinae_settings::groups::RecentPickLimit;
+    use patinae_render::{scene_store::SceneStore, ColorLutEntry};
+    use patinae_settings::{groups::RecentPickLimit, Color as SettingColor};
 
     use crate::{AtomAnchor, LabelEntity, LabelObject, MoleculeObject};
 
@@ -306,5 +300,196 @@ mod tests {
             .invalidate(DirtyFlags::COORDS);
         drop(cache.prepare(&mut session));
         assert_eq!(cache.annotation_strokes.rebuild_count(), 4);
+    }
+
+    fn molecule(name: &str, count: usize) -> MoleculeObject {
+        let mut mol = ObjectMolecule::new(name);
+        for _ in 0..count {
+            mol.add_atom(Atom::new("CA", Element::Carbon));
+        }
+        mol.add_coord_set(CoordSet::from_coords(vec![0.0; count * 3]));
+        MoleculeObject::with_name(mol, name)
+    }
+
+    fn clear(session: &mut Session) {
+        for name in ["one", "two"] {
+            if let Some(mol) = session.registry.get_molecule_mut(name) {
+                mol.clear_dirty();
+            }
+        }
+    }
+
+    fn check(session: &mut Session, cache: &mut CachedRenderScene, store: &mut SceneStore) {
+        let expected = ResolvedSceneColors::build(
+            &session.registry,
+            &session.settings,
+            &session.named_palette,
+            &session.palette,
+        );
+        let expected: std::collections::HashMap<_, _> = ["one", "two"]
+            .into_iter()
+            .filter_map(|name| {
+                let bases = expected.get(name)?;
+                let reps = expected.get_rep(name).unwrap();
+                Some((
+                    session.registry.render_id(name).unwrap().get(),
+                    bases
+                        .iter()
+                        .zip(reps)
+                        .map(|(&base, &rep)| ColorLutEntry::new(base, rep))
+                        .collect::<Vec<_>>(),
+                ))
+            })
+            .collect();
+        let frame = cache.prepare(session);
+        let input = frame.render_input();
+        assert_eq!(input.objects.len(), expected.len());
+        for object in input.objects {
+            let expected = &expected[&object.object_id.0];
+            for (index, color) in expected.iter().enumerate() {
+                assert_eq!(object.colors.get(index), Some(*color));
+            }
+            let dirty = if store.has_slot(object.object_id) {
+                object.dirty
+            } else {
+                DirtyFlags::ALL
+            };
+            let slot = store.sync_object(object, dirty);
+            let start = slot.atom_offset as usize;
+            assert_eq!(
+                &store.color_lut.cpu()[start..start + slot.atom_count as usize],
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn cached_colors_follow_atom_palette_settings_and_object_changes() {
+        let mut session = Session::new();
+        session.registry.add(molecule("one", 3));
+        session.registry.add(molecule("two", 2));
+        let mut cache = CachedRenderScene::default();
+        let mut store = SceneStore::new();
+        check(&mut session, &mut cache, &mut store);
+        clear(&mut session);
+        check(&mut session, &mut cache, &mut store);
+        let red = session.named_palette.get_by_name("red").unwrap().0 as i32;
+        let atom = session
+            .registry
+            .get_molecule_mut("one")
+            .unwrap()
+            .molecule_mut_with_dirty(DirtyFlags::COLOR)
+            .get_atom_mut(AtomIndex(1))
+            .unwrap();
+        atom.repr.colors.base = red;
+        atom.repr.colors.cartoon = red;
+        atom.repr.colors.ribbon = red;
+        atom.repr.colors.surface = red;
+        check(&mut session, &mut cache, &mut store);
+        clear(&mut session);
+        session
+            .named_palette
+            .set("red", Color::new(0.15, 0.25, 0.35));
+        session.registry.mark_all_dirty();
+        check(&mut session, &mut cache, &mut store);
+        clear(&mut session);
+        session.palette = ThemedPalette::light();
+        session.settings.sphere.color = SettingColor(red);
+        session.registry.mark_all_dirty();
+        check(&mut session, &mut cache, &mut store);
+        clear(&mut session);
+        let atom = session
+            .registry
+            .get_molecule_mut("two")
+            .unwrap()
+            .molecule_mut_with_dirty(DirtyFlags::COLOR | DirtyFlags::TRANSPARENCY)
+            .get_atom_mut(AtomIndex(0))
+            .unwrap();
+        atom.repr.colors.base = ColorIndex::ByBFactor.into();
+        atom.b_factor = 37.0;
+        atom.repr.sphere_transparency = Some(0.4);
+        check(&mut session, &mut cache, &mut store);
+        session.registry.remove("one");
+        session.registry.add(molecule("one", 3));
+        check(&mut session, &mut cache, &mut store);
+        session.registry.enable("two", false).unwrap();
+        check(&mut session, &mut cache, &mut store);
+        session.registry.enable("two", true).unwrap();
+        check(&mut session, &mut cache, &mut store);
+        clear(&mut session);
+        let object = session.registry.get_molecule_mut("two").unwrap();
+        object.get_or_create_overrides().sphere.color = Some(SettingColor(red));
+        object.get_or_create_overrides().ribbon.color = Some(SettingColor(red));
+        object.invalidate(DirtyFlags::COLOR);
+        check(&mut session, &mut cache, &mut store);
+    }
+
+    #[test]
+    fn deferred_colors_preserve_polymer_spectrum_and_all_representation_overrides() {
+        let mut session = Session::new();
+        let mut mol = ObjectMolecule::new("one");
+        for index in 0..8 {
+            let mut atom = Atom::new("CA", Element::Carbon);
+            atom.residue = std::sync::Arc::new(patinae_mol::AtomResidue::from_parts(
+                if index < 4 { "A" } else { "B" },
+                "ALA",
+                index,
+                ' ',
+                "",
+            ));
+            atom.state.flags = patinae_mol::AtomFlags::PROTEIN | patinae_mol::AtomFlags::POLYMER;
+            atom.repr.colors.base = ColorIndex::ByResidueIndex.into();
+            atom.repr.colors.sphere = ColorIndex::ByResidueIndex.into();
+            atom.repr.colors.stick = ColorIndex::ByChain.into();
+            atom.repr.colors.line = ColorIndex::ByBFactor.into();
+            atom.repr.colors.dot = ColorIndex::ByElement.into();
+            atom.repr.colors.cartoon = ColorIndex::ByResidueIndex.into();
+            atom.repr.colors.ribbon = ColorIndex::BySS.into();
+            atom.repr.colors.surface = ColorIndex::ByResidueType.into();
+            atom.repr.colors.mesh = ColorIndex::ByResidueIndex.into();
+            atom.repr.colors.ellipsoid = ColorIndex::ByResidueIndex.into();
+            mol.add_atom(atom);
+        }
+        mol.add_coord_set(CoordSet::from_coords(vec![0.0; 24]));
+        session.registry.add(MoleculeObject::with_name(mol, "one"));
+        let mut cache = CachedRenderScene::default();
+        let mut store = SceneStore::new();
+        check(&mut session, &mut cache, &mut store);
+        session
+            .remove_molecule_atoms("one", &[AtomIndex(0)])
+            .unwrap();
+        check(&mut session, &mut cache, &mut store);
+    }
+
+    #[test]
+    fn independent_hosts_resolve_current_colors_after_another_host_clears_dirty_flags() {
+        let mut session = Session::new();
+        session.registry.add(molecule("one", 2));
+        let mut first = CachedRenderScene::default();
+        let mut second = CachedRenderScene::default();
+        check(&mut session, &mut first, &mut SceneStore::new());
+        clear(&mut session);
+        check(&mut session, &mut second, &mut SceneStore::new());
+        session
+            .registry
+            .get_molecule_mut("one")
+            .unwrap()
+            .molecule_mut()
+            .get_atom_mut(AtomIndex(0))
+            .unwrap()
+            .b_factor = 84.0;
+        session
+            .registry
+            .get_molecule_mut("one")
+            .unwrap()
+            .molecule_mut()
+            .get_atom_mut(AtomIndex(0))
+            .unwrap()
+            .repr
+            .colors
+            .base = ColorIndex::ByBFactor.into();
+        check(&mut session, &mut first, &mut SceneStore::new());
+        clear(&mut session);
+        check(&mut session, &mut second, &mut SceneStore::new());
     }
 }

@@ -725,8 +725,10 @@ mod tests {
             visible_reps: RepMask::SPHERES,
             draw_reps: RepMask::SPHERES,
             object_settings: None,
-            atom_colors: &[],
-            atom_rep_colors: &[],
+            colors: crate::RenderAtomColors::Separate {
+                base: &[],
+                reps: &[],
+            },
             atom_markers: &[],
             marker_updates: &[],
             has_markers: false,

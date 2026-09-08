@@ -293,9 +293,10 @@ fn object_metadata(
         if let Some(slot) = state.scene.scene_store.slot(object.object_id) {
             metadata.atom_offset = slot.atom_offset;
             metadata.atom_count = slot.atom_count;
-        }
-        if let Some(color) = object.atom_colors.first().copied() {
-            metadata.material_rgba = color;
+            if slot.atom_count > 0 {
+                metadata.material_rgba =
+                    state.scene.scene_store.color_lut.cpu()[slot.atom_offset as usize].base;
+            }
         }
         let settings = object.object_settings.as_ref().unwrap_or(input.settings);
         metadata.sphere_transparency = settings.sphere.transparency;

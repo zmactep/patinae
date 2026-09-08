@@ -5,7 +5,8 @@
 
 use patinae_mol::{CoordSet, ObjectMolecule};
 use patinae_render::{
-    ObjectId, RenderMapInput, RenderMapMode, RenderObjectInput, RepColorLutEntry, SceneLod,
+    ObjectId, RenderAtomColors, RenderMapInput, RenderMapMode, RenderObjectInput, RepColorLutEntry,
+    SceneLod,
 };
 use patinae_settings::{ResolvedSettings, Settings};
 
@@ -33,10 +34,18 @@ pub fn visit_render_objects<'a>(
     markers: &'a ResolvedSceneMarkers,
     visit: &mut dyn FnMut(&'a str, RenderObjectInput<'a>),
 ) {
+    let make_colors = |name: &'a str, _mol: &'a MoleculeObject| {
+        Some(RenderAtomColors::Separate {
+            base: colors.get(name)?,
+            reps: colors.get_rep(name)?,
+        })
+    };
     let lod = scene_lod(registry, colors);
 
     for name in registry.names() {
-        if let Some(input) = render_molecule_input(registry, settings, colors, markers, name, lod) {
+        if let Some(input) =
+            render_molecule_input(registry, settings, &make_colors, markers, name, lod)
+        {
             visit(name, input);
         }
     }
@@ -51,10 +60,69 @@ pub fn visit_render_scene<'a>(
     visit_object: &mut dyn FnMut(&'a str, RenderObjectInput<'a>),
     visit_map: &mut dyn FnMut(&'a str, RenderMapInput<'a>),
 ) {
-    let lod = scene_lod(registry, colors);
+    let make_colors = |name: &'a str, _mol: &'a MoleculeObject| {
+        Some(RenderAtomColors::Separate {
+            base: colors.get(name)?,
+            reps: colors.get_rep(name)?,
+        })
+    };
+    visit_render_scene_using(
+        registry,
+        settings,
+        &make_colors,
+        markers,
+        scene_lod(registry, colors),
+        visit_object,
+        visit_map,
+    );
+}
 
+/// Visits the scene with colors resolved directly into renderer staging storage.
+pub fn visit_render_scene_deferred<'a>(
+    registry: &'a ObjectRegistry,
+    settings: &Settings,
+    named: &'a patinae_color::NamedPalette,
+    themed: &'a patinae_color::ThemedPalette,
+    markers: &'a ResolvedSceneMarkers,
+    visit_object: &mut dyn FnMut(&'a str, RenderObjectInput<'a>),
+    visit_map: &mut dyn FnMut(&'a str, RenderMapInput<'a>),
+) {
+    let make_colors = |_name: &'a str, mol: &'a MoleculeObject| {
+        let settings = patinae_settings::ResolvedSettings::resolve(settings, mol.overrides());
+        Some(RenderAtomColors::Source(Box::new(
+            super::colors::ObjectColorSource::new(mol.molecule(), &settings, named, themed),
+        )))
+    };
+    let total = registry
+        .names()
+        .filter_map(|name| registry.get_molecule(name))
+        .filter(|mol| mol.state().enabled && mol.display_coord_set().is_some())
+        .map(|mol| mol.molecule().atom_count())
+        .sum();
+    visit_render_scene_using(
+        registry,
+        settings,
+        &make_colors,
+        markers,
+        SceneLod::from_atom_count(total),
+        visit_object,
+        visit_map,
+    );
+}
+
+fn visit_render_scene_using<'a>(
+    registry: &'a ObjectRegistry,
+    settings: &Settings,
+    make_colors: &dyn Fn(&'a str, &'a MoleculeObject) -> Option<RenderAtomColors<'a>>,
+    markers: &'a ResolvedSceneMarkers,
+    lod: SceneLod,
+    visit_object: &mut dyn FnMut(&'a str, RenderObjectInput<'a>),
+    visit_map: &mut dyn FnMut(&'a str, RenderMapInput<'a>),
+) {
     for name in registry.names() {
-        if let Some(input) = render_molecule_input(registry, settings, colors, markers, name, lod) {
+        if let Some(input) =
+            render_molecule_input(registry, settings, make_colors, markers, name, lod)
+        {
             visit_object(name, input);
             continue;
         }
@@ -117,13 +185,21 @@ fn renderable_molecule_data<'a>(
 fn render_molecule_input<'a>(
     registry: &'a ObjectRegistry,
     settings: &Settings,
-    colors: &'a ResolvedSceneColors,
+    make_colors: &dyn Fn(&'a str, &'a MoleculeObject) -> Option<RenderAtomColors<'a>>,
     markers: &'a ResolvedSceneMarkers,
     name: &'a str,
     lod: SceneLod,
 ) -> Option<RenderObjectInput<'a>> {
-    let (mol_obj, mol, coord, atom_colors, atom_rep_colors) =
-        renderable_molecule_data(registry, colors, name)?;
+    let mol_obj = registry.get_molecule(name)?;
+    if !mol_obj.state().enabled {
+        return None;
+    }
+    let mol = mol_obj.molecule();
+    let coord = mol_obj.display_coord_set()?;
+    let colors = make_colors(name, mol_obj)?;
+    if colors.len() != mol.atom_count() {
+        return None;
+    }
     let id = render_object_id(registry, name)?;
     let mut dirty = mol_obj.dirty_flags();
     if markers.is_dirty(name) {
@@ -139,8 +215,7 @@ fn render_molecule_input<'a>(
         object_settings: mol_obj
             .overrides()
             .map(|overrides| ResolvedSettings::resolve(settings, Some(overrides))),
-        atom_colors,
-        atom_rep_colors,
+        colors,
         atom_markers: markers.get(name).unwrap_or(&[]),
         marker_updates: markers.updates(name).unwrap_or(&[]),
         has_markers: markers.has_markers(name),

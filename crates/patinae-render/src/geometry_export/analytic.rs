@@ -9,14 +9,38 @@ use std::collections::HashMap;
 use patinae_mol::{AtomIndex, BondOrder, CoordSet, ObjectMolecule, RepMask};
 use patinae_settings::ResolvedSettings;
 
-#[cfg(test)]
 use crate::picking::ObjectId;
 use crate::picking::RepKind;
-use crate::render_input::{RenderObjectInput, RepColorLutEntry, REP_COLOR_INHERIT};
+use crate::render_input::{ColorLutEntry, RenderObjectInput, RepColorLutEntry, REP_COLOR_INHERIT};
 
 use super::{
     DisplayedMaterial, DisplayedObjectGeometry, DisplayedPrimitive, GeometryExportOptions,
 };
+
+/// Lightweight export view borrowing the renderer's already-resolved colors.
+pub(crate) struct ExportObjectInput<'a> {
+    pub object_id: ObjectId,
+    molecule: &'a ObjectMolecule,
+    coord_set: &'a CoordSet,
+    pub transform: [[f32; 4]; 4],
+    draw_reps: RepMask,
+    object_settings: Option<&'a ResolvedSettings>,
+    colors: &'a [ColorLutEntry],
+}
+
+impl<'a> ExportObjectInput<'a> {
+    pub(crate) fn new(input: &'a RenderObjectInput<'_>, colors: &'a [ColorLutEntry]) -> Self {
+        Self {
+            object_id: input.object_id,
+            molecule: input.molecule,
+            coord_set: input.coord_set,
+            transform: input.transform,
+            draw_reps: input.draw_reps,
+            object_settings: input.object_settings.as_ref(),
+            colors,
+        }
+    }
+}
 
 const DOT_INSTANCE_SIZE: u64 = 32;
 const MAX_DOT_BUFFER_BYTES: u64 = 2_000_000_000;
@@ -26,11 +50,11 @@ const VALENCE_JOIN_FACTOR: f32 = 0.35;
 
 pub(crate) fn append_cpu_object_geometry(
     object: &mut DisplayedObjectGeometry,
-    input: &RenderObjectInput<'_>,
+    input: &ExportObjectInput<'_>,
     scene_settings: &ResolvedSettings,
     options: &GeometryExportOptions,
 ) {
-    let settings = input.object_settings.as_ref().unwrap_or(scene_settings);
+    let settings = input.object_settings.unwrap_or(scene_settings);
     let first_new_primitive = object.primitives.len();
     if options.include_analytic {
         append_spheres(object, input, settings);
@@ -84,23 +108,21 @@ fn transform_dir(m: &[[f32; 4]; 4], n: [f32; 3]) -> [f32; 3] {
     .unwrap_or([0.0, 0.0, 1.0])
 }
 
+// Called for every exported atom/mesh vertex. Let callers specialize the
+// representation-dependent color and alpha branches in size-optimized builds.
+#[inline]
 pub(crate) fn material_for_atom(
-    input: &RenderObjectInput<'_>,
+    input: &ExportObjectInput<'_>,
     scene_settings: &ResolvedSettings,
     rep: RepKind,
     atom_id: u32,
 ) -> DisplayedMaterial {
-    let base = input
-        .atom_colors
+    let (base, packed) = input
+        .colors
         .get(atom_id as usize)
-        .copied()
-        .unwrap_or([1.0, 1.0, 1.0, 1.0]);
-    let rep_override = input
-        .atom_rep_colors
-        .get(atom_id as usize)
-        .copied()
-        .unwrap_or_default();
-    let packed = rep_packed_color(rep_override, rep);
+        .map_or(([1.0; 4], REP_COLOR_INHERIT), |color| {
+            (color.base, rep_packed_color(&color.reps, rep))
+        });
     let rep_rgba = if packed == REP_COLOR_INHERIT {
         base
     } else {
@@ -108,7 +130,7 @@ pub(crate) fn material_for_atom(
     };
     let mut rgba = rep_rgba;
 
-    let settings = input.object_settings.as_ref().unwrap_or(scene_settings);
+    let settings = input.object_settings.unwrap_or(scene_settings);
     let atom = input
         .molecule
         .get_atom(AtomIndex(atom_id))
@@ -165,7 +187,7 @@ pub(crate) fn oct_decode(packed: u32) -> [f32; 3] {
 
 fn append_spheres(
     out: &mut DisplayedObjectGeometry,
-    input: &RenderObjectInput<'_>,
+    input: &ExportObjectInput<'_>,
     settings: &ResolvedSettings,
 ) {
     if !input.draw_reps.is_visible(RepMask::SPHERES) {
@@ -192,7 +214,7 @@ fn append_spheres(
 
 fn append_sticks(
     out: &mut DisplayedObjectGeometry,
-    input: &RenderObjectInput<'_>,
+    input: &ExportObjectInput<'_>,
     settings: &ResolvedSettings,
 ) {
     if !input.draw_reps.is_visible(RepMask::STICKS) {
@@ -270,7 +292,7 @@ fn append_sticks(
 
 fn append_lines(
     out: &mut DisplayedObjectGeometry,
-    input: &RenderObjectInput<'_>,
+    input: &ExportObjectInput<'_>,
     settings: &ResolvedSettings,
 ) {
     if !input.draw_reps.is_visible(RepMask::LINES) {
@@ -333,7 +355,7 @@ fn append_lines(
 
 fn append_dots(
     out: &mut DisplayedObjectGeometry,
-    input: &RenderObjectInput<'_>,
+    input: &ExportObjectInput<'_>,
     settings: &ResolvedSettings,
 ) {
     if !input.draw_reps.is_visible(RepMask::DOTS) {
@@ -373,7 +395,7 @@ fn append_dots(
     }
 }
 
-fn rep_packed_color(entry: RepColorLutEntry, rep: RepKind) -> u32 {
+fn rep_packed_color(entry: &RepColorLutEntry, rep: RepKind) -> u32 {
     match rep {
         RepKind::Sphere => entry.sphere,
         RepKind::Stick => entry.stick,
@@ -565,8 +587,10 @@ mod tests {
             visible_reps: reps,
             draw_reps: reps,
             object_settings: None,
-            atom_colors: colors,
-            atom_rep_colors: rep_colors,
+            colors: crate::RenderAtomColors::Separate {
+                base: colors,
+                reps: rep_colors,
+            },
             atom_markers: &[],
             marker_updates: &[],
             has_markers: false,
@@ -589,7 +613,14 @@ mod tests {
 
         append_cpu_object_geometry(
             &mut obj,
-            &input,
+            &ExportObjectInput::new(
+                &input,
+                &colors
+                    .iter()
+                    .zip(&rep_colors)
+                    .map(|(&base, &reps)| ColorLutEntry::new(base, reps))
+                    .collect::<Vec<_>>(),
+            ),
             &resolved,
             &GeometryExportOptions::default(),
         );
@@ -615,7 +646,14 @@ mod tests {
 
         append_cpu_object_geometry(
             &mut obj,
-            &input,
+            &ExportObjectInput::new(
+                &input,
+                &colors
+                    .iter()
+                    .zip(&rep_colors)
+                    .map(|(&base, &reps)| ColorLutEntry::new(base, reps))
+                    .collect::<Vec<_>>(),
+            ),
             &resolved,
             &GeometryExportOptions::default(),
         );
@@ -649,7 +687,14 @@ mod tests {
 
         append_cpu_object_geometry(
             &mut obj,
-            &input,
+            &ExportObjectInput::new(
+                &input,
+                &colors
+                    .iter()
+                    .zip(&rep_colors)
+                    .map(|(&base, &reps)| ColorLutEntry::new(base, reps))
+                    .collect::<Vec<_>>(),
+            ),
             &resolved,
             &GeometryExportOptions::default(),
         );
@@ -685,7 +730,14 @@ mod tests {
 
         append_cpu_object_geometry(
             &mut object,
-            &input,
+            &ExportObjectInput::new(
+                &input,
+                &colors
+                    .iter()
+                    .zip(&rep_colors)
+                    .map(|(&base, &reps)| ColorLutEntry::new(base, reps))
+                    .collect::<Vec<_>>(),
+            ),
             &resolved,
             &GeometryExportOptions::default(),
         );

@@ -70,6 +70,16 @@ impl<T: Pod> GrowableStorageBuffer<T> {
         &self.cpu
     }
 
+    /// Borrows a staging range and marks only that range for upload.
+    ///
+    /// # Panics
+    /// Panics if the range is outside the CPU buffer.
+    pub(crate) fn range_mut(&mut self, range: std::ops::Range<usize>) -> &mut [T] {
+        assert!(range.start <= range.end && range.end <= self.cpu.len());
+        self.mark_dirty(range.start, range.end);
+        &mut self.cpu[range]
+    }
+
     /// Mutable access to a single entry. Marks it dirty.
     pub fn set(&mut self, index: usize, value: T) {
         if index >= self.cpu.len() {

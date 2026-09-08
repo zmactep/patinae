@@ -77,9 +77,9 @@ pub use render_artifacts::{
     RenderArtifactRep, RenderArtifactSnapshot, RENDER_ARTIFACT_LAYOUT_VERSION,
 };
 pub use render_input::{
-    pack_rep_rgb8, ColorLutEntry, MarkerUpdate, RenderInput, RenderMapInput, RenderMapMode,
-    RenderObjectInput, RenderStrokeInput, RepColorLutEntry, SceneLod, StrokeSegment,
-    IDENTITY_TRANSFORM, REP_COLOR_INHERIT,
+    pack_rep_rgb8, AtomColorSource, ColorLutEntry, MarkerUpdate, RenderAtomColors, RenderInput,
+    RenderMapInput, RenderMapMode, RenderObjectInput, RenderStrokeInput, RepColorLutEntry,
+    SceneLod, StrokeSegment, IDENTITY_TRANSFORM, REP_COLOR_INHERIT,
 };
 pub use render_state::{RenderState, RenderSyncTimings};
 pub use representation_budget::{

@@ -4,15 +4,12 @@
 //! `patinae-render` deliberately knows nothing about `patinae-scene::Viewer`.
 //!
 //! Color resolution lives on the **host** side: per-atom base colours and
-//! representation-specific colour overrides are pre-computed (once per
-//! rebuild) and passed in via [`atom_colors`] / [`atom_rep_colors`]. The
+//! representation-specific colour overrides are supplied through
+//! [`RenderObjectInput::colors`], either as arrays or a host resolver. The
 //! renderer fuses them into one GPU colour LUT and applies per-rep alpha
 //! (sphere_transparency, etc.) on top. This keeps the renderer free of any
 //! palette / color-resolution code, and preserves the dependency graph:
 //! scene/color policy stays upstream of the renderer.
-//!
-//! [`atom_colors`]: RenderObjectInput::atom_colors
-//! [`atom_rep_colors`]: RenderObjectInput::atom_rep_colors
 
 use bytemuck::{Pod, Zeroable};
 use patinae_algos::surface::Grid3D;
@@ -21,7 +18,7 @@ use patinae_settings::ResolvedSettings;
 
 use crate::picking::ObjectId;
 
-/// Sentinel in [`RepColorLutEntry`]: use the base `atom_colors` entry.
+/// Sentinel in [`RepColorLutEntry`]: use the base color entry.
 pub const REP_COLOR_INHERIT: u32 = u32::MAX;
 
 /// Packed RGB overrides for one atom, one slot per representation.
@@ -94,6 +91,83 @@ impl ColorLutEntry {
 impl Default for ColorLutEntry {
     fn default() -> Self {
         Self::new([1.0, 1.0, 1.0, 1.0], RepColorLutEntry::inherit_all())
+    }
+}
+
+/// Supplies host-resolved colors without retaining a second per-atom array.
+pub trait AtomColorSource: Send + Sync {
+    /// Returns the number of atoms available for color resolution.
+    fn len(&self) -> usize;
+
+    /// Returns whether this source contains no atoms.
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Resolves one atom for consumers that need individual colors.
+    fn get(&self, index: usize) -> Option<ColorLutEntry>;
+
+    /// Resolves colors directly into the renderer's staging buffer.
+    ///
+    /// `target` contains exactly `len()` entries.
+    fn write(&self, target: &mut [ColorLutEntry]);
+}
+
+/// Borrows existing colors or resolves them directly into renderer storage.
+pub enum RenderAtomColors<'a> {
+    /// Separate host arrays; missing representation entries inherit the base color.
+    Separate {
+        base: &'a [[f32; 4]],
+        reps: &'a [RepColorLutEntry],
+    },
+    /// Fused entries, including a borrowed slice of the renderer's staging buffer.
+    Fused(&'a [ColorLutEntry]),
+    /// A lightweight host resolver, owned only for the current frame.
+    Source(Box<dyn AtomColorSource + 'a>),
+}
+
+impl RenderAtomColors<'_> {
+    /// Returns the number of available base colors.
+    pub fn len(&self) -> usize {
+        match self {
+            Self::Separate { base, .. } => base.len(),
+            Self::Fused(colors) => colors.len(),
+            Self::Source(source) => source.len(),
+        }
+    }
+
+    /// Returns whether no base colors are available.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Returns one resolved color, preserving representation inheritance.
+    pub fn get(&self, index: usize) -> Option<ColorLutEntry> {
+        match self {
+            Self::Separate { base, reps } => base.get(index).map(|&base| {
+                ColorLutEntry::new(base, reps.get(index).copied().unwrap_or_default())
+            }),
+            Self::Fused(colors) => colors.get(index).copied(),
+            Self::Source(source) => source.get(index),
+        }
+    }
+
+    /// Writes a complete object's colors without an intermediate allocation.
+    ///
+    /// # Panics
+    /// Panics if `target` has a different length from this source.
+    pub fn write(&self, target: &mut [ColorLutEntry]) {
+        assert_eq!(target.len(), self.len());
+        match self {
+            Self::Separate { base, reps } => {
+                for (index, (target, &base)) in target.iter_mut().zip(*base).enumerate() {
+                    *target =
+                        ColorLutEntry::new(base, reps.get(index).copied().unwrap_or_default());
+                }
+            }
+            Self::Fused(colors) => target.copy_from_slice(colors),
+            Self::Source(source) => source.write(target),
+        }
     }
 }
 
@@ -265,15 +339,11 @@ pub struct RenderObjectInput<'a> {
     /// Per-object settings resolved from object overrides. `None` means "use
     /// the global block as-is".
     pub object_settings: Option<ResolvedSettings>,
-    /// Pre-resolved base RGBA per atom, indexed by `AtomIndex`. Length must
-    /// equal `molecule.atoms().len()`. Element / chain / SS / b-factor mapping
-    /// happens on the host before this call. Per-rep alpha (e.g.
-    /// `sphere_transparency`) is applied by the renderer on top.
-    pub atom_colors: &'a [[f32; 4]],
-    /// Packed per-representation colour overrides, indexed by `AtomIndex`.
-    /// Length should equal `molecule.atoms().len()`. When empty or shorter
-    /// than the atom count, missing entries inherit `atom_colors`.
-    pub atom_rep_colors: &'a [RepColorLutEntry],
+    /// Host color arrays or a resolver writing directly into renderer storage.
+    /// Length must equal the molecule's atom count. The renderer invokes the
+    /// resolver only for color/topology updates, then reuses its staging buffer.
+    /// Per-representation alpha is applied by the renderer on top.
+    pub colors: RenderAtomColors<'a>,
     /// Pre-packed per-atom marker bits, indexed by local `AtomIndex`. Length
     /// must equal `molecule.atoms().len()`. Bit layout in
     /// `crate::scene_store::marker` (bit 0 = selected, bit 1 = hover, bit 2 =
