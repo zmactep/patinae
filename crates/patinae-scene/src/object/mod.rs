@@ -13,6 +13,7 @@ mod label;
 mod map;
 pub(crate) mod measurement;
 mod molecule;
+mod serialization;
 
 #[doc(inline)]
 pub use annotation::{

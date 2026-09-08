@@ -184,7 +184,7 @@ fn planner_selects_streaming_fallback_for_reported_3j3q_surface_capacity() {
     };
     let snapshot = RenderArtifactSnapshotDescriptor {
         snapshot_id: 1,
-        layout_version: 2,
+        layout_version: patinae_render::RENDER_ARTIFACT_LAYOUT_VERSION,
         scene_generation: 7,
         scene_bounds_min: [0.0, 0.0, 0.0],
         scene_bounds_max: [1.0, 1.0, 1.0],
@@ -261,7 +261,7 @@ fn streaming_chunk_uses_storage_limit_not_largest_source_rep() {
     };
     let snapshot = RenderArtifactSnapshotDescriptor {
         snapshot_id: 1,
-        layout_version: 2,
+        layout_version: patinae_render::RENDER_ARTIFACT_LAYOUT_VERSION,
         scene_generation: 7,
         scene_bounds_min: [0.0, 0.0, 0.0],
         scene_bounds_max: [1.0, 1.0, 1.0],
@@ -356,7 +356,7 @@ fn streaming_budget_reserves_surface_capacity_when_direct_fills_chunk() {
     };
     let snapshot = RenderArtifactSnapshotDescriptor {
         snapshot_id: 1,
-        layout_version: 2,
+        layout_version: patinae_render::RENDER_ARTIFACT_LAYOUT_VERSION,
         scene_generation: 7,
         scene_bounds_min: [0.0, 0.0, 0.0],
         scene_bounds_max: [1.0, 1.0, 1.0],
@@ -658,6 +658,30 @@ fn artifact_wgsl_modules_parse_and_validate() {
             }
         };
 
+        for (_, ty) in module.types.iter() {
+            if ty.name.as_deref() == Some("AtomGpu") {
+                let naga::TypeInner::Struct { ref members, span } = ty.inner else {
+                    panic!("{label}: AtomGpu must be a struct");
+                };
+                assert_eq!(u64::from(span), ATOM_STRIDE, "{label}: atom stride");
+                assert_eq!(
+                    span as usize,
+                    std::mem::size_of::<patinae_render::scene_store::AtomGpu>()
+                );
+                assert_eq!(
+                    members
+                        .iter()
+                        .map(|m| (m.name.as_deref(), m.offset))
+                        .collect::<Vec<_>>(),
+                    [
+                        (Some("vdw"), 0),
+                        (Some("repr_flags"), 4),
+                        (Some("alpha_pack_a"), 8),
+                        (Some("alpha_pack_b"), 12)
+                    ]
+                );
+            }
+        }
         let mut validator = naga::valid::Validator::new(
             naga::valid::ValidationFlags::all(),
             naga::valid::Capabilities::all(),
@@ -677,10 +701,54 @@ fn artifact_wgsl_modules_parse_and_validate() {
 // Artifact planning.
 
 #[test]
+fn artifact_plan_rejects_incompatible_atom_layouts() {
+    let mut snapshot = RenderArtifactSnapshotDescriptor {
+        snapshot_id: 1,
+        layout_version: patinae_render::RENDER_ARTIFACT_LAYOUT_VERSION,
+        scene_generation: 0,
+        scene_bounds_min: [0.0; 3],
+        scene_bounds_max: [1.0; 3],
+        cull_pass_initialized: true,
+        device_limits: patinae_scene::GpuDeviceLimits {
+            max_buffer_size: 1024,
+            max_storage_buffer_binding_size: 1024,
+            max_compute_workgroups_per_dimension: 65535,
+            max_compute_invocations_per_workgroup: 256,
+            max_compute_workgroup_size_x: 256,
+            max_compute_workgroup_size_y: 1,
+            max_compute_workgroup_size_z: 1,
+            buffer_binding_array: false,
+            storage_resource_binding_array: false,
+        },
+        buffers: vec![
+            RenderArtifactBufferDescriptor {
+                handle: handle(10),
+                role: RenderArtifactBufferRole::SceneColorLut,
+                size: 64,
+                stride: COLOR_LUT_STRIDE,
+                element_count: 1,
+            },
+            scene_atoms_descriptor(11, 2),
+        ],
+        reps: Vec::new(),
+    };
+    assert!(plan::plan_artifact_primitives(&snapshot).is_ok());
+    snapshot.buffers[1].stride = 32;
+    let error = plan::plan_artifact_primitives(&snapshot).err().unwrap();
+    assert!(error.contains("SceneAtoms stride 32"));
+    snapshot.buffers[1].stride = ATOM_STRIDE;
+    for version in [2, u32::MAX] {
+        snapshot.layout_version = version;
+        let error = plan::plan_artifact_primitives(&snapshot).err().unwrap();
+        assert!(error.contains("unsupported render artifact layout version"));
+    }
+}
+
+#[test]
 fn artifact_plan_uses_scene_color_lut_and_cartoon_slot() {
     let snapshot = RenderArtifactSnapshotDescriptor {
         snapshot_id: 1,
-        layout_version: 2,
+        layout_version: patinae_render::RENDER_ARTIFACT_LAYOUT_VERSION,
         scene_generation: 7,
         scene_bounds_min: [0.0, 0.0, 0.0],
         scene_bounds_max: [1.0, 1.0, 1.0],
@@ -742,7 +810,7 @@ fn artifact_plan_uses_scene_color_lut_and_cartoon_slot() {
 fn artifact_plan_accepts_native_instance_artifacts() {
     let snapshot = RenderArtifactSnapshotDescriptor {
         snapshot_id: 1,
-        layout_version: 2,
+        layout_version: patinae_render::RENDER_ARTIFACT_LAYOUT_VERSION,
         scene_generation: 7,
         scene_bounds_min: [0.0, 0.0, 0.0],
         scene_bounds_max: [1.0, 1.0, 1.0],
@@ -863,7 +931,7 @@ fn artifact_plan_accepts_native_instance_artifacts() {
 fn artifact_plan_skips_undersized_instance_geometry() {
     let snapshot = RenderArtifactSnapshotDescriptor {
         snapshot_id: 1,
-        layout_version: 2,
+        layout_version: patinae_render::RENDER_ARTIFACT_LAYOUT_VERSION,
         scene_generation: 7,
         scene_bounds_min: [0.0, 0.0, 0.0],
         scene_bounds_max: [1.0, 1.0, 1.0],
@@ -925,7 +993,7 @@ fn artifact_plan_accepts_indirect_surface_capacity() {
     let surface_capacity = 4_000_000;
     let snapshot = RenderArtifactSnapshotDescriptor {
         snapshot_id: 1,
-        layout_version: 2,
+        layout_version: patinae_render::RENDER_ARTIFACT_LAYOUT_VERSION,
         scene_generation: 7,
         scene_bounds_min: [0.0, 0.0, 0.0],
         scene_bounds_max: [1.0, 1.0, 1.0],
@@ -992,7 +1060,7 @@ fn artifact_plan_accepts_indirect_surface_capacity() {
 fn surface_visibility_assigns_gpu_cursor_metadata_without_compacting_cpu_offsets() {
     let snapshot = RenderArtifactSnapshotDescriptor {
         snapshot_id: 1,
-        layout_version: 2,
+        layout_version: patinae_render::RENDER_ARTIFACT_LAYOUT_VERSION,
         scene_generation: 7,
         scene_bounds_min: [0.0, 0.0, 0.0],
         scene_bounds_max: [1.0, 1.0, 1.0],
@@ -1090,7 +1158,7 @@ fn surface_visibility_assigns_gpu_cursor_metadata_without_compacting_cpu_offsets
 fn artifact_plan_rejects_direct_triangle_count_not_divisible_by_three() {
     let snapshot = RenderArtifactSnapshotDescriptor {
         snapshot_id: 1,
-        layout_version: 2,
+        layout_version: patinae_render::RENDER_ARTIFACT_LAYOUT_VERSION,
         scene_generation: 7,
         scene_bounds_min: [0.0, 0.0, 0.0],
         scene_bounds_max: [1.0, 1.0, 1.0],
@@ -1150,7 +1218,7 @@ fn artifact_plan_rejects_direct_triangle_count_not_divisible_by_three() {
 fn artifact_plan_rejects_uninitialized_cull_counts() {
     let snapshot = RenderArtifactSnapshotDescriptor {
         snapshot_id: 1,
-        layout_version: 2,
+        layout_version: patinae_render::RENDER_ARTIFACT_LAYOUT_VERSION,
         scene_generation: 7,
         scene_bounds_min: [0.0, 0.0, 0.0],
         scene_bounds_max: [1.0, 1.0, 1.0],

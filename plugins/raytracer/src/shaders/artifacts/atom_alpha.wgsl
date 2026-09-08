@@ -3,10 +3,6 @@ struct AtomGpu {
     repr_flags: u32,
     alpha_pack_a: u32,
     alpha_pack_b: u32,
-    element_id: u32,
-    chain_id: u32,
-    residue_id: u32,
-    _pad: u32,
 }
 
 fn unpack_atom_alpha(pack: u32, byte_idx: u32, fallback: f32) -> f32 {

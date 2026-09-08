@@ -197,6 +197,43 @@ mod tests {
                 }
             };
 
+            for (_, ty) in module.types.iter() {
+                if ty.name.as_deref() != Some("AtomGpu") {
+                    continue;
+                }
+                let naga::TypeInner::Struct { ref members, span } = ty.inner else {
+                    panic!("{label}: AtomGpu must be a struct");
+                };
+                assert_eq!(
+                    span as usize,
+                    std::mem::size_of::<crate::scene_store::AtomGpu>(),
+                    "{label}: atom stride"
+                );
+                let expected = [
+                    (
+                        "vdw",
+                        std::mem::offset_of!(crate::scene_store::AtomGpu, vdw),
+                    ),
+                    (
+                        "repr_flags",
+                        std::mem::offset_of!(crate::scene_store::AtomGpu, repr_flags),
+                    ),
+                    (
+                        "alpha_pack_a",
+                        std::mem::offset_of!(crate::scene_store::AtomGpu, alpha_pack_a),
+                    ),
+                    (
+                        "alpha_pack_b",
+                        std::mem::offset_of!(crate::scene_store::AtomGpu, alpha_pack_b),
+                    ),
+                ];
+                assert_eq!(members.len(), expected.len(), "{label}: atom fields");
+                for (member, (name, offset)) in members.iter().zip(expected) {
+                    assert_eq!(member.name.as_deref(), Some(name), "{label}: atom field");
+                    assert_eq!(member.offset as usize, offset, "{label}: {name} offset");
+                }
+            }
+
             let mut validator = naga::valid::Validator::new(
                 naga::valid::ValidationFlags::all(),
                 naga::valid::Capabilities::all(),

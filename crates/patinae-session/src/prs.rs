@@ -1,7 +1,7 @@
 //! Native PRS session format: MessagePack + gzip.
 
 use std::fs::File;
-use std::io::{Cursor, Read, Write};
+use std::io::{BufWriter, Cursor, Read, Write};
 use std::path::Path;
 
 use flate2::read::GzDecoder;
@@ -97,8 +97,16 @@ pub fn save_prs(session: &Session, path: &Path) -> Result<(), PrsError> {
         producer_version: PRS_PRODUCER_VERSION,
         session,
     };
-    let data = rmp_serde::to_vec_named(&document)?;
-    write_prs_bytes(path, &data)?;
+    let file = File::create(path)?;
+    // Buffer the small MessagePack writes before compression, and compressed
+    // output before disk I/O. Neither buffer scales with the session size.
+    let encoder = GzEncoder::new(BufWriter::new(file), Compression::default());
+    let mut writer = BufWriter::new(encoder);
+    document.serialize(&mut rmp_serde::Serializer::new(&mut writer).with_struct_map())?;
+    writer.flush()?;
+    let encoder = writer.into_inner().map_err(|error| error.into_error())?;
+    let mut file = encoder.finish()?;
+    file.flush()?;
     Ok(())
 }
 
@@ -744,6 +752,7 @@ fn semver_core(version: &str) -> Option<[u64; 3]> {
     Some(parsed)
 }
 
+#[cfg(test)]
 fn write_prs_bytes(path: &Path, data: &[u8]) -> Result<(), PrsError> {
     let file = File::create(path)?;
     let mut encoder = GzEncoder::new(file, Compression::default());
@@ -794,6 +803,92 @@ mod tests {
         obj.state_mut().hide_draw_rep(RepMask::CARTOON);
         session.registry.add(obj);
         session
+    }
+
+    #[test]
+    fn borrowed_registry_preserves_named_and_positional_messagepack_bytes() {
+        let mut session = cartoon_session_with_restore();
+        session.registry.add(LabelObject::with_entities(
+            "labels",
+            vec![LabelEntity::new(
+                AtomAnchor::new("mol", patinae_mol::AtomIndex(0)),
+                "CA label",
+            )],
+        ));
+        session.registry.add(GroupObject::new("group"));
+        session.registry.add_to_group("group", "mol");
+        let snapshot = session.registry.to_snapshot();
+        assert_eq!(
+            rmp_serde::to_vec(&session.registry).unwrap(),
+            rmp_serde::to_vec(&snapshot).unwrap()
+        );
+        assert_eq!(
+            rmp_serde::to_vec_named(&session.registry).unwrap(),
+            rmp_serde::to_vec_named(&snapshot).unwrap()
+        );
+    }
+
+    #[test]
+    fn streaming_save_preserves_uncompressed_prs_bytes() {
+        let session = cartoon_session_with_restore();
+        let expected = rmp_serde::to_vec_named(&PrsDocumentRef {
+            prs_format_version: PRS_FORMAT_VERSION,
+            producer: PRS_PRODUCER,
+            producer_version: PRS_PRODUCER_VERSION,
+            session: &session,
+        })
+        .unwrap();
+        let (dir, path) = temp_prs_path("streaming_bytes");
+        save_prs(&session, &path).unwrap();
+        assert_eq!(read_prs_bytes(&path).unwrap(), expected);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn session_serialization_does_not_clone_molecule_atoms() {
+        use std::sync::Arc;
+        struct CloneGuard {
+            name: Arc<str>,
+            expected_owners: usize,
+            bytes: usize,
+        }
+        impl Write for CloneGuard {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                // A full molecular snapshot increments the atom-name Arc
+                // count while being serialized. Observe it during writes,
+                // rather than after the temporary copy has been dropped.
+                assert_eq!(
+                    Arc::strong_count(&self.name),
+                    self.expected_owners,
+                    "serialization cloned molecular data"
+                );
+                self.bytes += bytes.len();
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let session = cartoon_session_with_restore();
+        let name = Arc::clone(
+            &session
+                .registry
+                .get_molecule("mol")
+                .unwrap()
+                .molecule()
+                .atoms_slice()[0]
+                .name,
+        );
+        let expected_owners = Arc::strong_count(&name);
+        let mut sink = CloneGuard {
+            name,
+            expected_owners,
+            bytes: 0,
+        };
+        session
+            .serialize(&mut rmp_serde::Serializer::new(&mut sink).with_struct_map())
+            .unwrap();
+        assert!(sink.bytes > 0);
     }
 
     #[test]

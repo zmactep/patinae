@@ -18,6 +18,10 @@
 //!
 //! # Shared Buffer Layouts
 //!
+//! `SceneAtoms` uses the 16-byte `AtomGpu` layout: `vdw`, `repr_flags`,
+//! `alpha_pack_a`, and `alpha_pack_b` at offsets 0, 4, 8, and 12. Version 3
+//! removes the unused trailing 16 bytes from the version 2 atom record.
+//!
 //! `StdVertices` uses the 24-byte `StdVertex` layout shared by cartoon,
 //! ribbon, surface, and mesh-wireframe output: `position` is three `f32` lanes
 //! at byte offsets 0, 4, and 8; `normal_oct` is a packed octahedral normal at
@@ -50,7 +54,7 @@ use crate::picking::RepKind;
 ///
 /// Bump this when a plugin-visible artifact role, stride, topology semantic,
 /// representation color slot, or count-source rule changes.
-pub const RENDER_ARTIFACT_LAYOUT_VERSION: u32 = 2;
+pub const RENDER_ARTIFACT_LAYOUT_VERSION: u32 = 3;
 
 /// Semantic role of a renderer-owned GPU buffer.
 ///

@@ -14,6 +14,13 @@ use super::reps::{
 pub(super) fn plan_artifact_primitives<'a>(
     snapshot: &'a RenderArtifactSnapshotDescriptor,
 ) -> Result<ArtifactPlan<'a>, String> {
+    if snapshot.layout_version != patinae_render::RENDER_ARTIFACT_LAYOUT_VERSION {
+        return Err(format!(
+            "unsupported render artifact layout version {}; expected {}",
+            snapshot.layout_version,
+            patinae_render::RENDER_ARTIFACT_LAYOUT_VERSION,
+        ));
+    }
     let color_lut = snapshot
         .buffers
         .iter()

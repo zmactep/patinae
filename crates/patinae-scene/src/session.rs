@@ -151,7 +151,7 @@ impl Serialize for Session {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeStruct;
         let mut s = serializer.serialize_struct("Session", 12)?;
-        s.serialize_field("registry", &self.registry.to_snapshot())?;
+        s.serialize_field("registry", &self.registry)?;
         s.serialize_field("camera", &self.camera)?;
         s.serialize_field("selections", &self.selections)?;
         s.serialize_field("scenes", &self.scenes)?;

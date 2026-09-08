@@ -149,10 +149,6 @@ fn write_atoms_for_object(
             repr_flags: atom.repr.visible_reps.0,
             alpha_pack_a,
             alpha_pack_b,
-            element_id: atom.element as u32,
-            chain_id: 0,
-            residue_id: 0,
-            _pad: 0,
         };
         store.atoms.set(base + idx, entry);
         idx += 1;

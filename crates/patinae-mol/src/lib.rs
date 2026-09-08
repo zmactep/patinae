@@ -55,6 +55,7 @@ mod iterator;
 mod molecule;
 mod residue;
 mod secondary;
+mod serde_atoms;
 pub mod spatial;
 mod spectrum;
 mod subchain;

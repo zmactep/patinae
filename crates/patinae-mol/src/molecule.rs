@@ -33,6 +33,7 @@ pub struct ObjectMolecule {
     // Core Data
     // =========================================================================
     /// All atoms in the molecule
+    #[serde(deserialize_with = "crate::serde_atoms::deserialize_atoms")]
     pub(crate) atoms: Vec<Atom>,
 
     /// All bonds in the molecule

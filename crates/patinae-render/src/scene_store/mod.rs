@@ -47,7 +47,7 @@ pub use layout::SceneStoreLayout;
 pub const OBJECT_ENTRY_STRIDE: u64 = 256;
 const SCENE_STORE_BUFFER_COUNT: usize = 9;
 
-/// Per-atom GPU soup. **32 B**. Mirror of `AtomGpu` in
+/// Per-atom GPU soup. **16 B**. Mirror of `AtomGpu` in
 /// `shaders/common/scene.wgsl`.
 ///
 /// Host-side baking semantics (populated by `sync::write_atoms_for_object`):
@@ -72,8 +72,6 @@ const SCENE_STORE_BUFFER_COUNT: usize = 9;
 ///   `alpha_pack_b` bytes [surface |   _   |   _    |   _   ]
 ///   3 spare slots in `alpha_pack_b` for future per-rep alphas without
 ///   widening the AtomGpu struct.
-/// - `element_id` / `chain_id` / `residue_id` are placeholder slots for
-///   future culling / grouping. Currently zero.
 #[repr(C, align(16))]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
 pub struct AtomGpu {
@@ -81,10 +79,6 @@ pub struct AtomGpu {
     pub repr_flags: u32,
     pub alpha_pack_a: u32,
     pub alpha_pack_b: u32,
-    pub element_id: u32,
-    pub chain_id: u32,
-    pub residue_id: u32,
-    pub _pad: u32,
 }
 
 /// Sentinel byte in `AtomGpu::alpha_pack_*`. Means "no override for this
@@ -107,7 +101,7 @@ pub fn pack_alpha_override(override_transparency: Option<f32>) -> u8 {
     }
 }
 
-const _: () = assert!(std::mem::size_of::<AtomGpu>() == 32);
+const _: () = assert!(std::mem::size_of::<AtomGpu>() == 16);
 
 /// Per-bond GPU entry. **32 B**. Mirror of `BondGpu` in
 /// `shaders/common/scene.wgsl`.

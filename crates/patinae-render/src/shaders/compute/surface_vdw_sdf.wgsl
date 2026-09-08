@@ -26,14 +26,10 @@ struct ObjectEntry {
 };
 
 struct AtomGpu {
-    vdw:           f32,
-    repr_flags:    u32,
-    alpha_pack_a:  u32,
-    alpha_pack_b:  u32,
-    element_id:    u32,
-    chain_id:      u32,
-    residue_id:    u32,
-    _pad:          u32,
+    vdw: f32,
+    repr_flags: u32,
+    alpha_pack_a: u32,
+    alpha_pack_b: u32,
 };
 
 @group(0) @binding(0) var<uniform>           obj    : ObjectEntry;
