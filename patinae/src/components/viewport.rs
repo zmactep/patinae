@@ -991,6 +991,14 @@ impl CaptureRenderer for ViewportRenderer {
             lod,
         };
 
+        if object_inputs
+            .iter()
+            .any(|object| object.instances.is_some())
+        {
+            return Err(ViewerError::capture_error(
+                "Ray rendering requires explicit objects; run materialize first".to_string(),
+            ));
+        }
         let snapshot = self.state.render_artifact_snapshot(&input);
         visitor(snapshot).map_err(ViewerError::capture_error)?;
         drop(object_inputs);

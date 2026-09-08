@@ -2,7 +2,6 @@ use super::math::{
     build_shadow_frame_for_direction, fibonacci_sphere_direction, normalize3, transform_dir,
 };
 use super::state::{RenderState, SceneBounds, ShadowPassMode};
-use super::visible_flow::bind_group_2;
 use crate::passes::atlas_ao::AtlasAoKey;
 use crate::passes::lighting::{LightingOcclusionUniforms, MAX_ATLAS_DIRECTIONS};
 use crate::picking::RepKind;
@@ -227,10 +226,14 @@ impl RenderState {
                 pass.set_pipeline(pipeline);
                 current = Some(kind);
             }
-            if !bind_group_2(pass, kind, key.0, entry, &self.scene.scene_store) {
+            let store = &self.scene.scene_store;
+            let Some(bg) = store.bind_group() else {
                 continue;
+            };
+            for &offset in store.draw_offsets(crate::picking::ObjectId(key.0)) {
+                pass.set_bind_group(2, bg, &[offset]);
+                entry.rep.record_shadow_depth(pass);
             }
-            entry.rep.record_shadow_depth(pass);
         }
     }
 }

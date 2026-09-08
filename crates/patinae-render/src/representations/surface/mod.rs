@@ -546,7 +546,8 @@ fn surface_atom_partitions(
             let ids: Vec<u32> = subchain
                 .iter_indexed()
                 .filter_map(|(atom_idx, atom)| {
-                    if atom_matches_surface_mode(atom, mode, rep_mask)
+                    if input.includes_source_atom(atom_idx.as_u32())
+                        && atom_matches_surface_mode(atom, mode, rep_mask)
                         && input.coord_set.get_atom_coord(atom_idx).is_some()
                     {
                         Some(atom_idx.as_u32())
@@ -566,7 +567,9 @@ fn surface_atom_partitions(
             .iter_with_atoms()
             .filter_map(|(atom_idx, _)| {
                 let atom = input.molecule.get_atom(atom_idx)?;
-                atom_matches_surface_mode(atom, mode, rep_mask).then_some(atom_idx.as_u32())
+                (input.includes_source_atom(atom_idx.as_u32())
+                    && atom_matches_surface_mode(atom, mode, rep_mask))
+                .then_some(atom_idx.as_u32())
             })
             .collect();
         if ids.is_empty() {

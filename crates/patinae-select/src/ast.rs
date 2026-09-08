@@ -145,6 +145,9 @@ pub enum SelectionExpr {
     /// State number
     State(IntSpec),
 
+    /// One-based assembly copy identity.
+    Instance(IntSpec),
+
     /// Flag number
     Flag(IntSpec),
 
@@ -456,6 +459,41 @@ impl SelectionExpr {
             | SelectionExpr::Expand(_, inner)
             | SelectionExpr::Extend(_, inner)
             | SelectionExpr::Gap(_, inner) => inner.uses_atom_labels(),
+            _ => false,
+        }
+    }
+
+    /// Returns whether this expression directly contains an assembly copy predicate.
+    pub fn uses_instances(&self) -> bool {
+        match self {
+            SelectionExpr::Instance(_) => true,
+            SelectionExpr::And(left, right)
+            | SelectionExpr::Or(left, right)
+            | SelectionExpr::Like(left, right)
+            | SelectionExpr::In(left, right)
+            | SelectionExpr::Within(_, left, right)
+            | SelectionExpr::Beyond(_, left, right)
+            | SelectionExpr::NearTo(_, left, right) => {
+                left.uses_instances() || right.uses_instances()
+            }
+            SelectionExpr::Not(inner)
+            | SelectionExpr::ByRes(inner)
+            | SelectionExpr::ByChain(inner)
+            | SelectionExpr::ByObject(inner)
+            | SelectionExpr::ByMolecule(inner)
+            | SelectionExpr::BySegment(inner)
+            | SelectionExpr::ByFragment(inner)
+            | SelectionExpr::ByCAlpha(inner)
+            | SelectionExpr::ByRing(inner)
+            | SelectionExpr::ByCell(inner)
+            | SelectionExpr::Neighbor(inner)
+            | SelectionExpr::BoundTo(inner)
+            | SelectionExpr::First(inner)
+            | SelectionExpr::Last(inner)
+            | SelectionExpr::Around(_, inner)
+            | SelectionExpr::Expand(_, inner)
+            | SelectionExpr::Extend(_, inner)
+            | SelectionExpr::Gap(_, inner) => inner.uses_instances(),
             _ => false,
         }
     }

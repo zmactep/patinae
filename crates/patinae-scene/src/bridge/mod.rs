@@ -607,6 +607,7 @@ mod tests {
         names[obj_id.slot_index()] = Some("obj".to_string());
 
         let hit = RenderPickHit {
+            instance: None,
             rep_kind: RepKind::Sphere,
             object_id: ObjectId(obj_id.get()),
             atom_id: 0,

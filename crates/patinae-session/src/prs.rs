@@ -12,7 +12,7 @@ use rmpv::Value;
 use serde::{Deserialize, Serialize};
 
 /// Current native PRS document format version.
-pub const PRS_FORMAT_VERSION: u32 = 3;
+pub const PRS_FORMAT_VERSION: u32 = 4;
 
 /// Format version assigned to legacy raw [`Session`] files.
 pub const PRS_LEGACY_FORMAT_VERSION: u32 = 1;
@@ -361,7 +361,7 @@ fn session_value_mut(root: &mut Value) -> Result<&mut Value, PrsError> {
 fn validate_registry(registry: &Value, format_version: Option<u64>) -> Result<(), PrsError> {
     let field_count = struct_field_count(registry, "ObjectRegistrySnapshot")?;
     let valid_arity = match format_version {
-        Some(3) => field_count == 11,
+        Some(3 | 4) => field_count == 11,
         Some(2) => matches!(field_count, 8 | 9),
         Some(1) => (7..=9).contains(&field_count),
         Some(version) => return Err(invalid(format!("unsupported PRS format version {version}"))),
@@ -453,7 +453,7 @@ fn validate_molecules(molecules: &Value) -> Result<(), PrsError> {
             MOLECULE_DATA_INDEX,
             "MoleculeObjectSnapshot",
         )?;
-        validate_struct_arity(molecule, &[10], "ObjectMolecule")?;
+        validate_struct_arity(molecule, &[10, 11], "ObjectMolecule")?;
         validate_named_fields(
             molecule,
             &[
@@ -467,6 +467,7 @@ fn validate_molecules(molecules: &Value) -> Result<(), PrsError> {
                 "settings",
                 "unique_settings",
                 "symmetry",
+                "assembly",
             ],
             &[
                 "atoms",
@@ -482,6 +483,12 @@ fn validate_molecules(molecules: &Value) -> Result<(), PrsError> {
             ],
             "ObjectMolecule",
         )?;
+        let atoms = value_array(
+            struct_field(molecule, "atoms", 0, "ObjectMolecule")?,
+            "molecule atoms",
+        )?;
+        let state = struct_field(&pair[1], "state", 1, "MoleculeObjectSnapshot")?;
+        validate_instance_state(state, atoms.len())?;
     }
     Ok(())
 }
@@ -562,10 +569,10 @@ fn validate_labels(labels: &Value) -> Result<(), PrsError> {
 }
 
 fn validate_anchor(anchor: &Value, label: &str) -> Result<(), PrsError> {
-    validate_struct_arity(anchor, &[2, 3], "AtomAnchor")?;
+    validate_struct_arity(anchor, &[2, 3, 4], "AtomAnchor")?;
     validate_named_fields(
         anchor,
-        &["object_name", "atom_index", "orphaned"],
+        &["object_name", "atom_index", "orphaned", "instance"],
         &["object_name", "atom_index"],
         "AtomAnchor",
     )?;
@@ -581,7 +588,29 @@ fn validate_anchor(anchor: &Value, label: &str) -> Result<(), PrsError> {
             "{label} has invalid atom index {atom_index}"
         )));
     }
+    if let Some(copy) = optional_struct_field(anchor, "instance", 3).filter(|value| !value.is_nil())
+    {
+        if copy
+            .as_u64()
+            .is_none_or(|copy| copy >= patinae_mol::MAX_INSTANCE_COUNT as u64)
+        {
+            return Err(invalid(format!("{label} has invalid instance index")));
+        }
+    }
     Ok(())
+}
+
+fn validate_instance_state(state: &Value, atom_count: usize) -> Result<(), PrsError> {
+    let Some(table) = optional_struct_field(state, "instances", 6).filter(|v| !v.is_nil()) else {
+        return Ok(());
+    };
+    let mut bytes = Vec::new();
+    rmpv::encode::write_value(&mut bytes, table).map_err(|e| invalid(e.to_string()))?;
+    let table: patinae_mol::InstanceTable = rmp_serde::from_slice(&bytes)
+        .map_err(|e| invalid(format!("invalid instance table: {e}")))?;
+    table
+        .validate(atom_count)
+        .map_err(|e| invalid(format!("invalid instance table: {e}")))
 }
 
 fn owner_pair<'a>(owner: &'a Value, label: &str, index: usize) -> Result<&'a [Value], PrsError> {
@@ -805,6 +834,174 @@ mod tests {
         session
     }
 
+    fn instanced_session() -> Session {
+        use patinae_mol::{InstanceGroup, InstanceTable, ObjectInstance, IDENTITY_INSTANCE};
+        let mut session = cartoon_session_with_restore();
+        let mut moved = IDENTITY_INSTANCE;
+        moved[3][0] = 10.;
+        session
+            .registry
+            .get_molecule_mut("mol")
+            .unwrap()
+            .state_mut()
+            .instances = Some(InstanceTable {
+            groups: vec![InstanceGroup::default()],
+            copies: vec![
+                ObjectInstance {
+                    group: 0,
+                    transform: IDENTITY_INSTANCE,
+                },
+                ObjectInstance {
+                    group: 0,
+                    transform: moved,
+                },
+            ],
+        });
+        let a = AtomAnchor::with_instance("mol", patinae_mol::AtomIndex(0), Some(0));
+        let b = AtomAnchor::with_instance("mol", patinae_mol::AtomIndex(0), Some(1));
+        session.registry.add(
+            MeasurementObject::with_entities(
+                "between",
+                MeasurementKind::Distance,
+                vec![MeasurementEntry::new(vec![a, b])],
+            )
+            .unwrap(),
+        );
+        session
+    }
+
+    #[test]
+    fn instanced_document_roundtrip_keeps_source_and_copy_measurements() {
+        for named in [true, false] {
+            let session = instanced_session();
+            let value = if named {
+                named_test_document(&session)
+            } else {
+                positional_test_document(&session)
+            };
+            let restored = decode_prs_document(encode_test_value(&value))
+                .unwrap()
+                .session;
+            let object = restored.registry.get_molecule("mol").unwrap();
+            assert_eq!(object.molecule().atom_count(), 1);
+            assert_eq!(object.displayed_atom_count(), 2);
+            assert_eq!(object.storage_mode(), patinae_mol::StorageMode::Instanced);
+            let measurement = restored.registry.get_measurement("between").unwrap();
+            let anchors = &measurement.entries()[0].anchors;
+            assert_eq!(anchors[0].instance, Some(0));
+            assert_eq!(anchors[1].instance, Some(1));
+            let first = object
+                .instance_world_coord(anchors[0].atom_index, anchors[0].instance)
+                .unwrap();
+            let second = object
+                .instance_world_coord(anchors[1].atom_index, anchors[1].instance)
+                .unwrap();
+            assert_eq!(second.x - first.x, 10.);
+        }
+    }
+
+    #[test]
+    fn invalid_instance_matrix_is_rejected_before_reconstruction() {
+        let mut session = instanced_session();
+        session
+            .registry
+            .get_molecule_mut("mol")
+            .unwrap()
+            .state_mut()
+            .instances
+            .as_mut()
+            .unwrap()
+            .copies[0]
+            .transform[0][0] = 3.;
+        let error =
+            decode_prs_document(encode_test_value(&named_test_document(&session))).unwrap_err();
+        assert!(error.to_string().contains("instance"));
+    }
+
+    #[test]
+    fn version_three_missing_instance_fields_defaults_to_explicit() {
+        fn strip(value: &mut Value) {
+            match value {
+                Value::Map(fields) => {
+                    fields.retain(|(k, _)| !matches!(k.as_str(), Some("instances" | "assembly")));
+                    for (_, child) in fields {
+                        strip(child);
+                    }
+                }
+                Value::Array(values) => {
+                    for child in values {
+                        strip(child);
+                    }
+                }
+                _ => {}
+            }
+        }
+        let session = cartoon_session_with_restore();
+        let mut document = named_test_document(&session);
+        *test_map_field_mut(&mut document, "prs_format_version") = Value::from(3);
+        strip(&mut document);
+        let restored = decode_prs_document(encode_test_value(&document)).unwrap();
+        assert_eq!(restored.prs_format_version, 3);
+        assert_eq!(
+            restored
+                .session
+                .registry
+                .get_molecule("mol")
+                .unwrap()
+                .storage_mode(),
+            patinae_mol::StorageMode::Explicit
+        );
+    }
+
+    #[test]
+    fn positional_version_three_without_appended_fields_loads_as_explicit() {
+        let mut session = cartoon_session_with_restore();
+        session.registry.add(LabelObject::with_entities(
+            "labels",
+            vec![LabelEntity::new(
+                AtomAnchor::new("mol", patinae_mol::AtomIndex(0)),
+                "CA",
+            )],
+        ));
+        let mut value = positional_test_document(&session);
+        first_test_label_anchor_mut(&mut value).pop();
+        let document = value.as_array_mut_for_test();
+        document[0] = Value::from(3);
+        let registry = document[3].as_array_mut_for_test()[0].as_array_mut_for_test();
+        let owner =
+            registry[REGISTRY_MOLECULES_INDEX].as_array_mut_for_test()[0].as_array_mut_for_test();
+        let snapshot = owner[1].as_array_mut_for_test();
+        assert_eq!(snapshot[0].as_array_mut_for_test().len(), 11);
+        snapshot[0].as_array_mut_for_test().pop();
+        snapshot[1].as_array_mut_for_test().pop();
+        for owner in registry[4].as_array_mut_for_test() {
+            owner.as_array_mut_for_test()[1]
+                .as_array_mut_for_test()
+                .pop();
+        }
+        let decoded = decode_prs_document(encode_test_value(&value)).unwrap();
+        assert_eq!(
+            decoded
+                .session
+                .registry
+                .get_molecule("mol")
+                .unwrap()
+                .storage_mode(),
+            patinae_mol::StorageMode::Explicit
+        );
+        assert_eq!(
+            decoded
+                .session
+                .registry
+                .get_label("labels")
+                .unwrap()
+                .entities()[0]
+                .anchor()
+                .instance,
+            None
+        );
+    }
+
     #[test]
     fn borrowed_registry_preserves_named_and_positional_messagepack_bytes() {
         let mut session = cartoon_session_with_restore();
@@ -917,6 +1114,7 @@ mod tests {
         let recent_paths = [0, 1].map(|atom_index| {
             patinae_scene::canonical_atom_path_for_hit(
                 &patinae_scene::PickHit {
+                    instance: None,
                     object_name: "recent".to_string(),
                     object_type: patinae_scene::ObjectType::Molecule,
                     atom_index: Some(patinae_mol::AtomIndex(atom_index)),

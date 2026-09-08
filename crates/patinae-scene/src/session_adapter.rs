@@ -449,6 +449,7 @@ mod tests {
             .add(MoleculeObject::with_name(multi_state_molecule(), "mol"));
         let path = crate::canonical_atom_path_for_hit(
             &crate::PickHit {
+                instance: None,
                 object_name: "mol".to_string(),
                 object_type: crate::ObjectType::Molecule,
                 atom_index: Some(patinae_mol::AtomIndex(0)),

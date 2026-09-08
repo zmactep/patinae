@@ -49,10 +49,13 @@ fn vs_main(
     } else {
         world = p1; group = instance.groups.y;
     }
-    let view_pos = (frame.view * vec4<f32>(world, 1.0)).xyz;
+    let view_pos = (frame.view * vec4<f32>(scene_position(world), 1.0)).xyz;
     out.clip_position = frame.proj * vec4<f32>(view_pos, 1.0);
     out.view_z = -view_pos.z;
     out.group = group;
+    if !scene_in_subset(obj.atom_offset + instance.groups.x) || !scene_in_subset(obj.atom_offset + instance.groups.y) {
+        out.clip_position = vec4<f32>(2.0, 2.0, 2.0, 1.0);
+    }
     return out;
 }
 

@@ -195,6 +195,8 @@ pub struct ObjectState {
     pub transform: Mat4,
     /// Draw-mask reps that may be safely restored without touching per-atom bits.
     pub draw_mask_restorable_reps: RepMask,
+    /// Shared-source copies; absence means ordinary explicit storage.
+    pub instances: Option<patinae_mol::InstanceTable>,
 }
 
 impl Default for ObjectState {
@@ -206,6 +208,7 @@ impl Default for ObjectState {
             draw_reps: RepMask::default(),
             transform: Mat4::new_identity(),
             draw_mask_restorable_reps: RepMask::NONE,
+            instances: None,
         }
     }
 }
@@ -240,6 +243,8 @@ impl<'de> Deserialize<'de> for ObjectState {
             transform: Mat4,
             #[serde(default)]
             draw_mask_restorable_reps: RepMask,
+            #[serde(default)]
+            instances: Option<patinae_mol::InstanceTable>,
         }
 
         let wire = WireObjectState::deserialize(deserializer)?;
@@ -252,11 +257,21 @@ impl<'de> Deserialize<'de> for ObjectState {
             draw_mask_restorable_reps: wire
                 .draw_mask_restorable_reps
                 .intersection(RepMask::DRAW_MASK_REPS),
+            instances: wire.instances,
         })
     }
 }
 
 impl ObjectState {
+    /// Returns the storage mode, independently of the semantic object type.
+    pub fn storage_mode(&self) -> patinae_mol::StorageMode {
+        if self.instances.is_some() {
+            patinae_mol::StorageMode::Instanced
+        } else {
+            patinae_mol::StorageMode::Explicit
+        }
+    }
+
     /// Create a new object state with default values
     pub fn new() -> Self {
         Self::default()
@@ -1182,6 +1197,9 @@ impl ObjectRegistry {
         let molecule = self
             .get_molecule(source_name)
             .ok_or_else(|| SceneError::object_not_found(source_name))?;
+        molecule.require_explicit().map_err(|error| {
+            SceneError::invalid_object_type("explicit molecule; run materialize first", error)
+        })?;
         let atom_count = molecule.molecule().atom_count();
         let unique_indices = indices
             .iter()
@@ -1257,6 +1275,22 @@ impl ObjectRegistry {
                     .visible_reps
                     .set_hidden(RepMask::LABELS);
                 molecule.state_mut().draw_reps.set_hidden(RepMask::LABELS);
+            }
+        }
+    }
+
+    /// Rewrites copy-aware annotation anchors after expanding a molecule in place.
+    pub fn materialize_annotation_anchors(
+        &mut self,
+        name: &str,
+        table: &patinae_mol::InstanceTable,
+        count: usize,
+    ) {
+        for object in self.objects.values_mut() {
+            if let Some(measurement) = object.as_any_mut().downcast_mut::<MeasurementObject>() {
+                measurement.materialize_anchors(name, table, count);
+            } else if let Some(label) = object.as_any_mut().downcast_mut::<LabelObject>() {
+                label.materialize_anchors(name, table, count);
             }
         }
     }

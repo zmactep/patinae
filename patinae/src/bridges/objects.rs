@@ -368,7 +368,9 @@ impl ObjectsBridge {
             enabled: obj.enabled,
             expanded: obj.expanded,
             selected: self.selected_objects.contains(&obj.name),
-            atom_count: obj.subchains.iter().map(|s| s.atom_count).sum::<usize>() as i32,
+            atom_count: i32::try_from(obj.displayed_atom_count).unwrap_or(i32::MAX),
+            stored_atom_count: i32::try_from(obj.stored_atom_count).unwrap_or(i32::MAX),
+            instanced: obj.storage_mode == patinae_mol::StorageMode::Instanced,
             color: sidebar_color_to_slint(obj.color),
             multicolor: matches!(obj.color, SidebarColor::Multicolor),
             has_representations: obj.capabilities.representations,
@@ -1113,6 +1115,19 @@ impl ObjectsBridge {
                 && !self.selected_selections.is_empty());
 
         let mut items = Vec::new();
+
+        if self.selection_level == SelectionLevel::Objects
+            && self.selected_objects.len() == 1
+            && scene
+                .get(&self.selected_objects[0])
+                .is_some_and(|object| object.can_materialize)
+        {
+            items.push(OverflowMenuItem {
+                action: "materialize".into(),
+                label: "Materialize copies".into(),
+                disabled: false,
+            });
+        }
 
         if is_multi && capabilities.align {
             items.push(OverflowMenuItem {
@@ -2522,6 +2537,24 @@ pub fn setup_callbacks(app: Rc<RefCell<crate::app::App>>, window: &AppWindow) {
             let short = ObjectsBridge::truncate_name(&target, 28);
 
             match action.as_str() {
+                "materialize" => {
+                    if a.objects.selection_level == SelectionLevel::Objects
+                        && a.objects.selected_objects.len() == 1
+                    {
+                        let name = a.objects.selected_objects[0].clone();
+                        if a.kernel
+                            .scene
+                            .get(&name)
+                            .is_some_and(|object| object.can_materialize)
+                        {
+                            a.kernel.bus.execute_command(format!(
+                                "materialize {}",
+                                quote_command_arg(&name)
+                            ));
+                            os.set_popover_kind("".into());
+                        }
+                    }
+                }
                 "rename" if capabilities.rename => open_name_popup(&os, "rename", &target, &short),
                 "copy" if capabilities.copy => open_name_popup(&os, "copy", &target, &short),
                 "extract" if capabilities.extract => {
@@ -2686,6 +2719,7 @@ mod tests {
             .add(MoleculeObject::with_name(molecule, object_name));
         let path = canonical_atom_path_for_hit(
             &PickHit {
+                instance: None,
                 object_name: object_name.to_string(),
                 object_type: ObjectType::Molecule,
                 atom_index: Some(patinae_mol::AtomIndex(0)),
@@ -3096,6 +3130,10 @@ mod tests {
         kind: SceneObjectKind,
     ) -> patinae_framework::model::scene::SceneObject {
         patinae_framework::model::scene::SceneObject {
+            storage_mode: patinae_mol::StorageMode::Explicit,
+            stored_atom_count: 0,
+            displayed_atom_count: 0,
+            can_materialize: false,
             name: name.to_string(),
             kind,
             map_visual_kind: None,

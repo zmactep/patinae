@@ -43,6 +43,8 @@ impl RenderState {
     /// the next mutable renderer operation. The returned roles and strides are
     /// the renderer/plugin ABI; representation-specific shader bindings and
     /// pipeline details stay private to `patinae-render`.
+    /// Inputs must be explicit: hosts must require materialization before
+    /// exporting instanced objects through this artifact ABI.
     pub fn render_artifact_snapshot(
         &mut self,
         input: &RenderInput<'_>,

@@ -11,7 +11,7 @@ use crate::frame::DEPTH_FORMAT;
 use crate::memory::{buffer_usage, GpuMemoryUsage};
 use crate::memory_policy::{RenderMemoryPolicy, RenderMemoryProfile};
 use crate::picking::ObjectId;
-use crate::render_input::MarkerUpdate;
+use crate::render_input::{MarkerUpdate, RecentAtomMarker};
 use crate::scene_store::marker::{MARKER_RECENT, MARKER_SELECTED};
 use crate::scene_store::{ObjectSlot, SceneStore, SceneStoreLayout};
 use crate::shader_source;
@@ -28,6 +28,8 @@ const DOT_VIEW_BIAS_ANGSTROM: f32 = 0.25;
 const RECENT_SPHERE_SHELL_ANGSTROM: f32 = 0.12;
 const MARKER_KIND_SELECTED: u32 = 0;
 const MARKER_KIND_RECENT: u32 = 1;
+// Legacy source masks and selection dots apply to every displayed copy.
+const ALL_COPIES: u32 = u32::MAX;
 
 #[repr(C, align(16))]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
@@ -45,7 +47,7 @@ impl AtomMarkerParams {
 struct AtomMarkerObject {
     selected_indices: Vec<u32>,
     recent_indices: Vec<u32>,
-    recent_radius_scale: f32,
+    instances: Vec<MarkerInstance>,
     buffer: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
     capacity: usize,
@@ -53,7 +55,7 @@ struct AtomMarkerObject {
 
 impl AtomMarkerObject {
     fn marker_count(&self) -> u32 {
-        (self.selected_indices.len() + self.recent_indices.len()) as u32
+        self.instances.len() as u32
     }
 }
 
@@ -63,7 +65,7 @@ struct MarkerInstance {
     atom_index: u32,
     kind: u32,
     radius_scale: f32,
-    _pad0: f32,
+    copy_id: u32,
 }
 
 pub(crate) struct AtomMarkersPass {
@@ -268,8 +270,71 @@ impl AtomMarkersPass {
         recent_indices: Vec<u32>,
         recent_radius_scale: f32,
     ) -> bool {
+        let instances = marker_instances(&selected_indices, &recent_indices, recent_radius_scale);
+        self.sync_instances(
+            device,
+            queue,
+            object_id,
+            selected_indices,
+            recent_indices,
+            instances,
+        )
+    }
+
+    pub(crate) fn sync_object_recent_copies(
+        &mut self,
+        ctx: &RenderContext,
+        object_id: u32,
+        marker_bits: Option<&[u32]>,
+        include_selection: bool,
+        recent_radius_scale: f32,
+        recent: &[RecentAtomMarker],
+    ) -> bool {
+        if marker_bits.is_none()
+            && self.objects.get(&object_id).map_or_else(
+                || recent.is_empty(),
+                |object| {
+                    object.instances[object.selected_indices.len()..]
+                        .iter()
+                        .copied()
+                        .eq(recent_marker_instances(recent, recent_radius_scale))
+                },
+            )
+        {
+            return false;
+        }
+        let (selected, recent_indices) = marker_bits.map_or_else(
+            || {
+                (
+                    self.selected_indices(object_id).to_vec(),
+                    self.recent_indices(object_id).to_vec(),
+                )
+            },
+            |bits| collect_marker_indices(bits, include_selection),
+        );
+        let mut instances = marker_instances(&selected, &[], recent_radius_scale);
+        instances.extend(recent_marker_instances(recent, recent_radius_scale));
+        self.sync_instances(
+            &ctx.device,
+            &ctx.queue,
+            object_id,
+            selected,
+            recent_indices,
+            instances,
+        )
+    }
+
+    fn sync_instances(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        object_id: u32,
+        selected_indices: Vec<u32>,
+        recent_indices: Vec<u32>,
+        instances: Vec<MarkerInstance>,
+    ) -> bool {
         let Some(existing) = self.objects.get_mut(&object_id) else {
-            if selected_indices.is_empty() && recent_indices.is_empty() {
+            if instances.is_empty() {
                 return false;
             }
             let object = make_atom_markers_object(
@@ -279,7 +344,7 @@ impl AtomMarkersPass {
                 &self.params_buffer,
                 &selected_indices,
                 &recent_indices,
-                recent_radius_scale,
+                instances,
             );
             self.objects.insert(object_id, object);
             return true;
@@ -287,16 +352,16 @@ impl AtomMarkersPass {
 
         if existing.selected_indices == selected_indices
             && existing.recent_indices == recent_indices
-            && existing.recent_radius_scale == recent_radius_scale
+            && existing.instances == instances
         {
             return false;
         }
-        if selected_indices.is_empty() && recent_indices.is_empty() {
+        if instances.is_empty() {
             self.objects.remove(&object_id);
             return true;
         }
 
-        let marker_count = selected_indices.len() + recent_indices.len();
+        let marker_count = instances.len();
         if marker_count > existing.capacity {
             *existing = make_atom_markers_object(
                 device,
@@ -305,15 +370,13 @@ impl AtomMarkersPass {
                 &self.params_buffer,
                 &selected_indices,
                 &recent_indices,
-                recent_radius_scale,
+                instances,
             );
         } else {
-            let instances =
-                marker_instances(&selected_indices, &recent_indices, recent_radius_scale);
             queue.write_buffer(&existing.buffer, 0, bytemuck::cast_slice(&instances));
             existing.selected_indices = selected_indices;
             existing.recent_indices = recent_indices;
-            existing.recent_radius_scale = recent_radius_scale;
+            existing.instances = instances;
         }
         true
     }
@@ -386,12 +449,11 @@ impl AtomMarkersPass {
         pass.set_bind_group(0, frame_bind_group, &[]);
         pass.set_bind_group(1, lighting_bind_group, &[]);
         for (&object_id, object) in &self.objects {
-            let Some(slot) = scene_store.slot(ObjectId(object_id)) else {
-                continue;
-            };
-            pass.set_bind_group(2, scene_bind_group, &[slot.dynamic_offset()]);
             pass.set_bind_group(3, &object.bind_group, &[]);
-            pass.draw(0..6, 0..object.marker_count());
+            for &offset in scene_store.draw_offsets(ObjectId(object_id)) {
+                pass.set_bind_group(2, scene_bind_group, &[offset]);
+                pass.draw(0..6, 0..object.marker_count());
+            }
         }
     }
 }
@@ -403,9 +465,8 @@ fn make_atom_markers_object(
     params_buffer: &wgpu::Buffer,
     selected_indices: &[u32],
     recent_indices: &[u32],
-    recent_radius_scale: f32,
+    instances: Vec<MarkerInstance>,
 ) -> AtomMarkerObject {
-    let instances = marker_instances(selected_indices, recent_indices, recent_radius_scale);
     let capacity = instances
         .len()
         .next_power_of_two()
@@ -434,7 +495,7 @@ fn make_atom_markers_object(
     AtomMarkerObject {
         selected_indices: selected_indices.to_vec(),
         recent_indices: recent_indices.to_vec(),
-        recent_radius_scale,
+        instances,
         buffer,
         bind_group,
         capacity,
@@ -495,6 +556,23 @@ fn collect_marker_indices(marker_bits: &[u32], include_selection: bool) -> (Vec<
     (selected, recent)
 }
 
+fn recent_marker_instances(
+    recent: &[RecentAtomMarker],
+    radius_scale: f32,
+) -> impl Iterator<Item = MarkerInstance> + '_ {
+    recent
+        .iter()
+        // Instance tables and packed picking IDs support at most 65,535 copies.
+        .filter(|marker| marker.instance.is_none_or(|copy| copy < 65_535))
+        .map(move |marker| MarkerInstance {
+            atom_index: marker.atom_index,
+            kind: MARKER_KIND_RECENT,
+            radius_scale,
+            // ObjectEntry flags use zero for explicit objects and copy + 1 otherwise.
+            copy_id: marker.instance.map_or(0, |copy| copy + 1),
+        })
+}
+
 fn marker_instances(
     selected_indices: &[u32],
     recent_indices: &[u32],
@@ -505,13 +583,13 @@ fn marker_instances(
         atom_index,
         kind: MARKER_KIND_SELECTED,
         radius_scale: 1.0,
-        _pad0: 0.0,
+        copy_id: ALL_COPIES,
     }));
     instances.extend(recent_indices.iter().map(|&atom_index| MarkerInstance {
         atom_index,
         kind: MARKER_KIND_RECENT,
         radius_scale: recent_radius_scale,
-        _pad0: 0.0,
+        copy_id: ALL_COPIES,
     }));
     instances
 }

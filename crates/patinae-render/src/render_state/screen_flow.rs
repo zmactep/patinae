@@ -41,6 +41,23 @@ impl RenderState {
                     object.marker_updates,
                     self.screen.selection_dots_enabled,
                 );
+            if let Some(recent) = object.recent_atom_markers {
+                // Copy-only pick changes leave the source marker LUT unchanged.
+                // Compare the sparse marker records even when no atom is dirty.
+                let Some(slot) = self.scene.scene_store.slot(object.object_id).copied() else {
+                    continue;
+                };
+                atom_markers.sync_object_recent_copies(
+                    &self.ctx,
+                    object.object_id.0,
+                    rebuild
+                        .then(|| object_marker_bits(self.scene.scene_store.marker_lut.cpu(), slot)),
+                    self.screen.selection_dots_enabled,
+                    recent_radius_scale,
+                    recent,
+                );
+                continue;
+            }
             if !rebuild {
                 continue;
             }

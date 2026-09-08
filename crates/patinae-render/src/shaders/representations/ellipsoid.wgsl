@@ -65,7 +65,7 @@ fn vs_main(
     var out: VsOut;
 
     let off = billboard_offset(vid);
-    let center_view = (frame.view * vec4<f32>(instance.center, 1.0)).xyz;
+    let center_view = (frame.view * vec4<f32>(scene_position(instance.center), 1.0)).xyz;
     let scale = instance.max_extent * 1.5;
     let billboard_pos = center_view + vec3<f32>(off * scale, 0.0);
 
@@ -78,9 +78,9 @@ fn vs_main(
     out.clip_position = frame.proj * vec4<f32>(billboard_pos, 1.0);
     out.center_view   = center_view;
     out.ray_dir       = billboard_pos;
-    out.ax0_view      = view33 * instance.axis0;
-    out.ax1_view      = view33 * instance.axis1;
-    out.ax2_view      = view33 * instance.axis2;
+    out.ax0_view      = view33 * scene_direction(instance.axis0);
+    out.ax1_view      = view33 * scene_direction(instance.axis1);
+    out.ax2_view      = view33 * scene_direction(instance.axis2);
     out.group_id      = instance.group_id;
     return out;
 }

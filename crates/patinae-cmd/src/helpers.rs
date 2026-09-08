@@ -14,7 +14,7 @@ use patinae_scene::{DirtyFlags, MoleculeObject, ObjectRegistry};
 use patinae_select::SelectionResult;
 
 use crate::command::ViewerLike;
-use crate::commands::selecting::evaluate_selection;
+use crate::commands::selecting::{evaluate_atom_anchors, evaluate_selection};
 use crate::error::{CmdError, CmdResult};
 
 // ============================================================================
@@ -224,26 +224,20 @@ pub fn selection_extent(
     viewer: &dyn ViewerLike,
     selection: &str,
 ) -> CmdResult<Option<(Vec3, Vec3)>> {
-    let selection_results = evaluate_selection(viewer, selection)?;
-
     let mut min = Vec3::new(f32::MAX, f32::MAX, f32::MAX);
     let mut max = Vec3::new(f32::MIN, f32::MIN, f32::MIN);
     let mut has_coords = false;
 
-    for (obj_name, selected) in &selection_results {
-        if selected.count() > 0 {
-            if let Some(mol_obj) = viewer.objects().get_molecule(obj_name) {
-                for idx in selected.indices() {
-                    if let Some(coord) = mol_obj.display_coord(idx) {
-                        min.x = min.x.min(coord.x);
-                        min.y = min.y.min(coord.y);
-                        min.z = min.z.min(coord.z);
-                        max.x = max.x.max(coord.x);
-                        max.y = max.y.max(coord.y);
-                        max.z = max.z.max(coord.z);
-                        has_coords = true;
-                    }
-                }
+    for anchor in evaluate_atom_anchors(viewer, selection)? {
+        if let Some(mol_obj) = viewer.objects().get_molecule(&anchor.object_name) {
+            if let Some(coord) = mol_obj.instance_world_coord(anchor.atom_index, anchor.instance) {
+                min.x = min.x.min(coord.x);
+                min.y = min.y.min(coord.y);
+                min.z = min.z.min(coord.z);
+                max.x = max.x.max(coord.x);
+                max.y = max.y.max(coord.y);
+                max.z = max.z.max(coord.z);
+                has_coords = true;
             }
         }
     }
@@ -258,17 +252,12 @@ pub fn selection_extent(
 /// Collect all 3D coordinates of atoms matching a selection expression
 /// from the current coordinate state of each molecule.
 pub fn collect_selection_coords(viewer: &dyn ViewerLike, selection: &str) -> CmdResult<Vec<Vec3>> {
-    let selection_results = evaluate_selection(viewer, selection)?;
     let mut coords = Vec::new();
 
-    for (obj_name, selected) in &selection_results {
-        if selected.count() > 0 {
-            if let Some(mol_obj) = viewer.objects().get_molecule(obj_name) {
-                for idx in selected.indices() {
-                    if let Some(coord) = mol_obj.display_coord(idx) {
-                        coords.push(coord);
-                    }
-                }
+    for anchor in evaluate_atom_anchors(viewer, selection)? {
+        if let Some(mol_obj) = viewer.objects().get_molecule(&anchor.object_name) {
+            if let Some(coord) = mol_obj.instance_world_coord(anchor.atom_index, anchor.instance) {
+                coords.push(coord);
             }
         }
     }
@@ -322,5 +311,44 @@ mod tests {
                 .current_state,
             0
         );
+    }
+
+    #[test]
+    fn camera_selection_helpers_resolve_the_selected_copy_in_world_space() {
+        use patinae_mol::{InstanceGroup, InstanceTable, ObjectInstance, IDENTITY_INSTANCE};
+        use patinae_scene::Object;
+        let mut session = session_with_display_state(1);
+        let object = session.registry.get_molecule_mut("obj").unwrap();
+        let mut shifted = IDENTITY_INSTANCE;
+        shifted[3][0] = 10.;
+        object.state_mut().instances = Some(InstanceTable {
+            groups: vec![InstanceGroup::default()],
+            copies: vec![
+                ObjectInstance {
+                    group: 0,
+                    transform: IDENTITY_INSTANCE,
+                },
+                ObjectInstance {
+                    group: 0,
+                    transform: shifted,
+                },
+            ],
+        });
+        object.state_mut().transform.data[13] = 20.;
+        let mut needs_redraw = false;
+        let adapter = SessionAdapter {
+            session: &mut session,
+            render_context: None,
+            default_size: (800, 600),
+            needs_redraw: &mut needs_redraw,
+            async_fetch_fn: None,
+        };
+        let coords = collect_selection_coords(&adapter, "obj and instance 2").unwrap();
+        assert_eq!(coords.len(), 1);
+        assert_eq!((coords[0].x, coords[0].y), (16., 20.));
+        let (min, max) = selection_extent(&adapter, "obj and instance 2")
+            .unwrap()
+            .unwrap();
+        assert_eq!((min.x, max.x, min.y, max.y), (16., 16., 20., 20.));
     }
 }

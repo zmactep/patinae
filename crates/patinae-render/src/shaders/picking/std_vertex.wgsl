@@ -5,6 +5,7 @@
 
 // {{INCLUDE_FRAME}}
 // {{INCLUDE_PICKING}}
+// {{INCLUDE_PICKING_SCENE}}
 
 @group(2) @binding(0) var<uniform> picking: PickingParams;
 
@@ -23,7 +24,7 @@ struct VsOut {
 @vertex
 fn vs_main(v: StdVertex) -> VsOut {
     var out: VsOut;
-    let view_pos = (frame.view * vec4<f32>(v.position, 1.0)).xyz;
+    let view_pos = (frame.view * vec4<f32>(scene_position(v.position), 1.0)).xyz;
     out.clip_position = frame.proj * vec4<f32>(view_pos, 1.0);
     out.group = v.group_id;
     return out;
@@ -31,5 +32,6 @@ fn vs_main(v: StdVertex) -> VsOut {
 
 @fragment
 fn fs_main(input: VsOut) -> @location(0) vec2<u32> {
+    if !scene_visible(obj.atom_offset + input.group) { discard; }
     return pack_id(picking.rep_object, input.group);
 }

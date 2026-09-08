@@ -3,7 +3,6 @@
 //! route through `expand_pick_to_selection` / `pick_expression_for_hit`
 //! unchanged.
 
-use lin_alg::f32::Vec3;
 use patinae_mol::AtomIndex;
 use patinae_render::PickHit as RenderPickHit;
 
@@ -34,15 +33,13 @@ pub fn resolve_pick(
 
     let molecule = session.registry.get_molecule(name)?;
     let atom_index = AtomIndex::from(hit.atom_id as usize);
-    let position = molecule
-        .display_coord(atom_index)
-        .map(|p| Vec3::new(p.x, p.y, p.z))
-        .unwrap_or_else(|| Vec3::new(0.0, 0.0, 0.0));
+    let position = molecule.instance_world_coord(atom_index, hit.instance)?;
 
     Some(PickHit {
         object_name: name.clone(),
         object_type: obj.object_type(),
         atom_index: Some(atom_index),
+        instance: hit.instance,
         position,
         distance: 0.0,
     })

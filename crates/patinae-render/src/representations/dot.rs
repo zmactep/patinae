@@ -133,7 +133,7 @@ impl DotRep {
             mapped_at_creation: false,
         });
         Self {
-            gpu: CullableBuffers::new(device, "dot", DotAtomInstance::SIZE, false),
+            gpu: CullableBuffers::new(device, "dot", DotAtomInstance::SIZE, true),
             build_params_buffer,
             draw_params_buffer,
             compute_bind_group: None,
@@ -271,6 +271,37 @@ impl Representation for DotRep {
         pass.set_bind_group(3, draw_bg, &[]);
         pass.set_vertex_buffer(0, instance_buf.slice(..));
         pass.draw_indirect(indirect_buf, 0);
+    }
+
+    fn record_raw_picking<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>) {
+        let (Some(instance_buf), Some(indirect_buf), Some(draw_bg)) = (
+            self.gpu.raw_instance_buffer(),
+            self.gpu.shadow_indirect_buffer(),
+            self.draw_bind_group.as_ref(),
+        ) else {
+            return;
+        };
+        pass.set_bind_group(3, draw_bg, &[]);
+        pass.set_vertex_buffer(0, instance_buf.slice(..));
+        pass.draw_indirect(indirect_buf, 0);
+    }
+
+    fn record_shadow_depth<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>) {
+        let (Some(instance_buf), Some(indirect_buf), Some(draw_bg)) = (
+            self.gpu.raw_instance_buffer(),
+            self.gpu.shadow_indirect_buffer(),
+            self.draw_bind_group.as_ref(),
+        ) else {
+            return;
+        };
+        pass.set_bind_group(3, draw_bg, &[]);
+        pass.set_vertex_buffer(0, instance_buf.slice(..));
+        pass.draw_indirect(indirect_buf, 0);
+    }
+
+    fn prepare_shadow_depth(&self, encoder: &mut wgpu::CommandEncoder, queue: &wgpu::Queue) {
+        let seed = indirect_seed(dot_vertex_count(self.effective_dots_per_atom));
+        self.gpu.prepare_raw_shadow_indirect(encoder, queue, &seed);
     }
 
     fn record_compute_build(&mut self, ctx: &mut BuildCtx<'_>) -> bool {

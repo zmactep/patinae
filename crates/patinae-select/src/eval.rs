@@ -82,6 +82,27 @@ fn eval_expr(expr: &SelectionExpr, ctx: &EvalContext) -> EvalResult<SelectionRes
             };
             pattern.matches(ss_str, !ctx.options.ignore_case)
         }),
+        SelectionExpr::Instance(spec) => {
+            let mut result = SelectionResult::none(ctx.total_atoms());
+            if let Some(table) = ctx.instances {
+                for (copy, _) in table.copies.iter().enumerate() {
+                    if !spec.matches(copy as i32 + 1)
+                        || ctx
+                            .active_instance
+                            .is_some_and(|active| active != copy as u32)
+                    {
+                        continue;
+                    }
+                    for atom in 0..ctx.total_atoms() {
+                        let index = patinae_mol::AtomIndex::from(atom);
+                        if table.contains(copy as u32, index.0, ctx.total_atoms()) {
+                            result.set(index);
+                        }
+                    }
+                }
+            }
+            Ok(result)
+        }
         SelectionExpr::State(spec) => {
             eval_property(ctx, |atom, _| spec.matches(atom.discrete_state))
         }

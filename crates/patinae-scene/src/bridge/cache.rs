@@ -25,6 +25,7 @@ use super::{
 pub struct CachedRenderScene {
     markers: ResolvedSceneMarkers,
     recent_atom_targets: Vec<(String, patinae_mol::AtomIndex)>,
+    recent_atom_markers: std::collections::HashMap<String, Vec<patinae_render::RecentAtomMarker>>,
     recent_atom_target_key: Option<(u64, u64, u64)>,
     annotation_strokes: ResolvedSceneStrokes,
     object_names: Vec<Option<String>>,
@@ -43,7 +44,19 @@ impl CachedRenderScene {
             recent_observation.1,
         );
         if self.recent_atom_target_key != Some(recent_target_key) {
-            self.recent_atom_targets = session.resolved_recent_atoms();
+            self.recent_atom_targets.clear();
+            self.recent_atom_markers.clear();
+            for anchor in session.resolved_recent_atom_anchors() {
+                self.recent_atom_markers
+                    .entry(anchor.object_name.clone())
+                    .or_default()
+                    .push(patinae_render::RecentAtomMarker {
+                        atom_index: anchor.atom_index.as_u32(),
+                        instance: anchor.instance,
+                    });
+                self.recent_atom_targets
+                    .push((anchor.object_name, anchor.atom_index));
+            }
             self.recent_atom_target_key = Some(recent_target_key);
         }
         self.markers.rebuild_with_recent(
@@ -76,7 +89,12 @@ impl CachedRenderScene {
                 &session.named_palette,
                 &session.palette,
                 &self.markers,
-                &mut |name, obj| {
+                &mut |name, mut obj| {
+                    obj.recent_atom_markers = Some(
+                        self.recent_atom_markers
+                            .get(name)
+                            .map_or(&[], Vec::as_slice),
+                    );
                     record_object_name(&mut names.borrow_mut(), obj.object_id.0, name);
                     objects.push(obj);
                 },
@@ -155,6 +173,99 @@ mod tests {
     use crate::{AtomAnchor, LabelEntity, LabelObject, MoleculeObject};
 
     use super::{CachedRenderScene, Session};
+
+    #[test]
+    fn recent_markers_keep_copy_identity_through_cache_changes_and_materialization() {
+        use crate::object::Object;
+        use patinae_mol::{InstanceGroup, InstanceTable, ObjectInstance};
+        use patinae_render::{RecentAtomMarker, IDENTITY_TRANSFORM};
+
+        let mut mol = ObjectMolecule::new("capsid");
+        mol.add_atom(Atom::new("CA", Element::Carbon));
+        mol.add_coord_set(CoordSet::from_vec3(&[Vec3::new(0.0, 0.0, 0.0)]));
+        let path = crate::canonical_atom_path_for_atom("capsid", &mol, AtomIndex(0)).unwrap();
+        let mut object = MoleculeObject::with_name(mol, "capsid");
+        object.state_mut().instances = Some(InstanceTable {
+            groups: vec![InstanceGroup { indices: vec![] }],
+            copies: (0..2)
+                .map(|copy| {
+                    let mut transform = IDENTITY_TRANSFORM;
+                    transform[3][0] = copy as f32 * 10.0;
+                    ObjectInstance {
+                        group: 0,
+                        transform,
+                    }
+                })
+                .collect(),
+        });
+        let mut session = Session::new();
+        session.registry.add(object);
+        let paths = [
+            format!("instance 1 and {path}"),
+            format!("instance 2 and {path}"),
+        ];
+        let mut cache = CachedRenderScene::default();
+        let marker = |copy| RecentAtomMarker {
+            atom_index: 0,
+            instance: Some(copy),
+        };
+        session
+            .recent_atoms
+            .insert(paths[0].clone(), RecentPickLimit::Unlimited);
+        {
+            let frame = cache.prepare(&mut session);
+            assert_eq!(
+                frame.render_input().objects[0].recent_atom_markers,
+                Some([marker(0)].as_slice())
+            );
+        }
+        session.registry.clear_all_dirty_objects();
+        session.recent_atoms.remove_path(&paths[0]);
+        session
+            .recent_atoms
+            .insert(paths[1].clone(), RecentPickLimit::Unlimited);
+        {
+            let frame = cache.prepare(&mut session);
+            let input = frame.render_input();
+            assert_eq!(input.objects[0].atom_markers, [super::super::MARKER_RECENT]);
+            assert_eq!(
+                input.objects[0].recent_atom_markers,
+                Some([marker(1)].as_slice())
+            );
+        }
+        session
+            .recent_atoms
+            .insert(paths[0].clone(), RecentPickLimit::Unlimited);
+        {
+            let frame = cache.prepare(&mut session);
+            assert_eq!(
+                frame.render_input().objects[0].recent_atom_markers,
+                Some([marker(1), marker(0)].as_slice())
+            );
+        }
+        session.recent_atoms.remove_path(&paths[0]);
+        session.materialize_object("capsid").unwrap();
+        {
+            let frame = cache.prepare(&mut session);
+            assert_eq!(
+                frame.render_input().objects[0].recent_atom_markers,
+                Some(
+                    [RecentAtomMarker {
+                        atom_index: 1,
+                        instance: None
+                    }]
+                    .as_slice()
+                )
+            );
+        }
+        let remaining = session.recent_atoms.paths().next().unwrap().to_string();
+        session.recent_atoms.remove_path(&remaining);
+        let frame = cache.prepare(&mut session);
+        assert_eq!(
+            frame.render_input().objects[0].recent_atom_markers,
+            Some([].as_slice())
+        );
+    }
 
     #[test]
     fn prepared_frame_marks_recent_atoms_without_enabling_selection_overlay() {

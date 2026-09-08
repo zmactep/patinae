@@ -3,6 +3,7 @@
 
 // {{INCLUDE_FRAME}}
 // {{INCLUDE_PICKING}}
+// {{INCLUDE_PICKING_SCENE}}
 
 @group(2) @binding(0) var<uniform> picking: PickingParams;
 
@@ -39,13 +40,17 @@ fn vs_main(
     } else {
         world = p1; group = instance.groups.y;
     }
-    let view_pos = (frame.view * vec4<f32>(world, 1.0)).xyz;
+    let view_pos = (frame.view * vec4<f32>(scene_position(world), 1.0)).xyz;
     out.clip_position = frame.proj * vec4<f32>(view_pos, 1.0);
     out.group = group;
+    if !scene_in_subset(obj.atom_offset + instance.groups.x) || !scene_in_subset(obj.atom_offset + instance.groups.y) {
+        out.clip_position = vec4<f32>(2.0, 2.0, 2.0, 1.0);
+    }
     return out;
 }
 
 @fragment
 fn fs_main(input: VsOut) -> @location(0) vec2<u32> {
+    if !scene_visible(obj.atom_offset + input.group) { discard; }
     return pack_id(picking.rep_object, input.group);
 }

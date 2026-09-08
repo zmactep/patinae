@@ -40,16 +40,16 @@ struct VsOut {
 @vertex
 fn vs_main(v: StdVertex) -> VsOut {
     var out: VsOut;
-    let world_pos = vec4<f32>(v.position, 1.0);
+    let world_pos = vec4<f32>(scene_position(v.position), 1.0);
     let view_pos = (frame.view * world_pos).xyz;
     out.clip_position = frame.proj * vec4<f32>(view_pos, 1.0);
-    let world_n = oct_decode(v.normal_oct);
+    let world_n = scene_normal(oct_decode(v.normal_oct));
     let view_n = (frame.view * vec4<f32>(world_n, 0.0)).xyz;
     out.view_pos = view_pos;
     out.view_normal = view_n;
     out.group = v.group_id;
     out.flags = v.flags;
-    out.world_pos = v.position;
+    out.world_pos = world_pos.xyz;
     return out;
 }
 
@@ -65,6 +65,7 @@ fn mesh_visible(global_id: u32) -> bool {
 @fragment
 fn fs_main(input: VsOut) -> TranslucentOut {
     let global_id = obj.atom_offset + input.group;
+    if !scene_in_subset(global_id) { discard; }
     if !mesh_visible(global_id) {
         discard;
     }
@@ -83,6 +84,7 @@ fn fs_main(input: VsOut) -> TranslucentOut {
 @fragment
 fn fs_opaque(input: VsOut) -> @location(0) vec4<f32> {
     let global_id = obj.atom_offset + input.group;
+    if !scene_in_subset(global_id) { discard; }
     if !mesh_visible(global_id) {
         discard;
     }
@@ -99,6 +101,7 @@ fn fs_opaque(input: VsOut) -> @location(0) vec4<f32> {
 @fragment
 fn fs_depth(input: VsOut) {
     let global_id = obj.atom_offset + input.group;
+    if !scene_in_subset(global_id) { discard; }
     if !mesh_visible(global_id) {
         discard;
     }

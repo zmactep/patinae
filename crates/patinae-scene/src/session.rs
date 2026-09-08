@@ -170,6 +170,40 @@ impl Serialize for Session {
 impl<'de> Deserialize<'de> for Session {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let proxy = SessionProxy::deserialize(deserializer)?;
+        for (_, snapshot) in &proxy.registry.molecules {
+            if let Some(table) = &snapshot.state.instances {
+                table
+                    .validate(snapshot.molecule.atom_count())
+                    .map_err(serde::de::Error::custom)?;
+            }
+        }
+        for (name, state) in &proxy.registry.object_states {
+            if let Some(table) = &state.instances {
+                let count = proxy
+                    .registry
+                    .molecules
+                    .iter()
+                    .find(|(source, _)| source == name)
+                    .map_or(0, |(_, snapshot)| snapshot.molecule.atom_count());
+                table.validate(count).map_err(serde::de::Error::custom)?;
+            }
+        }
+        for (_, snapshot) in &proxy.registry.maps {
+            if let Some(table) = &snapshot.state.instances {
+                table.validate(0).map_err(serde::de::Error::custom)?;
+            }
+        }
+        for (_, snapshot) in &proxy.registry.measurements {
+            if let Some(table) = &snapshot.state().instances {
+                table.validate(0).map_err(serde::de::Error::custom)?;
+            }
+        }
+        for (_, snapshot) in &proxy.registry.labels {
+            if let Some(table) = &snapshot.state().instances {
+                table.validate(0).map_err(serde::de::Error::custom)?;
+            }
+        }
+
         let mut recent_atoms = proxy.recent_atoms;
         recent_atoms.enforce_limit(proxy.settings.behavior.recent_pick_limit());
         let mut session = Session {
@@ -247,7 +281,10 @@ impl Session {
 
     /// Returns whether a canonical recent-atom path resolves to exactly one atom.
     pub fn recent_atom_path_is_singleton(&self, path: &str) -> bool {
-        self.resolve_recent_atom(path).is_some()
+        self.resolve_recent_atom(path).is_some_and(|(name, index)| {
+            let (instance, _) = split_instance_path(path);
+            recent_atom_identity_exists(&self.registry, &name, index, instance)
+        })
     }
 
     /// Resolves every valid recent path to an object-local atom index.
@@ -257,6 +294,23 @@ impl Session {
         self.recent_atoms
             .paths()
             .filter_map(|path| resolve_recent_atom_in_contexts(path, &contexts))
+            .collect()
+    }
+
+    /// Resolves durable recent paths including their assembly copy identities.
+    pub fn resolved_recent_atom_anchors(&self) -> Vec<crate::AtomAnchor> {
+        let contexts =
+            recent_atom_evaluation_contexts(&self.registry, &self.selections, &self.settings);
+        self.recent_atoms
+            .paths()
+            .filter_map(|path| {
+                let (name, index) = resolve_recent_atom_in_contexts(path, &contexts)?;
+                let (instance, _) = split_instance_path(path);
+                if !recent_atom_identity_exists(&self.registry, &name, index, instance) {
+                    return None;
+                }
+                Some(crate::AtomAnchor::with_instance(name, index, instance))
+            })
             .collect()
     }
 
@@ -275,7 +329,8 @@ impl Session {
             recent_atom_evaluation_contexts(&self.registry, &self.selections, &self.settings);
 
         let mut changed = self.recent_atoms.reconcile_paths(|path| {
-            let SelectionExpr::Macro(mut spec) = parse(path).ok()? else {
+            let (instance, source_path) = split_instance_path(path);
+            let SelectionExpr::Macro(mut spec) = parse(source_path).ok()? else {
                 return None;
             };
             if let Some((old_name, new_name)) = rename {
@@ -288,7 +343,14 @@ impl Session {
             }
             let canonical_path = format_exact_atom_macro(&spec)?;
             let expression = SelectionExpr::Macro(spec);
-            exact_singleton_in_contexts(&expression, &contexts).then_some(canonical_path)
+            let (name, index) = exact_singleton_target_in_contexts(&expression, &contexts)?;
+            if !recent_atom_identity_exists(&self.registry, &name, index, instance) {
+                return None;
+            }
+            Some(match instance {
+                Some(copy) => format!("instance {} and {canonical_path}", copy + 1),
+                None => canonical_path,
+            })
         });
         changed |= self
             .recent_atoms
@@ -329,6 +391,139 @@ impl Session {
         let removed = self.registry.remove_molecule_atoms(source_name, indices)?;
         self.reconcile_recent_atoms();
         Ok(removed)
+    }
+
+    /// Expands an assembly in place, preserving object identity and semantic anchors.
+    ///
+    /// # Errors
+    /// Returns an error for missing objects or invalid assembly data.
+    pub fn materialize_object(&mut self, name: &str) -> Result<(), String> {
+        let state = self
+            .registry
+            .get(name)
+            .ok_or_else(|| format!("object '{name}' not found"))?
+            .state();
+        if state.instances.is_none() {
+            return Ok(());
+        }
+        let object = self
+            .registry
+            .get_molecule(name)
+            .ok_or_else(|| format!("materialization is not supported for the type of '{name}'"))?;
+        let Some(table) = object.state().instances.clone() else {
+            return Ok(());
+        };
+        let count = object.molecule().atom_count();
+        let molecule =
+            patinae_mol::materialize_molecule(object.molecule(), object.display_state(), &table)
+                .map_err(|error| error.to_string())?;
+        let contexts =
+            recent_atom_evaluation_contexts(&self.registry, &self.selections, &self.settings);
+        let replacements = self
+            .recent_atoms
+            .paths()
+            .filter_map(|path| {
+                let (source, index) = resolve_recent_atom_in_contexts(path, &contexts)?;
+                if source != name {
+                    return None;
+                }
+                let (copy, _) = split_instance_path(path);
+                let index = table.materialized_index(copy?, index, count)?;
+                let replacement =
+                    crate::canonical_atom_path_for_atom(name, &molecule, index).ok()?;
+                Some((path.to_string(), replacement))
+            })
+            .collect::<std::collections::HashMap<_, _>>();
+        // Freeze each selection's membership in the expanded object's new index space.
+        // Its original expression continues to govern every other object.
+        let named = self
+            .selections
+            .iter()
+            .filter_map(|(selection_name, entry)| {
+                parse(&entry.expression)
+                    .ok()
+                    .map(|ast| (selection_name.clone(), ast))
+            })
+            .collect::<Vec<_>>();
+        let object_names = self.registry.names().map(str::to_owned).collect::<Vec<_>>();
+        let options = SelectionOptions {
+            ignore_case: self.settings.behavior.ignore_case,
+            ignore_case_chain: self.settings.behavior.ignore_case_chain,
+        };
+        let mut remapped_selections = named
+            .iter()
+            .map(|(name, _)| {
+                (
+                    name.clone(),
+                    patinae_select::SelectionResult::none(molecule.atom_count()),
+                )
+            })
+            .collect::<std::collections::BTreeMap<_, _>>();
+        for copy in 0..table.copies.len() {
+            let mut context = self.selections.build_eval_context(
+                object.molecule(),
+                object.display_state(),
+                name,
+                &object_names,
+                options,
+            );
+            context.instances = Some(&table);
+            context.active_instance = Some(copy as u32);
+            context
+                .resolve_instance_selections(&named)
+                .map_err(|error| error.to_string())?;
+            for (selection_name, result) in &mut remapped_selections {
+                if let Some(selected) = context.get_selection(selection_name) {
+                    for atom in selected.indices() {
+                        if let Some(index) = table.materialized_index(copy as u32, atom, count) {
+                            result.set(index);
+                        }
+                    }
+                }
+            }
+        }
+        let object = self
+            .registry
+            .get_molecule_mut(name)
+            .ok_or_else(|| format!("object '{name}' not found"))?;
+        *object.molecule_mut() = molecule;
+        object.state_mut().instances = None;
+        object.set_display_state(0);
+        object.invalidate(DirtyFlags::ALL);
+        self.registry
+            .materialize_annotation_anchors(name, &table, count);
+        self.registry.invalidate();
+        let model = patinae_select::format_exact_selector_value(name);
+        for (selection_name, result) in remapped_selections {
+            if let Some(entry) = self.selections.get_mut(&selection_name) {
+                let indices = result
+                    .indices()
+                    .map(|index| index.0.to_string())
+                    .collect::<Vec<_>>()
+                    .join("+");
+                let mapped = if indices.is_empty() {
+                    "none".to_string()
+                } else {
+                    format!("model {model} and index {indices}")
+                };
+                entry.expression = format!(
+                    "(not model {model} and ({})) or ({mapped})",
+                    entry.expression
+                );
+                entry.cached_results.insert(name.to_string(), result);
+            }
+        }
+        self.selections.invalidate();
+        self.recent_atoms.reconcile_paths(|path| {
+            Some(
+                replacements
+                    .get(path)
+                    .cloned()
+                    .unwrap_or_else(|| path.to_string()),
+            )
+        });
+        self.reconcile_recent_atoms();
+        Ok(())
     }
 
     /// Clears all objects and reconciles recent atom paths.
@@ -533,6 +728,36 @@ impl Session {
     }
 }
 
+fn recent_atom_identity_exists(
+    registry: &ObjectRegistry,
+    name: &str,
+    index: patinae_mol::AtomIndex,
+    instance: Option<u32>,
+) -> bool {
+    let Some(object) = registry.get_molecule(name) else {
+        return false;
+    };
+    if object.molecule().get_atom(index).is_none() {
+        return false;
+    }
+    match (&object.state().instances, instance) {
+        (None, None) => true,
+        (Some(table), Some(copy)) => table.contains(copy, index.0, object.molecule().atom_count()),
+        _ => false,
+    }
+}
+
+fn split_instance_path(path: &str) -> (Option<u32>, &str) {
+    if let Some(rest) = path.strip_prefix("instance ") {
+        if let Some((number, source)) = rest.split_once(" and ") {
+            if let Some(copy) = number.parse::<u32>().ok().and_then(|n| n.checked_sub(1)) {
+                return (Some(copy), source);
+            }
+        }
+    }
+    (None, path)
+}
+
 fn is_exact_atom_macro(spec: &MacroSpec) -> bool {
     exact_pattern(&spec.model).is_some()
         && exact_pattern(&spec.segi).is_some()
@@ -602,15 +827,12 @@ fn recent_atom_evaluation_contexts<'a>(
         .collect()
 }
 
-fn exact_singleton_in_contexts(expression: &SelectionExpr, contexts: &[EvalContext<'_>]) -> bool {
-    exact_singleton_target_in_contexts(expression, contexts).is_some()
-}
-
 fn resolve_recent_atom_in_contexts(
     path: &str,
     contexts: &[EvalContext<'_>],
 ) -> Option<(String, patinae_mol::AtomIndex)> {
-    let SelectionExpr::Macro(spec) = parse(path).ok()? else {
+    let (_, source_path) = split_instance_path(path);
+    let SelectionExpr::Macro(spec) = parse(source_path).ok()? else {
         return None;
     };
     if !is_exact_atom_macro(&spec) {
@@ -672,6 +894,8 @@ mod tests {
                 object_name: object_name.to_string(),
                 object_type: crate::ObjectType::Molecule,
                 atom_index: Some(patinae_mol::AtomIndex(atom_index.try_into().unwrap())),
+
+                instance: None,
                 position: Vec3::new(0.0, 0.0, 0.0),
                 distance: 0.0,
             },

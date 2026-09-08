@@ -146,6 +146,7 @@ impl PickingPass {
                 Some(&ctx.frame.bind_group_layout),
                 Some(&ctx.lighting.bind_group_layout),
                 Some(&params_layout),
+                Some(&scene_layout.bind_group_layout),
             ],
             immediate_size: 0,
         });
@@ -226,7 +227,7 @@ impl PickingPass {
             label: Some("patinae.picking.dot.pipeline_layout"),
             bind_group_layouts: &[
                 Some(&ctx.frame.bind_group_layout),
-                Some(&ctx.lighting.bind_group_layout),
+                Some(&scene_layout.bind_group_layout),
                 Some(&params_layout),
                 Some(&dot_layout.bind_group_layout),
             ],
@@ -413,6 +414,7 @@ fn picking_depth_state() -> wgpu::DepthStencilState {
 pub fn decode_pixel(r: u32, g: u32) -> Option<PickHit> {
     let (rep_kind, object_id, atom_id) = PackedId { r, g }.unpack()?;
     Some(PickHit {
+        instance: PackedId { r, g }.instance(),
         rep_kind,
         object_id,
         atom_id,

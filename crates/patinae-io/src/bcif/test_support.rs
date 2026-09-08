@@ -108,7 +108,7 @@ fn int_column(name: &str, values: impl Iterator<Item = i32>) -> BcifColumn {
     }
 }
 
-fn float_column(name: &str, values: impl Iterator<Item = f32>) -> BcifColumn {
+pub(crate) fn float_column(name: &str, values: impl Iterator<Item = f32>) -> BcifColumn {
     BcifColumn {
         name: name.to_string(),
         data: BcifData {
@@ -121,7 +121,7 @@ fn float_column(name: &str, values: impl Iterator<Item = f32>) -> BcifColumn {
     }
 }
 
-fn string_column<'a>(name: &str, values: impl Iterator<Item = &'a str>) -> BcifColumn {
+pub(crate) fn string_column<'a>(name: &str, values: impl Iterator<Item = &'a str>) -> BcifColumn {
     let mut table: Vec<&'a str> = Vec::new();
     let mut indices = Vec::new();
 

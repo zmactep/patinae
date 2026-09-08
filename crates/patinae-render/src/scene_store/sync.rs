@@ -39,6 +39,17 @@ impl SceneStore {
         input: &RenderObjectInput<'_>,
         effective_dirty: DirtyFlags,
     ) -> ObjectSlot {
+        match input.instances {
+            Some(table) => {
+                if self.instance_tables.get(&input.object_id.0) != Some(table) {
+                    self.instance_tables
+                        .insert(input.object_id.0, table.clone());
+                }
+            }
+            None => {
+                self.instance_tables.remove(&input.object_id.0);
+            }
+        }
         let n_atoms = input.molecule.atom_count() as u32;
         let n_bonds = input.molecule.bonds().count() as u32;
         let slot_was_new = !self.has_slot(input.object_id);
@@ -89,7 +100,7 @@ impl SceneStore {
             }
         }
 
-        if needs_table_write {
+        if needs_table_write || self.object_entry(slot).model_matrix != input.transform {
             self.write_obj_entry(
                 slot.table_index,
                 ObjectEntry {
@@ -556,6 +567,7 @@ mod tests {
         colors: &'a [[f32; 4]],
     ) -> RenderObjectInput<'a> {
         RenderObjectInput {
+            instances: None,
             object_id: ObjectId(7),
             molecule: mol,
             coord_set: coord,
@@ -568,6 +580,7 @@ mod tests {
                 reps: &[],
             },
             atom_markers: &[],
+            recent_atom_markers: None,
             marker_updates: &[],
             has_markers: false,
             lod: SceneLod::Auto,

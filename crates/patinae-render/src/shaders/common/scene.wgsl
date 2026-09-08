@@ -121,7 +121,7 @@ fn scene_ellipsoid_color(gid: u32) -> vec4<f32> {
 fn scene_visible(gid: u32) -> bool {
     let word = gid >> 5u;
     let bit  = gid & 31u;
-    return (scene_mask_lut[word] & (1u << bit)) != 0u;
+    return scene_in_subset(gid) && (scene_mask_lut[word] & (1u << bit)) != 0u;
 }
 
 fn scene_marker(gid: u32) -> u32 {
@@ -184,4 +184,28 @@ fn scene_atom_cartoon_alpha(atom: AtomGpu, fallback: f32) -> f32 {
 }
 fn scene_atom_surface_alpha(atom: AtomGpu, fallback: f32) -> f32 {
     return scene_unpack_atom_alpha(atom.alpha_pack_b, 0u, fallback);
+}
+
+// Padding stores a shared source-subset mask, independent of copy count.
+fn scene_in_subset(gid: u32) -> bool {
+    if obj._pad0_b == 0u { return true; }
+    let local = gid - obj.atom_offset;
+    return local < obj.atom_count &&
+        (scene_mask_lut[obj._pad0_a + (local >> 5u)] & (1u << (local & 31u))) != 0u;
+}
+
+fn scene_position(position: vec3<f32>) -> vec3<f32> {
+    return (obj.model_matrix * vec4<f32>(position, 1.0)).xyz;
+}
+
+fn scene_direction(direction: vec3<f32>) -> vec3<f32> {
+    return (obj.model_matrix * vec4<f32>(direction, 0.0)).xyz;
+}
+
+fn scene_normal(normal: vec3<f32>) -> vec3<f32> {
+    let a = obj.model_matrix[0].xyz;
+    let b = obj.model_matrix[1].xyz;
+    let c = obj.model_matrix[2].xyz;
+    let cofactor = mat3x3<f32>(cross(b, c), cross(c, a), cross(a, b));
+    return normalize(cofactor * normal / dot(a, cross(b, c)));
 }

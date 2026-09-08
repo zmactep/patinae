@@ -8,6 +8,7 @@ use std::io::{BufReader, Read};
 use lin_alg::f32::Vec3;
 use patinae_mol::{Element, ObjectMolecule};
 
+use crate::assembly::{AssemblyRow, AssemblyRows, CATEGORIES};
 use crate::error::{IoError, IoResult};
 use crate::logical_models::{build_molecules, ParsedAtom, ParsedModel};
 use crate::traits::MoleculeReader;
@@ -277,10 +278,17 @@ fn parse_cif_block(
         return Ok(Vec::new());
     }
 
+    let definitions = parse_assemblies(tokens)?.resolve()?;
+    if definitions.is_empty() {
+        for model in block.models.values_mut() {
+            model.source_chains.clear();
+        }
+    }
     let models = block.models.into_values().collect();
     let mut molecules = build_molecules(&block.name, &block.title, models)?;
 
     for mol in &mut molecules {
+        mol.assembly.definitions = definitions.clone();
         block.cell.apply_to(mol, block.space_group.as_deref());
         apply_secondary_structure(mol, &block.ss_ranges);
 
@@ -494,6 +502,9 @@ fn parse_atom_site_loop(
         let model = models
             .entry(model_num)
             .or_insert_with(|| ParsedModel::new(model_num));
+        model
+            .source_chains
+            .push(col!(cols.label_asym_id).unwrap_or("").to_owned());
         model.atoms.push(ParsedAtom {
             name: atom_name.to_string(),
             element,
@@ -513,6 +524,83 @@ fn parse_atom_site_loop(
     }
 
     Ok(pos)
+}
+
+/// Collect both loop and single-value assembly categories without assuming their order.
+fn parse_assemblies(tokens: &[Token]) -> IoResult<AssemblyRows> {
+    let mut rows = AssemblyRows::default();
+    let mut singles: BTreeMap<&str, AssemblyRow> = BTreeMap::new();
+    let mut pos = 0;
+    while pos < tokens.len() {
+        if matches!(tokens[pos], Token::Loop) {
+            pos += 1;
+            let mut columns = Vec::new();
+            while let Some(Token::DataName(name)) = tokens.get(pos) {
+                columns.push(*name);
+                pos += 1;
+            }
+            let category = columns
+                .first()
+                .and_then(|name| name.split_once('.'))
+                .map(|(category, _)| category)
+                .unwrap_or("");
+            let relevant = CATEGORIES.contains(&category);
+            while pos < tokens.len()
+                && !matches!(
+                    tokens[pos],
+                    Token::Loop | Token::DataName(_) | Token::DataBlock(_) | Token::Eof
+                )
+            {
+                if columns.is_empty() {
+                    pos += 1;
+                    continue;
+                }
+                let mut row = AssemblyRow::new();
+                for name in &columns {
+                    let Some(token) = tokens.get(pos).filter(|token| {
+                        !matches!(
+                            token,
+                            Token::Loop | Token::DataName(_) | Token::DataBlock(_) | Token::Eof
+                        )
+                    }) else {
+                        if relevant {
+                            return Err(IoError::parse_msg("Incomplete assembly loop row"));
+                        }
+                        break;
+                    };
+                    if relevant {
+                        if let (Some((_, field)), Some(value)) =
+                            (name.split_once('.'), token_value_str(token))
+                        {
+                            row.insert(field.to_owned(), value.to_owned());
+                        }
+                    }
+                    pos += 1;
+                }
+                if relevant {
+                    rows.push(category, row);
+                }
+            }
+        } else if let Token::DataName(name) = &tokens[pos] {
+            if let Some((category, field)) = name.split_once('.') {
+                if CATEGORIES.contains(&category) {
+                    if let Some(value) = tokens.get(pos + 1).and_then(token_value_str) {
+                        singles
+                            .entry(category)
+                            .or_default()
+                            .insert(field.to_owned(), value.to_owned());
+                    }
+                }
+            }
+            pos += 1;
+        } else {
+            pos += 1;
+        }
+    }
+    for (category, row) in singles {
+        rows.push(category, row);
+    }
+    Ok(rows)
 }
 
 /// Parse _cell data items

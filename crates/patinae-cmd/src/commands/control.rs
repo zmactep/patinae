@@ -537,6 +537,8 @@ mod tests {
                 object_name: "obj".to_string(),
                 object_type: patinae_scene::ObjectType::Molecule,
                 atom_index: Some(AtomIndex(0)),
+
+                instance: None,
                 position: lin_alg::f32::Vec3::new(0.0, 0.0, 0.0),
                 distance: 0.0,
             },

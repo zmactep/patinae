@@ -373,6 +373,8 @@ pub(crate) fn trace_triangle_material(
 /// Errors from blocking GPU readback or export conversion.
 #[derive(Debug, Error)]
 pub enum GeometryExportError {
+    #[error("Instanced geometry export requires materialize first; export does not expand compact copies")]
+    InstancedObject,
     #[error("GPU readback failed: {0}")]
     Gpu(String),
     #[error("trace geometry visitor failed: {0}")]

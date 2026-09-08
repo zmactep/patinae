@@ -33,6 +33,63 @@ pub struct MoleculeObject {
 }
 
 impl MoleculeObject {
+    /// Returns the physical storage mode of this object.
+    pub fn storage_mode(&self) -> patinae_mol::StorageMode {
+        self.state.storage_mode()
+    }
+
+    /// Resolves a source atom in a particular copy, in object-local coordinates.
+    pub fn instance_coord(&self, atom: AtomIndex, instance: Option<u32>) -> Option<Vec3> {
+        let point = self.display_coord(atom)?;
+        match (&self.state.instances, instance) {
+            (None, None) => Some(point),
+            (Some(table), Some(copy))
+                if table.contains(copy, atom.0, self.molecule.atom_count()) =>
+            {
+                Some(patinae_mol::transform_instance_point(
+                    &table.copies[copy as usize].transform,
+                    point,
+                ))
+            }
+            _ => None,
+        }
+    }
+
+    /// Resolves a source atom and optional copy into world coordinates.
+    pub fn instance_world_coord(&self, atom: AtomIndex, instance: Option<u32>) -> Option<Vec3> {
+        let point = self.instance_coord(atom, instance)?;
+        let world =
+            self.state.transform.clone() * lin_alg::f32::Vec4::new(point.x, point.y, point.z, 1.0);
+        Some(Vec3::new(world.x, world.y, world.z))
+    }
+
+    /// Returns displayed atom count, counting source subsets once per copy.
+    pub fn displayed_atom_count(&self) -> usize {
+        self.state
+            .instances
+            .as_ref()
+            .map_or(self.molecule.atom_count(), |table| {
+                table
+                    .displayed_count(self.molecule.atom_count())
+                    .unwrap_or(0)
+            })
+    }
+
+    /// Rejects structural edits until the user materializes the object.
+    ///
+    /// # Errors
+    /// Returns an error for instanced objects.
+    pub fn require_explicit(&self) -> Result<(), String> {
+        if self.state.instances.is_some() {
+            Err(format!(
+                "object '{}' is instanced; run materialize first",
+                self.molecule.name
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
     /// Create a new molecule object
     pub fn new(mut molecule: ObjectMolecule) -> Self {
         let mut state = ObjectState::default();
@@ -478,7 +535,59 @@ impl Object for MoleculeObject {
     }
 
     fn extent(&self) -> Option<(Vec3, Vec3)> {
-        self.molecule.bounding_box(self.display_state)
+        let mut minimum = Vec3::new(f32::INFINITY, f32::INFINITY, f32::INFINITY);
+        let mut maximum = Vec3::new(f32::NEG_INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY);
+        let mut include = |point: Vec3| {
+            minimum.x = minimum.x.min(point.x);
+            minimum.y = minimum.y.min(point.y);
+            minimum.z = minimum.z.min(point.z);
+            maximum.x = maximum.x.max(point.x);
+            maximum.y = maximum.y.max(point.y);
+            maximum.z = maximum.z.max(point.z);
+        };
+        // Cache each subset's bounds locally, avoiding an atom walk per copy.
+        if let Some(table) = &self.state.instances {
+            let group_bounds: Vec<_> = table
+                .groups
+                .iter()
+                .map(|group| {
+                    if group.indices.is_empty() {
+                        return self.molecule.bounding_box(self.display_state);
+                    }
+                    let points = group
+                        .indices
+                        .iter()
+                        .filter_map(|&atom| self.display_coord(AtomIndex(atom)));
+                    points.fold(None, |bounds: Option<(Vec3, Vec3)>, p| {
+                        Some(match bounds {
+                            None => (p, p),
+                            Some((min, max)) => (
+                                Vec3::new(min.x.min(p.x), min.y.min(p.y), min.z.min(p.z)),
+                                Vec3::new(max.x.max(p.x), max.y.max(p.y), max.z.max(p.z)),
+                            ),
+                        })
+                    })
+                })
+                .collect();
+            for copy in &table.copies {
+                let Some(Some(bounds)) = group_bounds.get(copy.group as usize) else {
+                    continue;
+                };
+                for point in bounds_corners(*bounds) {
+                    let point = patinae_mol::transform_instance_point(&copy.transform, point);
+                    let world = self.state.transform.clone()
+                        * lin_alg::f32::Vec4::new(point.x, point.y, point.z, 1.0);
+                    include(Vec3::new(world.x, world.y, world.z));
+                }
+            }
+        } else {
+            for point in bounds_corners(self.molecule.bounding_box(self.display_state)?) {
+                let world = self.state.transform.clone()
+                    * lin_alg::f32::Vec4::new(point.x, point.y, point.z, 1.0);
+                include(Vec3::new(world.x, world.y, world.z));
+            }
+        }
+        minimum.x.is_finite().then_some((minimum, maximum))
     }
 
     fn n_states(&self) -> usize {
@@ -508,6 +617,16 @@ impl Object for MoleculeObject {
     fn set_name(&mut self, name: String) {
         self.molecule.name = name;
     }
+}
+
+fn bounds_corners((min, max): (Vec3, Vec3)) -> [Vec3; 8] {
+    std::array::from_fn(|i| {
+        Vec3::new(
+            if i & 1 == 0 { min.x } else { max.x },
+            if i & 2 == 0 { min.y } else { max.y },
+            if i & 4 == 0 { min.z } else { max.z },
+        )
+    })
 }
 
 #[cfg(test)]
@@ -571,6 +690,37 @@ mod tests {
         assert_eq!(obj.name(), "test");
         assert_eq!(obj.object_type(), ObjectType::Molecule);
         assert!(obj.state().enabled);
+    }
+
+    #[test]
+    fn instance_bounds_and_coordinates_include_subset_and_world_transforms() {
+        use patinae_mol::{InstanceGroup, InstanceTable, ObjectInstance, IDENTITY_INSTANCE};
+        let mut object = MoleculeObject::new(create_test_molecule());
+        let mut moved = IDENTITY_INSTANCE;
+        moved[0] = [0., 1., 0., 0.];
+        moved[1] = [-1., 0., 0., 0.];
+        moved[3][0] = 10.;
+        object.state.instances = Some(InstanceTable {
+            groups: vec![InstanceGroup { indices: vec![1] }],
+            copies: vec![ObjectInstance {
+                group: 0,
+                transform: moved,
+            }],
+        });
+        let mut world = IDENTITY_INSTANCE;
+        world[3][1] = 20.;
+        object.state.transform = lin_alg::f32::Mat4 {
+            data: std::array::from_fn(|i| world[i / 4][i % 4]),
+        };
+        assert_eq!(object.molecule().atom_count(), 2);
+        assert_eq!(object.displayed_atom_count(), 1);
+        assert!(object.instance_coord(AtomIndex(0), Some(0)).is_none());
+        assert!(object.instance_coord(AtomIndex(1), None).is_none());
+        let point = object.instance_world_coord(AtomIndex(1), Some(0)).unwrap();
+        assert_eq!((point.x, point.y, point.z), (10., 21.5, 0.));
+        let (min, max) = object.extent().unwrap();
+        assert_eq!((min.x, min.y, min.z), (point.x, point.y, point.z));
+        assert_eq!((max.x, max.y, max.z), (point.x, point.y, point.z));
     }
 
     #[test]

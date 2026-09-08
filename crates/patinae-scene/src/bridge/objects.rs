@@ -207,6 +207,7 @@ fn render_molecule_input<'a>(
     }
     Some(RenderObjectInput {
         object_id: id,
+        instances: mol_obj.state().instances.as_ref(),
         molecule: mol,
         coord_set: coord,
         transform: mat4_to_cols(&mol_obj.state().transform),
@@ -217,6 +218,7 @@ fn render_molecule_input<'a>(
             .map(|overrides| ResolvedSettings::resolve(settings, Some(overrides))),
         colors,
         atom_markers: markers.get(name).unwrap_or(&[]),
+        recent_atom_markers: None,
         marker_updates: markers.updates(name).unwrap_or(&[]),
         has_markers: markers.has_markers(name),
         lod,

@@ -93,6 +93,10 @@ pub struct ObjectMolecule {
     /// mutation that touches bonds or atom classification flags.
     #[serde(skip)]
     pub(crate) subchain_partition: OnceLock<SubchainPartition>,
+
+    /// File-defined assembly recipes and original chain membership.
+    #[serde(default)]
+    pub assembly: crate::AssemblyMetadata,
 }
 
 impl Default for ObjectMolecule {
@@ -110,6 +114,7 @@ impl Default for ObjectMolecule {
             unique_settings: UniqueSettings::new(),
             symmetry: None,
             subchain_partition: OnceLock::new(),
+            assembly: crate::AssemblyMetadata::default(),
         }
     }
 }
@@ -173,6 +178,7 @@ impl ObjectMolecule {
             unique_settings: UniqueSettings::new(),
             symmetry: None,
             subchain_partition: OnceLock::new(),
+            assembly: crate::AssemblyMetadata::default(),
         }
     }
 
@@ -861,6 +867,7 @@ impl ObjectMolecule {
             *cs = new_cs;
         }
         self.invalidate_subchain_partition();
+        self.assembly.remap_atoms(&old_to_new);
         AtomRemap::from_mapping(old_to_new)
     }
 
@@ -980,6 +987,7 @@ impl ObjectMolecule {
             *cs = new_cs;
         }
         self.invalidate_subchain_partition();
+        self.assembly.remap_atoms(&old_to_new);
         AtomRemap::from_mapping(old_to_new)
     }
 

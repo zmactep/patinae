@@ -204,7 +204,9 @@ pub fn label_object_view(
             let resolved = !anchor.is_orphaned()
                 && registry
                     .get_molecule(&anchor.object_name)
-                    .and_then(|molecule| molecule.display_coord(anchor.atom_index))
+                    .and_then(|molecule| {
+                        molecule.instance_world_coord(anchor.atom_index, anchor.instance)
+                    })
                     .is_some();
             if !resolved {
                 unresolved_count += 1;
@@ -635,6 +637,23 @@ impl LabelObject {
             self.invalidate_all();
         }
         changed
+    }
+
+    pub(crate) fn materialize_anchors(
+        &mut self,
+        name: &str,
+        table: &patinae_mol::InstanceTable,
+        count: usize,
+    ) {
+        let mut changed = false;
+        for entity in &mut self.entities {
+            changed |= entity
+                .anchor_mut()
+                .materialize_if_source(name, table, count);
+        }
+        if changed {
+            self.invalidate_all();
+        }
     }
 
     pub(crate) fn remap_anchors(&mut self, object_name: &str, remap: &AtomRemap) -> bool {

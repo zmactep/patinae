@@ -13,6 +13,9 @@ export interface ObjectInfo {
   name: string;
   object_type: "molecule" | "map" | "measurement" | "label";
   atom_count: number;
+  storage_mode: "explicit" | "instanced";
+  displayed_atom_count: number;
+  instance_count: number;
   enabled: boolean;
   measurement_kind: "distance" | "angle" | "dihedral" | null;
   entity_count: number;

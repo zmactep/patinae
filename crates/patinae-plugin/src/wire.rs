@@ -1146,6 +1146,7 @@ mod tests {
         let paths = [0, 1].map(|atom_index| {
             patinae_scene::canonical_atom_path_for_hit(
                 &patinae_scene::PickHit {
+                    instance: None,
                     object_name: "obj".to_string(),
                     object_type: patinae_scene::ObjectType::Molecule,
                     atom_index: Some(patinae_select::AtomIndex(atom_index)),

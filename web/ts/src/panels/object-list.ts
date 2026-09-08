@@ -85,8 +85,12 @@ export class ObjectListPanel {
       const metadata = document.createElement("span");
       metadata.className = "obj-metadata";
       if (info.object_type === "molecule") {
-        metadata.textContent = `${info.atom_count}`;
-        metadata.title = `${info.atom_count} atoms`;
+        metadata.textContent = info.storage_mode === "instanced"
+          ? `${info.displayed_atom_count} (${info.instance_count} copies)`
+          : `${info.atom_count}`;
+        metadata.title = info.storage_mode === "instanced"
+          ? `${info.atom_count} stored atoms · ${info.displayed_atom_count} displayed atoms · shared colors and representations`
+          : `${info.atom_count} atoms`;
       } else if (info.object_type === "measurement") {
         metadata.textContent = `${info.entity_count}`;
         metadata.title = `${info.entity_count} measurement ${plural(info.entity_count, "entity", "entities")}`;

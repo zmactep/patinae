@@ -291,10 +291,7 @@ fn resolve_anchor(registry: &ObjectRegistry, anchor: &AtomAnchor) -> Option<Vec3
         return None;
     }
     let molecule = registry.get_molecule(&anchor.object_name)?;
-    let point = molecule.display_coord(anchor.atom_index)?;
-    let transform = molecule.state().transform.clone();
-    let transformed = transform * lin_alg::f32::Vec4::new(point.x, point.y, point.z, 1.0);
-    Some(Vec3::new(transformed.x, transformed.y, transformed.z))
+    molecule.instance_world_coord(anchor.atom_index, anchor.instance)
 }
 
 fn resolve_measurement_bundle(

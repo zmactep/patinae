@@ -67,22 +67,23 @@ fn cartoon_visible(atom: AtomGpu) -> bool {
 @vertex
 fn vs_main(v: StdVertex) -> VsOut {
     var out: VsOut;
-    let world_pos = vec4<f32>(v.position, 1.0);
+    let world_pos = vec4<f32>(scene_position(v.position), 1.0);
     let view_pos = (frame.view * world_pos).xyz;
     out.clip_position = frame.proj * vec4<f32>(view_pos, 1.0);
-    let world_n = oct_decode(v.normal_oct);
+    let world_n = scene_normal(oct_decode(v.normal_oct));
     let view_n = (frame.view * vec4<f32>(world_n, 0.0)).xyz;
     out.view_pos = view_pos;
     out.view_normal = view_n;
     out.group = v.group_id;
     out.flags = v.flags;
-    out.world_pos = v.position;
+    out.world_pos = world_pos.xyz;
     return out;
 }
 
 @fragment
 fn fs_main(input: VsOut, @builtin(front_facing) front_facing: bool) -> TranslucentOut {
     let global_id = obj.atom_offset + input.group;
+    if !scene_in_subset(global_id) { discard; }
     let atom = scene_atom(global_id);
     if !cartoon_visible(atom) {
         discard;
@@ -106,6 +107,7 @@ fn fs_main(input: VsOut, @builtin(front_facing) front_facing: bool) -> Transluce
 @fragment
 fn fs_opaque(input: VsOut, @builtin(front_facing) front_facing: bool) -> @location(0) vec4<f32> {
     let global_id = obj.atom_offset + input.group;
+    if !scene_in_subset(global_id) { discard; }
     let atom = scene_atom(global_id);
     if !cartoon_visible(atom) {
         discard;
@@ -126,6 +128,7 @@ fn fs_opaque(input: VsOut, @builtin(front_facing) front_facing: bool) -> @locati
 @fragment
 fn fs_depth(input: VsOut) {
     let global_id = obj.atom_offset + input.group;
+    if !scene_in_subset(global_id) { discard; }
     let atom = scene_atom(global_id);
     if !cartoon_visible(atom) {
         discard;

@@ -672,6 +672,11 @@ impl Command for SetupCcdCommand {
     ) -> CmdResult {
         let mode = args.str_arg(0, "mode");
 
+        for name in ctx.viewer.objects().names() {
+            if let Some(object) = ctx.viewer.objects().get_molecule(name) {
+                object.require_explicit().map_err(CmdError::execution)?;
+            }
+        }
         // Load CCD cache
         let count = if mode == Some("scene") {
             // Collect unique HETATM residue names from all objects
@@ -762,6 +767,8 @@ mod tests {
                 object_name: object_name.to_string(),
                 object_type: patinae_scene::ObjectType::Molecule,
                 atom_index: Some(AtomIndex(atom_index)),
+
+                instance: None,
                 position: lin_alg::f32::Vec3::new(0.0, 0.0, 0.0),
                 distance: 0.0,
             },

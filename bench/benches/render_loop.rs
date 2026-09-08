@@ -628,6 +628,7 @@ fn run_scene_store_churn(state: &mut RenderState, input: SceneStoreChurnInput<'_
             (input.mol, input.coord, input.atom_colors, original_lod)
         };
         let object_input = RenderObjectInput {
+            instances: None,
             object_id: ObjectId(1),
             molecule: active_mol,
             coord_set: active_coord,
@@ -640,6 +641,7 @@ fn run_scene_store_churn(state: &mut RenderState, input: SceneStoreChurnInput<'_
                 reps: &[],
             },
             atom_markers: &[],
+            recent_atom_markers: None,
             marker_updates: &[],
             has_markers: false,
             lod,
@@ -657,6 +659,7 @@ fn run_scene_store_churn(state: &mut RenderState, input: SceneStoreChurnInput<'_
     }
 
     let restore_input = RenderObjectInput {
+        instances: None,
         object_id: ObjectId(1),
         molecule: input.mol,
         coord_set: input.coord,
@@ -669,6 +672,7 @@ fn run_scene_store_churn(state: &mut RenderState, input: SceneStoreChurnInput<'_
             reps: &[],
         },
         atom_markers: input.atom_markers,
+        recent_atom_markers: None,
         marker_updates: &[],
         has_markers: input.has_markers,
         lod: original_lod,
@@ -939,6 +943,7 @@ fn bench_render_loop(c: &mut Criterion) {
     let visible = force_visible;
     let lod = SceneLod::from_atom_count(n_atoms);
     let input = RenderObjectInput {
+        instances: None,
         object_id: ObjectId(1),
         molecule: &mol,
         coord_set: &coord,
@@ -951,6 +956,7 @@ fn bench_render_loop(c: &mut Criterion) {
             reps: &[],
         },
         atom_markers: &atom_markers,
+        recent_atom_markers: None,
         marker_updates: &[],
         has_markers,
         lod,
@@ -1000,6 +1006,7 @@ fn bench_render_loop(c: &mut Criterion) {
         let mut hidden_draw = visible;
         hidden_draw.set_hidden(RepMask::CARTOON);
         let hide_input = RenderObjectInput {
+            instances: None,
             object_id: ObjectId(1),
             molecule: &mol,
             coord_set: &coord,
@@ -1012,6 +1019,7 @@ fn bench_render_loop(c: &mut Criterion) {
                 reps: &[],
             },
             atom_markers: &atom_markers,
+            recent_atom_markers: None,
             marker_updates: &[],
             has_markers,
             lod,
@@ -1028,6 +1036,7 @@ fn bench_render_loop(c: &mut Criterion) {
         print_sync_timing("cartoon_toggle.hide_draw_mask", hide_wall, hide_timings);
 
         let show_input = RenderObjectInput {
+            instances: None,
             object_id: ObjectId(1),
             molecule: &mol,
             coord_set: &coord,
@@ -1040,6 +1049,7 @@ fn bench_render_loop(c: &mut Criterion) {
                 reps: &[],
             },
             atom_markers: &atom_markers,
+            recent_atom_markers: None,
             marker_updates: &[],
             has_markers,
             lod,
@@ -1064,6 +1074,7 @@ fn bench_render_loop(c: &mut Criterion) {
         let mut checksums = Vec::with_capacity(8);
         for _ in 0..8 {
             let frame_input = RenderObjectInput {
+                instances: None,
                 object_id: ObjectId(1),
                 molecule: &mol,
                 coord_set: &coord,
@@ -1076,6 +1087,7 @@ fn bench_render_loop(c: &mut Criterion) {
                     reps: &[],
                 },
                 atom_markers: &atom_markers,
+                recent_atom_markers: None,
                 marker_updates: &[],
                 has_markers,
                 lod,
@@ -1141,6 +1153,7 @@ fn bench_render_loop(c: &mut Criterion) {
             // Camera-only update unless BENCH_STATIC_CAMERA=1; sync still runs
             // but most reps see empty dirty.
             let frame_input = RenderObjectInput {
+                instances: None,
                 object_id: ObjectId(1),
                 molecule: &mol,
                 coord_set: &coord,
@@ -1153,6 +1166,7 @@ fn bench_render_loop(c: &mut Criterion) {
                     reps: &[],
                 },
                 atom_markers: &atom_markers,
+                recent_atom_markers: None,
                 marker_updates: &[],
                 has_markers,
                 lod,

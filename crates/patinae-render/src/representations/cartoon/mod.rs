@@ -49,7 +49,7 @@ use crate::picking::RepKind;
 use crate::pipelines::cartoon::{CartoonParams, CartoonParamsLayout};
 use crate::render_input::RenderObjectInput;
 use crate::representation_budget::{RepMemoryEstimate, RepQualityLevel};
-use crate::representations::cartoon::backbone::{extract_retained_backbone, BackboneAtom};
+use crate::representations::cartoon::backbone::{extract_filtered_backbone, BackboneAtom};
 use crate::representations::cartoon::nucleic::{
     count_nucleic_residues, prepare_nucleic_geometry, MAX_VERTICES_PER_NUCLEOTIDE,
 };
@@ -764,7 +764,11 @@ impl Representation for CartoonRep {
         }
 
         let gap_cutoff = s.cartoon.gap_cutoff;
-        let bb = extract_retained_backbone(input.molecule, input.coord_set, gap_cutoff);
+        let subset_coords = subset_coordinates(input);
+        let source_coords = subset_coords.as_ref().unwrap_or(input.coord_set);
+        let bb = extract_filtered_backbone(input.molecule, source_coords, gap_cutoff, &|index| {
+            input.includes_source_atom(index)
+        });
         if bb.len() < 2 {
             self.resources = None;
             self.last_build = None;
@@ -790,7 +794,7 @@ impl Representation for CartoonRep {
         let geom_hash = hash_cartoon_geometry(self.mode, &pipeline_settings, &geom_settings);
         let nucleic_geometry = prepare_nucleic_geometry(
             input.molecule,
-            input.coord_set,
+            source_coords,
             &bb,
             nucleic_geometry_enabled(self.mode, s),
         );
@@ -1084,8 +1088,7 @@ fn cartoon_estimate(
     settings: &ResolvedSettings,
     mode: CartoonMode,
 ) -> RepMemoryEstimate {
-    let bb =
-        extract_retained_backbone(input.molecule, input.coord_set, settings.cartoon.gap_cutoff);
+    let bb = subset_backbone(input, settings.cartoon.gap_cutoff);
     if bb.len() < 2 {
         return RepMemoryEstimate {
             required_bytes: 0,
@@ -1130,4 +1133,28 @@ fn cartoon_estimate(
         can_chunk: false,
         can_skip: true,
     }
+}
+
+/// Build temporary source-indexed coordinates once per distinct subset build.
+fn subset_coordinates(input: &RenderObjectInput<'_>) -> Option<patinae_mol::CoordSet> {
+    if input.object_id.0 >> 12 == 0 {
+        return None;
+    }
+    let mut coords = patinae_mol::CoordSet::new();
+    for (index, position) in input.coord_set.iter_with_atoms() {
+        if input.includes_source_atom(index.as_u32()) {
+            coords.add_coord(index, position);
+        }
+    }
+    Some(coords)
+}
+
+fn subset_backbone(input: &RenderObjectInput<'_>, gap_cutoff: i32) -> Vec<BackboneAtom> {
+    let subset_coords = subset_coordinates(input);
+    extract_filtered_backbone(
+        input.molecule,
+        subset_coords.as_ref().unwrap_or(input.coord_set),
+        gap_cutoff,
+        &|index| input.includes_source_atom(index),
+    )
 }

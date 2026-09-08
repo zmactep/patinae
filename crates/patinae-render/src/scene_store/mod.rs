@@ -25,6 +25,7 @@
 //!   [`AtomGpu`] (`sphere_alpha`, `stick_alpha`) with `f32::NAN` as the
 //!   "no override" sentinel.
 
+mod instances;
 pub mod layout;
 pub mod marker;
 pub mod sync;
@@ -133,7 +134,9 @@ pub struct ObjectEntry {
     pub bond_offset: u32,
     pub bond_count: u32,
     pub object_id: u32,
+    /// Copy index plus one; zero identifies an ordinary explicit draw.
     pub flags: u32,
+    /// Shared subset mask word offset and a nonzero subset-present flag.
     pub _pad0: [u32; 2],
     pub model_matrix: [[f32; 4]; 4],
 }
@@ -578,6 +581,9 @@ pub struct SceneStore {
     obj_table_dirty: Option<(usize, usize)>,
 
     slots: HashMap<u32, ObjectSlot>,
+    geometry_aliases: HashMap<u32, ObjectSlot>,
+    instance_tables: HashMap<u32, patinae_mol::instancing::InstanceTable>,
+    draw_offsets: HashMap<u32, Vec<u32>>,
     /// Linear allocation watermarks. Slot reclamation is left for a future
     /// compaction pass; object adds/removes are infrequent on the current UI path.
     next_atom_offset: u32,
@@ -615,6 +621,9 @@ impl SceneStore {
             obj_table_capacity_bytes: 0,
             obj_table_dirty: None,
             slots: HashMap::new(),
+            geometry_aliases: HashMap::new(),
+            instance_tables: HashMap::new(),
+            draw_offsets: HashMap::new(),
             next_atom_offset: 0,
             next_bond_offset: 0,
             next_table_index: 0,
@@ -629,7 +638,9 @@ impl SceneStore {
     }
 
     pub fn slot(&self, object_id: ObjectId) -> Option<&ObjectSlot> {
-        self.slots.get(&object_id.0)
+        self.slots
+            .get(&object_id.0)
+            .or_else(|| self.geometry_aliases.get(&object_id.0))
     }
 
     pub fn has_slot(&self, object_id: ObjectId) -> bool {
@@ -671,8 +682,11 @@ impl SceneStore {
         let allocated_table_slots = counts.allocated_table_slots;
         let orphaned_table_slots = counts.orphaned_table_slots;
 
-        let mask_live_words = mask_words_for_atoms(live_atoms);
-        let mask_allocated_words = mask_words_for_atoms(allocated_atoms);
+        let source_mask_words = mask_words_for_atoms(allocated_atoms);
+        let subset_mask_words =
+            (self.mask_lut.cpu().len() as u64).saturating_sub(source_mask_words);
+        let mask_live_words = mask_words_for_atoms(live_atoms) + subset_mask_words;
+        let mask_allocated_words = source_mask_words + subset_mask_words;
         let csr_live_offsets = if live_atoms == 0 { 0 } else { live_atoms + 1 };
         let csr_allocated_offsets = if allocated_atoms == 0 {
             0
@@ -768,8 +782,13 @@ impl SceneStore {
             live_bonds,
             allocated_bonds: u64::from(self.next_bond_offset),
             orphaned_bonds: self.orphaned_bond_count,
-            live_table_slots: self.slots.len() as u64,
-            allocated_table_slots: u64::from(self.next_table_index),
+            live_table_slots: self.slots.len() as u64
+                + self
+                    .instance_tables
+                    .values()
+                    .map(|table| table.copies.len() as u64)
+                    .sum::<u64>(),
+            allocated_table_slots: self.obj_table_cpu.len() as u64 / ObjectEntry::STRIDE,
             orphaned_table_slots: self.orphaned_table_slots,
             ..Default::default()
         }
@@ -808,6 +827,8 @@ impl SceneStore {
         }
 
         for object_id in removed {
+            self.instance_tables.remove(&object_id);
+            self.draw_offsets.remove(&object_id);
             if let Some(slot) = self.slots.remove(&object_id) {
                 self.record_orphaned_slot(slot);
             }
@@ -1119,6 +1140,7 @@ impl SceneStore {
         layout: &SceneStoreLayout,
         growth: SceneStoreGrowthPolicy,
     ) -> SceneStoreFlushStats {
+        self.rebuild_instance_entries();
         let atoms_grew = self.atoms.ensure_capacity(device, growth);
         let coords_grew = self.coords.ensure_capacity(device, growth);
         let bonds_grew = self.bonds.ensure_capacity(device, growth);

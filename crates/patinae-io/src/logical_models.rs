@@ -29,6 +29,8 @@ pub(crate) struct ParsedModel {
     pub(crate) model_number: i32,
     pub(crate) atoms: Vec<ParsedAtom>,
     pub(crate) coords: Vec<Vec3>,
+    /// Original assembly chain identifiers, in source atom order.
+    pub(crate) source_chains: Vec<String>,
 }
 
 impl ParsedModel {
@@ -37,6 +39,7 @@ impl ParsedModel {
             model_number,
             atoms: Vec::new(),
             coords: Vec::new(),
+            source_chains: Vec::new(),
         }
     }
 }
@@ -94,7 +97,8 @@ pub(crate) fn build_molecules(
 
 fn group_models_by_topology(models: Vec<ParsedModel>) -> IoResult<Vec<TopologyGroup>> {
     let mut groups: Vec<TopologyGroup> = Vec::new();
-    let mut group_index_by_signature: HashMap<Vec<AtomIdentity>, usize> = HashMap::new();
+    let mut group_index_by_signature: HashMap<(Vec<AtomIdentity>, Vec<String>), usize> =
+        HashMap::new();
 
     for model in models {
         if model.atoms.is_empty() {
@@ -109,7 +113,15 @@ fn group_models_by_topology(models: Vec<ParsedModel>) -> IoResult<Vec<TopologyGr
             )));
         }
 
-        let signature: Vec<_> = model.atoms.iter().map(AtomIdentity::from).collect();
+        if !model.source_chains.is_empty() && model.source_chains.len() != model.atoms.len() {
+            return Err(IoError::parse_msg(
+                "Assembly chain membership does not match atoms",
+            ));
+        }
+        let signature = (
+            model.atoms.iter().map(AtomIdentity::from).collect(),
+            model.source_chains.clone(),
+        );
         if let Some(&idx) = group_index_by_signature.get(&signature) {
             groups[idx].models.push(model);
         } else {
@@ -142,6 +154,15 @@ fn build_group_molecule(
 
     let mut mol = ObjectMolecule::with_capacity(name, first_model.atoms.len(), 0);
     mol.title = title.to_string();
+    for (index, chain) in first_model.source_chains.iter().enumerate() {
+        let index = u32::try_from(index)
+            .map_err(|_| IoError::parse_msg("Assembly atom index exceeds u32"))?;
+        mol.assembly
+            .chains
+            .entry(chain.clone())
+            .or_default()
+            .push(index);
+    }
 
     let mut residue_cache: HashMap<AtomResidue, Arc<AtomResidue>> = HashMap::new();
     for parsed in &first_model.atoms {

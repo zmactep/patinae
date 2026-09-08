@@ -507,6 +507,14 @@ pub(crate) fn apply_atom_property_change_batch<V: ViewerLike + ?Sized>(
     viewer: &mut V,
     changes: &[wire::WireAtomPropertyChange],
 ) -> bool {
+    for change in changes {
+        if let Some(object) = viewer.objects().get_molecule(&change.object) {
+            if let Err(error) = object.require_explicit() {
+                log::warn!("{error}");
+                return false;
+            }
+        }
+    }
     let mut applied = false;
     let mut changed = false;
     let mut identity_changed = false;
@@ -819,6 +827,8 @@ mod recent_atom_tests {
                 object_name: "obj".to_string(),
                 object_type: patinae_scene::ObjectType::Molecule,
                 atom_index: Some(AtomIndex(0)),
+
+                instance: None,
                 position: Default::default(),
                 distance: 0.0,
             },

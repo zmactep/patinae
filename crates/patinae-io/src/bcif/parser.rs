@@ -8,6 +8,7 @@ use std::io::Read;
 use lin_alg::f32::Vec3;
 use patinae_mol::{Element, ObjectMolecule, SecondaryStructure};
 
+use crate::assembly::{AssemblyRow, AssemblyRows, CATEGORIES};
 use crate::cif::common::{apply_secondary_structure, SecondaryStructureRange, SsCategory};
 use crate::error::{IoError, IoResult};
 use crate::logical_models::{build_molecules, ParsedAtom, ParsedModel};
@@ -182,8 +183,12 @@ fn parse_data_block(block: BcifDataBlock, bond_tolerance: f32) -> IoResult<Vec<O
     let mut space_group: Option<String> = None;
     let mut cell = CellInfo::default();
     let mut title = String::new();
+    let mut assemblies = AssemblyRows::default();
 
     for category in &block.categories {
+        if CATEGORIES.contains(&category.name.as_str()) {
+            parse_assembly_category(category, &mut assemblies)?;
+        }
         match category.name.as_str() {
             "_atom_site" => parse_atom_site(category, &mut models)?,
             "_cell" => parse_cell(category, &mut cell)?,
@@ -201,10 +206,17 @@ fn parse_data_block(block: BcifDataBlock, bond_tolerance: f32) -> IoResult<Vec<O
         return Ok(Vec::new());
     }
 
+    let definitions = assemblies.resolve()?;
+    if definitions.is_empty() {
+        for model in models.values_mut() {
+            model.source_chains.clear();
+        }
+    }
     let models = models.into_values().collect();
     let mut molecules = build_molecules(&block.header, &title, models)?;
 
     for mol in &mut molecules {
+        mol.assembly.definitions = definitions.clone();
         cell.apply_to(mol, space_group.as_deref());
         apply_secondary_structure(mol, &ss_ranges);
         mol.classify_atoms();
@@ -298,6 +310,9 @@ fn parse_atom_site(
         let model = models
             .entry(model_num)
             .or_insert_with(|| ParsedModel::new(model_num));
+        model
+            .source_chains
+            .push(cols.str_at("label_asym_id", i).unwrap_or("").to_owned());
         model.atoms.push(ParsedAtom {
             name: atom_name.to_string(),
             element,
@@ -316,6 +331,25 @@ fn parse_atom_site(
         model.coords.push(Vec3::new(x, y, z));
     }
 
+    Ok(())
+}
+
+fn parse_assembly_category(category: &BcifCategory, assemblies: &mut AssemblyRows) -> IoResult<()> {
+    let columns = CategoryColumns::decode(category)?;
+    for i in 0..category.row_count as usize {
+        let mut row = AssemblyRow::new();
+        for name in columns.columns.keys() {
+            let value = columns
+                .str_at(name, i)
+                .map(str::to_owned)
+                .or_else(|| columns.int_at(name, i).map(|value| value.to_string()))
+                .or_else(|| columns.float_at(name, i).map(|value| value.to_string()));
+            if let Some(value) = value {
+                row.insert(name.clone(), value);
+            }
+        }
+        assemblies.push(&category.name, row);
+    }
     Ok(())
 }
 

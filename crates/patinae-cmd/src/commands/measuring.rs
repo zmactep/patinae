@@ -8,7 +8,7 @@ use ahash::AHashSet;
 use crate::args::ParsedCommand;
 use crate::command::{ArgHint, Command, CommandContext, CommandRegistry, ViewerLike};
 use crate::command_help;
-use crate::commands::selecting::{evaluate_selection, select_with_context};
+
 use crate::error::{CmdError, CmdResult};
 
 use patinae_color::ColorIndex;
@@ -116,15 +116,7 @@ fn resolve_atom_anchors(
     viewer: &dyn ViewerLike,
     selection: &str,
 ) -> CmdResult<Vec<MeasurementAnchor>> {
-    let results = evaluate_selection(viewer, selection)?;
-    let mut anchors = Vec::new();
-    for (obj_name, selected) in &results {
-        if viewer.objects().get_molecule(obj_name).is_some() {
-            for idx in selected.indices() {
-                anchors.push(MeasurementAnchor::new(obj_name, idx));
-            }
-        }
-    }
+    let anchors = crate::commands::selecting::evaluate_atom_anchors(viewer, selection)?;
     if anchors.is_empty() {
         Err(CmdError::selection(format!(
             "no atoms found in selection '{}'",
@@ -137,41 +129,29 @@ fn resolve_atom_anchors(
 
 /// Resolve the first atom for commands that require singleton selections.
 fn resolve_atom_anchor(viewer: &dyn ViewerLike, selection: &str) -> CmdResult<MeasurementAnchor> {
-    let results = evaluate_selection(viewer, selection)?;
-    for (object_name, selected) in results {
-        if viewer.objects().get_molecule(&object_name).is_none() {
-            continue;
-        }
-        if let Some(atom_index) = selected.indices().next() {
-            return Ok(MeasurementAnchor::new(object_name, atom_index));
-        }
+    let anchors = resolve_atom_anchors(viewer, selection)?;
+    // Historical first-atom behavior remains for explicit objects. An instanced
+    // source atom must have an unambiguous copy for a geometric operand.
+    if anchors.len() > 1 && anchors.iter().any(|anchor| anchor.instance.is_some()) {
+        return Err(CmdError::selection(format!(
+            "operand '{selection}' is ambiguous; qualify it with instance N"
+        )));
     }
-    Err(CmdError::selection(format!(
-        "no atoms found in selection '{selection}'"
-    )))
+    anchors
+        .into_iter()
+        .next()
+        .ok_or_else(|| CmdError::selection("no atoms selected"))
 }
 
 fn resolve_singleton_atom_anchor(
     viewer: &dyn ViewerLike,
     selection: &str,
 ) -> CmdResult<MeasurementAnchor> {
-    let (total_count, results) = select_with_context(viewer, selection)?;
-    if total_count != 1 {
-        return Err(CmdError::selection(format!(
-            "operand '{selection}' does not resolve to exactly one atom"
-        )));
+    let mut anchors = resolve_atom_anchors(viewer, selection)?;
+    if anchors.len() != 1 {
+        return Err(CmdError::selection(format!("operand '{selection}' does not resolve to exactly one atom; qualify assembly copies with instance N")));
     }
-    for (object_name, selected) in results {
-        if viewer.objects().get_molecule(&object_name).is_none() {
-            continue;
-        }
-        if let Some(atom_index) = selected.indices().next() {
-            return Ok(MeasurementAnchor::new(object_name, atom_index));
-        }
-    }
-    Err(CmdError::selection(format!(
-        "operand '{selection}' does not resolve to exactly one atom"
-    )))
+    Ok(anchors.remove(0))
 }
 
 fn validate_measurement_target(
@@ -324,7 +304,9 @@ fn broadcast_distance_entries(
     };
     let mut entries = Vec::with_capacity(targets.len());
     for target in targets {
-        if singleton.object_name == target.object_name && singleton.atom_index == target.atom_index
+        if singleton.object_name == target.object_name
+            && singleton.atom_index == target.atom_index
+            && singleton.instance == target.instance
         {
             continue;
         }
@@ -356,8 +338,16 @@ fn cartesian_distance_entries(
 
     for anchor1 in anchors1 {
         for anchor2 in anchors2 {
-            let id1 = (anchor1.object_name.as_str(), anchor1.atom_index);
-            let id2 = (anchor2.object_name.as_str(), anchor2.atom_index);
+            let id1 = (
+                anchor1.object_name.as_str(),
+                anchor1.atom_index,
+                anchor1.instance,
+            );
+            let id2 = (
+                anchor2.object_name.as_str(),
+                anchor2.atom_index,
+                anchor2.instance,
+            );
             if id1 == id2 {
                 continue;
             }
@@ -702,6 +692,8 @@ mod tests {
                 object_name: "source".to_string(),
                 object_type: ObjectType::Molecule,
                 atom_index: Some(AtomIndex::from(atom_index)),
+
+                instance: None,
                 position: Vec3::new(0.0, 0.0, 0.0),
                 distance: 0.0,
             },

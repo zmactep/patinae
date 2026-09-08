@@ -117,7 +117,7 @@ pub struct ObjectId(pub u32);
 ///
 /// ```text
 /// .r = (rep_kind:4) | (object_id:12) | (atom_id_low:16)   // 32
-/// .g = (atom_id_high:16) | (reserved:16)                  // 32
+/// .g = (atom_id_high:16) | (copy_plus_one:16)                  // 32
 /// ```
 ///
 /// The shader and the CPU both call `pack` / `unpack`. If you find yourself
@@ -149,6 +149,24 @@ impl PackedId {
         }
     }
 
+    /// Adds a zero-based copy identity while preserving the source atom bits.
+    ///
+    /// # Panics
+    /// Panics when the copy index exceeds the 65,535-copy representation limit.
+    pub fn with_instance(mut self, instance: Option<u32>) -> Self {
+        let encoded = instance.map_or(0, |index| {
+            assert!(index < 65_535, "copy index exceeds picking capacity");
+            index + 1
+        });
+        self.g = (self.g & 0xffff_0000) | encoded;
+        self
+    }
+
+    /// Returns the zero-based copy identity encoded in the reserved low bits.
+    pub fn instance(self) -> Option<u32> {
+        (self.g & 0xffff).checked_sub(1)
+    }
+
     /// Inverse of `pack`. Returns `None` for the cleared-pixel sentinel
     /// (rep_kind == 0, object_id == 0).
     #[inline]
@@ -174,6 +192,8 @@ pub struct PickHit {
     /// atom impostor's index; for cartoon it would be the Cα residue's
     /// representative atom.
     pub atom_id: u32,
+    /// Zero-based copy identity; absent for explicit objects.
+    pub instance: Option<u32>,
 }
 
 #[cfg(test)]
@@ -196,6 +216,23 @@ mod tests {
         let (kind, _obj, atom) = id.unpack().unwrap();
         assert_eq!(kind, RepKind::Cartoon);
         assert_eq!(atom, 1_500_000);
+    }
+
+    #[test]
+    fn copy_identity_preserves_high_source_atom_bits() {
+        for copy in [None, Some(0), Some(9), Some(65_534)] {
+            let pixel =
+                PackedId::pack(RepKind::Sphere, ObjectId(4095), u32::MAX).with_instance(copy);
+            assert_eq!(
+                pixel.unpack(),
+                Some((RepKind::Sphere, ObjectId(4095), u32::MAX))
+            );
+            assert_eq!(pixel.instance(), copy);
+            assert_eq!(
+                super::decode_pixel(pixel.r, pixel.g).unwrap().instance,
+                copy
+            );
+        }
     }
 
     #[test]

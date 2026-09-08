@@ -44,6 +44,20 @@ impl RenderState {
         self.stats.take_latest()
     }
 
+    pub(super) fn prepare_instance_draws(&self, encoder: &mut wgpu::CommandEncoder) {
+        for key in &self.scene.draw_order {
+            if self
+                .scene
+                .scene_store
+                .needs_raw_draw(crate::picking::ObjectId(key.0))
+            {
+                if let Some(entry) = self.scene.reps.get(key) {
+                    entry.rep.prepare_shadow_depth(encoder, &self.ctx.queue);
+                }
+            }
+        }
+    }
+
     /// Run the full frame: culling, lighting, optional visual overlays,
     /// visible geometry, postprocess, and stats resolution.
     pub fn render(&mut self, target: &wgpu::TextureView, encoder: &mut wgpu::CommandEncoder) {
@@ -127,6 +141,7 @@ impl RenderState {
 
         self.poll_viewport_lod();
         let compute_rebuilt = self.record_pending_compute_builds(encoder);
+        self.prepare_instance_draws(encoder);
         self.dispatch_cull(encoder, view_proj_hash, compute_rebuilt);
         self.record_viewport_lod_readbacks(encoder);
         self.record_shadow_pass(encoder);

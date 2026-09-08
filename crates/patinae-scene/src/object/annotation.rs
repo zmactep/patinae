@@ -43,6 +43,9 @@ pub struct AtomAnchor {
     /// Prevents a deleted source from rebinding to a same-named object.
     #[serde(default)]
     orphaned: bool,
+    /// Zero-based assembly copy identity, absent for explicit objects.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instance: Option<u32>,
 }
 
 impl AtomAnchor {
@@ -52,7 +55,42 @@ impl AtomAnchor {
             object_name: object_name.into(),
             atom_index,
             orphaned: false,
+            instance: None,
         }
+    }
+
+    /// Creates an anchor carrying an optional assembly copy identity.
+    pub fn with_instance(
+        object_name: impl Into<String>,
+        atom_index: AtomIndex,
+        instance: Option<u32>,
+    ) -> Self {
+        Self {
+            instance,
+            ..Self::new(object_name, atom_index)
+        }
+    }
+
+    pub(crate) fn materialize_if_source(
+        &mut self,
+        name: &str,
+        table: &patinae_mol::InstanceTable,
+        source_count: usize,
+    ) -> bool {
+        if self.orphaned || self.object_name != name {
+            return false;
+        }
+        let Some(copy) = self.instance else {
+            self.orphaned = true;
+            return true;
+        };
+        if let Some(index) = table.materialized_index(copy, self.atom_index, source_count) {
+            self.atom_index = index;
+            self.instance = None;
+        } else {
+            self.orphaned = true;
+        }
+        true
     }
 
     /// Returns whether the source object was permanently removed.

@@ -111,6 +111,7 @@ pub enum Keyword {
     Rank,
     Model,
     State,
+    Instance,
     SecondaryStructure,
     Rep,
     Color,
@@ -211,6 +212,7 @@ impl Keyword {
             | Keyword::Rank
             | Keyword::Model
             | Keyword::State
+            | Keyword::Instance
             | Keyword::SecondaryStructure
             | Keyword::Rep
             | Keyword::Color
@@ -264,6 +266,7 @@ impl Keyword {
             | Keyword::Rank
             | Keyword::Model
             | Keyword::State
+            | Keyword::Instance
             | Keyword::SecondaryStructure
             | Keyword::Rep
             | Keyword::Color
@@ -502,6 +505,7 @@ pub static KEYWORDS: phf::Map<&'static str, Keyword> = phf_map! {
     "m." => Keyword::Model,
     "o." => Keyword::Model,
     "state" => Keyword::State,
+    "instance" => Keyword::Instance,
     "ss" => Keyword::SecondaryStructure,
     "rep" => Keyword::Rep,
     "color" => Keyword::Color,

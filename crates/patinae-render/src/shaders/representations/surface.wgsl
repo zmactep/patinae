@@ -45,23 +45,23 @@ struct VsOut {
 @vertex
 fn vs_main(v: StdVertex) -> VsOut {
     var out: VsOut;
-    let world_pos = vec4<f32>(v.position, 1.0);
+    let world_pos = vec4<f32>(scene_position(v.position), 1.0);
     let view_pos = (frame.view * world_pos).xyz;
     out.clip_position = frame.proj * vec4<f32>(view_pos, 1.0);
-    let world_n = oct_decode(v.normal_oct);
+    let world_n = scene_normal(oct_decode(v.normal_oct));
     let view_n = (frame.view * vec4<f32>(world_n, 0.0)).xyz;
     out.view_pos = view_pos;
     out.view_normal = view_n;
     out.group = v.group_id;
     out.flags = v.flags;
-    out.world_pos = v.position;
+    out.world_pos = world_pos.xyz;
     return out;
 }
 
 fn surface_color_metric(world_pos: vec3<f32>, global_id: u32) -> f32 {
     let atom = scene_atom(global_id);
     let radius = max(atom.vdw, 1e-3);
-    return length(world_pos - scene_coord(global_id)) / radius;
+    return length(world_pos - scene_position(scene_coord(global_id))) / radius;
 }
 
 fn surface_blended_color(owner_global: u32, secondary_local: u32, world_pos: vec3<f32>) -> vec4<f32> {
@@ -92,6 +92,7 @@ fn surface_blended_color(owner_global: u32, secondary_local: u32, world_pos: vec
 @fragment
 fn fs_main(input: VsOut) -> TranslucentOut {
     let global_id = obj.atom_offset + input.group;
+    if !scene_in_subset(global_id) { discard; }
     if !scene_atom_in_rep(scene_atom(global_id), REP_BIT_SURFACE) {
         discard;
     }
@@ -112,6 +113,7 @@ fn fs_main(input: VsOut) -> TranslucentOut {
 @fragment
 fn fs_opaque(input: VsOut) -> @location(0) vec4<f32> {
     let global_id = obj.atom_offset + input.group;
+    if !scene_in_subset(global_id) { discard; }
     if !scene_atom_in_rep(scene_atom(global_id), REP_BIT_SURFACE) {
         discard;
     }
@@ -128,6 +130,7 @@ fn fs_opaque(input: VsOut) -> @location(0) vec4<f32> {
 @fragment
 fn fs_depth(input: VsOut) {
     let global_id = obj.atom_offset + input.group;
+    if !scene_in_subset(global_id) { discard; }
     if !scene_atom_in_rep(scene_atom(global_id), REP_BIT_SURFACE) {
         discard;
     }

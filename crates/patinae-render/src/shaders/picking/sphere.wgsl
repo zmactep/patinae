@@ -3,23 +3,10 @@
 
 // {{INCLUDE_FRAME}}
 // {{INCLUDE_PICKING}}
+// {{INCLUDE_PICKING_SCENE}}
 
 @group(2) @binding(0) var<uniform> picking: PickingParams;
 
-struct ObjectEntry {
-    atom_offset: u32,
-    atom_count:  u32,
-    bond_offset: u32,
-    bond_count:  u32,
-    object_id:   u32,
-    flags:       u32,
-    _pad0_a:     u32,
-    _pad0_b:     u32,
-    model_matrix: mat4x4<f32>,
-};
-
-@group(3) @binding(0) var<uniform> obj: ObjectEntry;
-@group(3) @binding(5) var<storage, read> mask_lut: array<u32>;
 
 struct SphereInstance {
     @location(0) center:   vec3<f32>,
@@ -44,11 +31,7 @@ fn billboard_offset(vid: u32) -> vec2<f32> {
     return vec2<f32>(x, y);
 }
 
-fn scene_visible(gid: u32) -> bool {
-    let word = gid >> 5u;
-    let bit  = gid & 31u;
-    return (mask_lut[word] & (1u << bit)) != 0u;
-}
+
 
 @vertex
 fn vs_main(
@@ -57,7 +40,7 @@ fn vs_main(
 ) -> VsOut {
     var out: VsOut;
     let off = billboard_offset(vid);
-    let center_view = (frame.view * vec4<f32>(instance.center, 1.0)).xyz;
+    let center_view = (frame.view * vec4<f32>(scene_position(instance.center), 1.0)).xyz;
     let scale = instance.radius * 1.5;
     let billboard_pos = center_view + vec3<f32>(off * scale, 0.0);
     out.clip_position = frame.proj * vec4<f32>(billboard_pos, 1.0);

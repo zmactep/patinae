@@ -51,6 +51,7 @@ mod element;
 mod error;
 mod flags;
 mod index;
+pub mod instancing;
 mod iterator;
 mod molecule;
 mod residue;
@@ -75,6 +76,12 @@ pub use element::{Element, DEFAULT_COV_RADIUS, DEFAULT_VDW_RADIUS, ELEMENT_COUNT
 pub use error::{MolError, MolResult};
 pub use flags::{AtomFlags, AtomGeometry, Chirality, Stereo};
 pub use index::{AtomIndex, AtomRemap, BondIndex, CoordIndex, StateIndex, INVALID_INDEX};
+#[doc(inline)]
+pub use instancing::{
+    materialize_molecule, multiply_instance_transforms, transform_instance_point,
+    AssemblyDefinition, AssemblyGroup, AssemblyMetadata, InstanceGroup, InstanceTable,
+    InstanceTransform, ObjectInstance, StorageMode, IDENTITY_INSTANCE, MAX_INSTANCE_COUNT,
+};
 pub use iterator::atoms_same_chain_id;
 pub use molecule::{MoleculeBuilder, ObjectMolecule};
 pub use residue::{

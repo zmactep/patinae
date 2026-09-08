@@ -38,6 +38,13 @@ impl RenderState {
         input: &RenderInput<'_>,
         options: &GeometryExportOptions,
     ) -> Result<DisplayedGeometry, GeometryExportError> {
+        if input
+            .objects
+            .iter()
+            .any(|object| object.instances.is_some())
+        {
+            return Err(GeometryExportError::InstancedObject);
+        }
         self.sync(input);
         let staged_objects: Vec<_> = input
             .objects
@@ -180,6 +187,13 @@ impl RenderState {
         options: &GeometryExportOptions,
         visitor: &mut dyn FnMut(TraceGeometryChunk) -> Result<(), String>,
     ) -> Result<(), GeometryExportError> {
+        if input
+            .objects
+            .iter()
+            .any(|object| object.instances.is_some())
+        {
+            return Err(GeometryExportError::InstancedObject);
+        }
         self.sync(input);
         let staged_objects: Vec<_> = input
             .objects

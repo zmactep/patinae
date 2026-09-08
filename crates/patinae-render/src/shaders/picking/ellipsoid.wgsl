@@ -4,6 +4,7 @@
 
 // {{INCLUDE_FRAME}}
 // {{INCLUDE_PICKING}}
+// {{INCLUDE_PICKING_SCENE}}
 
 @group(2) @binding(0) var<uniform> picking: PickingParams;
 
@@ -44,7 +45,7 @@ fn vs_main(
 ) -> VsOut {
     var out: VsOut;
     let off = billboard_offset(vid);
-    let center_view = (frame.view * vec4<f32>(instance.center, 1.0)).xyz;
+    let center_view = (frame.view * vec4<f32>(scene_position(instance.center), 1.0)).xyz;
     let scale = instance.max_extent * 1.5;
     let billboard_pos = center_view + vec3<f32>(off * scale, 0.0);
     let view33 = mat3x3<f32>(
@@ -55,9 +56,9 @@ fn vs_main(
     out.clip_position = frame.proj * vec4<f32>(billboard_pos, 1.0);
     out.center_view = center_view;
     out.ray_dir     = billboard_pos;
-    out.ax0_view    = view33 * instance.axis0;
-    out.ax1_view    = view33 * instance.axis1;
-    out.ax2_view    = view33 * instance.axis2;
+    out.ax0_view    = view33 * scene_direction(instance.axis0);
+    out.ax1_view    = view33 * scene_direction(instance.axis1);
+    out.ax2_view    = view33 * scene_direction(instance.axis2);
     out.group_id    = instance.group_id;
     return out;
 }
@@ -69,6 +70,7 @@ struct PickOut {
 
 @fragment
 fn fs_main(input: VsOut) -> PickOut {
+    if !scene_visible(obj.atom_offset + input.group_id) { discard; }
     let ray_dir = normalize(input.ray_dir);
     let inv0 = input.ax0_view / max(dot(input.ax0_view, input.ax0_view), 1e-12);
     let inv1 = input.ax1_view / max(dot(input.ax1_view, input.ax1_view), 1e-12);

@@ -316,6 +316,15 @@ impl SceneLod {
     }
 }
 
+/// Identifies a recent atom marker within a drawable object.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RecentAtomMarker {
+    /// Source atom index.
+    pub atom_index: u32,
+    /// Zero-based copy index, absent for an explicit atom.
+    pub instance: Option<u32>,
+}
+
 /// One drawable object — atomic data + per-object overrides.
 ///
 /// `object_id` is opaque to the renderer: the host picks a stable render id
@@ -325,6 +334,8 @@ impl SceneLod {
 /// as the "no hit" sentinel.
 pub struct RenderObjectInput<'a> {
     pub object_id: ObjectId,
+    /// Shared source copies; absent for an ordinary explicit object.
+    pub instances: Option<&'a patinae_mol::instancing::InstanceTable>,
     pub molecule: &'a ObjectMolecule,
     pub coord_set: &'a CoordSet,
     /// Object-to-world transform, stored as column-major matrix columns.
@@ -353,6 +364,9 @@ pub struct RenderObjectInput<'a> {
     /// can pass `&[]`, in which case the renderer treats every atom as
     /// unmarked (slice shorter than `atom_count` ⇒ tail interpreted as 0).
     pub atom_markers: &'a [u32],
+    /// Exact recent picks, including zero-based copy identity; `None` uses legacy marker bits.
+    /// An empty slice explicitly clears all recent picks. Explicit atoms use `instance: None`.
+    pub recent_atom_markers: Option<&'a [RecentAtomMarker]>,
     /// Sparse marker changes since the previous frame. Hosts use this for
     /// hover-only updates so large assemblies do not upload an object's
     /// whole marker LUT when only one atom changed.
@@ -379,6 +393,71 @@ pub struct RenderObjectInput<'a> {
     /// Hosts wire this from `MoleculeObject::dirty_flags()` and clear the
     /// per-object flags *after* `sync()`.
     pub dirty: DirtyFlags,
+}
+
+/// Maps equivalent source subsets to their first shared geometry group.
+pub(crate) fn canonical_instance_groups(
+    table: &patinae_mol::instancing::InstanceTable,
+) -> Vec<u32> {
+    let mut groups = std::collections::HashMap::<&[u32], u32>::new();
+    table
+        .groups
+        .iter()
+        .enumerate()
+        .map(|(index, group)| *groups.entry(&group.indices).or_insert(index as u32))
+        .collect()
+}
+
+/// Internal geometry aliases preserve the source's twelve picking object bits.
+pub(crate) fn subset_geometry_id(source: ObjectId, group: u32) -> ObjectId {
+    ObjectId(((group + 1) << 12) | (source.0 & 0xfff))
+}
+
+impl<'a> RenderObjectInput<'a> {
+    /// Source atom membership for a cached subset geometry alias.
+    pub(crate) fn includes_source_atom(&self, index: u32) -> bool {
+        let Some(group) = (self.object_id.0 >> 12).checked_sub(1) else {
+            return true;
+        };
+        self.instances
+            .and_then(|table| table.groups.get(group as usize))
+            .is_none_or(|group| {
+                group.indices.is_empty() || group.indices.binary_search(&index).is_ok()
+            })
+    }
+
+    /// Borrows all source data for one distinct geometry subset.
+    pub(crate) fn for_subset(&self, group: u32) -> RenderObjectInput<'_> {
+        struct BorrowedColors<'a>(&'a RenderAtomColors<'a>);
+        impl AtomColorSource for BorrowedColors<'_> {
+            fn len(&self) -> usize {
+                self.0.len()
+            }
+            fn get(&self, index: usize) -> Option<ColorLutEntry> {
+                self.0.get(index)
+            }
+            fn write(&self, target: &mut [ColorLutEntry]) {
+                self.0.write(target);
+            }
+        }
+        RenderObjectInput {
+            object_id: subset_geometry_id(self.object_id, group),
+            instances: self.instances,
+            molecule: self.molecule,
+            coord_set: self.coord_set,
+            transform: self.transform,
+            visible_reps: self.visible_reps,
+            draw_reps: self.draw_reps,
+            object_settings: self.object_settings.clone(),
+            colors: RenderAtomColors::Source(Box::new(BorrowedColors(&self.colors))),
+            atom_markers: self.atom_markers,
+            recent_atom_markers: self.recent_atom_markers,
+            marker_updates: self.marker_updates,
+            has_markers: self.has_markers,
+            lod: self.lod,
+            dirty: self.dirty,
+        }
+    }
 }
 
 /// Column-major identity transform for hosts that keep molecule coordinates

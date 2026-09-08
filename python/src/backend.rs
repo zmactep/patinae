@@ -254,6 +254,17 @@ impl StandaloneBackend {
             .map_err(|_| PyRuntimeError::new_err("Expression contains null byte"))?;
 
         let names = self.get_names();
+        // Preflight the entire batch before executing user expressions.
+        for name in &names {
+            if let Some(object) = self.session.registry.get_molecule(name) {
+                let mask = select(object.molecule(), selection)
+                    .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
+                if !mask.is_empty() {
+                    object.require_explicit().map_err(PyRuntimeError::new_err)?;
+                }
+            }
+        }
+
         for name in &names {
             // First: select atoms (immutable borrow)
             let indices: Vec<usize> = {

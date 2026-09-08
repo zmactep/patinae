@@ -9,6 +9,8 @@ mod construction;
 mod culling_flow;
 mod frame_flow;
 mod geometry_export_flow;
+#[cfg(test)]
+mod instance_parity;
 mod math;
 mod memory_flow;
 mod picking_budget;
@@ -233,6 +235,7 @@ mod memory_render_parity {
                     atom.repr.cartoon_transparency = alpha;
                 }
                 let object = RenderObjectInput {
+                    instances: None,
                     object_id: ObjectId(3),
                     molecule: &mol,
                     coord_set: &coords,
@@ -245,6 +248,7 @@ mod memory_render_parity {
                         reps: &[],
                     },
                     atom_markers: &[],
+                    recent_atom_markers: None,
                     marker_updates: &[],
                     has_markers: false,
                     lod: SceneLod::Auto,

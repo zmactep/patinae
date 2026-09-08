@@ -1,7 +1,8 @@
 //! Structure transformation commands: translate, rotate, transform_selection
 //!
-//! These commands modify atomic coordinates (unlike viewing commands which only
-//! affect the camera).
+//! These commands move atoms or whole instanced objects in world space.
+//! Whole instanced objects retain source coordinates and copy matrices;
+//! edits to subsets require materialization.
 //!
 //! Full selection expression support:
 //! - Property selectors: `name CA`, `resn ALA`, `chain A`, `elem C`
@@ -10,15 +11,21 @@
 //! - Special keywords: `backbone`, `sidechain`, `polymer`, `organic`
 
 use lin_alg::f32::{Mat4, Vec3};
-use patinae_mol::{rotation_ttt, ttt_to_mat4, AtomIndex};
+use patinae_mol::{
+    rotation_ttt, translation_matrix, ttt_to_mat4, AtomIndex, InstanceGroup, InstanceTable,
+    ObjectInstance,
+};
 use patinae_scene::{DirtyFlags, Object};
+use patinae_select::SelectionResult;
 
 use crate::args::ParsedCommand;
 use crate::command::{ArgHint, Command, CommandContext, CommandRegistry, ViewerLike};
 use crate::command_help;
-use crate::commands::selecting::evaluate_selection;
+use crate::commands::selecting::{evaluate_atom_anchors, evaluate_selection};
 use crate::error::{CmdError, CmdResult};
-use crate::helpers::{camera_to_model_vec, state_index_from_user};
+use crate::helpers::{
+    camera_to_model_vec, resolve_object_names, state_index_from_user, ResolvedNames,
+};
 
 /// Register transformation commands
 pub fn register(registry: &mut CommandRegistry) {
@@ -47,6 +54,7 @@ impl Command for TranslateCommand {
         DESCRIPTION [
             "translates the atomic coordinates of atoms in a selection.",
             "Supports full selection expressions.",
+            "Whole instanced objects move through their object matrix; subsets require materialize.",
         ]
         REQUIRED [
             { "vector", "float vector", "translation vector [x, y, z]" },
@@ -65,6 +73,7 @@ impl Command for TranslateCommand {
                 "state = -1: only the current state is modified",
             ],
             { "camera", "0/1", "is the vector in camera coordinates?", "1" },
+            { "center", "0/1", "place one whole object's bounding-box center at vector (requires camera=0)", "0" },
         ]
         EXAMPLES [
             "translate [1, 0, 0], name CA",
@@ -72,6 +81,7 @@ impl Command for TranslateCommand {
             "translate [0, 0, 10], backbone and chain A",
             "translate [1, 1, 1], resi 50-100",
             "translate [0, 0, 5], organic",
+            "translate [650, 0, 0], capsid, camera=0, center=1",
         ]
     }
 
@@ -88,7 +98,7 @@ impl Command for TranslateCommand {
         let camera = args.int_arg_or(3, "camera", 1);
 
         // Convert vector from camera coordinates if needed
-        let shift = if camera != 0 {
+        let mut shift = if camera != 0 {
             // Transform vector from camera coordinates to model coordinates
             let rotation = &ctx.viewer.camera().current_view().rotation;
             camera_to_model_vec(rotation, vector)
@@ -96,47 +106,36 @@ impl Command for TranslateCommand {
             vector
         };
 
-        // When movie is active and selection is a whole object name,
-        // modify the object's TTT transform matrix instead of atom coordinates.
-        // This allows mview store/interpolation to animate the object.
-        let movie_active = !ctx.viewer.movie().is_empty();
-        let is_object = ctx.viewer.objects().contains(selection);
-
-        if movie_active && is_object {
-            // Build translation matrix (column-major: translation at [12,13,14])
-            let translation = Mat4 {
-                data: [
-                    1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, shift.x, shift.y,
-                    shift.z, 1.0,
-                ],
-            };
-            if let Some(mol_obj) = ctx.viewer.objects_mut().get_molecule_mut(selection) {
-                let current = mol_obj.state().transform.clone();
-                mol_obj.state_mut().set_transform(translation * current);
-                mol_obj.invalidate(DirtyFlags::COORDS);
-            }
-            ctx.viewer.request_redraw();
-            if !ctx.quiet {
-                ctx.print(&format!(
-                    " Translated object \"{}\" by [{:.3}, {:.3}, {:.3}] (object matrix)",
-                    selection, shift.x, shift.y, shift.z
+        if args.int_arg_or(4, "center", 0) != 0 {
+            if camera != 0 {
+                return Err(CmdError::invalid_arg(
+                    "camera",
+                    "center=1 requires camera=0",
                 ));
             }
-        } else {
-            // Apply translation to atom coordinates directly
-            let (atom_count, obj_count) =
-                apply_selection_transform(ctx, selection, state, |mol, atoms, st| {
-                    apply_translation_to_atoms(mol, st, atoms, &shift);
+            let object = ctx
+                .viewer
+                .objects()
+                .get_molecule(selection)
+                .ok_or_else(|| {
+                    CmdError::invalid_arg("selection", "center=1 requires one whole object name")
                 })?;
+            let (min, max) = object
+                .extent()
+                .ok_or_else(|| CmdError::execution("Object has no extent"))?;
+            shift = vector - (min + max) * 0.5;
+        }
 
-            ctx.viewer.request_redraw();
+        let (atom_count, obj_count) =
+            apply_selection_transform(ctx, selection, state, &translation_matrix(shift))?;
 
-            if !ctx.quiet {
-                ctx.print(&format!(
-                    " Translated {} atom(s) in {} object(s) by [{:.3}, {:.3}, {:.3}]",
-                    atom_count, obj_count, shift.x, shift.y, shift.z
-                ));
-            }
+        ctx.viewer.request_redraw();
+
+        if !ctx.quiet {
+            ctx.print(&format!(
+                " Translated {} atom(s) in {} object(s) by [{:.3}, {:.3}, {:.3}]",
+                atom_count, obj_count, shift.x, shift.y, shift.z
+            ));
         }
 
         Ok(())
@@ -167,6 +166,7 @@ impl Command for RotateCommand {
         DESCRIPTION [
             "rotates the atomic coordinates of atoms in a selection about",
             "an axis. Supports full selection expressions.",
+            "Whole instanced objects rotate without materialization; subsets require materialize.",
         ]
         REQUIRED [
             { "axis", "x/y/z or float vector", "axis about which to rotate" },
@@ -235,9 +235,7 @@ impl Command for RotateCommand {
 
         // Apply rotation using selection expressions
         let (atom_count, obj_count) =
-            apply_selection_transform(ctx, selection, state, |mol, atoms, st| {
-                apply_ttt_to_atoms(mol, st, atoms, &ttt);
-            })?;
+            apply_selection_transform(ctx, selection, state, &ttt_to_mat4(&ttt))?;
 
         ctx.viewer.request_redraw();
 
@@ -272,6 +270,7 @@ impl Command for TransformSelectionCommand {
         DESCRIPTION [
             "applies a transformation matrix to the atomic",
             "coordinates of a selection. Supports full selection expressions.",
+            "Whole instanced objects support rigid matrices without materialization.",
         ]
         USAGE [
             "transform_selection selection, matrix [, state [, homogenous ]]",
@@ -326,16 +325,13 @@ impl Command for TransformSelectionCommand {
         let homogenous = args.int_arg_or(3, "homogenous", 0);
 
         // Apply transformation using selection expressions
-        let (atom_count, obj_count) = if homogenous != 0 {
-            let mat4 = ttt_to_mat4(&matrix);
-            apply_selection_transform(ctx, selection, state, |mol, atoms, st| {
-                apply_matrix_to_atoms(mol, st, atoms, &mat4);
-            })?
+        let mat4 = if homogenous != 0 {
+            // The command accepts a row-major homogeneous matrix.
+            Mat4::new(std::array::from_fn(|i| matrix[(i % 4) * 4 + i / 4]))
         } else {
-            apply_selection_transform(ctx, selection, state, |mol, atoms, st| {
-                apply_ttt_to_atoms(mol, st, atoms, &matrix);
-            })?
+            ttt_to_mat4(&matrix)
         };
+        let (atom_count, obj_count) = apply_selection_transform(ctx, selection, state, &mat4)?;
 
         ctx.viewer.request_redraw();
 
@@ -428,16 +424,118 @@ fn parse_matrix(args: &ParsedCommand, pos: usize) -> Result<[f32; 16], CmdError>
 /// named selections, object names, and wildcard patterns (e.g. `1fsd_*`).
 ///
 /// Returns (total_atoms_transformed, num_objects_affected)
-fn apply_selection_transform<F>(
+fn apply_selection_transform(
     ctx: &mut CommandContext<'_, '_, dyn ViewerLike + '_>,
     selection: &str,
     state: i64,
-    transform_fn: F,
-) -> CmdResult<(usize, usize)>
-where
-    F: Fn(&mut patinae_mol::ObjectMolecule, &[AtomIndex], i64),
-{
-    let selection_results = evaluate_selection(ctx.viewer, selection)?;
+    transform: &Mat4,
+) -> CmdResult<(usize, usize)> {
+    // Whole-object movie edits must be available to mview interpolation.
+    let movie_object = !ctx.viewer.movie().is_empty() && ctx.viewer.objects().contains(selection);
+    let whole_names = resolve_object_names(ctx.viewer.objects(), selection);
+    let selection_results = match &whole_names {
+        ResolvedNames::All => ctx
+            .viewer
+            .objects()
+            .names()
+            .filter_map(|name| {
+                ctx.viewer.objects().get_molecule(name).map(|object| {
+                    (
+                        name.to_string(),
+                        SelectionResult::all(object.molecule().atom_count()),
+                    )
+                })
+            })
+            .collect(),
+        ResolvedNames::Matched(names)
+            if names
+                .iter()
+                .all(|name| ctx.viewer.objects().get_molecule(name).is_some()) =>
+        {
+            names
+                .iter()
+                .map(|name| {
+                    let object = ctx
+                        .viewer
+                        .objects()
+                        .get_molecule(name)
+                        .expect("matched molecule");
+                    (
+                        name.clone(),
+                        SelectionResult::all(object.molecule().atom_count()),
+                    )
+                })
+                .collect()
+        }
+        _ => evaluate_selection(ctx.viewer, selection)?,
+    };
+    let has_instances = selection_results.iter().any(|(name, mask)| {
+        mask.count() > 0
+            && ctx
+                .viewer
+                .objects()
+                .get_molecule(name)
+                .is_some_and(|object| object.state().instances.is_some())
+    });
+    // A source mask alone cannot distinguish all copies from just one copy.
+    // Object names and globs avoid allocating one anchor per displayed atom.
+    let anchors = if has_instances && matches!(whole_names, ResolvedNames::Unresolved) {
+        evaluate_atom_anchors(ctx.viewer, selection)?
+    } else {
+        Vec::new()
+    };
+    if has_instances {
+        InstanceTable {
+            groups: vec![InstanceGroup {
+                indices: Vec::new(),
+            }],
+            copies: vec![ObjectInstance {
+                group: 0,
+                transform: std::array::from_fn(|c| {
+                    std::array::from_fn(|r| transform.data[c * 4 + r])
+                }),
+            }],
+        }
+        .validate(1)
+        .map_err(|error| {
+            CmdError::execution(format!(
+                "Instanced objects require a rigid transform: {error}"
+            ))
+        })?;
+    }
+    // Validate the entire batch before changing either explicit or instanced objects.
+    for (name, mask) in &selection_results {
+        if mask.count() == 0 {
+            continue;
+        }
+        let Some(object) = ctx.viewer.objects().get_molecule(name) else {
+            continue;
+        };
+        if state > object.molecule().state_count() as i64 {
+            return Err(CmdError::invalid_arg(
+                "state",
+                format!("state {state} does not exist in '{name}'"),
+            ));
+        }
+        if inverse_object_transform(&object.state().transform).is_none() {
+            return Err(CmdError::execution(format!(
+                "Object '{name}' has a singular transform"
+            )));
+        }
+        if object.state().instances.is_some() {
+            let whole = match &whole_names {
+                ResolvedNames::All => true,
+                ResolvedNames::Matched(names) => names.contains(name),
+                ResolvedNames::Unresolved => {
+                    anchors.iter().filter(|a| &a.object_name == name).count()
+                        == object.displayed_atom_count()
+                }
+            };
+            if !whole {
+                return Err(CmdError::execution(format!("Move the whole instanced object '{name}', or run materialize before editing a subset")));
+            }
+        }
+    }
 
     let mut total_atoms = 0usize;
     let mut affected_objects = 0usize;
@@ -455,8 +553,27 @@ where
             } else {
                 state
             };
-            transform_fn(mol_obj.molecule_mut(), &atoms, resolved_state);
-            total_atoms += atoms.len();
+            let current = mol_obj.state().transform.clone();
+            let whole = atoms.len() == mol_obj.molecule().atom_count();
+            let has_assembly = !mol_obj.molecule().assembly.definitions.is_empty();
+            let all_states = state == 0 || mol_obj.molecule().state_count() == 1;
+            if movie_object
+                || mol_obj.state().instances.is_some()
+                || (whole && has_assembly && all_states)
+            {
+                mol_obj
+                    .state_mut()
+                    .set_transform(transform.clone() * current);
+                mol_obj.invalidate(DirtyFlags::COORDS);
+                total_atoms += mol_obj.displayed_atom_count();
+            } else {
+                // Commands operate in world coordinates, including after materialization.
+                let local = inverse_object_transform(&current).expect("preflight checked inverse")
+                    * transform.clone()
+                    * current;
+                apply_matrix_to_atoms(mol_obj.molecule_mut(), resolved_state, &atoms, &local);
+                total_atoms += atoms.len();
+            }
             affected_objects += 1;
         }
     }
@@ -469,6 +586,54 @@ where
     }
 
     Ok((total_atoms, affected_objects))
+}
+
+/// Inverts an affine object matrix using its three-dimensional basis.
+pub(crate) fn inverse_object_transform(matrix: &Mat4) -> Option<Mat4> {
+    let d = &matrix.data;
+    if d.iter().any(|v| !v.is_finite())
+        || d[3] != 0.0
+        || d[7] != 0.0
+        || d[11] != 0.0
+        || d[15] != 1.0
+    {
+        return None;
+    }
+    // Use the 3x3 determinant: lin_alg 1.3's Mat4 determinant omits terms.
+    let a = Vec3::new(d[0], d[1], d[2]);
+    let b = Vec3::new(d[4], d[5], d[6]);
+    let c = Vec3::new(d[8], d[9], d[10]);
+    let det = a.dot(b.cross(c));
+    if det == 0.0 || !det.is_finite() {
+        return None;
+    }
+    let x = b.cross(c) * (1.0 / det);
+    let y = c.cross(a) * (1.0 / det);
+    let z = a.cross(b) * (1.0 / det);
+    let t = Vec3::new(d[12], d[13], d[14]);
+    let inverse = Mat4::new([
+        x.x,
+        y.x,
+        z.x,
+        0.0,
+        x.y,
+        y.y,
+        z.y,
+        0.0,
+        x.z,
+        y.z,
+        z.z,
+        0.0,
+        -x.dot(t),
+        -y.dot(t),
+        -z.dot(t),
+        1.0,
+    ]);
+    inverse
+        .data
+        .iter()
+        .all(|v| v.is_finite())
+        .then_some(inverse)
 }
 
 // ============================================================================
@@ -484,30 +649,6 @@ fn resolve_state_indices(state: i64, num_states: usize) -> Vec<usize> {
         None => (0..num_states).collect(),
         Some(idx) if idx < num_states => vec![idx],
         Some(_) => Vec::new(),
-    }
-}
-
-/// Apply translation to specific atoms based on state parameter
-fn apply_translation_to_atoms(
-    mol: &mut patinae_mol::ObjectMolecule,
-    state: i64,
-    atoms: &[AtomIndex],
-    delta: &Vec3,
-) {
-    for i in resolve_state_indices(state, mol.state_count()) {
-        mol.translate_atoms(i, atoms, *delta);
-    }
-}
-
-/// Apply TTT matrix transform to specific atoms based on state parameter
-fn apply_ttt_to_atoms(
-    mol: &mut patinae_mol::ObjectMolecule,
-    state: i64,
-    atoms: &[AtomIndex],
-    ttt: &[f32; 16],
-) {
-    for i in resolve_state_indices(state, mol.state_count()) {
-        mol.transform_ttt_atoms(i, atoms, ttt);
     }
 }
 

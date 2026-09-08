@@ -59,23 +59,26 @@ pub fn svd3(matrix: &[[f32; 3]; 3]) -> Svd3 {
     }
 
     // 4. U columns: u_i = A · v_i / sigma_i
+    // A^T A squares the condition number. Roundoff in a zero eigenvalue
+    // becomes a spurious singular value of order sqrt(epsilon) * sigma_max.
+    let rank_tolerance = (sigma[0] * 1e-7).max(1e-10);
     let mut u_cols = [[0.0f64; 3]; 3];
     for i in 0..3 {
-        if sigma[i] > 1e-10 {
+        if sigma[i] > rank_tolerance {
             let av = mat_vec_mul(&a, &v_cols[i]);
             u_cols[i] = (Vec3d::from(av) * (1.0 / sigma[i])).to_arr();
         }
     }
 
     // Handle degenerate cases
-    if sigma[0] > 1e-10 && sigma[1] > 1e-10 && sigma[2] <= 1e-10 {
+    if sigma[0] > rank_tolerance && sigma[1] > rank_tolerance && sigma[2] <= rank_tolerance {
         u_cols[2] = cross(&u_cols[0], &u_cols[1]);
         normalize(&mut u_cols[2]);
-    } else if sigma[0] > 1e-10 && sigma[1] <= 1e-10 {
+    } else if sigma[0] > rank_tolerance && sigma[1] <= rank_tolerance {
         u_cols[1] = arbitrary_perpendicular(&u_cols[0]);
         u_cols[2] = cross(&u_cols[0], &u_cols[1]);
         normalize(&mut u_cols[2]);
-    } else if sigma[0] <= 1e-10 {
+    } else if sigma[0] <= rank_tolerance {
         u_cols = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
     }
 

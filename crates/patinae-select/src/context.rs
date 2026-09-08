@@ -57,6 +57,10 @@ pub struct EvalContext<'a> {
 
     /// Selection matching options (case sensitivity, etc.)
     pub options: SelectionOptions,
+    /// Optional assembly copy membership for source-indexed evaluation.
+    pub instances: Option<&'a patinae_mol::InstanceTable>,
+    /// Restricts geometry evaluation to a single zero-based copy.
+    pub active_instance: Option<u32>,
 }
 
 impl<'a> EvalContext<'a> {
@@ -71,6 +75,8 @@ impl<'a> EvalContext<'a> {
             total_atoms,
             molecule_offsets: vec![0],
             options: SelectionOptions::default(),
+            instances: None,
+            active_instance: None,
         }
     }
 
@@ -90,6 +96,8 @@ impl<'a> EvalContext<'a> {
             total_atoms,
             molecule_offsets: offsets,
             options: SelectionOptions::default(),
+            instances: None,
+            active_instance: None,
         }
     }
 
@@ -103,6 +111,8 @@ impl<'a> EvalContext<'a> {
             total_atoms: 0,
             molecule_offsets: Vec::new(),
             options: SelectionOptions::default(),
+            instances: None,
+            active_instance: None,
         }
     }
 
@@ -207,6 +217,66 @@ impl<'a> EvalContext<'a> {
     /// Get an iterator over named selections
     pub fn selections(&self) -> impl Iterator<Item = (&String, &SelectionResult)> {
         self.named_selections.iter()
+    }
+
+    /// Resolves copy-sensitive named selections in dependency order.
+    ///
+    /// Source-only cached selections retain their frozen atom membership.
+    ///
+    /// # Errors
+    /// Returns an error for cyclic or invalid copy-sensitive expressions.
+    pub fn resolve_instance_selections(
+        &mut self,
+        expressions: &[(String, crate::SelectionExpr)],
+    ) -> Result<(), crate::EvalError> {
+        let mut sensitive = std::collections::BTreeSet::new();
+        loop {
+            let before = sensitive.len();
+            for (name, expression) in expressions {
+                if expression.uses_instances()
+                    || expression
+                        .selection_references()
+                        .iter()
+                        .any(|reference| sensitive.contains(*reference))
+                {
+                    sensitive.insert(name.clone());
+                }
+            }
+            if sensitive.len() == before {
+                break;
+            }
+        }
+        let mut pending = expressions
+            .iter()
+            .filter(|(name, _)| sensitive.contains(name))
+            .collect::<Vec<_>>();
+        pending.sort_by(|left, right| left.0.cmp(&right.0));
+        for name in &sensitive {
+            self.named_selections.remove(name);
+        }
+        while !pending.is_empty() {
+            let before = pending.len();
+            pending.retain(|(name, expression)| {
+                if expression.selection_references().iter().any(|reference| {
+                    sensitive.contains(*reference) && !self.has_selection(reference)
+                }) {
+                    return true;
+                }
+                if let Ok(result) = crate::evaluate(expression, self) {
+                    self.add_selection(name.clone(), result);
+                    false
+                } else {
+                    true
+                }
+            });
+            if pending.len() == before {
+                return Err(crate::EvalError::SelectionNotFound(format!(
+                    "cyclic or invalid assembly selection '{}'",
+                    pending[0].0
+                )));
+            }
+        }
+        Ok(())
     }
 
     /// Adds semantic label text for one flattened atom index.

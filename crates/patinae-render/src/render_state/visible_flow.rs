@@ -3,7 +3,6 @@ use crate::picking::{ObjectId, RepKind};
 use crate::render_input::RenderMapMode;
 use crate::representations::catalog;
 use crate::representations::DrawPhase;
-use crate::scene_store::SceneStore;
 #[cfg(feature = "stats")]
 use crate::stats::Pass as StatsPass;
 
@@ -87,10 +86,18 @@ impl RenderState {
                 pass.set_pipeline(pipeline);
                 current = Some(kind);
             }
-            if !bind_group_2(&mut pass, kind, key.0, entry, &self.scene.scene_store) {
+            let store = &self.scene.scene_store;
+            let Some(bg) = store.bind_group() else {
                 continue;
+            };
+            for &offset in store.draw_offsets(ObjectId(key.0)) {
+                pass.set_bind_group(2, bg, &[offset]);
+                if store.needs_raw_draw(ObjectId(key.0)) {
+                    entry.rep.record_shadow_depth(&mut pass);
+                } else {
+                    entry.rep.record_translucent(&mut pass);
+                }
             }
-            entry.rep.record_translucent(&mut pass);
         }
         self.record_maps_opaque(&mut pass);
     }
@@ -166,10 +173,18 @@ impl RenderState {
                 pass.set_pipeline(pipeline);
                 current = Some(kind);
             }
-            if !bind_group_2(&mut pass, kind, key.0, entry, &self.scene.scene_store) {
+            let store = &self.scene.scene_store;
+            let Some(bg) = store.bind_group() else {
                 continue;
+            };
+            for &offset in store.draw_offsets(ObjectId(key.0)) {
+                pass.set_bind_group(2, bg, &[offset]);
+                if store.needs_raw_draw(ObjectId(key.0)) {
+                    entry.rep.record_shadow_depth(&mut pass);
+                } else {
+                    entry.rep.record_translucent(&mut pass);
+                }
             }
-            entry.rep.record_translucent(&mut pass);
         }
         self.record_maps_translucent(&mut pass);
     }
@@ -234,10 +249,18 @@ impl RenderState {
                 pass.set_pipeline(pipeline);
                 current = Some(kind);
             }
-            if !bind_group_2(&mut pass, kind, key.0, entry, &self.scene.scene_store) {
+            let store = &self.scene.scene_store;
+            let Some(bg) = store.bind_group() else {
                 continue;
+            };
+            for &offset in store.draw_offsets(ObjectId(key.0)) {
+                pass.set_bind_group(2, bg, &[offset]);
+                if store.needs_raw_draw(ObjectId(key.0)) {
+                    entry.rep.record_shadow_depth(&mut pass);
+                } else {
+                    entry.rep.record_translucent(&mut pass);
+                }
             }
-            entry.rep.record_translucent(&mut pass);
         }
     }
 
@@ -363,24 +386,4 @@ impl RenderState {
             entry.record(pass);
         }
     }
-}
-
-/// Bind group 2 for the rep being drawn. All reps live on `SceneStore`
-/// (scene-wide bind group + per-object dynamic offset). Returns `false`
-/// when no valid binding is available — the caller skips the draw.
-pub(super) fn bind_group_2<'pass>(
-    pass: &mut wgpu::RenderPass<'pass>,
-    _kind: RepKind,
-    object_id: u32,
-    _entry: &'pass RepEntry,
-    scene_store: &'pass SceneStore,
-) -> bool {
-    let Some(slot) = scene_store.slot(ObjectId(object_id)) else {
-        return false;
-    };
-    let Some(bg) = scene_store.bind_group() else {
-        return false;
-    };
-    pass.set_bind_group(2, bg, &[slot.dynamic_offset()]);
-    true
 }

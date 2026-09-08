@@ -6,6 +6,7 @@ use crate::command_help;
 use crate::error::{CmdError, CmdResult};
 use crate::ArgHint;
 
+use patinae_scene::Object;
 use patinae_select::{SelectionOptions, SelectionResult};
 
 /// Expand self-references in a selection expression.
@@ -112,7 +113,7 @@ pub fn select_with_context(
     let recent_atoms = if recent_aliases.is_empty() {
         Vec::new()
     } else {
-        viewer.session().resolved_recent_atoms()
+        viewer.session().resolved_recent_atom_anchors()
     };
     for alias in &recent_aliases {
         if *alias == "pk*" {
@@ -150,7 +151,8 @@ pub fn select_with_context(
     }
 
     let labels_by_source = if parsed_expr.uses_atom_labels() {
-        let mut labels = ahash::AHashMap::<&str, Vec<(patinae_mol::AtomIndex, &str)>>::new();
+        let mut labels =
+            ahash::AHashMap::<&str, Vec<(patinae_mol::AtomIndex, Option<u32>, &str)>>::new();
         for label_name in viewer.objects().names() {
             let Some(label_object) = viewer.objects().get_label(label_name) else {
                 continue;
@@ -158,10 +160,11 @@ pub fn select_with_context(
             for entity in label_object.entities() {
                 let anchor = entity.anchor();
                 if !anchor.is_orphaned() {
-                    labels
-                        .entry(&anchor.object_name)
-                        .or_default()
-                        .push((anchor.atom_index, entity.text()));
+                    labels.entry(&anchor.object_name).or_default().push((
+                        anchor.atom_index,
+                        anchor.instance,
+                        entity.text(),
+                    ));
                 }
             }
         }
@@ -184,43 +187,76 @@ pub fn select_with_context(
         };
         let mol = mol_obj.molecule();
 
-        // Build context with implicit object selections and named selections
-        let mut ctx = viewer.selections().build_eval_context(
-            mol,
-            mol_obj.display_state(),
-            obj_name,
-            &object_names,
-            options,
+        // Evaluate copy identity and Boolean algebra before projecting to the
+        // source style table. Projection cannot commute with NOT or difference.
+        let table = mol_obj.state().instances.as_ref();
+        let copies: Vec<Option<u32>> = table.map_or_else(
+            || vec![None],
+            |table| {
+                (0..table.copies.len())
+                    .map(|copy| Some(copy as u32))
+                    .collect()
+            },
         );
-        if !recent_aliases.is_empty() {
-            let mut union = SelectionResult::none(mol.atom_count());
-            for (index, (target_object, atom_index)) in recent_atoms.iter().enumerate() {
-                let mut singleton = SelectionResult::none(mol.atom_count());
-                if target_object == obj_name {
-                    singleton.set(*atom_index);
-                    union.set(*atom_index);
+        let named = viewer
+            .selections()
+            .iter()
+            .filter_map(|(name, entry)| {
+                patinae_select::parse(&entry.expression)
+                    .ok()
+                    .map(|ast| (name.clone(), ast))
+            })
+            .collect::<Vec<_>>();
+        let mut projected = SelectionResult::none(mol.atom_count());
+        for instance in copies {
+            let mut ctx = viewer.selections().build_eval_context(
+                mol,
+                mol_obj.display_state(),
+                obj_name,
+                &object_names,
+                options,
+            );
+            ctx.instances = table;
+            ctx.active_instance = instance;
+            if !recent_aliases.is_empty() {
+                let mut union = SelectionResult::none(mol.atom_count());
+                for (index, anchor) in recent_atoms.iter().enumerate() {
+                    let mut singleton = SelectionResult::none(mol.atom_count());
+                    if anchor.object_name == *obj_name && anchor.instance == instance {
+                        singleton.set(anchor.atom_index);
+                        union.set(anchor.atom_index);
+                    }
+                    ctx.add_selection(format!("pk{}", index + 1), singleton);
                 }
-                ctx.add_selection(format!("pk{}", index + 1), singleton);
+                ctx.add_selection("pk*", union);
             }
-            ctx.add_selection("pk*", union);
-        }
-        if let Some(labels) = labels_by_source.get(obj_name.as_str()) {
-            for &(atom_index, text) in labels {
-                if mol.get_atom(atom_index).is_some() {
-                    ctx.add_atom_label(atom_index.as_usize(), text);
+            if let Some(labels) = labels_by_source.get(obj_name.as_str()) {
+                for &(atom_index, copy, text) in labels {
+                    if copy == instance && mol.get_atom(atom_index).is_some() {
+                        ctx.add_atom_label(atom_index.as_usize(), text);
+                    }
+                }
+            }
+            ctx.resolve_instance_selections(&named)
+                .map_err(|error| CmdError::selection(error.to_string()))?;
+            match patinae_select::evaluate(&parsed_expr, &ctx) {
+                Ok(result) => {
+                    for atom in result.indices() {
+                        if let (Some(table), Some(copy)) = (table, instance) {
+                            if !table.contains(copy, atom.0, mol.atom_count()) {
+                                continue;
+                            }
+                        }
+                        projected.set(atom);
+                    }
+                }
+                Err(error) => {
+                    log::debug!("Selection evaluation error for {}: {:?}", obj_name, error)
                 }
             }
         }
-
-        match patinae_select::evaluate(&parsed_expr, &ctx) {
-            Ok(result) => {
-                total_count += result.count();
-                results.push((obj_name.to_string(), result));
-            }
-            Err(e) => {
-                log::debug!("Selection evaluation error for {}: {:?}", obj_name, e);
-            }
-        }
+        total_count += projected.count();
+        results.push((obj_name.to_string(), projected));
     }
 
     Ok((total_count, results))
@@ -362,7 +398,41 @@ impl Command for SelectCommand {
             selection.to_string()
         };
 
+        // Freeze recent aliases into durable copy-qualified atom paths.
+        let mut expanded = expanded;
+        if let Ok(expression) = patinae_select::parse(&expanded) {
+            let paths = ctx
+                .viewer
+                .session()
+                .recent_atoms
+                .paths()
+                .collect::<Vec<_>>();
+            for alias in expression.selection_references() {
+                if alias == "pk*" {
+                    let union = if paths.is_empty() {
+                        "none".to_string()
+                    } else {
+                        paths
+                            .iter()
+                            .map(|path| format!("({path})"))
+                            .collect::<Vec<_>>()
+                            .join(" or ")
+                    };
+                    expanded = expand_self_reference(&expanded, alias, &union);
+                } else if is_recent_atom_alias(alias) {
+                    if let Some(path) = alias
+                        .strip_prefix("pk")
+                        .and_then(|number| number.parse::<usize>().ok())
+                        .and_then(|position| paths.get(position - 1))
+                    {
+                        expanded = expand_self_reference(&expanded, alias, path);
+                    }
+                }
+            }
+        }
+
         // Evaluate the selection to count atoms and cache results
+
         let (total_count, results) = select_with_context(ctx.viewer, &expanded)?;
 
         if total_count == 0 {
@@ -560,6 +630,129 @@ impl Command for IndicateCommand {
 
         Ok(())
     }
+}
+
+/// Resolves geometric operands while retaining assembly copy identities.
+///
+/// # Errors
+/// Returns selection errors before any scene changes are made.
+pub fn evaluate_atom_anchors(
+    viewer: &dyn ViewerLike,
+    selection: &str,
+) -> CmdResult<Vec<patinae_scene::AtomAnchor>> {
+    // Preserve normal name, wildcard and missing-pick validation.
+    let source_results = evaluate_selection(viewer, selection)?;
+    let expression = patinae_select::parse(selection).ok();
+    let object_names: Vec<String> = viewer.objects().names().map(str::to_owned).collect();
+    let recent = viewer.session().resolved_recent_atom_anchors();
+    let options = SelectionOptions {
+        ignore_case: viewer.settings().behavior.ignore_case,
+        ignore_case_chain: viewer.settings().behavior.ignore_case_chain,
+    };
+    let mut anchors = Vec::new();
+    for (name, source_selection) in source_results {
+        if source_selection.is_empty() {
+            continue;
+        }
+        let Some(object) = viewer.objects().get_molecule(&name) else {
+            continue;
+        };
+        let molecule = object.molecule();
+        let table = object.state().instances.as_ref();
+        let copies: Vec<Option<u32>> = table.map_or_else(
+            || vec![None],
+            |table| {
+                (0..table.copies.len())
+                    .map(|copy| Some(copy as u32))
+                    .collect()
+            },
+        );
+        for instance in copies {
+            let mut context = viewer.selections().build_eval_context(
+                molecule,
+                object.display_state(),
+                &name,
+                &object_names,
+                options,
+            );
+            context.instances = table;
+            context.active_instance = instance;
+            let mut union = SelectionResult::none(molecule.atom_count());
+            for (position, anchor) in recent.iter().enumerate() {
+                let mut singleton = SelectionResult::none(molecule.atom_count());
+                if anchor.object_name == name && anchor.instance == instance {
+                    singleton.set(anchor.atom_index);
+                    union.set(anchor.atom_index);
+                }
+                context.add_selection(format!("pk{}", position + 1), singleton);
+            }
+            context.add_selection("pk*", union);
+            if expression
+                .as_ref()
+                .is_some_and(|expression| expression.uses_atom_labels())
+            {
+                for label_name in viewer.objects().names() {
+                    if let Some(labels) = viewer.objects().get_label(label_name) {
+                        for entity in labels.entities() {
+                            let anchor = entity.anchor();
+                            if !anchor.is_orphaned()
+                                && anchor.object_name == name
+                                && anchor.instance == instance
+                            {
+                                context.add_atom_label(anchor.atom_index.as_usize(), entity.text());
+                            }
+                        }
+                    }
+                }
+            }
+            let named = viewer
+                .selections()
+                .iter()
+                .filter_map(|(name, entry)| {
+                    patinae_select::parse(&entry.expression)
+                        .ok()
+                        .map(|ast| (name.clone(), ast))
+                })
+                .collect::<Vec<_>>();
+            context
+                .resolve_instance_selections(&named)
+                .map_err(|error| CmdError::selection(error.to_string()))?;
+            let selected = if let Some(expression) = &expression {
+                patinae_select::evaluate(expression, &context)
+                    .map_err(|error| CmdError::selection(error.to_string()))?
+            } else {
+                source_selection.clone()
+            };
+
+            for index in selected.indices() {
+                if let (Some(table), Some(copy)) = (table, instance) {
+                    if !table.contains(copy, index.0, molecule.atom_count()) {
+                        continue;
+                    }
+                }
+                anchors.push(patinae_scene::AtomAnchor::with_instance(
+                    &name, index, instance,
+                ));
+            }
+        }
+    }
+    Ok(anchors)
+}
+
+/// Rejects structural mutations for every selected object before applying changes.
+pub(crate) fn require_explicit_selection(
+    viewer: &dyn ViewerLike,
+    results: &[(String, SelectionResult)],
+) -> CmdResult {
+    for (name, selection) in results {
+        if selection.is_empty() {
+            continue;
+        }
+        if let Some(object) = viewer.objects().get_molecule(name) {
+            object.require_explicit().map_err(CmdError::execution)?;
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

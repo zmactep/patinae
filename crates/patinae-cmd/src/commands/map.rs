@@ -274,6 +274,8 @@ mod tests {
                 object_name: name.to_string(),
                 object_type: ObjectType::Molecule,
                 atom_index: Some(AtomIndex(0)),
+
+                instance: None,
                 position: Vec3::new(0.0, 0.0, 0.0),
                 distance: 0.0,
             },

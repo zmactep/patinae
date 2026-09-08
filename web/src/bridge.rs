@@ -20,9 +20,8 @@ use patinae_scene::bridge::{
 };
 use patinae_scene::{
     expand_pick_to_selection, label_object_view, pick_expression_for_hit,
-    resolve_annotation_bundles,
-    AnnotationColorSummary, CameraDelta, InputState, MeasurementKind, MoleculeObject, Object,
-    PickHit, ResolvedAnnotationBundle, Session, SessionAdapter,
+    resolve_annotation_bundles, AnnotationColorSummary, CameraDelta, InputState, MeasurementKind,
+    MoleculeObject, Object, PickHit, ResolvedAnnotationBundle, Session, SessionAdapter,
 };
 use patinae_select::{build_sele_command, select};
 
@@ -57,6 +56,9 @@ struct ObjectInfo {
     name: String,
     object_type: &'static str,
     atom_count: usize,
+    storage_mode: String,
+    displayed_atom_count: usize,
+    instance_count: usize,
     enabled: bool,
     measurement_kind: Option<&'static str>,
     entity_count: usize,
@@ -1353,11 +1355,7 @@ fn object_info_for_session(session: &Session, name: &str) -> Option<ObjectInfo> 
     let annotations = if session.registry.get_measurement(name).is_some()
         || session.registry.get_label(name).is_some()
     {
-        resolve_annotation_bundles(
-            &session.registry,
-            &session.settings,
-            &session.named_palette,
-        )
+        resolve_annotation_bundles(&session.registry, &session.settings, &session.named_palette)
     } else {
         Vec::new()
     };
@@ -1366,11 +1364,8 @@ fn object_info_for_session(session: &Session, name: &str) -> Option<ObjectInfo> 
 }
 
 fn object_infos_for_session(session: &Session) -> Vec<ObjectInfo> {
-    let annotations = resolve_annotation_bundles(
-        &session.registry,
-        &session.settings,
-        &session.named_palette,
-    );
+    let annotations =
+        resolve_annotation_bundles(&session.registry, &session.settings, &session.named_palette);
     let annotations_by_owner = annotations
         .iter()
         .map(|bundle| (bundle.owner_name.as_str(), bundle))
@@ -1399,6 +1394,13 @@ fn object_info_for_session_with_bundle(
             name: name.to_string(),
             object_type: "molecule",
             atom_count: molecule.molecule().atom_count(),
+            storage_mode: molecule.storage_mode().to_string(),
+            displayed_atom_count: molecule.displayed_atom_count(),
+            instance_count: molecule
+                .state()
+                .instances
+                .as_ref()
+                .map_or(1, |table| table.copies.len()),
             enabled: molecule.is_enabled(),
             measurement_kind: None,
             entity_count: 0,
@@ -1420,6 +1422,13 @@ fn object_info_for_session_with_bundle(
             name: name.to_string(),
             object_type: "map",
             atom_count: 0,
+            storage_mode: map.state().storage_mode().to_string(),
+            displayed_atom_count: 0,
+            instance_count: map
+                .state()
+                .instances
+                .as_ref()
+                .map_or(1, |table| table.copies.len()),
             enabled: map.is_enabled(),
             measurement_kind: None,
             entity_count: 0,
@@ -1474,6 +1483,9 @@ fn annotation_object_info(
         name: name.to_string(),
         object_type,
         atom_count: 0,
+        storage_mode: "explicit".to_string(),
+        displayed_atom_count: 0,
+        instance_count: 1,
         enabled,
         measurement_kind,
         entity_count,
@@ -1651,7 +1663,10 @@ mod tests {
         let infos = object_infos_for_session(&session);
 
         assert_eq!(
-            infos.iter().map(|info| info.name.as_str()).collect::<Vec<_>>(),
+            infos
+                .iter()
+                .map(|info| info.name.as_str())
+                .collect::<Vec<_>>(),
             ["source", "labels"]
         );
         let labels = infos.iter().find(|info| info.name == "labels").unwrap();

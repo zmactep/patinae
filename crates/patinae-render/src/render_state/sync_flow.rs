@@ -271,6 +271,42 @@ impl RenderState {
 
         for obj in input.objects {
             for rep in catalog::active_entries(obj.draw_reps) {
+                if let Some(table) = obj.instances.filter(|_| {
+                    matches!(
+                        rep.kind,
+                        RepKind::Cartoon | RepKind::Ribbon | RepKind::Surface | RepKind::Mesh
+                    )
+                }) {
+                    let canonical = crate::render_input::canonical_instance_groups(table);
+                    let groups: std::collections::BTreeSet<u32> = table
+                        .copies
+                        .iter()
+                        .map(|copy| canonical[copy.group as usize])
+                        .collect();
+                    for group in groups {
+                        let subset = obj.for_subset(group);
+                        let key = (subset.object_id.0, rep.kind);
+                        let budget_plan = budget_plans
+                            .get(&(obj.object_id.0, rep.kind))
+                            .copied()
+                            .unwrap_or_else(RepBudgetPlan::build);
+                        if budget_plan.decision.is_skip() {
+                            continue;
+                        }
+                        if self
+                            .sync_rep(&subset, input.settings, rep, lod_dirty, budget_plan)
+                            .created()
+                        {
+                            scene_changed = true;
+                            picking_cache_dirty = true;
+                            draw_order_dirty = true;
+                            bounds_dirty = true;
+                        }
+                        keep.insert(key);
+                        draw_keep.insert(key);
+                    }
+                    continue;
+                }
                 let key = (obj.object_id.0, rep.kind);
                 let budget_plan = budget_plans
                     .get(&key)
@@ -920,12 +956,25 @@ fn compute_scene_bounds(
                 continue;
             };
             let pad = atom.effective_vdw().max(0.1);
-            let p = transform_point(&obj.transform, [pos.x, pos.y, pos.z]);
-            for axis in 0..3 {
-                min[axis] = min[axis].min(p[axis] - pad);
-                max[axis] = max[axis].max(p[axis] + pad);
+            let mut include = |position: [f32; 3]| {
+                let p = transform_point(&obj.transform, position);
+                for axis in 0..3 {
+                    min[axis] = min[axis].min(p[axis] - pad);
+                    max[axis] = max[axis].max(p[axis] + pad);
+                }
+                any = true;
+            };
+            if let Some(table) = obj.instances {
+                for copy in &table.copies {
+                    if table.groups.get(copy.group as usize).is_some_and(|group| {
+                        group.indices.is_empty() || group.indices.binary_search(&idx.0).is_ok()
+                    }) {
+                        include(transform_point(&copy.transform, [pos.x, pos.y, pos.z]));
+                    }
+                }
+            } else {
+                include([pos.x, pos.y, pos.z]);
             }
-            any = true;
         }
     }
     for map in maps {

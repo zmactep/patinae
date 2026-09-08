@@ -303,6 +303,8 @@ impl Command for CreateCommand {
         // Evaluate selection
         let results = evaluate_selection(ctx.viewer, selection)?;
 
+        crate::commands::selecting::require_explicit_selection(ctx.viewer, &results)?;
+
         // Find first object with selected atoms
         let (src_name, sel_result) = results
             .into_iter()
@@ -451,6 +453,7 @@ impl Command for CopyCommand {
 
         // Try as full object copy first (exact name match, no selection parsing)
         if let Some(mol_obj) = ctx.viewer.objects().get_molecule(source) {
+            mol_obj.require_explicit().map_err(CmdError::execution)?;
             let cloned_mol = mol_obj.molecule().clone();
             let source_reps = mol_obj.visible_reps();
             let atom_count = cloned_mol.atom_count();
@@ -471,6 +474,7 @@ impl Command for CopyCommand {
 
         // Otherwise treat as selection expression (like create)
         let results = evaluate_selection(ctx.viewer, source)?;
+        crate::commands::selecting::require_explicit_selection(ctx.viewer, &results)?;
 
         let (src_name, sel_result) = results
             .into_iter()
@@ -1013,6 +1017,7 @@ impl Command for SplitStatesCommand {
             .objects()
             .get_molecule(object)
             .ok_or_else(|| CmdError::object_not_found(object.to_string()))?;
+        mol_obj.require_explicit().map_err(CmdError::execution)?;
         let n_states = mol_obj.molecule().state_count();
 
         if n_states == 0 {
@@ -1199,6 +1204,11 @@ impl Command for DeleteStatesCommand {
             return Err(CmdError::object_not_found(name.to_string()));
         }
 
+        for name in &obj_names {
+            if let Some(object) = ctx.viewer.objects().get_molecule(name) {
+                object.require_explicit().map_err(CmdError::execution)?;
+            }
+        }
         let mut total_deleted = 0usize;
         let mut objects_modified = 0usize;
 
@@ -1303,6 +1313,8 @@ impl Command for ExtractCommand {
         // Evaluate selection
         let results = evaluate_selection(ctx.viewer, selection)?;
 
+        crate::commands::selecting::require_explicit_selection(ctx.viewer, &results)?;
+
         // Find first object with selected atoms
         let (src_name, sel_result) = results
             .into_iter()
@@ -1405,6 +1417,8 @@ impl Command for RemoveCommand {
         // Evaluate selection across all objects
         let results = evaluate_selection(ctx.viewer, selection)?;
 
+        crate::commands::selecting::require_explicit_selection(ctx.viewer, &results)?;
+
         // Collect object names and indices before mutating.
         let removals = results
             .into_iter()
@@ -1494,16 +1508,15 @@ impl Command for DssCommand {
         ctx: &mut CommandContext<'v, 'r, dyn ViewerLike + 'v>,
         args: &ParsedCommand,
     ) -> CmdResult {
-        let _selection = args.str_arg_or(0, "selection", "all");
+        let selection = args.str_arg_or(0, "selection", "all");
         let state_idx = state_index_from_user(args.int_arg_or(1, "state", 1)).unwrap_or(0);
         let quiet = args.bool_arg_or(2, "quiet", false);
-
-        // Get molecule names first to avoid borrowing conflicts
-        let mol_names: Vec<String> = ctx
-            .viewer
-            .objects()
-            .names()
-            .map(|s| s.to_string())
+        let results = evaluate_selection(ctx.viewer, selection)?;
+        crate::commands::selecting::require_explicit_selection(ctx.viewer, &results)?;
+        let mol_names: Vec<String> = results
+            .into_iter()
+            .filter(|(_, selected)| !selected.is_empty())
+            .map(|(name, _)| name)
             .collect();
 
         let algorithm = ctx.viewer.settings().behavior.dss_algorithm;
@@ -1691,6 +1704,8 @@ mod tests {
                 object_name: object_name.to_string(),
                 object_type: patinae_scene::ObjectType::Molecule,
                 atom_index: Some(AtomIndex(atom_index)),
+
+                instance: None,
                 position: lin_alg::f32::Vec3::new(0.0, 0.0, 0.0),
                 distance: 0.0,
             },

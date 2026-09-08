@@ -12,7 +12,6 @@ use crate::picking::reproject::ReprojectParams;
 use crate::picking::{ObjectId, PickHit, PickingMode, RepKind};
 use crate::render_input::{RenderInput, RenderObjectInput};
 use crate::representations::catalog;
-use crate::scene_store::SceneStore;
 
 const REPROJECT_ANGULAR_THRESHOLD_RAD: f32 = 0.26;
 const MAX_REPROJECT_FRAMES: u32 = 30;
@@ -416,28 +415,24 @@ impl RenderState {
                 continue;
             };
             pass.set_bind_group(2, &rep_picking.bind_group, &[]);
-            if catalog::entry(kind).is_some_and(|rep| rep.picking_needs_scene_group())
-                && !Self::bind_scene_group(&mut pass, key.0, &self.scene.scene_store)
-            {
+            let store = &self.scene.scene_store;
+            let Some(bg) = store.bind_group() else {
                 continue;
+            };
+            let group = if kind == RepKind::Dot { 1 } else { 3 };
+            // Dot parameters occupy group 3; its scene data uses group 1.
+            if kind != RepKind::Dot {
+                pass.set_bind_group(1, &self.ctx.lighting.bind_group, &[]);
             }
-            entry.rep.record_picking(&mut pass);
+            for &offset in store.draw_offsets(ObjectId(key.0)) {
+                pass.set_bind_group(group, bg, &[offset]);
+                if store.needs_raw_draw(ObjectId(key.0)) {
+                    entry.rep.record_raw_picking(&mut pass);
+                } else {
+                    entry.rep.record_picking(&mut pass);
+                }
+            }
         }
-    }
-
-    fn bind_scene_group<'pass>(
-        pass: &mut wgpu::RenderPass<'pass>,
-        object_id: u32,
-        scene_store: &'pass SceneStore,
-    ) -> bool {
-        let Some(slot) = scene_store.slot(ObjectId(object_id)) else {
-            return false;
-        };
-        let Some(bg) = scene_store.bind_group() else {
-            return false;
-        };
-        pass.set_bind_group(3, bg, &[slot.dynamic_offset()]);
-        true
     }
 
     pub fn submit_pick(&mut self, x: u32, y: u32) -> Option<PendingPick> {
@@ -476,6 +471,7 @@ impl RenderState {
     }
 
     fn refresh_picking_for_pick(&mut self, encoder: &mut wgpu::CommandEncoder) {
+        self.prepare_instance_draws(encoder);
         let view_proj_hash = hash_view_proj(&self.uniforms.view_proj);
         let camera_changed = view_proj_hash != self.picking.last_view_proj_hash;
         if self.picking.picking_pass_initialized && !camera_changed {

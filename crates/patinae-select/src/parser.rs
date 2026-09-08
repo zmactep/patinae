@@ -478,6 +478,10 @@ fn parse_sel1(stream: &mut TokenStream, kw: Keyword) -> Result<SelectionExpr, Pa
             let pattern = parse_pattern(stream)?;
             Ok(SelectionExpr::Model(pattern))
         }
+        Keyword::Instance => {
+            let spec = parse_int_spec(stream)?;
+            Ok(SelectionExpr::Instance(spec))
+        }
         Keyword::State => {
             let spec = parse_int_spec(stream)?;
             Ok(SelectionExpr::State(spec))

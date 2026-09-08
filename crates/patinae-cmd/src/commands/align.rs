@@ -11,13 +11,13 @@ use patinae_algos::{
     CeParams, SuperposeParams, SuperposeResult,
 };
 use patinae_mol::{residue_to_char, AtomIndex};
+use patinae_scene::{DirtyFlags, Object};
 
 use crate::args::ParsedCommand;
 use crate::command::{ArgHint, Command, CommandContext, CommandRegistry, ViewerLike};
 use crate::command_help;
-use crate::commands::selecting::evaluate_selection;
+use crate::commands::selecting::evaluate_atom_anchors;
 use crate::error::{CmdError, CmdResult};
-use crate::helpers::{all_molecule_selections, single_molecule_selection};
 
 pub fn register(registry: &mut CommandRegistry) {
     registry.register(AlignCommand);
@@ -39,6 +39,7 @@ impl Command for AlignCommand {
         CMD "align"
         DESCRIPTION [
             "performs structural superposition of one selection onto another.",
+            "Selected atoms define the fit; the complete mobile object moves, including all instances.",
         ]
         USAGE [
             "align mobile, target [, cycles [, cutoff [, method ]]]",
@@ -69,6 +70,7 @@ impl Command for AlignCommand {
             "align chain A, chain B",
             "align mobile, target, cycles=0",
             "align 1hpx, 1t46, method=sequence",
+            "align capsid and instance 1 and chain A, reference and chain A, method=sequence",
             "align 1hpx, 1t46, method=sequence, matrix=blosum50",
             "align 1hpx, 1t46, method=sequence, gap_open=-12.0, gap_extend=-2.0",
             "align 1hpx, 1t46, method=ce",
@@ -176,27 +178,44 @@ impl Command for RmsdCommand {
             .get_str(1)
             .ok_or_else(|| CmdError::missing_argument("second selection"))?;
 
-        let results1 = evaluate_selection(ctx.viewer, sel1)?;
-        let results2 = evaluate_selection(ctx.viewer, sel2)?;
-
-        let (obj1, indices1) = single_molecule_selection(&results1, sel1)?;
-        let (obj2, indices2) = single_molecule_selection(&results2, sel2)?;
-
-        if indices1.len() != indices2.len() {
+        let resolve = |selection: &str| -> CmdResult<Vec<Vec3>> {
+            let anchors = crate::commands::selecting::evaluate_atom_anchors(ctx.viewer, selection)?;
+            let mut object_name = None;
+            anchors
+                .into_iter()
+                .map(|anchor| {
+                    if object_name
+                        .as_ref()
+                        .is_some_and(|name| name != &anchor.object_name)
+                    {
+                        return Err(CmdError::selection(
+                            "RMSD operands must each select one molecule",
+                        ));
+                    }
+                    object_name = Some(anchor.object_name.clone());
+                    ctx.viewer
+                        .objects()
+                        .get_molecule(&anchor.object_name)
+                        .and_then(|object| {
+                            object.instance_world_coord(anchor.atom_index, anchor.instance)
+                        })
+                        .ok_or_else(|| CmdError::execution("RMSD operand has missing coordinates"))
+                })
+                .collect()
+        };
+        let coords1 = resolve(sel1)?;
+        let coords2 = resolve(sel2)?;
+        if coords1.len() != coords2.len() {
             return Err(CmdError::execution(format!(
                 "Selections have different atom counts: {} vs {}",
-                indices1.len(),
-                indices2.len()
+                coords1.len(),
+                coords2.len()
             )));
         }
-
-        let n = indices1.len();
+        let n = coords1.len();
         if n == 0 {
             return Err(CmdError::execution("Selections are empty"));
         }
-
-        let coords1 = extract_coords(ctx.viewer, &obj1, &indices1)?;
-        let coords2 = extract_coords(ctx.viewer, &obj2, &indices2)?;
 
         let value = rmsd(&coords1, &coords2);
 
@@ -215,13 +234,10 @@ fn align_by_kabsch(
     target_sel: &str,
     params: &SuperposeParams,
 ) -> CmdResult {
-    let mobile_results = evaluate_selection(ctx.viewer, mobile_sel)?;
-    let target_results = evaluate_selection(ctx.viewer, target_sel)?;
-
-    let (target_obj, target_indices) = single_molecule_selection(&target_results, target_sel)?;
+    let mobile_objects = selected_fit_atoms(ctx.viewer, mobile_sel)?;
+    let (target_obj, target_indices) = target_fit_atoms(ctx.viewer, target_sel)?;
     let target_coords = extract_coords(ctx.viewer, &target_obj, &target_indices)?;
 
-    let mobile_objects = all_molecule_selections(&mobile_results, mobile_sel)?;
     let mut aligned_count = 0usize;
 
     for (mobile_obj, mobile_indices) in &mobile_objects {
@@ -294,10 +310,8 @@ fn align_by_sequence(
     params: &SuperposeParams,
     scoring: &AlignmentScoring,
 ) -> CmdResult {
-    let mobile_results = evaluate_selection(ctx.viewer, mobile_sel)?;
-    let target_results = evaluate_selection(ctx.viewer, target_sel)?;
-
-    let (target_obj, target_indices) = single_molecule_selection(&target_results, target_sel)?;
+    let mobile_objects = selected_fit_atoms(ctx.viewer, mobile_sel)?;
+    let (target_obj, target_indices) = target_fit_atoms(ctx.viewer, target_sel)?;
     let (target_seq, target_ca) =
         extract_residue_sequence(ctx.viewer, &target_obj, &target_indices)?;
 
@@ -307,7 +321,6 @@ fn align_by_sequence(
         ));
     }
 
-    let mobile_objects = all_molecule_selections(&mobile_results, mobile_sel)?;
     let mut aligned_count = 0usize;
 
     for (mobile_obj, mobile_indices) in &mobile_objects {
@@ -329,8 +342,8 @@ fn align_by_sequence(
 
         let alignment = global_align(&mobile_seq, &target_seq, scoring);
 
-        let mut mobile_ca_indices: Vec<AtomIndex> = Vec::new();
-        let mut target_ca_indices: Vec<AtomIndex> = Vec::new();
+        let mut mobile_ca_indices: Vec<FitAtom> = Vec::new();
+        let mut target_ca_indices: Vec<FitAtom> = Vec::new();
 
         for pair in &alignment.pairs {
             if let AlignedPair::Match { source, target } = pair {
@@ -408,12 +421,10 @@ fn align_by_ce(
     params: &SuperposeParams,
     args: &ParsedCommand,
 ) -> CmdResult {
-    let mobile_results = evaluate_selection(ctx.viewer, mobile_sel)?;
-    let target_results = evaluate_selection(ctx.viewer, target_sel)?;
-
-    let (target_obj, target_indices) = single_molecule_selection(&target_results, target_sel)?;
+    let mobile_objects = selected_fit_atoms(ctx.viewer, mobile_sel)?;
+    let (target_obj, target_indices) = target_fit_atoms(ctx.viewer, target_sel)?;
     let (_, target_ca) = extract_residue_sequence(ctx.viewer, &target_obj, &target_indices)?;
-    let target_ca_indices: Vec<AtomIndex> = target_ca.iter().filter_map(|opt| *opt).collect();
+    let target_ca_indices: Vec<FitAtom> = target_ca.iter().filter_map(|opt| *opt).collect();
     let target_ca_coords = extract_coords(ctx.viewer, &target_obj, &target_ca_indices)?;
 
     if target_ca_coords.is_empty() {
@@ -429,7 +440,6 @@ fn align_by_ce(
         ..CeParams::default()
     };
 
-    let mobile_objects = all_molecule_selections(&mobile_results, mobile_sel)?;
     let mut aligned_count = 0usize;
 
     for (mobile_obj, mobile_indices) in &mobile_objects {
@@ -438,7 +448,7 @@ fn align_by_ce(
         }
 
         let (_, mobile_ca) = extract_residue_sequence(ctx.viewer, mobile_obj, mobile_indices)?;
-        let mobile_ca_indices: Vec<AtomIndex> = mobile_ca.iter().filter_map(|opt| *opt).collect();
+        let mobile_ca_indices: Vec<FitAtom> = mobile_ca.iter().filter_map(|opt| *opt).collect();
         let mobile_ca_coords = extract_coords(ctx.viewer, mobile_obj, &mobile_ca_indices)?;
 
         if mobile_ca_coords.is_empty() {
@@ -509,26 +519,63 @@ fn align_by_ce(
 // Helper functions
 // ============================================================================
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+struct FitAtom {
+    index: AtomIndex,
+    instance: Option<u32>,
+}
+
+/// Keeps copy identity when choosing atoms for a whole-object fit.
+fn selected_fit_atoms(
+    viewer: &dyn ViewerLike,
+    selection: &str,
+) -> CmdResult<Vec<(String, Vec<FitAtom>)>> {
+    let mut objects = std::collections::BTreeMap::<String, Vec<FitAtom>>::new();
+    for anchor in evaluate_atom_anchors(viewer, selection)? {
+        objects
+            .entry(anchor.object_name)
+            .or_default()
+            .push(FitAtom {
+                index: anchor.atom_index,
+                instance: anchor.instance,
+            });
+    }
+    if objects.is_empty() {
+        return Err(CmdError::selection(format!(
+            "No atoms matching '{selection}'"
+        )));
+    }
+    Ok(objects.into_iter().collect())
+}
+
+fn target_fit_atoms(viewer: &dyn ViewerLike, selection: &str) -> CmdResult<(String, Vec<FitAtom>)> {
+    let mut objects = selected_fit_atoms(viewer, selection)?;
+    if objects.len() != 1 {
+        return Err(CmdError::invalid_arg(
+            "target",
+            "target must select atoms from a single object",
+        ));
+    }
+    Ok(objects.remove(0))
+}
+
 /// Extract coordinates for selected atoms from a molecule object.
 fn extract_coords(
     viewer: &dyn ViewerLike,
     obj_name: &str,
-    indices: &[AtomIndex],
+    indices: &[FitAtom],
 ) -> CmdResult<Vec<Vec3>> {
     let mol_obj = viewer
         .objects()
         .get_molecule(obj_name)
         .ok_or_else(|| CmdError::execution(format!("Object '{}' not found", obj_name)))?;
-    let mol = mol_obj.molecule();
-    let cs = mol
-        .current_coord_set()
-        .ok_or_else(|| CmdError::execution(format!("No coordinates for '{}'", obj_name)))?;
-
     let mut coords = Vec::with_capacity(indices.len());
     for &idx in indices {
-        let v = cs
-            .get_atom_coord(idx)
-            .ok_or_else(|| CmdError::execution(format!("Missing coord for atom {}", idx.0)))?;
+        let v = mol_obj
+            .instance_world_coord(idx.index, idx.instance)
+            .ok_or_else(|| {
+                CmdError::execution(format!("Missing coord for atom {}", idx.index.0))
+            })?;
         coords.push(v);
     }
     Ok(coords)
@@ -541,8 +588,8 @@ fn extract_coords(
 fn extract_residue_sequence(
     viewer: &dyn ViewerLike,
     obj_name: &str,
-    selected_indices: &[AtomIndex],
-) -> CmdResult<(Vec<char>, Vec<Option<AtomIndex>>)> {
+    selected_indices: &[FitAtom],
+) -> CmdResult<(Vec<char>, Vec<Option<FitAtom>>)> {
     let mol_obj = viewer
         .objects()
         .get_molecule(obj_name)
@@ -550,38 +597,46 @@ fn extract_residue_sequence(
     let mol = mol_obj.molecule();
 
     // Build a set of selected atom indices for fast lookup
-    let selected_set: std::collections::HashSet<u32> =
-        selected_indices.iter().map(|idx| idx.0).collect();
+    let selected_set: std::collections::HashSet<FitAtom> =
+        selected_indices.iter().copied().collect();
+    let copies: std::collections::BTreeSet<Option<u32>> =
+        selected_indices.iter().map(|atom| atom.instance).collect();
 
     let mut sequence = Vec::new();
     let mut ca_indices = Vec::new();
 
-    for residue in mol.residues() {
-        if !residue.is_protein() && !residue.is_nucleic() {
-            continue;
-        }
-
-        // Check if any atom of this residue is in the selection
-        let has_selected = residue
-            .iter_indexed()
-            .any(|(idx, _)| selected_set.contains(&idx.0));
-
-        if !has_selected {
-            continue;
-        }
-
-        let ch = residue_to_char(residue.resn());
-        sequence.push(ch);
-
-        // Find Cα (or C3' for nucleic) in the selection
-        let ca = residue.ca().and_then(|(idx, _)| {
-            if selected_set.contains(&idx.0) {
-                Some(idx)
-            } else {
-                None
+    for instance in copies {
+        for residue in mol.residues() {
+            if !residue.is_protein() && !residue.is_nucleic() {
+                continue;
             }
-        });
-        ca_indices.push(ca);
+
+            // Check if any atom of this residue is in the selection
+            let has_selected = residue
+                .iter_indexed()
+                .any(|(index, _)| selected_set.contains(&FitAtom { index, instance }));
+
+            if !has_selected {
+                continue;
+            }
+
+            let ch = residue_to_char(residue.resn());
+            sequence.push(ch);
+
+            // Find Cα (or C3' for nucleic) in the selection
+            let ca = residue.ca().and_then(|(idx, _)| {
+                let atom = FitAtom {
+                    index: idx,
+                    instance,
+                };
+                if selected_set.contains(&atom) {
+                    Some(atom)
+                } else {
+                    None
+                }
+            });
+            ca_indices.push(ca);
+        }
     }
 
     Ok((sequence, ca_indices))
@@ -664,6 +719,20 @@ fn apply_transform_to_object(
         .objects_mut()
         .get_molecule_mut(obj_name)
         .ok_or_else(|| CmdError::execution(format!("Object '{}' not found", obj_name)))?;
-    mol_obj.molecule_mut().transform_all_states(transform);
+    let current = mol_obj.state().transform.clone();
+    if mol_obj.state().instances.is_some() || !mol_obj.molecule().assembly.definitions.is_empty() {
+        // Keep the source and its assembly operators in the same local frame.
+        // biounit inherits this object-to-world transform with the source snapshot.
+        mol_obj
+            .state_mut()
+            .set_transform(transform.clone() * current);
+        mol_obj.invalidate(DirtyFlags::COORDS);
+    } else {
+        let inverse = super::transform::inverse_object_transform(&current)
+            .ok_or_else(|| CmdError::execution("Object transform is singular"))?;
+        mol_obj
+            .molecule_mut()
+            .transform_all_states(&(inverse * transform.clone() * current));
+    }
     Ok(())
 }

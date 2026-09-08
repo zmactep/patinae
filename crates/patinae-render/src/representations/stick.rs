@@ -561,6 +561,17 @@ impl Representation for StickRep {
         pass.draw_indirect(indirect_buf, 0);
     }
 
+    fn record_raw_picking<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>) {
+        let (Some(instance_buf), Some(indirect_buf)) = (
+            self.gpu.raw_instance_buffer(),
+            self.gpu.shadow_indirect_buffer(),
+        ) else {
+            return;
+        };
+        pass.set_vertex_buffer(0, instance_buf.slice(..));
+        pass.draw_indirect(indirect_buf, 0);
+    }
+
     fn prepare_shadow_depth(&self, encoder: &mut wgpu::CommandEncoder, queue: &wgpu::Queue) {
         let seed = indirect_seed(6);
         self.gpu.prepare_raw_shadow_indirect(encoder, queue, &seed);

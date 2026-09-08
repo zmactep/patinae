@@ -683,6 +683,22 @@ impl MeasurementObject {
         changed
     }
 
+    pub(crate) fn materialize_anchors(
+        &mut self,
+        name: &str,
+        table: &patinae_mol::InstanceTable,
+        count: usize,
+    ) {
+        let mut changed = false;
+        for anchor in self.entries.iter_mut().flat_map(|entry| &mut entry.anchors) {
+            changed |= anchor.materialize_if_source(name, table, count);
+        }
+        if changed {
+            self.revisions.geometry = self.revisions.geometry.saturating_add(1);
+            self.dirty = true;
+        }
+    }
+
     pub(crate) fn remap_anchors(
         &mut self,
         object_name: &str,

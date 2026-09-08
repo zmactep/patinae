@@ -85,6 +85,16 @@ pub fn extract_retained_backbone(
     coord_set: &CoordSet,
     gap_cutoff: i32,
 ) -> Vec<BackboneAtom> {
+    extract_filtered_backbone(molecule, coord_set, gap_cutoff, &|_| true)
+}
+
+/// Filters source residues before chain smoothing and geometry generation.
+pub(crate) fn extract_filtered_backbone(
+    molecule: &ObjectMolecule,
+    coord_set: &CoordSet,
+    gap_cutoff: i32,
+    includes: &dyn Fn(u32) -> bool,
+) -> Vec<BackboneAtom> {
     let mut out: Vec<BackboneAtom> = Vec::new();
 
     for chain in molecule.chains() {
@@ -100,7 +110,19 @@ pub fn extract_retained_backbone(
                 // sample_residue dispatches protein vs nucleic.
                 let sample = match sample_residue(&residue, coord_set) {
                     Some(s) => s,
-                    None => continue,
+                    None => {
+                        if residue
+                            .iter_indexed()
+                            .any(|(index, _)| !includes(index.as_u32()))
+                        {
+                            if let Some(index) = last_idx_in_run {
+                                out[index].flags |= flags::SEG_END;
+                            }
+                            start_of_run = true;
+                            prev_resv = None;
+                        }
+                        continue;
+                    }
                 };
 
                 // Detect chain break against the previous sample in this run.
@@ -987,8 +1009,17 @@ fn sample_residue(residue: &ResidueView<'_>, coord_set: &CoordSet) -> Option<Res
         // and C1' so terminal residues and atypical PDBs still emit a sample.
         let (idx, _atom) = residue
             .find_by_name("P")
-            .or_else(|| residue.find_by_name("C3'"))
-            .or_else(|| residue.find_by_name("C1'"))?;
+            .filter(|(index, _)| coord_set.has_atom(*index))
+            .or_else(|| {
+                residue
+                    .find_by_name("C3'")
+                    .filter(|(index, _)| coord_set.has_atom(*index))
+            })
+            .or_else(|| {
+                residue
+                    .find_by_name("C1'")
+                    .filter(|(index, _)| coord_set.has_atom(*index))
+            })?;
         let position = coord_set.get_atom_coord(idx)?;
         let orientation = orientation_for_nucleic(residue, coord_set, position);
         // Force NucleicRibbon SS — `cartoon_type_for` maps it to
@@ -1104,6 +1135,30 @@ mod tests {
             b = b.add_atom(o, Vec3::new(0.0, 1.0, z));
         }
         b.build()
+    }
+
+    #[test]
+    fn subset_backbone_breaks_before_smoothing_and_uses_only_retained_orientation_atoms() {
+        let molecule = make_protein("subset", "A", 1, 4, true);
+        let coords = molecule.current_coord_set().unwrap();
+        let includes = |index: u32| !matches!(index, 2..=5);
+        let mut filtered = CoordSet::new();
+        for (index, position) in coords.iter_with_atoms() {
+            if includes(index.as_u32()) {
+                filtered.add_coord(index, position);
+            }
+        }
+        let result = extract_filtered_backbone(&molecule, &filtered, 10, &includes);
+        assert_eq!(
+            result.iter().map(|atom| atom.atom_id).collect::<Vec<_>>(),
+            [0, 6, 9]
+        );
+        assert_ne!(result[0].flags & flags::SEG_END, 0);
+        assert_ne!(result[1].flags & flags::SEG_START, 0);
+        // O was removed from the first residue, so its C atom supplies the
+        // orientation. The excluded residue cannot smooth this isolated sample.
+        assert!(result[0].orientation[0] > 0.5);
+        assert!(result[0].orientation[1].abs() < 1.0e-6);
     }
 
     #[test]

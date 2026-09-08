@@ -2374,6 +2374,7 @@ mod tests {
 
     fn atom_hit(index: usize) -> PickHit {
         PickHit {
+            instance: None,
             object_name: "mol".to_string(),
             object_type: ObjectType::Molecule,
             atom_index: Some(AtomIndex::from(index)),
@@ -2454,6 +2455,7 @@ mod tests {
             .registry
             .add(MoleculeObject::from_raw(molecule));
         let hit = PickHit {
+            instance: None,
             object_name: "of".to_string(),
             object_type: ObjectType::Molecule,
             atom_index: Some(AtomIndex::from(0usize)),

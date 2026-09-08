@@ -288,7 +288,9 @@ fn upgrade_path(input: &Path, output: &Path) -> Result<UpgradeReport> {
                 )
             })?;
             if let Some(format_version) = document_format_version(&root) {
-                if format_version >= u64::from(PRS_FORMAT_VERSION) {
+                // Version 3 introduced strict registry envelopes. Never relax
+                // their validation when the current format advances.
+                if format_version >= 3 {
                     let document_error = current_document_error
                         .as_ref()
                         .map(ToString::to_string)
@@ -1607,9 +1609,13 @@ mod tests {
 
     #[test]
     fn future_document_is_rejected_without_legacy_fallback() {
-        let paths = TestPaths::new("future_v4");
+        let paths = TestPaths::new("future_version");
+        let future_version = u64::from(PRS_FORMAT_VERSION) + 1;
         let document = Value::Map(vec![
-            (Value::from("prs_format_version"), Value::from(4_u64)),
+            (
+                Value::from("prs_format_version"),
+                Value::from(future_version),
+            ),
             (Value::from("producer"), Value::from("patinae")),
             (
                 Value::from("producer_version"),
@@ -1624,9 +1630,9 @@ mod tests {
 
         let error = upgrade_path(&paths.input, &paths.output).unwrap_err();
 
-        assert!(error
-            .to_string()
-            .contains("refusing to reinterpret PRS v4 envelope"));
+        assert!(error.to_string().contains(&format!(
+            "refusing to reinterpret PRS v{future_version} envelope"
+        )));
         assert!(!paths.output.exists());
     }
 

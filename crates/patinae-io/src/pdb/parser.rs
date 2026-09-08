@@ -8,6 +8,7 @@ use std::io::{BufRead, BufReader, Read};
 use lin_alg::f32::Vec3;
 use patinae_mol::{AtomIndex, BondOrder, ObjectMolecule, SecondaryStructure};
 
+use crate::assembly::PdbAssemblies;
 use crate::error::{IoError, IoResult};
 use crate::logical_models::{build_molecules, ParsedAtom, ParsedModel};
 use crate::pdb::hybrid36::hy36decode;
@@ -69,6 +70,7 @@ impl<R: Read> PdbReader<R> {
         let mut title = String::new();
         let mut next_model_number = 1;
         let mut chain_ids = ChainIdTracker::default();
+        let mut assemblies = PdbAssemblies::default();
 
         while let Some(line) = self.read_line()? {
             let line = line.trim_end();
@@ -88,6 +90,7 @@ impl<R: Read> PdbReader<R> {
                         let effective_chain = chain_ids.effective_chain(&record.chain);
                         let model = current_model
                             .get_or_insert_with(|| ParsedModel::new(next_model_number));
+                        model.source_chains.push(record.chain.clone());
                         model
                             .atoms
                             .push(parsed_atom_from_record(&record, effective_chain));
@@ -97,6 +100,7 @@ impl<R: Read> PdbReader<R> {
                 "CONECT" => {
                     conects.push(parse_conect_record(line));
                 }
+                "REMARK" => assemblies.line(line)?,
                 "CRYST1" => {
                     cryst1 = Some(parse_cryst1_record(line));
                 }
@@ -139,8 +143,15 @@ impl<R: Read> PdbReader<R> {
 
         flush_model(&mut current_model, &mut models, &mut chain_ids);
 
+        let definitions = assemblies.finish()?;
+        if definitions.is_empty() {
+            for model in &mut models {
+                model.source_chains.clear();
+            }
+        }
         let mut molecules = build_molecules("", &title, models)?;
         for mol in &mut molecules {
+            mol.assembly.definitions = definitions.clone();
             self.apply_annotations(mol, &conects, cryst1.as_ref(), &helices, &sheets);
         }
         Ok(molecules)

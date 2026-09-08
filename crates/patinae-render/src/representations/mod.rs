@@ -168,6 +168,10 @@ pub trait Representation: std::any::Any {
     // un-compacted geometry for camera-independent lighting/occlusion passes.
     fn record_translucent<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>);
     fn record_picking<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>);
+    /// Picking with the complete shared source, independent of camera culling.
+    fn record_raw_picking<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>) {
+        self.record_picking(pass);
+    }
     fn record_depth_prepass<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>) {
         self.record_translucent(pass);
     }

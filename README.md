@@ -135,8 +135,33 @@ polymer and not solvent
 
 **Commands:** interactive verbs with completion and scriptability, including
 `load`, `fetch`, `show`, `hide`, `color`, `select`, `zoom`, `center`, `orient`,
-`png`, `ray`, `align`, `cealign`, `symexp`, `isomesh`, `isosurface`, and
+`png`, `ray`, `align`, `cealign`, `symexp`, `biounit`, `materialize`, `isomesh`, `isosurface`, and
 `isodot`.
+
+**Biological assemblies:** `biounit` reads assembly definitions retained from
+PDB, mmCIF, or BinaryCIF and creates an independent snapshot of the source's
+current coordinate state. An `instanced` object stores source atoms once and
+reuses their geometry with copy matrices. Colors and representations apply to
+all copies; picking and measurements distinguish individual copies.
+
+```text
+biounit protein, name=assembly, assembly=1
+color cyan, assembly
+materialize assembly
+```
+
+The assembly identifier is optional and defaults to the first definition in
+the input. `state=2` selects a different source state. `materialize` expands
+copies in place, preserving the object name and measurements; the resulting
+`explicit` object supports independent atom edits. Ordinary objects default to
+`explicit`. PRS sessions and viewport screenshots retain compact assemblies;
+atom-file exports, geometry exports, and plugin ray tracing require
+`materialize` first. Assembly transforms must be rigid, with at most 65,535
+copies per object.
+
+Surfaces in compact form describe the source subsets independently. After
+materialization they are recalculated from explicit coordinates; contacts
+between copies and wireframe triangulation can therefore change.
 
 **Structural analysis:**
 
@@ -147,9 +172,9 @@ polymer and not solvent
 - Secondary-structure assignment from geometry.
 - Electron density map loading and contouring.
 
-**Sessions:** save and load PRS v3 `.prs` sessions and import legacy `.pse`
+**Sessions:** save and load PRS v4 `.prs` sessions and import legacy `.pse`
 sessions for interoperability. The loader remains compatible with legacy raw
-sessions and PRS v2. Upgrade PyMOL-RS v0.3.3 or Patinae v0.4.0–v0.4.2 sessions
+sessions and PRS v2/v3. Upgrade PyMOL-RS v0.3.3 or Patinae v0.4.0–v0.4.2 sessions
 with `cargo run -p prs-upgrade -- old.prs upgraded.prs`.
 
 **Ray tracing:** the `raytracer` plugin provides offline GPU ray tracing with

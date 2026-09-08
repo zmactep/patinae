@@ -54,6 +54,7 @@
 //! - `fetch` - Enable synchronous fetching from RCSB PDB (uses `ureq`)
 //! - `fetch-async` - Enable asynchronous fetching from RCSB PDB (uses `reqwest`)
 
+mod assembly;
 pub mod bcif;
 pub mod ccp4;
 pub mod cif;

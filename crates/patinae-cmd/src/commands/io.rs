@@ -1357,6 +1357,7 @@ impl Command for LoadTrajCommand {
             .get_molecule_mut(&target_name)
             .ok_or_else(|| CmdError::object_not_found(target_name.clone()))?;
 
+        mol_obj.require_explicit().map_err(CmdError::execution)?;
         if !append {
             mol_obj.molecule_mut().clear_coord_sets();
         }
@@ -1493,6 +1494,7 @@ impl Command for SaveCommand {
 
         // Evaluate selection across all objects
         let results = evaluate_selection(ctx.viewer, selection)?;
+        crate::commands::selecting::require_explicit_selection(ctx.viewer, &results)?;
         let matches: Vec<(String, _)> = results
             .into_iter()
             .filter(|(_, sel)| sel.count() > 0)

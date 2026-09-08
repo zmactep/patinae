@@ -90,6 +90,14 @@ pub struct SceneObject {
     pub measurement_kind: Option<MeasurementKind>,
     /// Number of stored entities for measurement and label collections.
     pub entity_count: usize,
+    /// Storage strategy for this object.
+    pub storage_mode: patinae_mol::StorageMode,
+    /// Atoms physically stored in the source table.
+    pub stored_atom_count: usize,
+    /// Atoms displayed after assembly copy expansion.
+    pub displayed_atom_count: usize,
+    /// Allows converting an assembly to independent editable copies.
+    pub can_materialize: bool,
     /// Whether any annotation entity cannot currently be resolved.
     pub has_unresolved_entities: bool,
     /// Human-readable reason focus is unavailable for this object.
@@ -488,9 +496,23 @@ fn build_scene_object(
         map_visual_kind: None,
         measurement_kind: None,
         entity_count: 0,
+        storage_mode: state.storage_mode(),
+        stored_atom_count: molecule.atom_count(),
+        displayed_atom_count: mol.displayed_atom_count(),
+        can_materialize: state.instances.is_some(),
         has_unresolved_entities: false,
         focus_disabled_reason: None,
-        capabilities: SceneObjectCapabilities::molecule(),
+        capabilities: {
+            let mut capabilities = SceneObjectCapabilities::molecule();
+            if state.instances.is_some() {
+                capabilities.copy = false;
+                capabilities.extract = false;
+                capabilities.align = false;
+                capabilities.remove_atoms = false;
+            }
+            capabilities
+        },
+
         color,
         enabled: state.enabled,
         expanded,
@@ -509,6 +531,10 @@ fn build_map_scene_object(
         map_visual_kind: Some(map_visual_kind(map.display_mode())),
         measurement_kind: None,
         entity_count: 0,
+        storage_mode: patinae_mol::StorageMode::Explicit,
+        stored_atom_count: 0,
+        displayed_atom_count: 0,
+        can_materialize: false,
         has_unresolved_entities: false,
         focus_disabled_reason: None,
         capabilities: SceneObjectCapabilities::map(),
@@ -537,6 +563,10 @@ fn build_measurement_scene_object(
         map_visual_kind: None,
         measurement_kind: Some(measurement.kind()),
         entity_count: measurement.len(),
+        storage_mode: patinae_mol::StorageMode::Explicit,
+        stored_atom_count: 0,
+        displayed_atom_count: 0,
+        can_materialize: false,
         has_unresolved_entities: bundle.is_some_and(|bundle| bundle.unresolved_count != 0),
         focus_disabled_reason: (!has_extent).then(|| "No resolvable anchors".to_string()),
         capabilities: SceneObjectCapabilities::annotation(has_extent),
@@ -566,6 +596,10 @@ fn build_label_scene_object(
         map_visual_kind: None,
         measurement_kind: None,
         entity_count: label.len(),
+        storage_mode: patinae_mol::StorageMode::Explicit,
+        stored_atom_count: 0,
+        displayed_atom_count: 0,
+        can_materialize: false,
         has_unresolved_entities: bundle.is_some_and(|bundle| bundle.unresolved_count != 0),
         focus_disabled_reason: (!has_extent).then(|| "No resolvable anchors".to_string()),
         capabilities: SceneObjectCapabilities::annotation(has_extent),
@@ -978,6 +1012,10 @@ mod tests {
             map_visual_kind: None,
             measurement_kind: None,
             entity_count: 0,
+            storage_mode: patinae_mol::StorageMode::Explicit,
+            stored_atom_count: 0,
+            displayed_atom_count: 0,
+            can_materialize: false,
             has_unresolved_entities: false,
             focus_disabled_reason: None,
             capabilities: SceneObjectCapabilities::molecule(),
@@ -1005,6 +1043,10 @@ mod tests {
             map_visual_kind: None,
             measurement_kind: None,
             entity_count: 0,
+            storage_mode: patinae_mol::StorageMode::Explicit,
+            stored_atom_count: 0,
+            displayed_atom_count: 0,
+            can_materialize: false,
             has_unresolved_entities: false,
             focus_disabled_reason: None,
             capabilities: SceneObjectCapabilities::molecule(),

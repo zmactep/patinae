@@ -6232,6 +6232,8 @@ mod loader_tests {
                 object_name: "obj".to_string(),
                 object_type: patinae_scene::ObjectType::Molecule,
                 atom_index: Some(AtomIndex(0)),
+
+                instance: None,
                 position: Default::default(),
                 distance: 0.0,
             },

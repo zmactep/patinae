@@ -2,6 +2,7 @@
 
 // {{INCLUDE_FRAME}}
 // {{INCLUDE_PICKING}}
+// {{INCLUDE_DOT_PICKING_SCENE}}
 
 @group(2) @binding(0) var<uniform> picking: PickingParams;
 
@@ -42,7 +43,7 @@ fn vs_main(instance: DotAtomInstance, @builtin(vertex_index) vertex_index: u32) 
     var out: VsOut;
     let sample = vertex_index / 6u;
     let dir = dot_dirs[dot_params.dir_offset + sample].xyz;
-    let world_pos = instance.center + dir * instance.vdw_radius;
+    let world_pos = scene_position(instance.center) + dir * instance.vdw_radius;
     let view_pos = (frame.view * vec4<f32>(world_pos, 1.0)).xyz;
     var clip = frame.proj * vec4<f32>(view_pos, 1.0);
     let corner = quad_corner(vertex_index);
@@ -57,6 +58,7 @@ fn vs_main(instance: DotAtomInstance, @builtin(vertex_index) vertex_index: u32) 
 
 @fragment
 fn fs_main(input: VsOut) -> @location(0) vec2<u32> {
+    if !scene_visible(obj.atom_offset + input.group) { discard; }
     if dot(input.uv, input.uv) > 1.0 {
         discard;
     }

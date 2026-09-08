@@ -103,6 +103,14 @@ pub fn expand(src: &str) -> String {
                 out.push_str(SCENE_WGSL);
                 out.push('\n');
             }
+            "// {{INCLUDE_PICKING_SCENE}}" => {
+                out.push_str(&SCENE_WGSL.replace("@group(2)", "@group(3)"));
+                out.push('\n');
+            }
+            "// {{INCLUDE_DOT_PICKING_SCENE}}" => {
+                out.push_str(&SCENE_WGSL.replace("@group(2)", "@group(1)"));
+                out.push('\n');
+            }
             "// {{INCLUDE_PICKING}}" => {
                 out.push_str(PICKING_WGSL);
                 out.push('\n');

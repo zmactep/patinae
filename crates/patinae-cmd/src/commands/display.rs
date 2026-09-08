@@ -2,13 +2,13 @@
 
 use ahash::{AHashMap, AHashSet};
 use patinae_mol::{three_to_one, Atom, RepMask};
-use patinae_scene::{AtomAnchor, DirtyFlags, LabelEntity, LabelObject, ObjectType};
+use patinae_scene::{DirtyFlags, LabelEntity, LabelObject, ObjectType};
 use patinae_select::AtomIndex;
 
 use crate::args::ParsedCommand;
 use crate::command::{ArgHint, Command, CommandContext, CommandRegistry, ViewerLike};
 use crate::command_help;
-use crate::commands::selecting::{evaluate_selection, select_with_context};
+use crate::commands::selecting::evaluate_selection;
 use crate::error::{CmdError, CmdResult};
 use crate::helpers::{
     for_each_selected_molecule_mut, resolve_object_names, set_enabled_with_group_awareness,
@@ -1148,29 +1148,20 @@ fn typed_label_entity(
     operand: &str,
     expression: &LabelExpression,
 ) -> CmdResult<LabelEntity> {
-    let (total_count, results) = select_with_context(viewer, operand)?;
-    if total_count != 1 {
+    let mut anchors = crate::commands::selecting::evaluate_atom_anchors(viewer, operand)?;
+    if anchors.len() != 1 {
         return Err(CmdError::selection(format!(
             "operand '{operand}' does not resolve to exactly one atom"
         )));
     }
-    for (object_name, selected) in results {
-        let Some(molecule) = viewer.objects().get_molecule(&object_name) else {
-            continue;
-        };
-        if let Some(atom_index) = selected.indices().next() {
-            let atom = molecule.molecule().get_atom(atom_index).ok_or_else(|| {
-                CmdError::selection(format!("operand '{operand}' refers to a stale atom"))
-            })?;
-            return Ok(LabelEntity::new(
-                AtomAnchor::new(object_name.clone(), atom_index),
-                eval_label_expr(expression, atom),
-            ));
-        }
-    }
-    Err(CmdError::selection(format!(
-        "operand '{operand}' does not resolve to exactly one atom"
-    )))
+    let anchor = anchors.remove(0);
+    let atom = viewer
+        .objects()
+        .get_molecule(&anchor.object_name)
+        .and_then(|object| object.molecule().get_atom(anchor.atom_index))
+        .ok_or_else(|| CmdError::selection("stale atom"))?;
+    let text = eval_label_expr(expression, atom);
+    Ok(LabelEntity::new(anchor, text))
 }
 
 fn validate_label_target(viewer: &dyn ViewerLike, name: &str, require_existing: bool) -> CmdResult {
@@ -1256,21 +1247,16 @@ fn collect_label_entities(
     selection: &str,
     expression: &LabelExpression,
 ) -> CmdResult<Vec<LabelEntity>> {
-    let results = evaluate_selection(viewer, selection)?;
+    let anchors = crate::commands::selecting::evaluate_atom_anchors(viewer, selection)?;
     let mut entities = Vec::new();
-    for (object_name, selected) in results {
-        let Some(molecule) = viewer.objects().get_molecule(&object_name) else {
-            continue;
-        };
-        for index in selected.indices() {
-            let Some(atom) = molecule.molecule().get_atom(index) else {
-                continue;
-            };
-            entities.push(LabelEntity::new(
-                AtomAnchor::new(object_name.clone(), index),
-                eval_label_expr(expression, atom),
-            ));
-        }
+    for anchor in anchors {
+        let atom = viewer
+            .objects()
+            .get_molecule(&anchor.object_name)
+            .and_then(|object| object.molecule().get_atom(anchor.atom_index))
+            .ok_or_else(|| CmdError::selection("stale atom"))?;
+        let text = eval_label_expr(expression, atom);
+        entities.push(LabelEntity::new(anchor, text));
     }
     if entities.is_empty() {
         return Err(CmdError::selection(format!(

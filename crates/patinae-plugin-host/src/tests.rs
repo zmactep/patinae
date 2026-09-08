@@ -239,6 +239,8 @@ fn panel_input_with_full_session_preserves_registry_and_recent_atoms() {
             object_name: "obj".to_string(),
             object_type: ObjectType::Molecule,
             atom_index: Some(AtomIndex(0)),
+
+            instance: None,
             position: Default::default(),
             distance: 0.0,
         },

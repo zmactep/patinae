@@ -5,7 +5,7 @@ use patinae_scene::{canonical_atom_path_for_atom, display_atom_path};
 use crate::args::ParsedCommand;
 use crate::command::{Command, CommandContext, CommandRegistry, ViewerLike};
 use crate::command_help;
-use crate::commands::selecting::select_with_context;
+
 use crate::error::{CmdError, CmdResult};
 use crate::ArgHint;
 
@@ -16,37 +16,30 @@ pub fn register(registry: &mut CommandRegistry) {
 }
 
 fn resolve_singleton_path(viewer: &dyn ViewerLike, selection: &str) -> CmdResult<String> {
-    let (total_count, results) = select_with_context(viewer, selection)?;
-    if total_count != 1 {
+    let mut anchors = crate::commands::selecting::evaluate_atom_anchors(viewer, selection)?;
+    if anchors.len() != 1 {
         return Err(CmdError::selection(format!(
             "selection '{selection}' does not resolve to exactly one atom"
         )));
     }
-
-    for (object_name, selected) in results {
-        let Some(atom_index) = selected.indices().next() else {
-            continue;
-        };
-        let Some(molecule) = viewer.objects().get_molecule(&object_name) else {
-            continue;
-        };
-        let path = canonical_atom_path_for_atom(&object_name, molecule.molecule(), atom_index)
-            .map_err(|error| {
-                CmdError::selection(format!(
-                    "selection '{selection}' cannot be stored as a recent atom: {error}"
-                ))
-            })?;
-        if !viewer.session().recent_atom_path_is_singleton(&path) {
-            return Err(CmdError::selection(format!(
-                "selection '{selection}' resolves to an atom whose slash path is not unique"
-            )));
-        }
-        return Ok(path);
+    let anchor = anchors.remove(0);
+    let molecule = viewer
+        .objects()
+        .get_molecule(&anchor.object_name)
+        .ok_or_else(|| CmdError::object_not_found(&anchor.object_name))?;
+    let path =
+        canonical_atom_path_for_atom(&anchor.object_name, molecule.molecule(), anchor.atom_index)
+            .map_err(|error| CmdError::selection(error.to_string()))?;
+    let path = match anchor.instance {
+        Some(copy) => format!("instance {} and {path}", copy + 1),
+        None => path,
+    };
+    if !viewer.session().recent_atom_path_is_singleton(&path) {
+        return Err(CmdError::selection(format!(
+            "selection '{selection}' resolves to an atom whose slash path is not unique"
+        )));
     }
-
-    Err(CmdError::selection(format!(
-        "selection '{selection}' does not resolve to exactly one atom"
-    )))
+    Ok(path)
 }
 
 struct PickCommand;
@@ -230,6 +223,8 @@ mod tests {
                 object_name: "source".to_string(),
                 object_type: ObjectType::Molecule,
                 atom_index: Some(AtomIndex::from(atom_index)),
+
+                instance: None,
                 position: Vec3::new(0.0, 0.0, 0.0),
                 distance: 0.0,
             },

@@ -32,7 +32,6 @@ pub(crate) struct RepCatalogEntry {
     estimator: RepEstimator,
     budget_invalidating_dirty: DirtyFlags,
     pub(crate) cullable: bool,
-    picking_scene_group: bool,
 }
 
 impl RepCatalogEntry {
@@ -133,10 +132,6 @@ impl RepCatalogEntry {
             RepKind::Ellipsoid => "patinae.cull.ellipsoid",
             _ => "patinae.cull.unknown",
         }
-    }
-
-    pub(crate) fn picking_needs_scene_group(&self) -> bool {
-        self.picking_scene_group
     }
 
     fn opaque_pipeline<'a>(
@@ -331,7 +326,6 @@ pub(crate) const REPS: &[RepCatalogEntry] = &[
         estimator: estimate_sphere,
         budget_invalidating_dirty: COUNT_BUDGET_DIRTY,
         cullable: true,
-        picking_scene_group: true,
     },
     RepCatalogEntry {
         kind: RepKind::Stick,
@@ -340,7 +334,6 @@ pub(crate) const REPS: &[RepCatalogEntry] = &[
         estimator: estimate_stick,
         budget_invalidating_dirty: COUNT_BUDGET_DIRTY,
         cullable: true,
-        picking_scene_group: false,
     },
     RepCatalogEntry {
         kind: RepKind::Line,
@@ -349,7 +342,6 @@ pub(crate) const REPS: &[RepCatalogEntry] = &[
         estimator: estimate_line,
         budget_invalidating_dirty: COUNT_BUDGET_DIRTY,
         cullable: true,
-        picking_scene_group: false,
     },
     RepCatalogEntry {
         kind: RepKind::Dot,
@@ -358,7 +350,6 @@ pub(crate) const REPS: &[RepCatalogEntry] = &[
         estimator: estimate_dot,
         budget_invalidating_dirty: COUNT_BUDGET_DIRTY,
         cullable: true,
-        picking_scene_group: false,
     },
     RepCatalogEntry {
         kind: RepKind::Surface,
@@ -367,7 +358,6 @@ pub(crate) const REPS: &[RepCatalogEntry] = &[
         estimator: estimate_surface,
         budget_invalidating_dirty: COUNT_BUDGET_DIRTY,
         cullable: false,
-        picking_scene_group: false,
     },
     RepCatalogEntry {
         kind: RepKind::Mesh,
@@ -376,7 +366,6 @@ pub(crate) const REPS: &[RepCatalogEntry] = &[
         estimator: estimate_mesh,
         budget_invalidating_dirty: COUNT_BUDGET_DIRTY,
         cullable: false,
-        picking_scene_group: false,
     },
     RepCatalogEntry {
         kind: RepKind::Cartoon,
@@ -385,7 +374,6 @@ pub(crate) const REPS: &[RepCatalogEntry] = &[
         estimator: estimate_cartoon,
         budget_invalidating_dirty: COUNT_BUDGET_DIRTY,
         cullable: false,
-        picking_scene_group: false,
     },
     RepCatalogEntry {
         kind: RepKind::Ribbon,
@@ -394,7 +382,6 @@ pub(crate) const REPS: &[RepCatalogEntry] = &[
         estimator: estimate_ribbon,
         budget_invalidating_dirty: COUNT_BUDGET_DIRTY,
         cullable: false,
-        picking_scene_group: false,
     },
     RepCatalogEntry {
         kind: RepKind::Ellipsoid,
@@ -403,7 +390,6 @@ pub(crate) const REPS: &[RepCatalogEntry] = &[
         estimator: estimate_ellipsoid,
         budget_invalidating_dirty: COUNT_BUDGET_DIRTY,
         cullable: true,
-        picking_scene_group: false,
     },
 ];
 

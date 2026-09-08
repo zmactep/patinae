@@ -334,6 +334,13 @@ impl AtomStreamPlan {
                 .collect::<Result<Vec<_>, _>>()?,
             AtomStreamScope::Selection(selection) => selection_plans(ctx, selection)?,
         };
+        if request.mode == AtomStreamMode::Alter {
+            for object in &objects {
+                if let Some(molecule) = ctx.registry.get_molecule(&object.object) {
+                    molecule.require_explicit()?;
+                }
+            }
+        }
         let total_count = objects.iter().map(AtomStreamObjectPlan::len).sum();
         Ok(Self {
             mode: request.mode,

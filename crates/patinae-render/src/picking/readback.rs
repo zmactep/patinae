@@ -260,6 +260,7 @@ mod tests {
 
     fn hit(rep_kind: RepKind) -> PickHit {
         PickHit {
+            instance: None,
             rep_kind,
             object_id: ObjectId(1),
             atom_id: 7,

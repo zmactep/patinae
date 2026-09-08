@@ -24,6 +24,8 @@ pub struct PickHit {
     pub object_type: ObjectType,
     /// Atom index if an atom was hit
     pub atom_index: Option<AtomIndex>,
+    /// Zero-based assembly copy identity, absent for explicit objects.
+    pub instance: Option<u32>,
     /// World-space position of the hit
     pub position: Vec3,
     /// Distance from camera
@@ -108,7 +110,11 @@ pub fn canonical_atom_path_for_hit(
         return Err(AtomPathError::NotMolecule(hit.object_type));
     }
     let atom_index = hit.atom_index.ok_or(AtomPathError::MissingAtomIndex)?;
-    canonical_atom_path_for_atom(&hit.object_name, molecule, atom_index)
+    let path = canonical_atom_path_for_atom(&hit.object_name, molecule, atom_index)?;
+    Ok(match hit.instance {
+        Some(copy) => format!("instance {} and {path}", copy + 1),
+        None => path,
+    })
 }
 
 /// Formats one molecule atom as a canonical slash path.
@@ -192,6 +198,12 @@ pub(crate) fn format_canonical_atom_path(
 /// ```
 #[must_use]
 pub fn display_atom_path(path: &str) -> String {
+    if let Some(rest) = path.strip_prefix("instance ") {
+        if let Some((copy, source)) = rest.split_once(" and ") {
+            return format!("instance {copy} and {}", display_atom_path(source));
+        }
+    }
+
     let Ok(SelectionExpr::Macro(spec)) = patinae_select::parse(path) else {
         return path.to_string();
     };
@@ -338,6 +350,12 @@ pub fn pick_expression_for_hit(
     mode: i32,
     molecule: &ObjectMolecule,
 ) -> Option<String> {
+    if let Some(copy) = hit.instance {
+        let mut source_hit = hit.clone();
+        source_hit.instance = None;
+        return pick_expression_for_hit(&source_hit, mode, molecule)
+            .map(|expression| format!("instance {} and ({expression})", copy + 1));
+    }
     let obj = format_exact_selector_value(&hit.object_name);
 
     // Object mode: just the model name
@@ -396,6 +414,8 @@ mod tests {
             object_name: "protein".to_string(),
             object_type: ObjectType::Molecule,
             atom_index: Some(AtomIndex::from(42usize)),
+
+            instance: None,
             position: Vec3::new(1.0, 2.0, 3.0),
             distance: 5.0,
         };
@@ -461,6 +481,8 @@ mod tests {
             object_name: "test".to_string(),
             object_type: ObjectType::Molecule,
             atom_index: Some(AtomIndex::from(atom_index)),
+
+            instance: None,
             position: Vec3::new(0.0, 0.0, 0.0),
             distance: 1.0,
         }
@@ -493,6 +515,8 @@ mod tests {
             object_name: object_name.to_string(),
             object_type: ObjectType::Molecule,
             atom_index: Some(AtomIndex::from(atom_index)),
+
+            instance: None,
             position: Vec3::new(0.0, 0.0, 0.0),
             distance: 1.0,
         }
@@ -873,6 +897,8 @@ mod tests {
             object_name: "test".to_string(),
             object_type: ObjectType::Molecule,
             atom_index: None,
+
+            instance: None,
             position: Vec3::new(0.0, 0.0, 0.0),
             distance: 1.0,
         };

@@ -70,8 +70,8 @@ fn vs_main(
     var out: VsOut;
     let uv = quad_uv(vid);
     let radius = instance.p0_radius.w;
-    let p0_view = (frame.view * vec4<f32>(instance.p0_radius.xyz, 1.0)).xyz;
-    let p1_view = (frame.view * vec4<f32>(instance.p1_pad.xyz,    1.0)).xyz;
+    let p0_view = (frame.view * vec4<f32>(scene_position(instance.p0_radius.xyz), 1.0)).xyz;
+    let p1_view = (frame.view * vec4<f32>(scene_position(instance.p1_pad.xyz), 1.0)).xyz;
     let pos_view = billboard_view_pos(uv, p0_view, p1_view, radius);
     out.clip_position = frame.proj * vec4<f32>(pos_view, 1.0);
     out.p0_view = p0_view;
@@ -80,6 +80,9 @@ fn vs_main(
     out.radius  = radius;
     out.group_a = instance.groups.x;
     out.group_b = instance.groups.y;
+    if !scene_in_subset(obj.atom_offset + instance.groups.x) || !scene_in_subset(obj.atom_offset + instance.groups.y) {
+        out.clip_position = vec4<f32>(2.0, 2.0, 2.0, 1.0);
+    }
     return out;
 }
 

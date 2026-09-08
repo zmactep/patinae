@@ -206,7 +206,7 @@ component ObjectSection inherits VerticalLayout {
         ? 2 * Tokens.row-h
         : root.has-row-color ? Tokens.row-h : 0px;
     property <length> annotation-meta-w:
-        root.obj.object-type == "measurement" || root.obj.object-type == "label" ? 92px : 0px;
+        root.obj.object-type == "measurement" || root.obj.object-type == "label" || root.obj.instanced ? 92px : 0px;
 
     // Object header row
     obj-header := Rectangle {
@@ -226,6 +226,7 @@ component ObjectSection inherits VerticalLayout {
             : transparent;
         accessible-role: list-item;
         accessible-label: root.obj.name
+            + (root.obj.instanced ? ", instanced, " + root.obj.atom-count + " displayed atoms, " + root.obj.stored-atom-count + " stored atoms" : "")
             + (root.obj.focus-disabled-reason != "" ? ". " + root.obj.focus-disabled-reason : "");
 
         // Chevron
@@ -323,6 +324,17 @@ component ObjectSection inherits VerticalLayout {
         }
 
         // Annotation entity count and unresolved warning
+        if root.obj.instanced: Text {
+            x: parent.width - root.action-buttons-w - root.annotation-meta-w;
+            width: root.annotation-meta-w - Tokens.space-sm;
+            height: parent.height;
+            text: root.obj.atom-count + " instanced";
+            color: Theme.text-ghost;
+            font-size: Tokens.font-sm;
+            horizontal-alignment: right;
+            vertical-alignment: center;
+            overflow: elide;
+        }
         if root.obj.object-type == "measurement" || root.obj.object-type == "label": Text {
             x: parent.width - root.action-buttons-w - root.annotation-meta-w;
             y: 0;

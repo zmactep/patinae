@@ -580,6 +580,7 @@ mod tests {
         reps: RepMask,
     ) -> RenderObjectInput<'a> {
         RenderObjectInput {
+            instances: None,
             object_id: ObjectId(1),
             molecule: mol,
             coord_set,
@@ -592,6 +593,7 @@ mod tests {
                 reps: rep_colors,
             },
             atom_markers: &[],
+            recent_atom_markers: None,
             marker_updates: &[],
             has_markers: false,
             lod: crate::render_input::SceneLod::High,

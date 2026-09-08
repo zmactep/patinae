@@ -16,7 +16,7 @@ struct MarkerInstance {
     atom_index: u32,
     kind: u32,
     radius_scale: f32,
-    _pad0: f32,
+    copy_id: u32,
 };
 
 @group(3) @binding(1) var<storage, read> marker_instances: array<MarkerInstance>;
@@ -76,6 +76,9 @@ fn vs_main(
     }
 
     let marker_instance = marker_instances[instance_index];
+    if marker_instance.copy_id != 0xFFFFFFFFu && marker_instance.copy_id != obj.flags {
+        return inactive_out();
+    }
     let local_id = marker_instance.atom_index;
     if local_id >= obj.atom_count {
         return inactive_out();
@@ -90,7 +93,7 @@ fn vs_main(
         return inactive_out();
     }
 
-    var view_pos = (frame.view * vec4<f32>(scene_coord(global_id), 1.0)).xyz;
+    var view_pos = (frame.view * vec4<f32>(scene_position(scene_coord(global_id)), 1.0)).xyz;
     let corner = quad_corner(vertex_index);
     var clip: vec4<f32>;
     var ray_origin = vec3<f32>(0.0);

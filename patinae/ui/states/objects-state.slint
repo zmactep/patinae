@@ -57,6 +57,9 @@ export struct ObjectItem {
     selected: bool,
     /// Total atom count across all subchains.
     atom-count: int,
+    /// Source storage and displayed atoms for compact copies.
+    stored-atom-count: int,
+    instanced: bool,
     /// Sidebar color (first subchain or consensus).
     color: color,
     /// True when annotation entities resolve to several colors.
