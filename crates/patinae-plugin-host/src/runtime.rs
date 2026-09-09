@@ -71,6 +71,7 @@ impl PluginHost {
         let mut next_query_results = Vec::with_capacity(self.plugins.len());
 
         for (plugin_index, plugin) in self.plugins.iter_mut().enumerate() {
+            let mut plugin_exec_queue = Vec::new();
             expire_idle_atom_streams(&mut plugin.atom_streams);
             let query_results = previous_query_results
                 .get(plugin_index)
@@ -83,12 +84,12 @@ impl PluginHost {
                 shared,
                 &poll_shared,
                 bus,
-                &results,
+                results.get(plugin_index).map_or(&[][..], Vec::as_slice),
                 query_results,
                 &invocations,
                 triggered,
                 &self.plugin_dirs,
-                &mut exec_queue,
+                &mut plugin_exec_queue,
                 &mut reg_queue,
                 &mut unreg_queue,
                 &mut notification_queue,
@@ -107,13 +108,25 @@ impl PluginHost {
                 shared,
                 &mut plugin.atom_streams,
             ));
+            for mut request in plugin_exec_queue {
+                // Frontends see a host token; plugins retain their own ID namespace.
+                while self.command_owners.contains_key(&self.next_command_id) {
+                    self.next_command_id = self.next_command_id.wrapping_add(1);
+                }
+                let token = self.next_command_id;
+                self.next_command_id = self.next_command_id.wrapping_add(1);
+                self.command_owners
+                    .insert(token, (plugin_index, request.id));
+                request.id = token;
+                exec_queue.push(request);
+            }
         }
 
         for action in viewer_action_queue {
             apply_local_viewer_action(action, &mut mutation_queue, &mut panel_update_requested);
         }
 
-        self.pending_executions = exec_queue;
+        self.pending_executions.extend(exec_queue);
         self.pending_registrations = reg_queue;
         self.pending_unregistrations = unreg_queue;
         self.notification_messages = notification_queue;
@@ -206,12 +219,27 @@ impl PluginHost {
         }
     }
 
+    /// Drain requests whose IDs are opaque host routing tokens.
+    ///
+    /// Return each result with the unchanged token to [`Self::store_command_results`].
     pub fn take_pending_executions(&mut self) -> Vec<CommandExecRequest> {
         std::mem::take(&mut self.pending_executions)
     }
 
     pub fn store_command_results(&mut self, results: Vec<CommandResult>) {
-        self.command_results = results;
+        self.command_results
+            .resize_with(self.plugins.len(), Vec::new);
+        for mut result in results {
+            if let Some((plugin_index, original_id)) = self.command_owners.remove(&result.id) {
+                result.id = original_id;
+                self.command_results[plugin_index].push(result);
+            } else {
+                log::warn!(
+                    "Ignoring command result with unknown host token {}",
+                    result.id
+                );
+            }
+        }
     }
 
     pub fn take_pending_mutations(&mut self) -> Vec<ViewerMutation> {

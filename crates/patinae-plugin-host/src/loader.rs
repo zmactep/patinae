@@ -5578,6 +5578,9 @@ pub(crate) fn apply_command_output<V: ViewerLike + ?Sized>(
     runtime_requirements: CommandRuntimeRequirements,
 ) -> CmdResult {
     validate_runtime_wire_version(output.wire_version).map_err(CmdError::execution)?;
+    if output.deferred {
+        ctx.mark_deferred();
+    }
     if runtime_requirements.contains(CommandRuntimeRequirements::FULL_SESSION) {
         let session = wire::decode_session(&output.session).map_err(CmdError::execution)?;
         ctx.viewer.replace_session(session);
@@ -5758,6 +5761,8 @@ fn poll_input_from_context(ctx: &PollContext<'_>) -> Result<WirePollInput, Strin
             .map(|result| wire::WireCommandResult {
                 id: result.id,
                 result: result.result.clone(),
+                messages: result.messages.clone(),
+                deferred: result.deferred,
             })
             .collect(),
         host_query_results: ctx.host_query_results.to_vec(),

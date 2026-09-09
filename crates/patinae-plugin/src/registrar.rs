@@ -66,12 +66,29 @@ pub type ViewerMutation = Box<dyn FnOnce(&mut dyn ViewerLike) + Send>;
 
 /// Result of a command execution requested via [`PollContext::execute_command`].
 ///
-/// Delivered to the plugin in the next `poll()` call.
+/// Delivered only to the requesting plugin in a subsequent `poll()` call.
+#[derive(Debug, Clone)]
 pub struct CommandResult {
     /// Correlation ID (set by the plugin when requesting execution).
     pub id: u64,
-    /// `Ok(())` on success, `Err(message)` on failure.
+    /// Execution status; `Ok(())` with `deferred` means accepted, not completed.
     pub result: Result<(), String>,
+    /// Command messages in emission order, independent of UI silence.
+    pub messages: Vec<patinae_cmd::OutputMessage>,
+    /// Work was queued; no eventual completion result is provided by this API.
+    pub deferred: bool,
+}
+
+impl CommandResult {
+    /// Capture command messages without replaying host actions.
+    pub fn from_execution(id: u64, execution: patinae_cmd::CommandExecution) -> Self {
+        Self {
+            id,
+            result: execution.result.map_err(|error| error.to_string()),
+            messages: execution.output.messages,
+            deferred: execution.output.deferred,
+        }
+    }
 }
 
 /// Queued command execution request (internal).
@@ -196,8 +213,10 @@ impl<'a> PollContext<'a> {
     /// Queue a command for execution.
     ///
     /// The command is executed by the host after `poll()` returns.
-    /// The result (success or error message) is delivered in the next
-    /// `poll()` call via [`PollContext::command_results`].
+    /// Status and typed messages are delivered only to this plugin through
+    /// [`PollContext::command_results`], with the original `id`. `silent`
+    /// controls UI output, not result capture. Check [`CommandResult::deferred`]
+    /// before treating success as completion; queued work has no later result.
     pub fn execute_command(&mut self, id: u64, command: &str, silent: bool) {
         self.exec_queue.push(CommandExecRequest {
             id,
@@ -733,7 +752,7 @@ unsafe extern "C" fn plugin_command_execute(
         )?;
         viewer.session.viewport_image = input.viewport_image;
         let dynamic_settings = wire::dynamic_registry_from_wire(&input.dynamic_settings)?;
-        let (result, output, actions) = {
+        let (result, output, actions, deferred) = {
             let viewer_like: &mut dyn ViewerLike = &mut viewer;
             let mut ctx = CommandContext::new(viewer_like)
                 .with_quiet(input.quiet)
@@ -744,9 +763,15 @@ unsafe extern "C" fn plugin_command_execute(
                     .execute(&mut ctx, &input.parsed)
                     .map_err(|error| error.to_string())
             })?;
-            (result, ctx.take_output(), ctx.take_actions())
+            (
+                result,
+                ctx.take_output(),
+                ctx.take_actions(),
+                ctx.is_deferred(),
+            )
         };
         let output = WireCommandOutput {
+            deferred,
             wire_version: RUNTIME_WIRE_VERSION,
             result,
             output,
@@ -871,6 +896,8 @@ unsafe extern "C" fn plugin_message_poll(
             .map(|result| CommandResult {
                 id: result.id,
                 result: result.result,
+                messages: result.messages,
+                deferred: result.deferred,
             })
             .collect();
         let mut exec_queue = Vec::new();

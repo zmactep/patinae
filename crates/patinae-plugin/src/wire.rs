@@ -34,7 +34,7 @@ use patinae_settings::{
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 /// Runtime wire version for MessagePack DTOs.
-pub const RUNTIME_WIRE_VERSION: u32 = 13;
+pub const RUNTIME_WIRE_VERSION: u32 = 14;
 
 /// Maximum MessagePack payload copied across the runtime ABI.
 pub const MAX_WIRE_PAYLOAD_LEN: usize = 64 * 1024 * 1024;
@@ -778,6 +778,8 @@ pub struct WireTraceGeometryOpened {
 /// Command execution output.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct WireCommandOutput {
+    /// Command work was queued rather than completed.
+    pub deferred: bool,
     /// Must equal [`RUNTIME_WIRE_VERSION`].
     pub wire_version: u32,
     /// Command result, using a string error for portability.
@@ -847,6 +849,10 @@ pub struct WireCommandResult {
     pub id: u64,
     /// Result of the command.
     pub result: Result<(), String>,
+    /// Messages in emission order, independent of UI silence.
+    pub messages: Vec<OutputMessage>,
+    /// Work was queued; this is not its eventual completion result.
+    pub deferred: bool,
 }
 
 /// Deferred command execution request.
@@ -1178,7 +1184,7 @@ mod tests {
             decoded.recent_atoms.paths().collect::<Vec<_>>(),
             paths.iter().map(String::as_str).collect::<Vec<_>>()
         );
-        assert_eq!(RUNTIME_WIRE_VERSION, 13);
+        assert_eq!(RUNTIME_WIRE_VERSION, 14);
     }
 
     #[test]

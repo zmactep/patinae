@@ -18,6 +18,8 @@ use crate::parser::{parse_command, parse_commands};
 /// Result of command execution including any output messages and actions
 #[derive(Debug, Default)]
 pub struct CommandOutput {
+    /// Work was queued; successful dispatch does not imply completion.
+    pub deferred: bool,
     /// Output messages from the command (typed with info/warning/error)
     pub messages: Vec<OutputMessage>,
     /// Side-effect actions requested by the command
@@ -30,6 +32,7 @@ impl CommandOutput {
     /// Create a new empty output
     pub fn new() -> Self {
         Self {
+            deferred: false,
             messages: Vec::new(),
             actions: Vec::new(),
             duration: None,
@@ -39,6 +42,25 @@ impl CommandOutput {
     /// Check if there are any output messages
     pub fn is_empty(&self) -> bool {
         self.messages.is_empty()
+    }
+}
+
+/// Command status together with output collected before success or failure.
+#[derive(Debug)]
+pub struct CommandExecution {
+    /// Original parsing or execution result.
+    pub result: Result<(), CmdError>,
+    /// Collected messages, actions, timing, and dispatch state.
+    pub output: CommandOutput,
+}
+
+impl CommandExecution {
+    /// Convert to the traditional success-output or error result.
+    ///
+    /// # Errors
+    /// Returns the original command error, discarding partial output.
+    pub fn into_result(self) -> Result<CommandOutput, CmdError> {
+        self.result.map(|()| self.output)
     }
 }
 
@@ -227,14 +249,39 @@ impl CommandExecutor {
         quiet: bool,
         async_command_sink: Option<AsyncCommandSink<'a>>,
     ) -> Result<CommandOutput, CmdError> {
+        self.execute_captured(viewer, cmd, quiet, async_command_sink)
+            .into_result()
+    }
+
+    /// Execute a command and retain output even when execution fails.
+    pub fn execute_captured<'a>(
+        &'a mut self,
+        viewer: &mut dyn ViewerLike,
+        cmd: &str,
+        quiet: bool,
+        async_command_sink: Option<AsyncCommandSink<'a>>,
+    ) -> CommandExecution {
+        let mut output = CommandOutput::new();
+        let result = self.capture_into(viewer, cmd, quiet, async_command_sink, &mut output);
+        CommandExecution { result, output }
+    }
+
+    fn capture_into<'a>(
+        &'a mut self,
+        viewer: &mut dyn ViewerLike,
+        cmd: &str,
+        quiet: bool,
+        async_command_sink: Option<AsyncCommandSink<'a>>,
+        output: &mut CommandOutput,
+    ) -> Result<(), CmdError> {
         let cmd = cmd.trim();
         if cmd.is_empty() {
-            return Ok(CommandOutput::new());
+            return Ok(());
         }
 
         // Skip comments
         if cmd.starts_with('#') {
-            return Ok(CommandOutput::new());
+            return Ok(());
         }
 
         // Add to history
@@ -260,15 +307,17 @@ impl CommandExecutor {
             .with_loaded_plugin_capabilities(&self.loaded_plugin_capabilities)
             .with_async_command_sink(async_command_sink);
         let start = command_timer_start();
-        command.execute(&mut ctx, &parsed)?;
+        let result = command.execute(&mut ctx, &parsed);
         let duration = start.map(|start| start.elapsed());
 
         // Return collected output, actions, and timing
-        Ok(CommandOutput {
+        *output = CommandOutput {
+            deferred: ctx.is_deferred(),
             messages: ctx.take_output(),
             actions: ctx.take_actions(),
             duration,
-        })
+        };
+        result
     }
 
     /// Execute multiple commands (semicolon or newline separated)

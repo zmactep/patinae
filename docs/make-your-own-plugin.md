@@ -924,3 +924,60 @@ inputs unless the command requests them.
 
 If a panel feels stale after plugin-owned state changes in `poll()`, call
 `PollContext::request_panel_update`.
+
+## Receive results of host commands
+
+Call `PollContext::execute_command(id, command, silent)` to run an ordinary host
+command after polling. A subsequent poll delivers a `CommandResult` only to the
+requesting plugin, with the original `id`. IDs are local to each plugin; use a
+distinct ID for each outstanding request within your plugin.
+
+The result has four fields:
+
+- `id: u64`: your correlation ID.
+- `result: Result<(), String>`: the original execution status, including failures.
+- `messages: Vec<OutputMessage>`: text and `MessageKind::Info`, `Warning`, or
+  `Error`, in emission order. Partial output survives a failure; the kernel adds
+  the execution error as the final error message.
+- `deferred: bool`: the command queued work. `Ok(())` with `deferred == true`
+  acknowledges dispatch, **not completion**. This API does not deliver a later
+  task-completion result. Host async requests set this automatically when
+  accepted. Plugin commands that enqueue their own work must call
+  `CommandContext::mark_deferred()`; dynamically registered command proxies do
+  this automatically. Arbitrary background work cannot be detected by the host.
+
+`silent` controls UI echo, timing, informational messages, and warnings; it does
+not remove messages from the result. Errors remain visible in the REPL. Command
+arguments that explicitly request quiet behavior still belong to the command's
+own semantics. Messages sent independently through the message bus are not
+command output and are not included in this report.
+
+The kernel displays output and applies successful command actions once. Results
+contain no actions to replay. Use normal commands such as `help my_command` and
+`capabilities plugins` to obtain host-generated text; no separate help catalog is
+needed.
+
+```rust
+fn poll(&mut self, ctx: &mut PollContext<'_>) {
+    for response in ctx.command_results {
+        for message in &response.messages {
+            self.record_message(response.id, message.kind, &message.text);
+        }
+        match &response.result {
+            Err(error) => self.record_failure(response.id, error),
+            Ok(()) if response.deferred => self.record_dispatched(response.id),
+            Ok(()) => self.record_completed(response.id),
+        }
+    }
+}
+```
+
+Runtime MessagePack wire version **14** carries these fields and command deferral.
+Rebuild the host and dynamic plugins from the same SDK revision. Older runtime
+payloads are incompatible and rejected, not silently interpreted as empty
+results. The C declaration layout is unchanged, so `ABI_VERSION` remains 6.
+Existing consumers matching `result` as `Ok(())`/`Err(_)` still compile; code
+constructing `CommandResult` literals must supply the added fields. Frontends
+should use `AppKernel::execute_command_captured` and
+`CommandResult::from_execution`, returning each opaque request token unchanged to
+`PluginHost::store_command_results`; the host restores the plugin-local ID.

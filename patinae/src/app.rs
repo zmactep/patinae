@@ -711,15 +711,15 @@ impl App {
                 .renderer
                 .as_mut()
                 .map(|r| r as &mut dyn CaptureRenderer);
-            let result = self
-                .kernel
-                .execute_command(&request.command, request.silent, rc, viewport_size)
-                .map(|_| ())
-                .map_err(|e| e.to_string());
-            results.push(patinae_plugin_host::CommandResult {
-                id: request.id,
-                result,
-            });
+            let result = self.kernel.execute_command_captured(
+                &request.command,
+                request.silent,
+                rc,
+                viewport_size,
+            );
+            results.push(patinae_plugin_host::CommandResult::from_execution(
+                request.id, result,
+            ));
         }
         self.plugins.store_command_results(results);
 

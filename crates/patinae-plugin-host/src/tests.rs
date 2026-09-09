@@ -285,6 +285,7 @@ fn lightweight_command_output_does_not_replace_host_session() {
     session.registry.add(GroupObject::new("keep_group"));
     let replacement = Session::new();
     let output = WireCommandOutput {
+        deferred: false,
         wire_version: RUNTIME_WIRE_VERSION,
         result: Ok(()),
         output: Vec::new(),
@@ -349,6 +350,7 @@ fn command_output_without_viewport_change_keeps_gpu_viewport_image() {
     let mut session = Session::new();
     let mut renderer = ClearCountingRenderer { clears: 0 };
     let output = WireCommandOutput {
+        deferred: false,
         wire_version: RUNTIME_WIRE_VERSION,
         result: Ok(()),
         output: Vec::new(),
@@ -379,6 +381,7 @@ fn command_output_with_viewport_clear_drops_gpu_viewport_image() {
     let mut session = Session::new();
     let mut renderer = ClearCountingRenderer { clears: 0 };
     let output = WireCommandOutput {
+        deferred: false,
         wire_version: RUNTIME_WIRE_VERSION,
         result: Ok(()),
         output: Vec::new(),
@@ -824,6 +827,7 @@ unsafe extern "C" fn fixture_command_execute(
         return AbiStatus::INVALID;
     }
     let output = WireCommandOutput {
+        deferred: false,
         wire_version: RUNTIME_WIRE_VERSION,
         result: Ok(()),
         output: vec![OutputMessage::info("fixture command executed")],
@@ -1669,3 +1673,5 @@ fn loads_built_reference_plugins() {
     assert!(host.toggle_panel("rt_toolbar"));
     assert_panel(&host, "rt_toolbar", false, false);
 }
+
+mod command_results;

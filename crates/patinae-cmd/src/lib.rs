@@ -67,7 +67,7 @@ pub use commands::measuring::{
 };
 pub use dynamic::{DynamicCommand, DynamicCommandInvocation};
 pub use error::{CmdError, CmdResult, ParseError};
-pub use executor::{CommandExecutor, CommandOutput};
+pub use executor::{CommandExecution, CommandExecutor, CommandOutput};
 pub use history::CommandHistory;
 pub use parser::{join_continued_lines, parse_command, parse_commands};
 pub use script::ScriptEngine;

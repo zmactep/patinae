@@ -85,7 +85,7 @@ impl Command for DynamicCommand {
 
     fn execute<'v, 'r>(
         &self,
-        _ctx: &mut CommandContext<'v, 'r, dyn ViewerLike + 'v>,
+        ctx: &mut CommandContext<'v, 'r, dyn ViewerLike + 'v>,
         args: &ParsedCommand,
     ) -> CmdResult {
         let arg_strings: Vec<String> = args.args.iter().map(|(_, v)| v.to_string()).collect();
@@ -95,6 +95,7 @@ impl Command for DynamicCommand {
                 name: self.name.clone(),
                 args: arg_strings,
             });
+            ctx.mark_deferred();
         }
 
         // Always succeeds -- actual handling is asynchronous in the plugin.

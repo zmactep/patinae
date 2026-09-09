@@ -173,6 +173,7 @@ fn submit_atom_command(
         code,
         origin: WorkOrigin::Command,
     });
+    ctx.mark_deferred();
 
     Ok(())
 }
@@ -228,6 +229,7 @@ impl Command for PythonCommand {
             code: code.to_string(),
             origin: WorkOrigin::Command,
         });
+        ctx.mark_deferred();
 
         Ok(())
     }

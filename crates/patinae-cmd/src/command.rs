@@ -409,6 +409,7 @@ pub struct CommandContext<'v, 'r, V: ViewerLike + ?Sized> {
     loaded_plugin_capabilities: Option<&'r [LoadedPluginCapability]>,
     /// Host-provided async request sink.
     async_command_sink: Option<AsyncCommandSink<'r>>,
+    deferred: bool,
 }
 
 impl<'v, 'r, V: ViewerLike + ?Sized> CommandContext<'v, 'r, V> {
@@ -426,6 +427,7 @@ impl<'v, 'r, V: ViewerLike + ?Sized> CommandContext<'v, 'r, V> {
             dynamic_settings: None,
             loaded_plugin_capabilities: None,
             async_command_sink: None,
+            deferred: false,
         }
     }
 
@@ -600,10 +602,23 @@ impl<'v, 'r, V: ViewerLike + ?Sized> CommandContext<'v, 'r, V> {
     /// Returns `true` when the host accepted the request. Commands should use
     /// their synchronous path when this returns `false`.
     pub fn submit_async_request(&mut self, request: AsyncCommandRequest) -> bool {
-        self.async_command_sink
+        let accepted = self
+            .async_command_sink
             .as_deref_mut()
             .map(|sink| sink(request))
-            .unwrap_or(false)
+            .unwrap_or(false);
+        self.deferred |= accepted;
+        accepted
+    }
+
+    /// Mark command work as queued rather than completed.
+    pub fn mark_deferred(&mut self) {
+        self.deferred = true;
+    }
+
+    /// Whether this command queued work that has not completed.
+    pub fn is_deferred(&self) -> bool {
+        self.deferred
     }
 
     /// Print an info message (unless quiet mode is enabled)

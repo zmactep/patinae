@@ -7,7 +7,7 @@
 use lin_alg::f32::Vec3;
 use patinae_cmd::{
     AnnotationOutcome, AnnotationRequest, AsyncCommandRequest, CmdError, CommandAction,
-    CommandExecutor, CommandOutput, FetchRequest, MessageKind, ViewerLike,
+    CommandExecution, CommandExecutor, CommandOutput, FetchRequest, MessageKind, ViewerLike,
 };
 use patinae_mol::ObjectMolecule;
 use patinae_scene::{
@@ -104,6 +104,33 @@ impl AppKernel {
             render_context,
             viewport_size,
             CommandFailureOutput::Error,
+            false,
+        )
+        .into_result()
+    }
+
+    /// Execute a command while capturing messages independently of UI silence.
+    ///
+    /// Actions are applied here exactly once. The returned output is a report,
+    /// not a request to dispatch those actions again. Silent execution retains
+    /// error display but suppresses informational output, warnings, and echo.
+    ///
+    /// # Errors
+    /// Returns the original parsing or command execution error.
+    pub fn execute_command_captured<'a>(
+        &'a mut self,
+        cmd: &str,
+        silent: bool,
+        render_context: Option<&'a mut (dyn CaptureRenderer + 'a)>,
+        viewport_size: (u32, u32),
+    ) -> CommandExecution {
+        self.execute_command_with_failure_output(
+            cmd,
+            silent,
+            render_context,
+            viewport_size,
+            CommandFailureOutput::Error,
+            true,
         )
     }
 
@@ -121,7 +148,9 @@ impl AppKernel {
             render_context,
             viewport_size,
             CommandFailureOutput::Warning,
+            false,
         )
+        .into_result()
     }
 
     fn execute_command_with_failure_output<'a>(
@@ -131,7 +160,8 @@ impl AppKernel {
         render_context: Option<&'a mut (dyn CaptureRenderer + 'a)>,
         viewport_size: (u32, u32),
         failure_output: CommandFailureOutput,
-    ) -> Result<CommandOutput, CmdError> {
+        capture_output: bool,
+    ) -> CommandExecution {
         if !quiet {
             self.output.print_command(cmd);
         }
@@ -157,17 +187,28 @@ impl AppKernel {
             tasks.spawn_boxed(task);
             true
         };
-        let result = executor.do_with_async_sink(&mut adapter, cmd, quiet, Some(&mut async_sink));
+        let mut execution = executor.execute_captured(
+            &mut adapter,
+            cmd,
+            quiet && !capture_output,
+            Some(&mut async_sink),
+        );
 
-        match &result {
-            Ok(output) => {
-                for msg in &output.messages {
-                    match msg.kind {
-                        MessageKind::Info => self.output.print_info(&msg.text),
-                        MessageKind::Warning => self.output.print_warning(&msg.text),
-                        MessageKind::Error => self.output.print_error(&msg.text),
-                    }
+        let output = &mut execution.output;
+        if execution.result.is_ok() || capture_output {
+            for msg in &output.messages {
+                if quiet && capture_output && msg.kind != MessageKind::Error {
+                    continue;
                 }
+                match msg.kind {
+                    MessageKind::Info => self.output.print_info(&msg.text),
+                    MessageKind::Warning => self.output.print_warning(&msg.text),
+                    MessageKind::Error => self.output.print_error(&msg.text),
+                }
+            }
+        }
+        match &execution.result {
+            Ok(()) => {
                 if !quiet {
                     if let Some(d) = output.duration {
                         self.output.print_timing(format_duration(d));
@@ -193,13 +234,18 @@ impl AppKernel {
                     }
                 }
             }
-            Err(e) => match failure_output {
-                CommandFailureOutput::Error => self.output.print_error(e.to_string()),
-                CommandFailureOutput::Warning => self.output.print_warning(e.to_string()),
-            },
+            Err(e) => {
+                match failure_output {
+                    CommandFailureOutput::Error => self.output.print_error(e.to_string()),
+                    CommandFailureOutput::Warning => self.output.print_warning(e.to_string()),
+                }
+                output
+                    .messages
+                    .push(patinae_cmd::OutputMessage::error(e.to_string()));
+            }
         }
 
-        result
+        execution
     }
 
     /// Executes one typed native annotation request.
