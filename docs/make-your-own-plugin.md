@@ -742,6 +742,42 @@ ctx.viewer.set_viewport_image(Some(ViewportImage {
 }));
 ```
 
+### Read or modify a full session
+
+`CommandRuntimeRequirements::FULL_SESSION` requests a complete session snapshot.
+It remains the default for `Command::runtime_requirements()`. Read that snapshot
+through `ctx.viewer.session()` or other immutable viewer accessors:
+
+```rust
+let count = ctx.viewer.session().registry.len();
+ctx.print(&format!("Objects: {count}"));
+```
+
+Immutable access does not return a replacement session. Inspection therefore
+preserves host object identity, dirty flags, state generations, and scene
+invalidation state. The full input snapshot still incurs serialization and
+transfer costs and remains subject to the runtime payload limit.
+
+To modify the session, use the existing mutable accessors (`session_mut()`,
+`objects_mut()`, `settings_mut()`, and the other sub-manager accessors) or viewer
+mutation methods. The SDK treats mutable access as a request to write back the
+session, even when the value is unchanged. On success, the host applies the
+returned session as a whole. Existing modifying commands need no source changes.
+Use immutable accessors for inspection, even when a mutable context is available.
+
+At the wire boundary, an empty `WireCommandOutput.session` byte vector means
+**no replacement**. A serialized empty `Session` means **replace with an empty
+session**. The host applies a nonempty replacement only when the command requested
+`FULL_SESSION` and returned `Ok(())`. On `Err`, the SDK omits the replacement and
+the host ignores any session bytes, including malformed ones, while preserving
+command diagnostics. A malformed replacement on success fails without replacing
+the session.
+
+Commands without `FULL_SESSION` continue to receive a lightweight snapshot and
+cannot replace the host session through the command response. Viewport images
+and GPU callbacks retain their separate behavior. This is not transaction support
+for effects already performed through host callbacks or external resources.
+
 ### Displayed geometry
 
 Use `DISPLAYED_GEOMETRY` for renderer-neutral visible primitives: meshes,
@@ -972,7 +1008,8 @@ fn poll(&mut self, ctx: &mut PollContext<'_>) {
 }
 ```
 
-Runtime MessagePack wire version **14** carries these fields and command deferral.
+Runtime MessagePack wire version **15** carries these fields, command deferral,
+and the optional session replacement contract described above.
 Rebuild the host and dynamic plugins from the same SDK revision. Older runtime
 payloads are incompatible and rejected, not silently interpreted as empty
 results. The C declaration layout is unchanged, so `ABI_VERSION` remains 6.

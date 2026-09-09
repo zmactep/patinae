@@ -76,9 +76,17 @@ pub trait ViewerLike {
     fn request_redraw(&mut self);
 
     /// Get a reference to the full session
+    ///
+    /// In dynamic plugin commands, this reads the supplied snapshot without
+    /// requesting replacement of the host session. Request `FULL_SESSION` to
+    /// include objects and selections in that snapshot.
     fn session(&self) -> &Session;
 
     /// Get a mutable reference to the full session
+    ///
+    /// In dynamic plugin commands requesting `FULL_SESSION`, mutable access
+    /// requests host session replacement on success, even if no value changes.
+    /// The same rule applies to mutable accessors for session sub-managers.
     fn session_mut(&mut self) -> &mut Session;
 
     /// Reconcile durable recent atom paths against current scene state.

@@ -338,7 +338,12 @@ impl CommandRuntimeRequirements {
     /// The command needs host-resolved displayed geometry.
     pub const DISPLAYED_GEOMETRY: Self = Self { bits: 1 << 0 };
 
-    /// The command needs a full serialized session.
+    /// The command needs a full serialized session snapshot.
+    ///
+    /// Reading through immutable viewer accessors does not request writeback.
+    /// The dynamic plugin SDK returns a replacement only after mutable session
+    /// access or a session mutation, and only when the command succeeds.
+    /// Mutable access conservatively requests writeback even without a value change.
     pub const FULL_SESSION: Self = Self { bits: 1 << 1 };
 
     /// The command needs a host-streamed compact trace geometry source.

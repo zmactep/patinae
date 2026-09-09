@@ -770,13 +770,18 @@ unsafe extern "C" fn plugin_command_execute(
                 ctx.is_deferred(),
             )
         };
+        let session = if result.is_ok() && viewer.session_write_requested {
+            wire::encode_session(viewer.session())?
+        } else {
+            Vec::new()
+        };
         let output = WireCommandOutput {
             deferred,
             wire_version: RUNTIME_WIRE_VERSION,
             result,
             output,
             actions,
-            session: wire::encode_session(viewer.session())?,
+            session,
             viewport_image: viewer.viewport_image_ref().cloned(),
             viewport_image_changed: viewer.viewport_image_changed,
         };
@@ -1776,6 +1781,8 @@ fn validate_runtime_response_id(
 
 struct RuntimeViewer {
     session: patinae_scene::Session,
+    // Mutable access conservatively requests writeback, even if the value is unchanged.
+    session_write_requested: bool,
     viewport_size: (u32, u32),
     displayed_geometry: Option<crate::wire::WireDisplayedGeometry>,
     displayed_geometry_spool: Option<crate::wire::WireDisplayedGeometrySpool>,
@@ -1798,6 +1805,7 @@ impl RuntimeViewer {
         }
         Ok(Self {
             session: wire::decode_session(bytes)?,
+            session_write_requested: false,
             viewport_size: (width, height),
             displayed_geometry,
             displayed_geometry_spool,
@@ -1814,7 +1822,7 @@ impl ViewerLike for RuntimeViewer {
     }
 
     fn objects_mut(&mut self) -> &mut patinae_scene::ObjectRegistry {
-        &mut self.session.registry
+        &mut self.session_mut().registry
     }
 
     fn camera(&self) -> &patinae_scene::Camera {
@@ -1822,7 +1830,7 @@ impl ViewerLike for RuntimeViewer {
     }
 
     fn camera_mut(&mut self) -> &mut patinae_scene::Camera {
-        &mut self.session.camera
+        &mut self.session_mut().camera
     }
 
     fn settings(&self) -> &patinae_settings::Settings {
@@ -1830,7 +1838,7 @@ impl ViewerLike for RuntimeViewer {
     }
 
     fn settings_mut(&mut self) -> &mut patinae_settings::Settings {
-        &mut self.session.settings
+        &mut self.session_mut().settings
     }
 
     fn request_redraw(&mut self) {
@@ -1842,16 +1850,19 @@ impl ViewerLike for RuntimeViewer {
     }
 
     fn session_mut(&mut self) -> &mut patinae_scene::Session {
+        self.session_write_requested = true;
         &mut self.session
     }
 
     fn replace_session(&mut self, session: patinae_scene::Session) {
+        self.session_write_requested = true;
         self.session = session;
         self.redraw_requested = true;
         self.viewport_image_changed = true;
     }
 
     fn scene_store(&mut self, key: &str, storemask: u32) {
+        self.session_write_requested = true;
         let mask = patinae_scene::SceneStoreMask::from_bits_truncate(storemask);
         self.session
             .scenes
@@ -1860,6 +1871,7 @@ impl ViewerLike for RuntimeViewer {
     }
 
     fn scene_recall(&mut self, key: &str, animate: bool, duration: f32) -> Result<(), String> {
+        self.session_write_requested = true;
         self.session
             .scenes
             .recall(
@@ -1875,6 +1887,7 @@ impl ViewerLike for RuntimeViewer {
     }
 
     fn view_recall(&mut self, key: &str, animate: f32) -> Result<(), String> {
+        self.session_write_requested = true;
         self.session
             .views
             .recall(key, &mut self.session.camera, animate)
@@ -1888,7 +1901,7 @@ impl ViewerLike for RuntimeViewer {
     }
 
     fn movie_mut(&mut self) -> &mut patinae_scene::Movie {
-        &mut self.session.movie
+        &mut self.session_mut().movie
     }
 
     fn scenes(&self) -> &patinae_scene::SceneManager {
@@ -1896,7 +1909,7 @@ impl ViewerLike for RuntimeViewer {
     }
 
     fn scenes_mut(&mut self) -> &mut patinae_scene::SceneManager {
-        &mut self.session.scenes
+        &mut self.session_mut().scenes
     }
 
     fn views(&self) -> &patinae_scene::ViewManager {
@@ -1904,7 +1917,7 @@ impl ViewerLike for RuntimeViewer {
     }
 
     fn views_mut(&mut self) -> &mut patinae_scene::ViewManager {
-        &mut self.session.views
+        &mut self.session_mut().views
     }
 
     fn selections(&self) -> &patinae_scene::SelectionManager {
@@ -1912,7 +1925,7 @@ impl ViewerLike for RuntimeViewer {
     }
 
     fn selections_mut(&mut self) -> &mut patinae_scene::SelectionManager {
-        &mut self.session.selections
+        &mut self.session_mut().selections
     }
 
     fn named_palette(&self) -> &patinae_scene::NamedPalette {
@@ -1920,7 +1933,7 @@ impl ViewerLike for RuntimeViewer {
     }
 
     fn named_palette_mut(&mut self) -> &mut patinae_scene::NamedPalette {
-        &mut self.session.named_palette
+        &mut self.session_mut().named_palette
     }
 
     fn clear_color(&self) -> [f32; 3] {
@@ -1928,6 +1941,7 @@ impl ViewerLike for RuntimeViewer {
     }
 
     fn set_clear_color(&mut self, color: [f32; 3]) {
+        self.session_write_requested = true;
         self.session.clear_color = color;
         self.session.clear_color_set = true;
         self.redraw_requested = true;
@@ -2282,6 +2296,7 @@ impl RuntimeShared {
         Ok(Self {
             viewer: RuntimeViewer {
                 session,
+                session_write_requested: false,
                 viewport_size: (0, 0),
                 displayed_geometry: None,
                 displayed_geometry_spool: None,
@@ -2404,5 +2419,137 @@ fn side_effect_to_abi(side_effect: patinae_settings::SideEffectCategory) -> u8 {
         }
         patinae_settings::SideEffectCategory::FullRebuild => SIDE_EFFECT_FULL_REBUILD,
         patinae_settings::SideEffectCategory::ViewportUpdate => SIDE_EFFECT_VIEWPORT_UPDATE,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Session access and mutation tracking in the command SDK adapter.
+
+    use super::*;
+
+    fn viewer() -> RuntimeViewer {
+        let mut session = patinae_scene::Session::new();
+        session
+            .registry
+            .add(patinae_scene::GroupObject::new("keep"));
+        session.views.store("saved", &session.camera);
+        session.scenes.store(
+            "saved",
+            patinae_scene::SceneStoreMask::all(),
+            &session.camera,
+            &session.registry,
+        );
+        RuntimeViewer::from_session_bytes(
+            &wire::encode_session(&session).unwrap(),
+            64,
+            64,
+            Some(wire::WireDisplayedGeometry {
+                objects: Vec::new(),
+            }),
+            None,
+            None,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn immutable_access_and_geometry_reads_do_not_request_session_writeback() {
+        let mut viewer = viewer();
+        let before = wire::encode_session(viewer.session()).unwrap();
+        assert_eq!(viewer.session().registry.len(), 1);
+        let _ = (
+            viewer.objects(),
+            viewer.camera(),
+            viewer.settings(),
+            viewer.movie(),
+            viewer.scenes(),
+            viewer.views(),
+            viewer.selections(),
+            viewer.named_palette(),
+            viewer.clear_color(),
+            viewer.viewport_image_ref(),
+            viewer.viewport_size(),
+        );
+        let options = patinae_render::GeometryExportOptions::default();
+        viewer.export_displayed_geometry(&options).unwrap();
+        viewer
+            .for_each_displayed_geometry_chunk(&options, &mut |_| Ok(()))
+            .unwrap();
+        viewer
+            .for_each_trace_geometry_chunk(&options, &mut |_| Ok(()))
+            .unwrap();
+        viewer.request_redraw();
+        assert!(!viewer.session_write_requested);
+        assert_eq!(wire::encode_session(viewer.session()).unwrap(), before);
+    }
+
+    #[test]
+    fn every_local_mutation_path_requests_session_writeback() {
+        type Mutation = fn(&mut RuntimeViewer);
+        let operations: &[(&str, Mutation)] = &[
+            ("session_mut", |v| {
+                v.session_mut();
+            }),
+            ("objects_mut", |v| {
+                v.objects_mut();
+            }),
+            ("camera_mut", |v| {
+                v.camera_mut();
+            }),
+            ("settings_mut", |v| {
+                v.settings_mut();
+            }),
+            ("movie_mut", |v| {
+                v.movie_mut();
+            }),
+            ("scenes_mut", |v| {
+                v.scenes_mut();
+            }),
+            ("views_mut", |v| {
+                v.views_mut();
+            }),
+            ("selections_mut", |v| {
+                v.selections_mut();
+            }),
+            ("named_palette_mut", |v| {
+                v.named_palette_mut();
+            }),
+            ("replace_session", |v| {
+                v.replace_session(patinae_scene::Session::new())
+            }),
+            ("scene_store", |v| v.scene_store("new", u32::MAX)),
+            ("scene_recall", |v| {
+                v.scene_recall("saved", false, 0.0).unwrap()
+            }),
+            ("view_recall", |v| v.view_recall("saved", 0.0).unwrap()),
+            ("set_clear_color", |v| v.set_clear_color([0.2, 0.3, 0.4])),
+        ];
+        for (name, operation) in operations {
+            let mut viewer = viewer();
+            assert!(!viewer.session_write_requested);
+            operation(&mut viewer);
+            assert!(
+                viewer.session_write_requested,
+                "{name} must request writeback"
+            );
+        }
+    }
+
+    #[test]
+    fn viewport_updates_use_their_separate_response_channel() {
+        let mut viewer = viewer();
+        viewer.set_viewport_image(Some(patinae_scene::ViewportImage {
+            data: vec![255; 4],
+            width: 1,
+            height: 1,
+        }));
+        assert!(viewer.viewport_image_changed);
+        assert!(viewer.viewport_image_ref().is_some());
+        assert!(!viewer.session_write_requested);
+        viewer.set_viewport_image(None);
+        assert!(viewer.viewport_image_changed);
+        assert!(viewer.viewport_image_ref().is_none());
+        assert!(!viewer.session_write_requested);
     }
 }

@@ -5581,7 +5581,10 @@ pub(crate) fn apply_command_output<V: ViewerLike + ?Sized>(
     if output.deferred {
         ctx.mark_deferred();
     }
-    if runtime_requirements.contains(CommandRuntimeRequirements::FULL_SESSION) {
+    if runtime_requirements.contains(CommandRuntimeRequirements::FULL_SESSION)
+        && output.result.is_ok()
+        && !output.session.is_empty()
+    {
         let session = wire::decode_session(&output.session).map_err(CmdError::execution)?;
         ctx.viewer.replace_session(session);
     }
@@ -6076,6 +6079,329 @@ mod loader_tests {
     use super::*;
     use patinae_mol::AtomIndex;
     use patinae_scene::GpuFragmentState;
+
+    struct SessionFixtureCommand;
+
+    impl Command for SessionFixtureCommand {
+        fn name(&self) -> &str {
+            "session_fixture"
+        }
+
+        // Exercise the existing FULL_SESSION default without overriding requirements.
+        fn execute<'v, 'r>(
+            &self,
+            ctx: &mut CommandContext<'v, 'r, dyn ViewerLike + 'v>,
+            args: &ParsedCommand,
+        ) -> CmdResult {
+            ctx.print("session diagnostic");
+            match args.get_str(0).unwrap_or("read") {
+                "read" => {
+                    let session = ctx.viewer.session();
+                    assert_eq!(session.registry.len(), 1);
+                    assert_eq!(session.selections.get_expression("selected"), Some("obj"));
+                    assert!(session.viewport_image.is_some());
+                }
+                "write" | "fail" => {
+                    ctx.viewer
+                        .objects_mut()
+                        .add(patinae_scene::GroupObject::new("added"));
+                    ctx.viewer
+                        .selections_mut()
+                        .define("added_selection", "added");
+                    ctx.viewer.set_clear_color([0.2, 0.3, 0.4]);
+                    if args.get_str(0) == Some("fail") {
+                        return Err(CmdError::execution("session fixture failure"));
+                    }
+                }
+                "mutable" => {
+                    ctx.viewer.session_mut();
+                }
+                "clear" => ctx.viewer.replace_session(Session::new()),
+                _ => return Err(CmdError::execution("unknown fixture operation")),
+            }
+            Ok(())
+        }
+    }
+
+    struct LightweightFixtureCommand;
+
+    impl Command for LightweightFixtureCommand {
+        fn name(&self) -> &str {
+            "lightweight_fixture"
+        }
+
+        fn runtime_requirements(&self) -> CommandRuntimeRequirements {
+            CommandRuntimeRequirements::NONE
+        }
+
+        fn execute<'v, 'r>(
+            &self,
+            ctx: &mut CommandContext<'v, 'r, dyn ViewerLike + 'v>,
+            _args: &ParsedCommand,
+        ) -> CmdResult {
+            assert!(ctx.viewer.objects().is_empty());
+            ctx.viewer
+                .objects_mut()
+                .add(patinae_scene::GroupObject::new("ignored"));
+            ctx.viewer
+                .set_viewport_image(Some(patinae_scene::ViewportImage {
+                    data: vec![9; 4],
+                    width: 1,
+                    height: 1,
+                }));
+            ctx.print("lightweight diagnostic");
+            ctx.show_panel("fixture-panel");
+            ctx.mark_deferred();
+            Ok(())
+        }
+    }
+
+    unsafe extern "C" fn register_session_fixture(
+        handle: HostRegistrarHandle,
+        callbacks: *const HostCallbacks,
+    ) -> AbiStatus {
+        // SAFETY: PluginHost supplies these arguments for this registration call.
+        let Ok(mut registrar) =
+            (unsafe { patinae_plugin::registrar::PluginRegistrar::from_abi(handle, callbacks) })
+        else {
+            return AbiStatus::INVALID;
+        };
+        registrar.set_metadata(PluginMetadata::new(
+            "session-fixture",
+            "1.0",
+            "Session fixture",
+        ));
+        registrar.register_command(SessionFixtureCommand);
+        registrar.register_command(LightweightFixtureCommand);
+        registrar.finish()
+    }
+
+    struct SessionFixture {
+        _host: PluginHost,
+        executor: CommandExecutor,
+        session: Session,
+        needs_redraw: bool,
+    }
+
+    impl SessionFixture {
+        fn new() -> Self {
+            let mut host = PluginHost::new();
+            let mut executor = CommandExecutor::new();
+            let declaration = PluginDeclaration {
+                abi_version: ABI_VERSION,
+                sdk_version: AbiStr::from_static(SDK_VERSION),
+                capabilities: CAPABILITY_REGISTRATION | patinae_plugin::ffi::CAPABILITY_COMMANDS,
+                init: None,
+                register: Some(register_session_fixture),
+            };
+            load_declaration_for_test(&mut host, &mut executor, declaration).unwrap();
+            let mut session = Session::new();
+            let mut molecule = ObjectMolecule::new("obj");
+            molecule.add_atom(patinae_mol::Atom {
+                name: "CA".into(),
+                ..Default::default()
+            });
+            let mut object = patinae_scene::MoleculeObject::new(molecule);
+            object.clear_dirty();
+            session.registry.add(object);
+            session.selections.define("selected", "obj");
+            // Detect unintended reconciliation as well as replacement during inspection.
+            session.recent_atoms.insert(
+                "stale",
+                patinae_settings::groups::RecentPickLimit::Unlimited,
+            );
+            session.viewport_image = Some(patinae_scene::ViewportImage {
+                data: vec![7; 4],
+                width: 1,
+                height: 1,
+            });
+            Self {
+                _host: host,
+                executor,
+                session,
+                needs_redraw: false,
+            }
+        }
+
+        fn viewer(&mut self) -> patinae_scene::SessionAdapter<'_> {
+            patinae_scene::SessionAdapter {
+                session: &mut self.session,
+                render_context: None,
+                default_size: (64, 64),
+                needs_redraw: &mut self.needs_redraw,
+                async_fetch_fn: None,
+            }
+        }
+
+        fn execute(&mut self, command: &str) -> patinae_cmd::CommandExecution {
+            let mut viewer = patinae_scene::SessionAdapter {
+                session: &mut self.session,
+                render_context: None,
+                default_size: (64, 64),
+                needs_redraw: &mut self.needs_redraw,
+                async_fetch_fn: None,
+            };
+            self.executor
+                .execute_captured(&mut viewer, command, false, None)
+        }
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct SessionState {
+        bytes: Vec<u8>,
+        generations: [u64; 4],
+        object_address: usize,
+        dirty_flags: patinae_scene::DirtyFlags,
+    }
+
+    impl SessionState {
+        fn capture(session: &Session) -> Self {
+            let object = session.registry.get_molecule("obj").unwrap();
+            Self {
+                bytes: wire::encode_session(session).unwrap(),
+                generations: [
+                    session.registry.generation(),
+                    session.selections.generation(),
+                    session.recent_atoms.generation(),
+                    session.recent_atoms.incarnation(),
+                ],
+                object_address: std::ptr::from_ref(object) as usize,
+                dirty_flags: object.dirty_flags(),
+            }
+        }
+    }
+
+    #[test]
+    fn full_session_reads_preserve_host_identity_generations_and_scene_state() {
+        let mut fixture = SessionFixture::new();
+        let before = SessionState::capture(&fixture.session);
+        for _ in 0..3 {
+            let execution = fixture.execute("session_fixture read");
+            assert!(execution.result.is_ok(), "{:?}", execution.result);
+            assert_eq!(execution.output.messages[0].text, "session diagnostic");
+            assert_eq!(SessionState::capture(&fixture.session), before);
+            assert!(!fixture.needs_redraw);
+        }
+    }
+
+    #[test]
+    fn full_session_mutations_apply_only_on_success() {
+        let mut fixture = SessionFixture::new();
+        let before = SessionState::capture(&fixture.session);
+        let failed = fixture.execute("session_fixture fail");
+        assert!(failed
+            .result
+            .unwrap_err()
+            .to_string()
+            .contains("session fixture failure"));
+        assert_eq!(failed.output.messages[0].text, "session diagnostic");
+        assert_eq!(SessionState::capture(&fixture.session), before);
+        assert!(!fixture.needs_redraw);
+
+        assert!(fixture.execute("session_fixture write").result.is_ok());
+        assert!(fixture.session.registry.get("obj").is_some());
+        assert!(fixture.session.registry.get("added").is_some());
+        assert_eq!(
+            fixture.session.selections.get_expression("added_selection"),
+            Some("added")
+        );
+        assert_eq!(fixture.session.clear_color, [0.2, 0.3, 0.4]);
+        assert!(fixture.needs_redraw);
+    }
+
+    #[test]
+    fn mutable_access_and_explicit_empty_session_request_replacement() {
+        let mut fixture = SessionFixture::new();
+        let incarnation = fixture.session.recent_atoms.incarnation();
+        assert!(fixture.execute("session_fixture mutable").result.is_ok());
+        assert_ne!(fixture.session.recent_atoms.incarnation(), incarnation);
+        assert!(fixture.needs_redraw);
+        fixture.needs_redraw = false;
+        assert!(fixture.execute("session_fixture clear").result.is_ok());
+        assert!(fixture.session.registry.is_empty());
+        assert!(fixture.session.viewport_image.is_none());
+        assert!(fixture.needs_redraw);
+    }
+
+    #[test]
+    fn lightweight_commands_keep_viewport_output_actions_and_deferral() {
+        let mut fixture = SessionFixture::new();
+        let before = SessionState::capture(&fixture.session);
+        let original_image = fixture.session.viewport_image.clone();
+        let execution = fixture.execute("lightweight_fixture");
+        assert!(execution.result.is_ok());
+        assert!(execution.output.deferred);
+        assert_eq!(execution.output.messages[0].text, "lightweight diagnostic");
+        assert!(
+            matches!(&execution.output.actions[..], [CommandAction::ShowPanel(id)] if id == "fixture-panel")
+        );
+        assert_eq!(
+            fixture.session.viewport_image.as_ref().unwrap().data,
+            vec![9; 4]
+        );
+        // The separate viewport slot is the only expected session difference.
+        fixture.session.viewport_image = original_image;
+        assert_eq!(SessionState::capture(&fixture.session), before);
+    }
+
+    #[test]
+    fn command_response_requires_success_and_a_valid_requested_replacement() {
+        for requirements in [
+            CommandRuntimeRequirements::FULL_SESSION,
+            CommandRuntimeRequirements::NONE,
+        ] {
+            for result in [Ok(()), Err("fixture failure".to_string())] {
+                for session in [
+                    Vec::new(),
+                    vec![0xc1],
+                    wire::encode_session(&Session::new()).unwrap(),
+                ] {
+                    let mut fixture = SessionFixture::new();
+                    let before = SessionState::capture(&fixture.session);
+                    let replacement_requested = requirements
+                        .contains(CommandRuntimeRequirements::FULL_SESSION)
+                        && result.is_ok()
+                        && !session.is_empty();
+                    let malformed = session == [0xc1];
+                    let output = WireCommandOutput {
+                        wire_version: RUNTIME_WIRE_VERSION,
+                        deferred: false,
+                        result: result.clone(),
+                        output: vec![patinae_cmd::OutputMessage::info("diagnostic")],
+                        actions: Vec::new(),
+                        session,
+                        viewport_image: None,
+                        viewport_image_changed: false,
+                    };
+                    let applied = {
+                        let mut viewer = fixture.viewer();
+                        let mut ctx = CommandContext::new(&mut viewer);
+                        let applied = apply_command_output(&mut ctx, output, requirements);
+                        if result.is_err() {
+                            assert_eq!(ctx.take_output()[0].text, "diagnostic");
+                            assert!(applied
+                                .as_ref()
+                                .unwrap_err()
+                                .to_string()
+                                .contains("fixture failure"));
+                        }
+                        applied
+                    };
+                    assert_eq!(
+                        applied.is_ok(),
+                        result.is_ok() && !(replacement_requested && malformed)
+                    );
+                    if replacement_requested && !malformed {
+                        assert!(fixture.session.registry.is_empty());
+                        assert!(fixture.needs_redraw);
+                    } else {
+                        assert_eq!(SessionState::capture(&fixture.session), before);
+                        assert!(!fixture.needs_redraw);
+                    }
+                }
+            }
+        }
+    }
 
     struct TraceFixtureViewer {
         session: Session,

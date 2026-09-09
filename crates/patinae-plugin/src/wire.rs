@@ -34,7 +34,7 @@ use patinae_settings::{
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 /// Runtime wire version for MessagePack DTOs.
-pub const RUNTIME_WIRE_VERSION: u32 = 14;
+pub const RUNTIME_WIRE_VERSION: u32 = 15;
 
 /// Maximum MessagePack payload copied across the runtime ABI.
 pub const MAX_WIRE_PAYLOAD_LEN: usize = 64 * 1024 * 1024;
@@ -788,7 +788,10 @@ pub struct WireCommandOutput {
     pub output: Vec<OutputMessage>,
     /// Host actions requested by the command.
     pub actions: Vec<CommandAction>,
-    /// MessagePack-encoded updated [`Session`].
+    /// MessagePack-encoded replacement [`Session`], or empty bytes for no replacement.
+    ///
+    /// Applied only for successful commands requesting a full session. Encoding an
+    /// empty `Session` still requests replacement; an empty byte vector does not.
     pub session: Vec<u8>,
     /// Viewport image set by the plugin, if any.
     pub viewport_image: Option<ViewportImage>,
@@ -1184,7 +1187,7 @@ mod tests {
             decoded.recent_atoms.paths().collect::<Vec<_>>(),
             paths.iter().map(String::as_str).collect::<Vec<_>>()
         );
-        assert_eq!(RUNTIME_WIRE_VERSION, 14);
+        assert_eq!(RUNTIME_WIRE_VERSION, 15);
     }
 
     #[test]
