@@ -690,6 +690,19 @@ patinae_plugin! {
 }
 ```
 
+Each poll includes these string lists in `ctx.poll_shared`:
+
+- `object_names`: loaded object names in scene order.
+- `selection_names`: all named selections in lexicographic order, including hidden,
+  empty, and special selections such as `indicate`. Generated `pkN` aliases are not
+  added to this list.
+- `pick_paths`: unmodified canonical paths from Recent Atoms in list order,
+  including any instance qualifiers. The first entry corresponds to `pk1`, the
+  second to `pk2`; removing an entry shifts subsequent indices.
+
+An empty list means there are no entries. These lists copy names and paths without
+evaluating selections or serializing the full session.
+
 Important `PollContext` methods:
 
 | Need | API |
@@ -1008,7 +1021,7 @@ fn poll(&mut self, ctx: &mut PollContext<'_>) {
 }
 ```
 
-Runtime MessagePack wire version **15** carries these fields, command deferral,
+Runtime MessagePack wire version **16** carries these fields, command deferral,
 and the optional session replacement contract described above.
 Rebuild the host and dynamic plugins from the same SDK revision. Older runtime
 payloads are incompatible and rejected, not silently interpreted as empty

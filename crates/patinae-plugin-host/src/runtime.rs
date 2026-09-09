@@ -252,10 +252,14 @@ impl PluginHost {
 }
 
 fn poll_shared_input_from_context(ctx: &SharedContext<'_>) -> WirePollSharedInput {
+    let mut selection_names = ctx.selections.names();
+    selection_names.sort_unstable();
     WirePollSharedInput {
         wire_version: RUNTIME_WIRE_VERSION,
         scene_generation: ctx.scene_generation,
         object_names: ctx.registry.names().map(ToOwned::to_owned).collect(),
+        selection_names,
+        pick_paths: ctx.recent_atoms.paths().map(ToOwned::to_owned).collect(),
         camera: ctx.camera.clone(),
         movie: patinae_scene::MovieStateSnapshot {
             frame_count: ctx.movie.effective_frame_count(),

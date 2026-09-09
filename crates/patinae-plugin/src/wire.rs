@@ -34,7 +34,7 @@ use patinae_settings::{
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 /// Runtime wire version for MessagePack DTOs.
-pub const RUNTIME_WIRE_VERSION: u32 = 15;
+pub const RUNTIME_WIRE_VERSION: u32 = 16;
 
 /// Maximum MessagePack payload copied across the runtime ABI.
 pub const MAX_WIRE_PAYLOAD_LEN: usize = 64 * 1024 * 1024;
@@ -107,6 +107,12 @@ pub struct WirePollSharedInput {
     pub scene_generation: u64,
     /// Loaded object names.
     pub object_names: Vec<String>,
+    /// All named selections in lexicographic order, including hidden and empty selections.
+    pub selection_names: Vec<String>,
+    /// Unmodified recent atom paths in list order (`pk1`, `pk2`, and so on).
+    ///
+    /// Includes instance qualifiers. Removing a pick shifts subsequent indices.
+    pub pick_paths: Vec<String>,
     /// Current camera state.
     pub camera: Camera,
     /// Current movie state.
@@ -1187,7 +1193,7 @@ mod tests {
             decoded.recent_atoms.paths().collect::<Vec<_>>(),
             paths.iter().map(String::as_str).collect::<Vec<_>>()
         );
-        assert_eq!(RUNTIME_WIRE_VERSION, 15);
+        assert_eq!(RUNTIME_WIRE_VERSION, 16);
     }
 
     #[test]
