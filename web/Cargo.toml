@@ -15,14 +15,11 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 # Internal crates (no windowing, no rayon for WASM)
 patinae-mol = { path = "../crates/patinae-mol" }
-patinae-io = { path = "../crates/patinae-io", default-features = false }
 patinae-select = { path = "../crates/patinae-select" }
 patinae-color = { path = "../crates/patinae-color" }
 patinae-settings = { path = "../crates/patinae-settings" }
 patinae-scene = { path = "../crates/patinae-scene", default-features = false, features = ["render-bridge"] }
 patinae-cmd = { path = "../crates/patinae-cmd", default-features = false }
-patinae-session = { path = "../crates/patinae-session" }
-patinae-algos = { path = "../crates/patinae-algos" }
 patinae-render = { path = "../crates/patinae-render" }
 lin_alg = { version = "1.1", features = ["computer_graphics"] }
 
@@ -35,6 +32,11 @@ web-sys = { version = "0.3", features = [
     "Document",
     "Element",
     "Performance",
+    "AbortController",
+    "AbortSignal",
+    "RequestInit",
+    "Response",
+    "Url",
     "console",
 ] }
 js-sys = "0.3"

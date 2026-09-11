@@ -16,7 +16,7 @@ use crate::setting_access::ResolvedSetting;
 /// A script handler registered by a plugin for a specific file extension.
 ///
 /// Used by the `run` command to dispatch non-.pml files to the appropriate handler.
-pub type ScriptHandler = Arc<dyn Fn(&str) -> Result<(), String> + Send + Sync>;
+pub type ScriptHandler = Arc<dyn Fn(&str) -> Result<AsyncCommandRequest, String> + Send + Sync>;
 
 /// Factory that reads molecules from a plugin-provided file format.
 ///
@@ -42,6 +42,29 @@ pub struct FormatHandler {
     pub reader: Option<PluginReaderFn>,
     /// Writer factory, or `None` if the format is read-only
     pub writer: Option<PluginWriterFn>,
+}
+
+/// Determines who interprets a command's arguments.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ArgumentSyntax {
+    /// Parse the standard command argument grammar.
+    #[default]
+    Pml = 0,
+    /// Pass the logical line's remaining text unchanged to the command.
+    Verbatim = 1,
+}
+
+impl TryFrom<u8> for ArgumentSyntax {
+    type Error = u8;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            value if value == Self::Pml as u8 => Ok(Self::Pml),
+            value if value == Self::Verbatim as u8 => Ok(Self::Verbatim),
+            value => Err(value),
+        }
+    }
 }
 
 /// Describes one loaded plugin without depending on plugin-host types.
@@ -83,7 +106,7 @@ impl BuiltinCommandCapability {
 ///
 /// This intentionally does not depend on `patinae_io::FetchFormat` so hosts can
 /// compile the command infrastructure without enabling network fetch features.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum FetchFormatCode {
     /// PDB text format.
     Pdb,
@@ -94,7 +117,7 @@ pub enum FetchFormatCode {
 }
 
 /// Request emitted by the `fetch` command when an async host is available.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct FetchRequest {
     /// PDB ID to fetch.
     pub code: String,
@@ -111,14 +134,80 @@ pub struct FetchRequest {
 }
 
 /// Async work requested by a command.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum AsyncCommandRequest {
     /// Fetch a structure from RCSB PDB.
     Fetch(FetchRequest),
+    /// A plugin produces this description; the host binds and admits its executor.
+    Plugin(PluginTaskRequest),
+    /// A host-owned sequential command script.
+    RunScript { path: String },
+    /// Download and load a URL through the host's platform executor.
+    LoadUrl {
+        url: String,
+        name: String,
+        format: Option<String>,
+    },
+    /// A platform-provided local file, otherwise handled by synchronous filesystem loading.
+    LoadFile {
+        path: String,
+        name: String,
+        format: Option<String>,
+    },
+}
+
+/// Serializable plugin work description, containing no task identity.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PluginTaskRequest {
+    /// Optional executor connection identity, scoped inside its plugin.
+    pub owner_tag: Option<u64>,
+    /// Host-bound plugin identity. SDK callers may leave this empty.
+    pub executor: String,
+    pub kind: String,
+    pub payload: serde_json::Value,
+    pub cancellable: bool,
+    pub scene_scoped: bool,
+}
+
+impl PluginTaskRequest {
+    /// Registry owner, namespaced by plugin and optionally connection.
+    pub fn owner(&self) -> String {
+        self.owner_tag.map_or_else(
+            || self.executor.clone(),
+            |tag| format!("{}/{}", self.executor, tag),
+        )
+    }
+
+    /// Describe work for the requesting plugin's executor.
+    pub fn new(kind: impl Into<String>, payload: serde_json::Value) -> Self {
+        Self {
+            owner_tag: None,
+            executor: String::new(),
+            kind: kind.into(),
+            payload,
+            cancellable: true,
+            scene_scoped: true,
+        }
+    }
+}
+
+/// Work admitted by the host and delivered only to its owning executor.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TaskInvocation {
+    pub task_id: crate::tasks::TaskId,
+    pub request: PluginTaskRequest,
 }
 
 /// Host-provided callback for accepting async command work.
-pub type AsyncCommandSink<'a> = &'a mut dyn FnMut(AsyncCommandRequest) -> bool;
+pub type AsyncCommandSink<'a> = &'a mut dyn FnMut(AsyncCommandRequest) -> AsyncCommandAcceptance;
+
+/// Host admission decision; only unsupported requests may fall back to sync.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AsyncCommandAcceptance {
+    Accepted(crate::tasks::TaskId),
+    Unsupported,
+    Rejected(crate::tasks::TaskStartError),
+}
 
 // =============================================================================
 // Dynamic setting registry
@@ -414,7 +503,8 @@ pub struct CommandContext<'v, 'r, V: ViewerLike + ?Sized> {
     loaded_plugin_capabilities: Option<&'r [LoadedPluginCapability]>,
     /// Host-provided async request sink.
     async_command_sink: Option<AsyncCommandSink<'r>>,
-    deferred: bool,
+    task_ids: Vec<crate::tasks::TaskId>,
+    task_requests: Vec<AsyncCommandRequest>,
 }
 
 impl<'v, 'r, V: ViewerLike + ?Sized> CommandContext<'v, 'r, V> {
@@ -432,7 +522,8 @@ impl<'v, 'r, V: ViewerLike + ?Sized> CommandContext<'v, 'r, V> {
             dynamic_settings: None,
             loaded_plugin_capabilities: None,
             async_command_sink: None,
-            deferred: false,
+            task_ids: Vec::new(),
+            task_requests: Vec::new(),
         }
     }
 
@@ -519,13 +610,6 @@ impl<'v, 'r, V: ViewerLike + ?Sized> CommandContext<'v, 'r, V> {
         self.loaded_plugin_capabilities.unwrap_or_default()
     }
 
-    /// Clones loaded-plugin metadata for a child command executor.
-    pub(crate) fn clone_loaded_plugin_capabilities_for_child_executor(
-        &self,
-    ) -> Vec<LoadedPluginCapability> {
-        self.loaded_plugin_capabilities().to_vec()
-    }
-
     /// Resolve a built-in or dynamic setting by name.
     ///
     /// Built-in settings take precedence over dynamic plugin settings.
@@ -584,16 +668,9 @@ impl<'v, 'r, V: ViewerLike + ?Sized> CommandContext<'v, 'r, V> {
     ///
     /// Ordinary command implementations should use [`Self::resolve_setting`],
     /// [`Self::setting_value`], or the typed `setting_*` helpers. This accessor
-    /// exists for host serialization and nested executors that must preserve
-    /// plugin-registered setting descriptors and shared stores.
+    /// exists for host serialization of plugin setting descriptors and stores.
     pub fn dynamic_settings(&self) -> Option<&DynamicSettingRegistry> {
         self.dynamic_settings
-    }
-
-    /// Clone dynamic settings for a nested command executor.
-    #[must_use]
-    pub fn clone_dynamic_settings_for_child_executor(&self) -> DynamicSettingRegistry {
-        self.dynamic_settings.cloned().unwrap_or_default()
     }
 
     /// Set the host async request sink.
@@ -604,26 +681,44 @@ impl<'v, 'r, V: ViewerLike + ?Sized> CommandContext<'v, 'r, V> {
 
     /// Submit an async request to the host.
     ///
-    /// Returns `true` when the host accepted the request. Commands should use
-    /// their synchronous path when this returns `false`.
-    pub fn submit_async_request(&mut self, request: AsyncCommandRequest) -> bool {
+    /// Only `Unsupported` permits the command to use its synchronous path.
+    pub fn submit_async_request(&mut self, request: AsyncCommandRequest) -> AsyncCommandAcceptance {
         let accepted = self
             .async_command_sink
             .as_deref_mut()
             .map(|sink| sink(request))
-            .unwrap_or(false);
-        self.deferred |= accepted;
+            .unwrap_or(AsyncCommandAcceptance::Unsupported);
+        if let AsyncCommandAcceptance::Accepted(id) = accepted {
+            self.task_ids.push(id);
+        }
         accepted
     }
 
-    /// Mark command work as queued rather than completed.
-    pub fn mark_deferred(&mut self) {
-        self.deferred = true;
+    /// Describe background work; ABI adapters forward requests to host admission.
+    pub fn request_task(&mut self, request: AsyncCommandRequest) -> crate::CmdResult {
+        if self.async_command_sink.is_none() {
+            self.task_requests.push(request);
+            return Ok(());
+        }
+        match self.submit_async_request(request) {
+            AsyncCommandAcceptance::Accepted(_) => Ok(()),
+            AsyncCommandAcceptance::Rejected(error) => {
+                Err(crate::CmdError::execution(error.to_string()))
+            }
+            AsyncCommandAcceptance::Unsupported => {
+                Err(crate::CmdError::execution("task executor unavailable"))
+            }
+        }
     }
 
-    /// Whether this command queued work that has not completed.
-    pub fn is_deferred(&self) -> bool {
-        self.deferred
+    /// Consume descriptions produced by a dynamic plugin command.
+    pub fn take_task_requests(&mut self) -> Vec<AsyncCommandRequest> {
+        std::mem::take(&mut self.task_requests)
+    }
+
+    /// Take task identities accepted during execution, including before a failure.
+    pub fn take_task_ids(&mut self) -> Vec<crate::tasks::TaskId> {
+        std::mem::take(&mut self.task_ids)
     }
 
     /// Print an info message (unless quiet mode is enabled)
@@ -750,6 +845,11 @@ pub trait Command: Send + Sync {
     /// suggestions (e.g., file paths for "load", selections for "select").
     fn arg_hints(&self) -> &[ArgHint] {
         &[]
+    }
+
+    /// Declare argument syntax for this command and all its aliases.
+    fn argument_syntax(&self) -> ArgumentSyntax {
+        ArgumentSyntax::Pml
     }
 
     /// Runtime host inputs this command needs when invoked dynamically.
@@ -1117,6 +1217,30 @@ impl CommandRegistry {
         self.aliases.insert(alias.into(), command.into());
     }
 
+    /// Resolve syntax from the registered command, including aliases.
+    pub fn argument_syntax(&self, name: &str) -> ArgumentSyntax {
+        self.get(name)
+            .map_or(ArgumentSyntax::Pml, |command| command.argument_syntax())
+    }
+
+    /// Parse an invocation using the registered command's argument contract.
+    ///
+    /// # Errors
+    /// Returns an error when the selected argument grammar rejects the input.
+    pub fn parse_command(&self, input: &str) -> Result<ParsedCommand, crate::ParseError> {
+        crate::parser::parse_with_syntax(input, |name| self.argument_syntax(name))
+    }
+
+    /// Parse command sequences using the same grammar as individual invocations.
+    ///
+    /// # Errors
+    /// Returns an error for malformed command input.
+    pub fn parse_commands(&self, input: &str) -> Result<Vec<ParsedCommand>, crate::ParseError> {
+        crate::parser::parse_steps(input, |name| self.argument_syntax(name))
+            .map(|steps| steps.into_iter().map(|(_, command)| command).collect())
+            .map_err(|(_, error)| error)
+    }
+
     /// Look up a command by name or alias
     pub fn get(&self, name: &str) -> Option<Arc<dyn Command>> {
         // Try direct lookup first
@@ -1289,7 +1413,6 @@ mod tests {
             render_context: None,
             default_size: (1, 1),
             needs_redraw: &mut needs_redraw,
-            async_fetch_fn: None,
         };
         let ctx = CommandContext::new(&mut viewer).with_dynamic_settings(&registry);
 

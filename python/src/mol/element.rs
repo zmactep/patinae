@@ -1,7 +1,7 @@
 //! Python bindings for Element
 
-use pyo3::prelude::*;
 use patinae_mol::Element;
+use pyo3::prelude::*;
 
 /// Python wrapper for chemical elements
 #[pyclass(name = "Element")]
@@ -105,7 +105,11 @@ impl PyElement {
     }
 
     fn __repr__(&self) -> String {
-        format!("Element({}, '{}')", self.inner.atomic_number(), self.inner.symbol())
+        format!(
+            "Element({}, '{}')",
+            self.inner.atomic_number(),
+            self.inner.symbol()
+        )
     }
 
     fn __str__(&self) -> &'static str {
@@ -124,15 +128,27 @@ impl PyElement {
 // Common element constants
 impl PyElement {
     /// Hydrogen element
-    pub const H: PyElement = PyElement { inner: Element::Hydrogen };
+    pub const H: PyElement = PyElement {
+        inner: Element::Hydrogen,
+    };
     /// Carbon element
-    pub const C: PyElement = PyElement { inner: Element::Carbon };
+    pub const C: PyElement = PyElement {
+        inner: Element::Carbon,
+    };
     /// Nitrogen element
-    pub const N: PyElement = PyElement { inner: Element::Nitrogen };
+    pub const N: PyElement = PyElement {
+        inner: Element::Nitrogen,
+    };
     /// Oxygen element
-    pub const O: PyElement = PyElement { inner: Element::Oxygen };
+    pub const O: PyElement = PyElement {
+        inner: Element::Oxygen,
+    };
     /// Sulfur element
-    pub const S: PyElement = PyElement { inner: Element::Sulfur };
+    pub const S: PyElement = PyElement {
+        inner: Element::Sulfur,
+    };
     /// Phosphorus element
-    pub const P: PyElement = PyElement { inner: Element::Phosphorus };
+    pub const P: PyElement = PyElement {
+        inner: Element::Phosphorus,
+    };
 }

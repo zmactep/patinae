@@ -68,6 +68,61 @@ export default {
 
     // ── Load WASM ──────────────────────────────────────────────────
     let wasm = null;
+    const viewId = crypto.randomUUID();
+    let resolveInitialized;
+    let rejectInitialized;
+    const initialized = new Promise((resolve, reject) => {
+      resolveInitialized = resolve;
+      rejectInitialized = reject;
+    });
+    // Initialization can fail before any request arrives.
+    initialized.catch(() => {});
+
+    // Every operation has a response; execution and observation share Rust state.
+    const onRequest = async (req, buffers = []) => {
+      if (req.protocol !== 1 || req.id == null || req.view_id !== viewId) return;
+      let result = null;
+      let error = null;
+      try {
+        await initialized;
+        if (!wasm) throw new Error("Widget frontend disconnected");
+        const p = req.params || {};
+        switch (req.method) {
+          case "command_files": result = wasm.command_files(p.command, p.script_path); break;
+          case "execute": {
+            const files = Object.create(null);
+            for (let i = 0; i < (p.files || []).length; i++) {
+              const buffer = buffers[i];
+              if (!buffer) throw new Error("Missing local file buffer");
+              files[p.files[i]] = ArrayBuffer.isView(buffer)
+                ? new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
+                : new Uint8Array(buffer);
+            }
+            result = await wasm.execute_with_files(p.command, files);
+            break;
+          }
+          case "get_task": result = wasm.get_task(p.id); break;
+          case "list_tasks": result = wasm.list_tasks(p); break;
+          case "cancel_task": result = wasm.cancel_task(p.id); break;
+          case "wait_task": result = await wasm.wait_task(p.id, p.timeout_ms); break;
+          case "count_atoms": result = wasm.count_atoms(p.selection || "all"); break;
+          case "get_names": result = wasm.get_object_names(); break;
+          case "get_label": result = wasm.get_label_object(String(p.name || "")); break;
+          case "get_movie_state": result = wasm.get_movie_state(); break;
+          case "update_animations":
+            wasm.update_animations(Number(p.dt || 0));
+            result = wasm.needs_redraw();
+            break;
+          default: throw new Error("Unknown viewer method: " + req.method);
+        }
+      } catch (e) {
+        error = e && typeof e === "object" && e.code ? e : { code: "request_failed", message: String(e) };
+      }
+      model.send({ protocol: 1, view_id: viewId, id: req.id, result, error });
+    };
+    model.on("msg:custom", onRequest);
+    model.send({ protocol: 1, view_id: viewId, event: "ready" });
+
 
     try {
       // Import glue JS via blob URL
@@ -101,28 +156,38 @@ export default {
       wasm = await glue.WebViewer.create(canvas.id);
       wasm.set_picking_enabled(model.get("_picking"));
       status.remove();
+      resolveInitialized();
     } catch (err) {
+      rejectInitialized(err);
       status.innerHTML =
         "<strong>Patinae widget failed to initialize.</strong><br><br>" +
         "Requires WebGPU (Chrome 113+, Edge 113+).<br><br>" +
         "<code>" + String(err) + "</code>";
       status.style.color = "#c00";
-      return () => {};
+      return () => { model.off("msg:custom", onRequest); model.send({ protocol: 1, view_id: viewId, event: "disconnected" }); };
     }
 
     // ── Render loop ────────────────────────────────────────────────
     let animId = 0;
     let lastTime = performance.now();
     const loop = (now) => {
-      animId = requestAnimationFrame(loop);
       if (!wasm) return;
       const dt = Math.min((now - lastTime) / 1000.0, 0.1);
       lastTime = now;
-      wasm.process_input();
-      wasm.update_animations(dt);
-      if (wasm.needs_redraw()) {
-        wasm.render_frame();
+      try {
+        wasm.process_input();
+        wasm.update_animations(dt);
+        if (wasm.needs_redraw()) {
+          wasm.render_frame();
+        }
+      } catch (error) {
+        console.error("Patinae rendering failed", error);
+        status.textContent = "Patinae rendering failed: " + String(error);
+        container.appendChild(status);
+        model.send({ protocol: 1, view_id: viewId, event: "disconnected" });
+        return;
       }
+      animId = requestAnimationFrame(loop);
     };
     animId = requestAnimationFrame(loop);
 
@@ -238,93 +303,10 @@ export default {
       if (wasm) wasm.set_picking_enabled(model.get("_picking"));
     });
 
-    // ── Command bridge (fire-and-forget) ───────────────────────────
-    model.on("change:_command_id", () => {
-      if (!wasm) return;
-      const cmd = model.get("_command");
-      if (!cmd) return;
-
-      // Intercept fetch — WASM can't make HTTP requests
-      const fetchMatch = cmd.match(/^\s*fetch\s+(\S+)/i);
-      if (fetchMatch) {
-        const pdbId = fetchMatch[1].toLowerCase();
-        fetch(`https://models.rcsb.org/v1/${pdbId}/full?encoding=bcif`)
-          .then((r) => {
-            if (!r.ok) throw new Error(`Fetch ${pdbId}: ${r.status}`);
-            return r.arrayBuffer();
-          })
-          .then((buf) => wasm.load_data(new Uint8Array(buf), pdbId, "bcif"))
-          .catch((err) => console.error("patinae fetch:", err));
-        return;
-      }
-
-      // Intercept load with URL
-      const loadMatch = cmd.match(/^\s*load\s+(https?:\/\/\S+)/i);
-      if (loadMatch) {
-        const url = loadMatch[1].replace(/,$/, "");
-        const filename = url.split("/").pop() || "unknown.pdb";
-        const dotIdx = filename.lastIndexOf(".");
-        const ext = dotIdx > 0 ? filename.slice(dotIdx + 1).toLowerCase() : "pdb";
-        const name = dotIdx > 0 ? filename.slice(0, dotIdx) : filename;
-        fetch(url)
-          .then((r) => {
-            if (!r.ok) throw new Error(`Load ${url}: ${r.status}`);
-            return r.arrayBuffer();
-          })
-          .then((buf) => wasm.load_data(new Uint8Array(buf), name, ext))
-          .catch((err) => console.error("patinae load URL:", err));
-        return;
-      }
-
-      wasm.execute(cmd);
-    });
-
-    // ── Query bridge (synchronous round-trip) ──────────────────────
-    model.on("change:_query_id", () => {
-      if (!wasm) return;
-      const req = model.get("_query_request");
-      if (!req || !req.method) return;
-
-      let result = null;
-      let error = null;
-      try {
-        switch (req.method) {
-          case "count_atoms":
-            result = wasm.count_atoms(req.params.selection || "all");
-            break;
-          case "get_names":
-            result = wasm.get_object_names();
-            break;
-          case "get_label":
-            result = wasm.get_label_object(String(req.params.name || ""));
-            break;
-          case "get_movie_state":
-            result = wasm.get_movie_state();
-            break;
-          case "update_animations":
-            wasm.update_animations(Number(req.params.dt || 0));
-            result = wasm.needs_redraw();
-            break;
-          default:
-            error = "Unknown query method: " + req.method;
-        }
-      } catch (e) {
-        error = String(e);
-      }
-      model.set("_query_response", { id: req.id, result, error });
-      model.save_changes();
-    });
-
-    // ── Binary file loading (from Python backend) ──────────────────
-    model.on("msg:custom", (msg, buffers) => {
-      if (wasm && msg.type === "load_data" && buffers && buffers.length > 0) {
-        const data = new Uint8Array(buffers[0].buffer || buffers[0]);
-        wasm.load_data(data, msg.name, msg.format);
-      }
-    });
-
     // ── Cleanup ────────────────────────────────────────────────────
     return () => {
+      model.off("msg:custom", onRequest);
+      model.send({ protocol: 1, view_id: viewId, event: "disconnected" });
       cancelAnimationFrame(animId);
       ro.disconnect();
       wasm = null;

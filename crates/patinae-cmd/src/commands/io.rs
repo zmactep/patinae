@@ -14,13 +14,96 @@ use crate::args::ParsedCommand;
 use crate::command::{
     ArgHint, BuiltinCommandCapability, Command, CommandContext, CommandRegistry, ViewerLike,
 };
-#[cfg(any(feature = "fetch", feature = "fetch-async"))]
+
 use crate::command::{AsyncCommandRequest, FetchFormatCode, FetchRequest};
 use crate::command_help;
 use crate::error::{CmdError, CmdResult};
 
 use super::objects::extract_molecule;
 use super::selecting::evaluate_selection;
+
+/// Decode downloaded or supplied bytes and apply them through the common viewer.
+///
+/// Parsing finishes before scene mutation. Returned warnings belong to the
+/// command/task output. The host validates task ownership and scene epoch first.
+///
+/// # Errors
+/// Returns format or decompression errors without inserting incomplete data.
+pub fn apply_loaded_data(
+    viewer: &mut dyn ViewerLike,
+    data: &[u8],
+    name: &str,
+    format: &str,
+    bond_tolerance: f32,
+    auto_dss: bool,
+    dss_algorithm: patinae_settings::DssAlgorithm,
+) -> Result<Vec<String>, CmdError> {
+    use std::io::{Cursor, Read};
+    let decompressed;
+    let data = if data.starts_with(&[0x1f, 0x8b]) {
+        let mut bytes = Vec::new();
+        patinae_io::compress::gzip_reader(data)
+            .read_to_end(&mut bytes)
+            .map_err(|error| CmdError::file_format(error.to_string()))?;
+        decompressed = bytes;
+        decompressed.as_slice()
+    } else {
+        data
+    };
+    let format = format.to_ascii_lowercase();
+    if format == "prs" {
+        let document = patinae_session::decode_prs_document(data)
+            .map_err(|error| CmdError::file_format(error.to_string()))?;
+        let warnings = document.warning_messages();
+        viewer.replace_session(document.session);
+        viewer.update_movie_state_count();
+        viewer.request_redraw();
+        return Ok(warnings);
+    }
+    let file_format = FileFormat::from_extension(&format);
+    if file_format.is_map_format() {
+        let map = patinae_io::ccp4::read_ccp4_from(Cursor::new(data))
+            .map_err(|error| CmdError::file_format(error.to_string()))?;
+        let grid = Grid3D::from_dims(map.origin, map.spacing, map.dims, map.values);
+        viewer.insert_object(Box::new(MapObject::from_map_data(name, MapData::new(grid))));
+        viewer.zoom_on(name, 0.0);
+        viewer.request_redraw();
+        return Ok(Vec::new());
+    }
+    let molecules = match file_format {
+        FileFormat::Pdb => vec![patinae_io::pdb::read_pdb_str_with_bond_tolerance(
+            std::str::from_utf8(data).map_err(|error| CmdError::file_format(error.to_string()))?,
+            bond_tolerance,
+        )
+        .map_err(|error| CmdError::file_format(error.to_string()))?],
+        FileFormat::Cif => vec![patinae_io::cif::read_cif_str_with_bond_tolerance(
+            std::str::from_utf8(data).map_err(|error| CmdError::file_format(error.to_string()))?,
+            bond_tolerance,
+        )
+        .map_err(|error| CmdError::file_format(error.to_string()))?],
+        FileFormat::Bcif => {
+            vec![
+                patinae_io::bcif::read_bcif_bytes_with_bond_tolerance(data, bond_tolerance)
+                    .map_err(|error| CmdError::file_format(error.to_string()))?,
+            ]
+        }
+        _ => patinae_io::create_reader(Cursor::new(data.to_vec()), file_format)
+            .and_then(|mut reader| reader.read_all())
+            .map_err(|error| CmdError::file_format(error.to_string()))?,
+    };
+    if molecules.is_empty() {
+        return Err(CmdError::file_format("No molecules in input"));
+    }
+    for (index, molecule) in molecules.into_iter().enumerate() {
+        let object_name = if index == 0 {
+            name.to_string()
+        } else {
+            derive_extra_object_name(name, index + 1, viewer.objects(), &HashSet::new())
+        };
+        finalize_fetched_molecule(viewer, &object_name, molecule, auto_dss, dss_algorithm);
+    }
+    Ok(Vec::new())
+}
 
 /// Expand shell-style paths: ~ to home directory, $VAR to environment variables
 pub fn expand_path(path: &str) -> PathBuf {
@@ -78,7 +161,7 @@ pub fn register(registry: &mut CommandRegistry) {
     registry.register(CdCommand);
     registry.register(PwdCommand);
     registry.register(LsCommand);
-    #[cfg(any(feature = "fetch", feature = "fetch-async"))]
+
     registry.register(FetchCommand);
 }
 
@@ -189,7 +272,33 @@ impl Command for LoadCommand {
         let object_name = args
             .str_arg(1, "object")
             .map(|s| s.to_string())
-            .unwrap_or_else(|| default_load_object_name(Path::new(filename), "obj"));
+            .unwrap_or_else(|| {
+                default_load_object_name(
+                    Path::new(filename.split(['?', '#']).next().unwrap_or(filename)),
+                    "obj",
+                )
+            });
+
+        let request = if filename.starts_with("https://") || filename.starts_with("http://") {
+            crate::AsyncCommandRequest::LoadUrl {
+                url: filename.to_string(),
+                name: object_name.clone(),
+                format: args.str_arg(3, "format").map(str::to_owned),
+            }
+        } else {
+            crate::AsyncCommandRequest::LoadFile {
+                path: filename.to_string(),
+                name: object_name.clone(),
+                format: args.str_arg(3, "format").map(str::to_owned),
+            }
+        };
+        match ctx.submit_async_request(request) {
+            crate::AsyncCommandAcceptance::Accepted(_) => return Ok(()),
+            crate::AsyncCommandAcceptance::Rejected(error) => {
+                return Err(CmdError::execution(error.to_string()))
+            }
+            crate::AsyncCommandAcceptance::Unsupported => {}
+        }
 
         // Get state (optional, 0 = append)
         let state = args.int_arg_or(2, "state", 0);
@@ -607,7 +716,6 @@ _atom_site.Cartn_z
             render_context: None,
             default_size: (64, 64),
             needs_redraw: &mut needs_redraw,
-            async_fetch_fn: None,
         };
 
         executor.do_with_options(&mut adapter, command, false)
@@ -1186,7 +1294,6 @@ _atom_site.Cartn_z
             render_context: None,
             default_size: (64, 64),
             needs_redraw: &mut needs_redraw,
-            async_fetch_fn: None,
         };
         let viewer: &mut dyn ViewerLike = &mut adapter;
         let mut ctx = CommandContext::new(viewer);
@@ -1733,7 +1840,6 @@ mod tests {
                 render_context: None,
                 default_size: (800, 600),
                 needs_redraw: &mut needs_redraw,
-                async_fetch_fn: None,
             };
             let mut executor = CommandExecutor::new();
             let path_arg = path
@@ -1966,7 +2072,6 @@ mod prs_tests {
             render_context: None,
             default_size: (64, 64),
             needs_redraw: &mut needs_redraw,
-            async_fetch_fn: None,
         };
 
         let output = CommandExecutor::new()
@@ -1989,10 +2094,8 @@ mod prs_tests {
 // fetch command (optional, requires fetch feature)
 // ============================================================================
 
-#[cfg(any(feature = "fetch", feature = "fetch-async"))]
 struct FetchCommand;
 
-#[cfg(any(feature = "fetch", feature = "fetch-async"))]
 impl Command for FetchCommand {
     fn name(&self) -> &str {
         "fetch"
@@ -2011,15 +2114,11 @@ impl Command for FetchCommand {
             { "type", "string", "file type to fetch", "cif" } => [
                 "Supported: \"pdb\", \"cif\" (or \"mmcif\"), \"bcif\"",
             ],
-            { "async", "0/1", "asynchronous fetch", "1" } => [
-                "When 0, forces synchronous (blocking) fetch",
-            ],
         ]
         EXAMPLES [
             "fetch 1ubq",
             "fetch 4hhb, name=hemoglobin",
             "fetch 1crn, type=pdb",
-            "fetch 1igt, async=0",
         ]
     }
 
@@ -2046,68 +2145,37 @@ impl Command for FetchCommand {
         let format = args
             .str_arg(2, "type")
             .map(|s| match s.to_lowercase().as_str() {
-                "pdb" => patinae_io::FetchFormat::Pdb,
-                "cif" | "mmcif" => patinae_io::FetchFormat::Cif,
-                "bcif" | "binarycif" => patinae_io::FetchFormat::Bcif,
-                _ => patinae_io::FetchFormat::Cif,
+                "pdb" => FetchFormatCode::Pdb,
+                "cif" | "mmcif" => FetchFormatCode::Cif,
+                "bcif" | "binarycif" => FetchFormatCode::Bcif,
+                _ => FetchFormatCode::Cif,
             })
-            .unwrap_or(patinae_io::FetchFormat::Cif);
+            .unwrap_or(FetchFormatCode::Cif);
 
         let bond_tolerance = ctx.viewer.settings().behavior.bonding_vdw_cutoff;
         let auto_dss = ctx.viewer.settings().behavior.auto_dss;
         let dss_algorithm = ctx.viewer.settings().behavior.dss_algorithm;
-        // Parse async flag (default: true = non-blocking). Async requests
-        // capture behavior settings at submission time for deterministic
-        // completion even if settings change while the fetch is in flight.
-        let use_async = args.get_named_bool_or("async", true);
-
-        // Convert format to a command-layer code for host async APIs.
-        let format_code = match format {
-            patinae_io::FetchFormat::Pdb => FetchFormatCode::Pdb,
-            patinae_io::FetchFormat::Cif => FetchFormatCode::Cif,
-            patinae_io::FetchFormat::Bcif => FetchFormatCode::Bcif,
-        };
-
-        // Try async path first (GUI supports this)
-        if use_async
-            && ctx.submit_async_request(AsyncCommandRequest::Fetch(FetchRequest {
-                code: code.to_string(),
-                name: name.to_string(),
-                format: format_code,
-                bond_tolerance,
-                auto_dss,
-                dss_algorithm,
-            }))
-        {
-            ctx.print(&format!(" Fetching {}...", code));
-            return Ok(());
-        }
-
-        // Sync fallback for non-GUI viewers (headless, scripts, etc.)
-        #[cfg(feature = "fetch")]
-        {
-            let mol = patinae_io::fetch_with_bond_tolerance(code, format, bond_tolerance)
-                .map_err(|e| CmdError::file_format(e.to_string()))?;
-
-            finalize_fetched_molecule(ctx.viewer, name, mol, auto_dss, dss_algorithm);
-            ctx.print(&format!(" Fetched {} as \"{}\"", code, name));
-
-            Ok(())
-        }
-
-        // No fetch implementation available
-        #[cfg(not(feature = "fetch"))]
-        {
+        if args.get_named("async").is_some() {
             return Err(CmdError::execution(
-                "Fetch not available: neither async nor sync fetch is enabled",
+                "fetch async parameter was removed; wait for the returned TaskId",
             ));
         }
+        ctx.request_task(AsyncCommandRequest::Fetch(FetchRequest {
+            code: code.to_string(),
+            name: name.to_string(),
+            format,
+            bond_tolerance,
+            auto_dss,
+            dss_algorithm,
+        }))?;
+        ctx.print(&format!(" Fetching {}...", code));
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod fetch_tests {
-    #[cfg(any(feature = "fetch", feature = "fetch-async"))]
+
     mod fetch_async_requests {
         use patinae_scene::{Session, SessionAdapter};
 
@@ -2123,7 +2191,6 @@ mod fetch_tests {
                 render_context: None,
                 default_size: (800, 600),
                 needs_redraw: &mut needs_redraw,
-                async_fetch_fn: None,
             };
             let mut executor = CommandExecutor::new();
             f(&mut executor, &mut adapter)
@@ -2135,14 +2202,17 @@ mod fetch_tests {
             let output = with_adapter(|executor, adapter| {
                 let mut sink = |request| {
                     captured.push(request);
-                    true
+                    crate::AsyncCommandAcceptance::Accepted(crate::tasks::TaskId::new(1, 1))
                 };
                 executor.do_with_async_sink(adapter, "fetch 1ubq", false, Some(&mut sink))
             })
             .expect("fetch command should be accepted by async sink");
 
             assert_eq!(captured.len(), 1);
-            let AsyncCommandRequest::Fetch(request) = &captured[0];
+            assert_eq!(output.task_ids, [crate::tasks::TaskId::new(1, 1)]);
+            let AsyncCommandRequest::Fetch(request) = &captured[0] else {
+                panic!("expected fetch request")
+            };
             assert_eq!(request.code, "1ubq");
             assert_eq!(request.name, "1ubq");
             assert_eq!(request.format, FetchFormatCode::Cif);
@@ -2153,19 +2223,71 @@ mod fetch_tests {
                 .any(|message| message.text == " Fetching 1ubq..."));
         }
 
-        #[cfg(feature = "fetch")]
         #[test]
-        fn fetch_async_zero_bypasses_async_sink() {
+        fn rejected_fetch_does_not_fall_back_to_synchronous_work() {
+            let execution = with_adapter(|executor, adapter| {
+                let mut sink =
+                    |_| crate::AsyncCommandAcceptance::Rejected(crate::tasks::TaskStartError::Busy);
+                executor.execute_captured(adapter, "fetch 1ubq", false, Some(&mut sink))
+            });
+            assert!(execution
+                .result
+                .unwrap_err()
+                .to_string()
+                .contains("too many active tasks"));
+            assert!(execution.output.task_ids.is_empty());
+        }
+
+        #[test]
+        fn accepted_task_receipt_survives_a_later_command_error() {
+            struct PartialCommand;
+            impl crate::Command for PartialCommand {
+                fn name(&self) -> &str {
+                    "partial_task_fixture"
+                }
+                fn execute<'v, 'r>(
+                    &self,
+                    ctx: &mut crate::CommandContext<'v, 'r, dyn crate::ViewerLike + 'v>,
+                    _args: &crate::ParsedCommand,
+                ) -> crate::CmdResult {
+                    ctx.submit_async_request(crate::AsyncCommandRequest::Fetch(
+                        crate::FetchRequest {
+                            code: "1ubq".into(),
+                            name: "fixture".into(),
+                            format: crate::FetchFormatCode::Cif,
+                            bond_tolerance: 0.45,
+                            auto_dss: false,
+                            dss_algorithm: Default::default(),
+                        },
+                    ));
+                    Err(crate::CmdError::execution("failure after task acceptance"))
+                }
+            }
+            let id = crate::tasks::TaskId::new(42, 1);
+            let execution = with_adapter(|executor, adapter| {
+                executor.registry_mut().register(PartialCommand);
+                let mut sink = |_| crate::AsyncCommandAcceptance::Accepted(id);
+                executor.execute_captured(adapter, "partial_task_fixture", false, Some(&mut sink))
+            });
+            assert!(execution.result.is_err());
+            assert_eq!(execution.output.task_ids, [id]);
+        }
+
+        #[test]
+        fn removed_async_parameter_is_rejected_before_admission() {
             let mut captured = Vec::new();
             let result = with_adapter(|executor, adapter| {
                 let mut sink = |request| {
                     captured.push(request);
-                    true
+                    crate::AsyncCommandAcceptance::Accepted(crate::tasks::TaskId::new(1, 1))
                 };
                 executor.do_with_async_sink(adapter, "fetch abcde, async=0", false, Some(&mut sink))
             });
 
-            assert!(result.is_err(), "invalid PDB ID should fail in sync path");
+            assert!(result
+                .unwrap_err()
+                .to_string()
+                .contains("parameter was removed"));
             assert!(captured.is_empty());
         }
     }

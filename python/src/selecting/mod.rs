@@ -2,9 +2,9 @@
 //!
 //! Provides selection language parsing and evaluation.
 
-use pyo3::prelude::*;
 use patinae_mol::AtomIndex;
 use patinae_select::SelectionResult;
+use pyo3::prelude::*;
 
 use crate::error::ResultExt;
 use crate::mol::PyObjectMolecule;
@@ -221,7 +221,10 @@ pub fn parse(selection: &str) -> PyResult<String> {
 #[pyfunction]
 pub fn select(mol: &PyObjectMolecule, selection: &str) -> PyResult<PySelectionResult> {
     let result = patinae_select::select(mol.inner(), selection).map_py_err()?;
-    Ok(PySelectionResult::from_result(result, mol.inner().atom_count()))
+    Ok(PySelectionResult::from_result(
+        result,
+        mol.inner().atom_count(),
+    ))
 }
 
 /// Select atoms and return their indices

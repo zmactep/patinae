@@ -5,6 +5,10 @@ startup. A plugin can add REPL commands, dynamic settings, script and file-forma
 handlers, docked GUI panels, background workers, viewport image overlays, and
 renderer-adjacent GPU work.
 
+Keep language runtimes and specialized behavior inside the plugin. The core
+owns shared command, task, scene and rendering contracts; plugins use those
+contracts through the SDK instead of adding plugin-specific branches to the core.
+
 This guide is written as a tutorial first: by the end of the first half you will
 have a working external `hello` plugin that Patinae can load. The later sections
 are compact maps for the optional surfaces you can add after the first plugin is
@@ -258,6 +262,15 @@ Useful command helpers:
 | Host actions | `show_panel`, `hide_panel`, `clear_output`, `quit`, `record_recent_file` |
 | Viewer access | `ctx.viewer`, a `ViewerLike` handle |
 
+Commands use `ArgumentSyntax::Pml` by default. If your command interprets its
+own language, override `Command::argument_syntax()` to return
+`ArgumentSyntax::Verbatim`. The host passes the rest of the logical line as one
+string argument and as `ParsedCommand::raw_args()`, preserving semicolons,
+quotes and explicit line continuations. The declaration applies to aliases,
+ordinary command execution and PML scripts; no language-name dispatch is needed
+in the host. This requires the current SDK/host ABI; rebuild both from matching
+sources when changing the descriptor contract.
+
 Define plugin settings with `define_plugin_settings!`:
 
 ```rust
@@ -453,12 +466,18 @@ patinae_plugin! {
     commands: [],
     register: |reg| {
         reg.register_script_handler("foo", |path: &str| {
-            patinae_plugin::log::info!("Running foo script at {}", path);
-            Ok(())
+            Ok(AsyncCommandRequest::Plugin(PluginTaskRequest::new(
+                "foo_script", serde_json::json!({"path": path}),
+            )))
         });
     },
 }
 ```
+
+The plugin must install a polling message handler to receive accepted task
+invocations. The host assigns the TaskId before the handler starts work; report
+start, output and completion through `PollContext::report_task_event`. See
+[Background tasks](#background-tasks) for the execution contract.
 
 File format handlers are for `load` and `save`. They declare readable and/or
 writable extensions:
@@ -717,6 +736,44 @@ Important `PollContext` methods:
 
 Keep `poll()` non-blocking. The Python plugin uses a worker thread and polling
 to transfer results back into the app without freezing the render loop.
+
+### Background tasks
+
+For command-owned background work, return
+`ctx.request_task(AsyncCommandRequest::Plugin(request))` with a
+`PluginTaskRequest`; script handlers return the request directly. Start the
+worker only after the host admits the request and delivers
+`TaskInvocation { task_id, request }` in `ctx.task_invocations`. The host assigns
+the executor identity and TaskId. Keep work queues in the plugin and task state
+in the host's runner.
+
+| Worker action | `PollContext` API |
+| --- | --- |
+| Report start, progress, output or completion | `report_task_event(id, task_id, event)` |
+| Execute a command belonging to the task | `execute_task_command(id, task_id, command, silent)` |
+| Request an acknowledged scene mutation | `apply_task_action(id, task_id, action)` |
+| Observe a task or request cancellation | `get_task`, `list_tasks`, `wait_task`, `cancel_task` |
+| Read the correlated response during a later poll | `task_result(id)` |
+
+Use unique plugin-local IDs for outstanding queries; these correlate replies
+and are separate from TaskIds. Wait for mutation acknowledgements before
+reporting success. The host checks ownership and scene validity before applying
+an action; atom-property batches are validated completely before the first write.
+Preserve structured error codes when forwarding a failure.
+
+Process `ctx.task_cancellations` cooperatively and report a cancelled outcome
+after the worker stops. Cancelling does not undo effects already applied. A wait
+timeout stops only the wait. Child tasks created through `execute_task_command`
+belong to the parent; the parent remains active until they finish, and a child
+failure fails it. Waiting for yourself, an ancestor or blocked work on the same
+serial executor is rejected with `would_deadlock`.
+
+Report small results through `TaskOutcome`, including diagnostics and the actual
+effects (`none`, `applied`, `partial`, `unknown`). Successful completion means
+required mutations were applied. Terminal outcomes are immutable, but retained
+history is bounded: handle `expired` and `not_found` when observing old tasks.
+See [Receive results of host commands](#receive-results-of-host-commands) for
+command receipts and accepted task IDs.
 
 ## Work with rendering and geometry
 
@@ -981,53 +1038,29 @@ command after polling. A subsequent poll delivers a `CommandResult` only to the
 requesting plugin, with the original `id`. IDs are local to each plugin; use a
 distinct ID for each outstanding request within your plugin.
 
-The result has four fields:
+The result carries your correlation `id` and a shared `CommandReply` in `reply`.
+The reply contains `result: Result<(), String>`, typed `messages` and accepted
+`task_ids`. Field reads can use `response.result`, `response.messages` and
+`response.task_ids` through `Deref`; construct values with `CommandResult::from_execution`
+or `{ id, reply }`.
 
-- `id: u64`: your correlation ID.
-- `result: Result<(), String>`: the original execution status, including failures.
-- `messages: Vec<OutputMessage>`: text and `MessageKind::Info`, `Warning`, or
-  `Error`, in emission order. Partial output survives a failure; the kernel adds
-  the execution error as the final error message.
-- `deferred: bool`: the command queued work. `Ok(())` with `deferred == true`
-  acknowledges dispatch, **not completion**. This API does not deliver a later
-  task-completion result. Host async requests set this automatically when
-  accepted. Plugin commands that enqueue their own work must call
-  `CommandContext::mark_deferred()`; dynamically registered command proxies do
-  this automatically. Arbitrary background work cannot be detected by the host.
+A successful reply is final only when `task_ids` is empty. For background work,
+query or wait for each TaskId. A command failure may still contain accepted task
+IDs; retain those IDs and avoid repeating the whole command. Message silence
+controls presentation and does not discard the command receipt or task outcome.
 
-`silent` controls UI echo, timing, informational messages, and warnings; it does
-not remove messages from the result. Errors remain visible in the REPL. Command
-arguments that explicitly request quiet behavior still belong to the command's
-own semantics. Messages sent independently through the message bus are not
-command output and are not included in this report.
-
-The kernel displays output and applies successful command actions once. Results
-contain no actions to replay. Use normal commands such as `help my_command` and
-`capabilities plugins` to obtain host-generated text; no separate help catalog is
-needed.
-
-```rust
+```rust,ignore
 fn poll(&mut self, ctx: &mut PollContext<'_>) {
     for response in ctx.command_results {
-        for message in &response.messages {
-            self.record_message(response.id, message.kind, &message.text);
-        }
-        match &response.result {
-            Err(error) => self.record_failure(response.id, error),
-            Ok(()) if response.deferred => self.record_dispatched(response.id),
-            Ok(()) => self.record_completed(response.id),
+        self.record_receipt(response.id, &response.reply);
+        for &task_id in &response.task_ids {
+            self.observe_task(task_id);
         }
     }
 }
 ```
 
-Runtime MessagePack wire version **16** carries these fields, command deferral,
-and the optional session replacement contract described above.
-Rebuild the host and dynamic plugins from the same SDK revision. Older runtime
-payloads are incompatible and rejected, not silently interpreted as empty
-results. The C declaration layout is unchanged, so `ABI_VERSION` remains 6.
-Existing consumers matching `result` as `Ok(())`/`Err(_)` still compile; code
-constructing `CommandResult` literals must supply the added fields. Frontends
-should use `AppKernel::execute_command_captured` and
-`CommandResult::from_execution`, returning each opaque request token unchanged to
-`PluginHost::store_command_results`; the host restores the plugin-local ID.
+Use `get_task`, `list_tasks`, `cancel_task`, `wait_task` and `task_result` for
+observation through the existing correlated query transport. Producers return a
+`PluginTaskRequest`; direct untracked worker submission is not a command result.
+See [Background tasks](#background-tasks) for producer responsibilities.

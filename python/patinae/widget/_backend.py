@@ -1,8 +1,9 @@
 """WidgetBackend — proxies the StandaloneBackend interface to the browser WASM viewer."""
 
-import os
+from pathlib import Path
 import time
 import threading
+from ..tasks import TaskApiError
 
 
 class WidgetBackend:
@@ -14,23 +15,59 @@ class WidgetBackend:
 
     def __init__(self, widget):
         self._widget = widget
-        self._query_lock = threading.Lock()
-        self._response_event = threading.Event()
-        self._last_response = None
-        widget.observe(self._on_query_response, names=["_query_response"])
+        self._next_id = 0
+        self._pending = {}
+        self._lock = threading.Lock()
+        self._closed = False
+        self._view_id = None
+        self._view_ready = threading.Event()
+        widget.on_msg(self._on_message)
 
     # -----------------------------------------------------------------
     # Command execution
     # -----------------------------------------------------------------
 
-    def execute(self, command, silent=False):
-        """Send a command to the browser for execution."""
-        if self._is_local_load(command):
-            self._load_local_file(command)
-            return
-        w = self._widget
-        w._command = command
-        w._command_id += 1
+    def execute(self, command, quiet=False):
+        """Execute using the viewer's parser, including notebook-local files."""
+        paths = self._query("command_files", {"command": command})
+        files = {}
+        pending = list(paths)
+        while pending:
+            path = pending.pop(0)
+            if path in files:
+                continue
+            data = Path(path).expanduser().read_bytes()
+            files[path] = data
+            if Path(path).suffix.lower() in (".pml", ".patinaerc"):
+                nested = self._query("command_files", {"command": data.decode("utf-8"), "script_path": path})
+                pending.extend(name for name in nested if name not in files)
+        paths = list(files)
+        buffers = list(files.values())
+        return self._query("execute", {"command": command, "quiet": quiet,
+                                       "files": paths}, buffers=buffers)
+
+    def get_task(self, task_id):
+        return self._query("get_task", {"id": task_id})
+
+    def list_tasks(self, filters):
+        return self._query("list_tasks", filters)
+
+    def cancel_task(self, task_id):
+        return self._query("cancel_task", {"id": task_id})
+
+    def wait_task(self, task_id, timeout=None):
+        # A finite transport liveness timeout also detects a disconnected view.
+        # Long task waits use repeated bounded server waits, never cancel work.
+        deadline = None if timeout is None else time.monotonic() + timeout
+        while True:
+            remaining = None if deadline is None else max(0, deadline - time.monotonic())
+            interval = 5.0 if remaining is None else min(5.0, remaining)
+            result = self._query("wait_task", {"id": task_id, "timeout_ms": interval * 1000},
+                                 timeout=interval + 10.0)
+            if result is not None:
+                return result
+            if deadline is not None and time.monotonic() >= deadline:
+                raise TaskApiError("timeout", f"Waiting for task {task_id} timed out")
 
     # -----------------------------------------------------------------
     # Synchronous queries
@@ -88,100 +125,86 @@ class WidgetBackend:
         return None
 
     def set_viewport_image(self, array):
-        pass
+        raise NotImplementedError("This operation is unavailable in the notebook viewer")
 
     def clear_viewport_image(self):
-        pass
+        raise NotImplementedError("This operation is unavailable in the notebook viewer")
 
     # -----------------------------------------------------------------
     # Keybindings (no-op — browser handles its own input)
     # -----------------------------------------------------------------
 
     def set_key(self, key, callback):
-        pass
+        raise NotImplementedError("This operation is unavailable in the notebook viewer")
 
     def unset_key(self, key):
-        pass
+        raise NotImplementedError("This operation is unavailable in the notebook viewer")
 
     # -----------------------------------------------------------------
     # Internal helpers
     # -----------------------------------------------------------------
 
-    def _query(self, method, params, timeout=10.0):
-        """Send a synchronous query and block until the browser responds."""
-        with self._query_lock:
-            self._response_event.clear()
-            self._last_response = None
+    def _query(self, method, params, timeout=10.0, buffers=None):
+        """Correlate one request while servicing UI comms during a cell."""
+        from jupyter_ui_poll import ui_events
 
-            query_id = self._widget._query_id + 1
-            self._widget._query_request = {
-                "id": query_id,
-                "method": method,
-                "params": params,
-            }
-            self._widget._query_id = query_id
+        event = threading.Event()
+        slot = {"event": event}
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("Widget frontend disconnected")
+            self._next_id += 1
+            request_id = self._next_id
+            self._pending[request_id] = slot
+        try:
+            deadline = time.monotonic() + timeout
+            with ui_events() as poll:
+                while not self._view_ready.is_set():
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError("Widget frontend did not connect")
+                    poll(10)
+                    self._view_ready.wait(0.01)
+                self._widget.send({"protocol": 1, "view_id": self._view_id,
+                                   "id": request_id, "method": method, "params": params},
+                                  buffers=buffers or [])
+                while not event.is_set():
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError(f"Widget request {method!r} timed out; frontend may be disconnected")
+                    poll(10)
+                    event.wait(min(0.01, remaining))
+            response = slot["response"]
+            if response.get("error") is not None:
+                error = response["error"]
+                if isinstance(error, dict) and error.get("code") == "timeout":
+                    return None
+                if isinstance(error, dict):
+                    raise TaskApiError(error.get("code", "transport_error"),
+                                       error.get("message", str(error)))
+                raise TaskApiError("transport_error", str(error))
+            return response["result"]
+        finally:
+            with self._lock:
+                self._pending.pop(request_id, None)
 
-            # Poll the kernel message loop so comm messages are processed.
-            deadline = time.time() + timeout
-            try:
-                import IPython
-
-                kernel = IPython.get_ipython().kernel
-                while not self._response_event.is_set():
-                    if time.time() > deadline:
-                        raise TimeoutError(
-                            f"Widget query '{method}' timed out after {timeout}s. "
-                            "Is the widget visible in the notebook?"
-                        )
-                    kernel.do_one_iteration()
-                    time.sleep(0.01)
-            except (ImportError, AttributeError):
-                # Not in IPython / no kernel — fall back to plain wait
-                if not self._response_event.wait(timeout=timeout):
-                    raise TimeoutError(
-                        f"Widget query '{method}' timed out after {timeout}s."
-                    )
-
-            resp = self._last_response
-            if resp and resp.get("error"):
-                raise RuntimeError(resp["error"])
-            return resp.get("result") if resp else None
-
-    def _on_query_response(self, change):
-        """Traitlet observer — fires when JS sets _query_response."""
-        resp = change["new"]
-        if resp and resp.get("id") == self._widget._query_id:
-            self._last_response = resp
-            self._response_event.set()
-
-    def _is_local_load(self, command):
-        """Check if this is a 'load' command with a local file path."""
-        parts = command.strip().split(None, 1)
-        if len(parts) < 2:
-            return False
-        if parts[0].lower() != "load":
-            return False
-        first_arg = parts[1].split(",")[0].strip()
-        return not first_arg.startswith(("http://", "https://", "ftp://"))
-
-    def _load_local_file(self, command):
-        """Read a local file and send bytes to the browser via binary message."""
-        parts = command.strip().split(None, 1)
-        arg_str = parts[1]
-        args = [a.strip() for a in arg_str.split(",")]
-        filepath = args[0]
-
-        # Determine object name and format from filename
-        basename = os.path.basename(filepath)
-        if basename.lower().endswith(".gz"):
-            basename = basename[:-3]
-        name = args[1] if len(args) > 1 and args[1] else basename.rsplit(".", 1)[0]
-        ext = basename.rsplit(".", 1)[-1].lower() if "." in basename else "pdb"
-
-        with open(filepath, "rb") as f:
-            data = f.read()
-
-        self._widget.send(
-            {"type": "load_data", "name": name, "format": ext},
-            buffers=[data],
-        )
+    def _on_message(self, widget, content, buffers):
+        if content.get("protocol") != 1:
+            return
+        with self._lock:
+            if content.get("event") == "ready":
+                if self._view_id is None:
+                    self._view_id = content["view_id"]
+                    self._view_ready.set()
+                return
+            if content.get("view_id") != self._view_id:
+                return
+            if content.get("event") == "disconnected":
+                self._closed = True
+                for slot in self._pending.values():
+                    slot["response"] = {"error": "Widget frontend disconnected"}
+                    slot["event"].set()
+                return
+            slot = self._pending.get(content.get("id"))
+            if slot is not None and not slot["event"].is_set():
+                slot["response"] = content
+                slot["event"].set()

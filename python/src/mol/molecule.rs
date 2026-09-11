@@ -1,7 +1,7 @@
 //! Python bindings for ObjectMolecule
 
-use pyo3::prelude::*;
 use patinae_mol::{AtomIndex, ObjectMolecule};
+use pyo3::prelude::*;
 
 use super::atom::{PyAtom, PyAtomIter};
 use super::bond::{PyBond, PyBondIter};
@@ -137,13 +137,16 @@ impl PyObjectMolecule {
     /// Returns atom data with coordinates from the current state.
     #[pyo3(signature = (index, state=None))]
     fn get_atom(&self, index: usize, state: Option<usize>) -> PyResult<PyAtom> {
-        let atom = self.inner.get_atom(AtomIndex(index as u32)).ok_or_else(|| {
-            pyo3::exceptions::PyIndexError::new_err(format!(
-                "Atom index {} out of range (max: {})",
-                index,
-                self.inner.atom_count()
-            ))
-        })?;
+        let atom = self
+            .inner
+            .get_atom(AtomIndex(index as u32))
+            .ok_or_else(|| {
+                pyo3::exceptions::PyIndexError::new_err(format!(
+                    "Atom index {} out of range (max: {})",
+                    index,
+                    self.inner.atom_count()
+                ))
+            })?;
 
         // Get coordinates for the atom
         let state_idx = state.unwrap_or(self.inner.current_state);
@@ -179,13 +182,16 @@ impl PyObjectMolecule {
     /// Get a bond by index
     fn get_bond(&self, index: usize) -> PyResult<PyBond> {
         use patinae_mol::BondIndex;
-        let bond = self.inner.get_bond(BondIndex(index as u32)).ok_or_else(|| {
-            pyo3::exceptions::PyIndexError::new_err(format!(
-                "Bond index {} out of range (max: {})",
-                index,
-                self.inner.bond_count()
-            ))
-        })?;
+        let bond = self
+            .inner
+            .get_bond(BondIndex(index as u32))
+            .ok_or_else(|| {
+                pyo3::exceptions::PyIndexError::new_err(format!(
+                    "Bond index {} out of range (max: {})",
+                    index,
+                    self.inner.bond_count()
+                ))
+            })?;
 
         Ok(PyBond::from_bond(bond, index))
     }
@@ -228,11 +234,9 @@ impl PyObjectMolecule {
     #[pyo3(signature = (state=None))]
     fn get_coords(&self, state: Option<usize>) -> Option<Vec<(f32, f32, f32)>> {
         let state_idx = state.unwrap_or(self.inner.current_state);
-        self.inner.get_coord_set(state_idx).map(|cs| {
-            cs.iter()
-                .map(|v| (v.x, v.y, v.z))
-                .collect()
-        })
+        self.inner
+            .get_coord_set(state_idx)
+            .map(|cs| cs.iter().map(|v| (v.x, v.y, v.z)).collect())
     }
 
     /// Get coordinate for a specific atom
@@ -255,17 +259,14 @@ impl PyObjectMolecule {
     #[pyo3(signature = (state=None))]
     fn bounding_box(&self, state: Option<usize>) -> Option<BoundingBox> {
         let state_idx = state.unwrap_or(self.inner.current_state);
-        self.inner.bounding_box(state_idx).map(|(min, max)| {
-            (vec3_to_tuple(min), vec3_to_tuple(max))
-        })
+        self.inner
+            .bounding_box(state_idx)
+            .map(|(min, max)| (vec3_to_tuple(min), vec3_to_tuple(max)))
     }
 
     /// Count atoms matching a simple name pattern
     fn count_atoms_by_name(&self, name: &str) -> usize {
-        self.inner
-            .atoms()
-            .filter(|a| &*a.name == name)
-            .count()
+        self.inner.atoms().filter(|a| &*a.name == name).count()
     }
 
     /// Count atoms matching a residue name

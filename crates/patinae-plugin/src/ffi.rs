@@ -7,8 +7,8 @@
 
 use core::ffi::c_void;
 
-/// ABI version bumped when [`PluginDeclaration`] layout changes.
-pub const ABI_VERSION: u32 = 6;
+/// ABI version bumped when any descriptor or callback layout changes.
+pub const ABI_VERSION: u32 = 7;
 
 /// Host callback table version expected by ABI v5 plugins.
 pub const HOST_CALLBACKS_VERSION: u32 = 5;
@@ -539,6 +539,8 @@ pub struct AbiCommandDescriptor {
     pub aliases: AbiStrSlice,
     /// Argument hint codes.
     pub arg_hints: AbiU8Slice,
+    /// Argument grammar code from `patinae_cmd::ArgumentSyntax`.
+    pub argument_syntax: u8,
     /// Extra host runtime inputs required by this command.
     pub runtime_requirements: u64,
 }

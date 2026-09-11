@@ -96,14 +96,15 @@ pub fn coords_to_py_list(coords: &[Vec3]) -> Vec<(f32, f32, f32)> {
 /// Convert a list of Python tuples to Vec<Vec3>
 #[allow(dead_code)]
 pub fn py_list_to_coords(coords: Vec<(f32, f32, f32)>) -> Vec<Vec3> {
-    coords.into_iter().map(|t| Vec3::new(t.0, t.1, t.2)).collect()
+    coords
+        .into_iter()
+        .map(|t| Vec3::new(t.0, t.1, t.2))
+        .collect()
 }
 
 /// Extract coordinates from CoordSet as Python list
 pub fn coordset_to_py_list(coordset: &patinae_mol::CoordSet) -> Vec<(f32, f32, f32)> {
-    coordset.iter()
-        .map(|v| (v.x, v.y, v.z))
-        .collect()
+    coordset.iter().map(|v| (v.x, v.y, v.z)).collect()
 }
 
 /// Convert bounding box to Python tuple of tuples

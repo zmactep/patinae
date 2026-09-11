@@ -1647,7 +1647,6 @@ mod tests {
             render_context: None,
             default_size: (800, 600),
             needs_redraw: &mut needs_redraw,
-            async_fetch_fn: None,
         };
         let parsed = parse_command(cmd_str).map_err(CmdError::parse)?;
         let viewer: &mut dyn ViewerLike = &mut adapter;
@@ -1662,7 +1661,6 @@ mod tests {
             render_context: None,
             default_size: (800, 600),
             needs_redraw: &mut needs_redraw,
-            async_fetch_fn: None,
         };
         let parsed = parse_command(cmd_str).map_err(CmdError::parse)?;
         let viewer: &mut dyn ViewerLike = &mut adapter;
@@ -1677,7 +1675,6 @@ mod tests {
             render_context: None,
             default_size: (800, 600),
             needs_redraw: &mut needs_redraw,
-            async_fetch_fn: None,
         };
         let parsed = parse_command(cmd_str).map_err(CmdError::parse)?;
         let viewer: &mut dyn ViewerLike = &mut adapter;
@@ -1692,7 +1689,6 @@ mod tests {
             render_context: None,
             default_size: (800, 600),
             needs_redraw: &mut needs_redraw,
-            async_fetch_fn: None,
         };
         CommandExecutor::new().do_(&mut adapter, cmd_str)
     }

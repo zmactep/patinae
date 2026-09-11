@@ -12,14 +12,15 @@ use patinae_plugin::prelude::*;
 #[cfg(test)]
 use patinae_scene::ObjectRegistry;
 
+#[cfg(test)]
 use crate::shared::SharedStateHandle;
-use crate::worker::{WorkItem, WorkOrigin, WorkerHandle};
+use patinae_plugin::prelude::{AsyncCommandRequest, PluginTaskRequest};
 
 // =============================================================================
 // Shared state sync
 // =============================================================================
 
-/// Sync molecule snapshots from the viewer into shared state for legacy tests.
+/// Populate molecule snapshots for inline command fixtures.
 #[cfg(test)]
 pub(crate) fn sync_shared_molecules(
     shared: &SharedStateHandle,
@@ -159,7 +160,6 @@ fn build_atom_command_code(args: &ParsedCommand, method: &str) -> Option<String>
 /// Parses `<selection>, <expression>` from args, wraps into
 /// `cmd.<method>('<selection>', '<expression>')`, and submits to the worker.
 fn submit_atom_command(
-    worker: &WorkerHandle,
     ctx: &mut CommandContext<'_, '_, dyn ViewerLike + '_>,
     args: &ParsedCommand,
     method: &str,
@@ -169,13 +169,7 @@ fn submit_atom_command(
         return Ok(());
     };
 
-    worker.submit(WorkItem::Eval {
-        code,
-        origin: WorkOrigin::Command,
-    });
-    ctx.mark_deferred();
-
-    Ok(())
+    ctx.request_task(python_request(code, "command"))
 }
 
 // =============================================================================
@@ -187,17 +181,27 @@ fn submit_atom_command(
 /// Usage:
 ///   python print("hello")
 ///   /import math; print(math.pi)
-pub struct PythonCommand {
-    pub(crate) worker: WorkerHandle,
+pub struct PythonCommand;
+
+pub(crate) fn python_request(code: String, origin: &str) -> AsyncCommandRequest {
+    AsyncCommandRequest::Plugin(python_task(
+        serde_json::json!({"code": code, "origin": origin}),
+    ))
 }
 
-impl PythonCommand {
-    pub fn new(worker: WorkerHandle) -> Self {
-        Self { worker }
-    }
+pub(crate) fn python_task(payload: serde_json::Value) -> PluginTaskRequest {
+    let mut request = PluginTaskRequest::new("python", payload);
+    // A script may intentionally replace its own scene; each child captures
+    // the scene at admission and each mutation is acknowledged by the host.
+    request.scene_scoped = false;
+    request
 }
 
 impl Command for PythonCommand {
+    fn argument_syntax(&self) -> patinae_plugin::prelude::ArgumentSyntax {
+        patinae_plugin::prelude::ArgumentSyntax::Verbatim
+    }
+
     fn name(&self) -> &str {
         "python"
     }
@@ -215,23 +219,13 @@ impl Command for PythonCommand {
         ctx: &mut CommandContext<'v, 'r, dyn ViewerLike + 'v>,
         args: &ParsedCommand,
     ) -> CmdResult {
-        // Reconstruct the code from all args.
-        // The parser splits on commas, so we rejoin them to reconstruct
-        // the original Python expression (e.g., "print(1, 2)").
-        let code = collect_all_args(args).join(", ");
-        let code = code.trim();
+        let code = args.raw_args().unwrap_or("").trim();
         if code.is_empty() {
             ctx.print("Usage: python <code>  or  /<code>");
             return Ok(());
         }
 
-        self.worker.submit(WorkItem::Eval {
-            code: code.to_string(),
-            origin: WorkOrigin::Command,
-        });
-        ctx.mark_deferred();
-
-        Ok(())
+        ctx.request_task(python_request(code.to_string(), "command"))
     }
 
     fn help(&self) -> &str {
@@ -258,15 +252,7 @@ impl Command for PythonCommand {
 /// Usage:
 ///   iterate all, print(name, resn, b)
 ///   iterate chain A, mylist.append(b)
-pub struct IterateCommand {
-    worker: WorkerHandle,
-}
-
-impl IterateCommand {
-    pub fn new(worker: WorkerHandle, _shared: SharedStateHandle) -> Self {
-        Self { worker }
-    }
-}
+pub struct IterateCommand;
 
 impl Command for IterateCommand {
     fn name(&self) -> &str {
@@ -282,7 +268,7 @@ impl Command for IterateCommand {
         ctx: &mut CommandContext<'v, 'r, dyn ViewerLike + 'v>,
         args: &ParsedCommand,
     ) -> CmdResult {
-        submit_atom_command(&self.worker, ctx, args, "iterate")
+        submit_atom_command(ctx, args, "iterate")
     }
 
     fn help(&self) -> &str {
@@ -313,15 +299,7 @@ impl Command for IterateCommand {
 /// Usage:
 ///   alter all, b=0.0
 ///   alter chain A, chain='B'
-pub struct AlterCommand {
-    worker: WorkerHandle,
-}
-
-impl AlterCommand {
-    pub fn new(worker: WorkerHandle, _shared: SharedStateHandle) -> Self {
-        Self { worker }
-    }
-}
+pub struct AlterCommand;
 
 impl Command for AlterCommand {
     fn name(&self) -> &str {
@@ -337,7 +315,7 @@ impl Command for AlterCommand {
         ctx: &mut CommandContext<'v, 'r, dyn ViewerLike + 'v>,
         args: &ParsedCommand,
     ) -> CmdResult {
-        submit_atom_command(&self.worker, ctx, args, "alter")
+        submit_atom_command(ctx, args, "alter")
     }
 
     fn help(&self) -> &str {
@@ -363,33 +341,22 @@ impl Command for AlterCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::AtomicBool;
-    use std::sync::{Arc, Mutex};
+    use std::sync::{atomic::AtomicBool, Arc, Mutex};
 
     use patinae_mol::ObjectMolecule;
     use patinae_scene::{MoleculeObject, Session, SessionAdapter};
 
     fn shared_state() -> SharedStateHandle {
-        Arc::new(Mutex::new(crate::shared::SharedState::new(
-            Arc::new(Mutex::new(Vec::new())),
-            Arc::new(AtomicBool::new(false)),
-        )))
+        Arc::new(Mutex::new(crate::shared::SharedState::new(Arc::new(
+            AtomicBool::new(false),
+        ))))
     }
 
     #[test]
     fn python_commands_declare_scene_requirements_explicitly() {
-        let (worker, _rx) = crate::worker::spawn_worker(Arc::new(AtomicBool::new(false)));
-        let shared = shared_state();
-
-        assert!(PythonCommand::new(worker.clone())
-            .runtime_requirements()
-            .is_empty());
-        assert!(IterateCommand::new(worker.clone(), shared.clone())
-            .runtime_requirements()
-            .is_empty());
-        assert!(AlterCommand::new(worker, shared)
-            .runtime_requirements()
-            .is_empty());
+        assert!(PythonCommand.runtime_requirements().is_empty());
+        assert!(IterateCommand.runtime_requirements().is_empty());
+        assert!(AlterCommand.runtime_requirements().is_empty());
     }
 
     #[test]
@@ -455,7 +422,6 @@ mod tests {
             render_context: None,
             default_size: (800, 600),
             needs_redraw: &mut needs_redraw,
-            async_fetch_fn: None,
         };
 
         assert!(sync_shared_molecules(&shared, &adapter, false));
@@ -484,7 +450,6 @@ mod tests {
                 render_context: None,
                 default_size: (800, 600),
                 needs_redraw: &mut needs_redraw,
-                async_fetch_fn: None,
             };
             assert!(sync_shared_molecules(&shared, &adapter, false));
         }
@@ -497,7 +462,6 @@ mod tests {
             render_context: None,
             default_size: (800, 600),
             needs_redraw: &mut needs_redraw,
-            async_fetch_fn: None,
         };
 
         assert!(sync_shared_molecules(&shared, &adapter, false));

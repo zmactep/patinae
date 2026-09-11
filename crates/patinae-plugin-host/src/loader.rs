@@ -82,11 +82,11 @@ use patinae_settings::{
 };
 use serde::{de::DeserializeOwned, Serialize};
 
+use crate::actions::apply_atom_property_change_batch;
 use crate::host::PluginHost;
 use crate::panic::panic_payload_to_string;
 use crate::paths::{is_plugin_library_path, PluginDiscovery};
 use crate::plugin::{LibraryHandle, LoadedPanel, LoadedPlugin};
-use crate::runtime::apply_atom_property_change_batch;
 
 mod gpu_validation;
 mod render_artifacts;
@@ -443,7 +443,20 @@ fn finish_registration(
     let gpu_cache = Arc::new(Mutex::new(GpuPluginCache::new(plugin_id)));
     let library = Arc::new(library_handle);
 
-    install_registration_assets(executor, &mut registration, library.clone(), gpu_cache);
+    if registration
+        .message_handler
+        .as_ref()
+        .is_some_and(|handler| handler.vtable.needs_poll != 0)
+    {
+        executor.register_task_executor(&metadata.name);
+    }
+    install_registration_assets(
+        executor,
+        &mut registration,
+        library.clone(),
+        gpu_cache,
+        &metadata.name,
+    );
 
     let mut panels = Vec::new();
     for panel in registration.panels {
@@ -568,6 +581,7 @@ fn install_registration_assets(
     registration: &mut RegistrationSink,
     library: Arc<LibraryHandle>,
     gpu_cache: SharedGpuPluginCache,
+    task_owner: &str,
 ) {
     for command in std::mem::take(&mut registration.commands) {
         executor
@@ -576,13 +590,14 @@ fn install_registration_assets(
                 command,
                 library.clone(),
                 gpu_cache.clone(),
+                task_owner.to_string(),
             )));
     }
 
     for script in std::mem::take(&mut registration.script_handlers) {
         executor.register_script_handler(
             script.extension.clone(),
-            AbiScriptHandlerProxy::into_handler(script, library.clone()),
+            AbiScriptHandlerProxy::into_handler(script, library.clone(), task_owner.to_string()),
         );
     }
 
@@ -1210,6 +1225,7 @@ struct RegisteredCommand {
     help: String,
     aliases: &'static [&'static str],
     arg_hints: &'static [ArgHint],
+    argument_syntax: patinae_cmd::ArgumentSyntax,
     runtime_requirements: CommandRuntimeRequirements,
     handle: PluginCommandHandle,
     vtable: AbiCommandVTable,
@@ -1231,6 +1247,8 @@ impl RegisteredCommand {
                     .map(arg_hint_from_abi)
                     .collect(),
             ),
+            argument_syntax: patinae_cmd::ArgumentSyntax::try_from(descriptor.argument_syntax)
+                .map_err(|value| format!("unknown command argument syntax: {value}"))?,
             runtime_requirements: CommandRuntimeRequirements::from_bits(
                 descriptor.runtime_requirements,
             ),
@@ -1292,7 +1310,8 @@ impl RegisteredHotkey {
                 let proxy = AbiHotkeyProxy::new(self.handle, self.vtable, library);
                 PluginKeyAction::Callback(Box::new(move |ctx| {
                     if let Err(error) = proxy.invoke(ctx) {
-                        ctx.set_notification(format!("plugin hotkey callback failed: {error}"));
+                        ctx.bus
+                            .print_error(format!("plugin hotkey callback failed: {error}"));
                     }
                 }))
             }
@@ -1301,6 +1320,7 @@ impl RegisteredHotkey {
 }
 
 struct AbiCommandProxy {
+    task_owner: String,
     command: RegisteredCommand,
     _library: Arc<LibraryHandle>,
     gpu_cache: SharedGpuPluginCache,
@@ -1311,8 +1331,10 @@ impl AbiCommandProxy {
         command: RegisteredCommand,
         library: Arc<LibraryHandle>,
         gpu_cache: SharedGpuPluginCache,
+        task_owner: String,
     ) -> Self {
         Self {
+            task_owner,
             command,
             _library: library,
             gpu_cache,
@@ -1346,7 +1368,7 @@ impl Command for AbiCommandProxy {
             .vtable
             .execute
             .ok_or_else(|| CmdError::execution("plugin command execute callback was null"))?;
-        let output: WireCommandOutput = {
+        let mut output: WireCommandOutput = {
             let mut runtime_state = HostCommandRuntimeState::with_cache(
                 ctx.viewer,
                 self.command.runtime_requirements,
@@ -1368,6 +1390,11 @@ impl Command for AbiCommandProxy {
             })
         }
         .map_err(CmdError::execution)?;
+        for request in &mut output.task_requests {
+            if let patinae_cmd::AsyncCommandRequest::Plugin(request) = request {
+                request.executor = self.task_owner.clone();
+            }
+        }
         apply_command_output(ctx, output, self.command.runtime_requirements)
     }
 
@@ -1393,6 +1420,10 @@ impl Command for AbiCommandProxy {
 
     fn arg_hints(&self) -> &[ArgHint] {
         self.command.arg_hints
+    }
+
+    fn argument_syntax(&self) -> patinae_cmd::ArgumentSyntax {
+        self.command.argument_syntax
     }
 
     fn runtime_requirements(&self) -> CommandRuntimeRequirements {
@@ -1541,7 +1572,7 @@ impl MessageHandler for AbiMessageHandlerProxy {
 
     fn poll(&mut self, ctx: &mut PollContext<'_>) {
         if let Err(error) = self.poll_inner(ctx) {
-            ctx.set_notification(format!("plugin poll failed: {error}"));
+            ctx.fail_executor(format!("plugin poll failed: {error}"));
         }
     }
 }
@@ -1594,17 +1625,27 @@ struct AbiScriptHandlerProxy {
 }
 
 impl AbiScriptHandlerProxy {
-    fn into_handler(script: RegisteredScriptHandler, library: Arc<LibraryHandle>) -> ScriptHandler {
+    fn into_handler(
+        script: RegisteredScriptHandler,
+        library: Arc<LibraryHandle>,
+        task_owner: String,
+    ) -> ScriptHandler {
         let proxy = Arc::new(Self {
             extension: script.extension,
             handle: script.handle,
             vtable: script.vtable,
             _library: library,
         });
-        Arc::new(move |path: &str| proxy.run(path))
+        Arc::new(move |path: &str| {
+            let mut request = proxy.run(path)?;
+            if let patinae_cmd::AsyncCommandRequest::Plugin(request) = &mut request {
+                request.executor = task_owner.clone();
+            }
+            Ok(request)
+        })
     }
 
-    fn run(&self, path: &str) -> Result<(), String> {
+    fn run(&self, path: &str) -> Result<patinae_cmd::AsyncCommandRequest, String> {
         let input = WireScriptInput {
             wire_version: RUNTIME_WIRE_VERSION,
             path: path.to_string(),
@@ -5578,8 +5619,8 @@ pub(crate) fn apply_command_output<V: ViewerLike + ?Sized>(
     runtime_requirements: CommandRuntimeRequirements,
 ) -> CmdResult {
     validate_runtime_wire_version(output.wire_version).map_err(CmdError::execution)?;
-    if output.deferred {
-        ctx.mark_deferred();
+    for request in output.task_requests {
+        ctx.request_task(request)?;
     }
     if runtime_requirements.contains(CommandRuntimeRequirements::FULL_SESSION)
         && output.result.is_ok()
@@ -5757,19 +5798,11 @@ fn dynamic_settings_to_wire(
 
 fn poll_input_from_context(ctx: &PollContext<'_>) -> Result<WirePollInput, String> {
     Ok(WirePollInput {
+        task_cancellations: ctx.task_cancellations.clone(),
         shared: ctx.poll_shared.clone(),
-        command_results: ctx
-            .command_results
-            .iter()
-            .map(|result| wire::WireCommandResult {
-                id: result.id,
-                result: result.result.clone(),
-                messages: result.messages.clone(),
-                deferred: result.deferred,
-            })
-            .collect(),
+        command_results: ctx.command_results.to_vec(),
         host_query_results: ctx.host_query_results.to_vec(),
-        dynamic_invocations: ctx.dynamic_invocations.to_vec(),
+        task_invocations: ctx.task_invocations.to_vec(),
         plugin_dirs: ctx
             .plugin_dirs
             .iter()
@@ -5780,23 +5813,34 @@ fn poll_input_from_context(ctx: &PollContext<'_>) -> Result<WirePollInput, Strin
 
 fn apply_poll_output(ctx: &mut PollContext<'_>, output: WirePollOutput) -> Result<(), String> {
     validate_runtime_wire_version(output.wire_version)?;
+    if let Some(error) = output.executor_failure {
+        ctx.fail_executor(error);
+    }
+
     send_bus_messages(output.messages, ctx.bus);
     for request in output.command_exec {
         ctx.execute_command(request.id, &request.command, request.silent);
     }
     for registration in output.dynamic_registrations {
-        ctx.register_dynamic_command(
-            registration.name,
-            registration.description,
-            registration.usage,
-            registration.arguments,
-        );
+        if let Some(owner_tag) = registration.owner_tag {
+            ctx.register_owned_dynamic_command(
+                registration.name,
+                registration.description,
+                registration.usage,
+                registration.arguments,
+                owner_tag,
+            );
+        } else {
+            ctx.register_dynamic_command(
+                registration.name,
+                registration.description,
+                registration.usage,
+                registration.arguments,
+            );
+        }
     }
     for name in output.dynamic_unregistrations {
         ctx.unregister_dynamic_command(&name);
-    }
-    for notification in output.notifications {
-        ctx.set_notification(notification);
     }
     for registration in output.hotkey_registrations {
         ctx.register_hotkey(
@@ -6151,7 +6195,33 @@ mod loader_tests {
                 }));
             ctx.print("lightweight diagnostic");
             ctx.show_panel("fixture-panel");
-            ctx.mark_deferred();
+            Ok(())
+        }
+    }
+
+    struct VerbatimFixtureCommand;
+
+    impl Command for VerbatimFixtureCommand {
+        fn name(&self) -> &str {
+            "foreign_eval"
+        }
+        fn aliases(&self) -> &[&str] {
+            &["%"]
+        }
+        fn argument_syntax(&self) -> patinae_cmd::ArgumentSyntax {
+            patinae_cmd::ArgumentSyntax::Verbatim
+        }
+        fn runtime_requirements(&self) -> CommandRuntimeRequirements {
+            CommandRuntimeRequirements::NONE
+        }
+        fn execute<'v, 'r>(
+            &self,
+            ctx: &mut CommandContext<'v, 'r, dyn ViewerLike + 'v>,
+            args: &ParsedCommand,
+        ) -> CmdResult {
+            let source = args.raw_args().unwrap_or("");
+            assert_eq!(args.get_str(0), Some(source));
+            ctx.print(source);
             Ok(())
         }
     }
@@ -6173,6 +6243,7 @@ mod loader_tests {
         ));
         registrar.register_command(SessionFixtureCommand);
         registrar.register_command(LightweightFixtureCommand);
+        registrar.register_command(VerbatimFixtureCommand);
         registrar.finish()
     }
 
@@ -6229,7 +6300,6 @@ mod loader_tests {
                 render_context: None,
                 default_size: (64, 64),
                 needs_redraw: &mut self.needs_redraw,
-                async_fetch_fn: None,
             }
         }
 
@@ -6239,11 +6309,94 @@ mod loader_tests {
                 render_context: None,
                 default_size: (64, 64),
                 needs_redraw: &mut self.needs_redraw,
-                async_fetch_fn: None,
             };
             self.executor
                 .execute_captured(&mut viewer, command, false, None)
         }
+    }
+
+    #[test]
+    fn registered_syntax_crosses_abi_and_is_shared_by_dispatch_and_scripts() {
+        let mut fixture = SessionFixture::new();
+        let source = r#"emit({"x": "a;b", "path": r"a\ b"}); unmatched("#;
+        for prefix in ["foreign_eval ", "%"] {
+            let input = format!("{prefix}{source}");
+            let execution = fixture.execute(&input);
+            assert!(execution.result.is_ok(), "{:?}", execution.result);
+            assert_eq!(execution.output.messages[0].text, source);
+            let steps = patinae_cmd::script_steps(
+                &format!("{input}\nsession_fixture read"),
+                fixture.executor.registry(),
+            )
+            .unwrap();
+            assert_eq!(steps.len(), 2);
+            assert_eq!(steps[1].0, 2);
+            let execution = fixture.execute(&steps[0].1);
+            assert!(execution.result.is_ok());
+            assert_eq!(execution.output.messages[0].text, source);
+        }
+        let mut viewer = patinae_scene::SessionAdapter {
+            session: &mut fixture.session,
+            render_context: None,
+            default_size: (64, 64),
+            needs_redraw: &mut fixture.needs_redraw,
+        };
+        fixture
+            .executor
+            .do_multi(&mut viewer, &format!("%{source}\nsession_fixture read"))
+            .unwrap();
+        fixture.executor.registry_mut().unregister("foreign_eval");
+        for name in ["foreign_eval", "%"] {
+            assert!(!fixture.executor.registry().contains(name));
+            assert_eq!(
+                fixture.executor.registry().argument_syntax(name),
+                patinae_cmd::ArgumentSyntax::Pml
+            );
+            assert!(fixture.execute(&format!("{name} value")).result.is_err());
+        }
+    }
+
+    #[test]
+    fn kernel_pml_executes_verbatim_commands_registered_through_abi() {
+        let mut host = PluginHost::new();
+        let mut kernel = patinae_framework::kernel::AppKernel::new();
+        let declaration = PluginDeclaration {
+            abi_version: ABI_VERSION,
+            sdk_version: AbiStr::from_static(SDK_VERSION),
+            capabilities: CAPABILITY_REGISTRATION | patinae_plugin::ffi::CAPABILITY_COMMANDS,
+            init: None,
+            register: Some(register_session_fixture),
+        };
+        load_declaration_for_test(&mut host, &mut kernel.executor, declaration).unwrap();
+        let path = std::env::temp_dir().join(format!(
+            "patinae-abi-verbatim-{}-{}.pml",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+        ));
+        let source = r#"emit("a;b", r"x\ y"); unmatched("#;
+        std::fs::write(&path, format!("%{source}\ngroup after_verbatim\n")).unwrap();
+        let receipt = kernel.execute_command_captured(
+            &format!("run {}", serde_json::to_string(&path).unwrap()),
+            true,
+            None,
+            (1, 1),
+        );
+        assert!(receipt.result.is_ok());
+        let id = receipt.output.task_ids[0];
+        for _ in 0..20 {
+            kernel.process_async_tasks();
+        }
+        let snapshot = kernel.tasks.get(id).unwrap();
+        assert_eq!(snapshot.state, patinae_cmd::tasks::TaskState::Succeeded);
+        assert!(snapshot
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message == source));
+        assert!(kernel.session.registry.contains("after_verbatim"));
+        std::fs::remove_file(path).unwrap();
     }
 
     #[derive(Debug, PartialEq)]
@@ -6330,7 +6483,6 @@ mod loader_tests {
         let original_image = fixture.session.viewport_image.clone();
         let execution = fixture.execute("lightweight_fixture");
         assert!(execution.result.is_ok());
-        assert!(execution.output.deferred);
         assert_eq!(execution.output.messages[0].text, "lightweight diagnostic");
         assert!(
             matches!(&execution.output.actions[..], [CommandAction::ShowPanel(id)] if id == "fixture-panel")
@@ -6364,8 +6516,8 @@ mod loader_tests {
                         && !session.is_empty();
                     let malformed = session == [0xc1];
                     let output = WireCommandOutput {
+                        task_requests: Vec::new(),
                         wire_version: RUNTIME_WIRE_VERSION,
-                        deferred: false,
                         result: result.clone(),
                         output: vec![patinae_cmd::OutputMessage::info("diagnostic")],
                         actions: Vec::new(),

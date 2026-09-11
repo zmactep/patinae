@@ -1,8 +1,53 @@
 /** Types matching the WASM bridge serialization format. */
 
 export interface CommandOutput {
-  messages: OutputMessage[];
+  result: { Ok: null } | { Err: string };
+  messages: { kind: "Info" | "Warning" | "Error"; text: string }[];
+  task_ids: string[];
 }
+
+export type TaskState = "queued" | "running" | "applying" | "succeeded" | "failed" | "cancelled";
+export type TaskEffects = "none" | "applied" | "partial" | "unknown";
+export interface TaskProgress {
+  phase: string;
+  message: string;
+  completed: number | null;
+  total: number | null;
+}
+export interface TaskDiagnostic { level: string; message: string }
+export type TaskOutcomeStatus =
+  | { status: "success"; data: { kind: string; schema_version: number; payload: unknown } | null }
+  | { status: "failure"; error: { code: string; message: string } }
+  | { status: "cancelled"; reason: string };
+export interface TaskOutcome {
+  status: TaskOutcomeStatus;
+  effects: TaskEffects;
+  diagnostics: TaskDiagnostic[];
+  diagnostics_truncated: boolean;
+}
+export interface TaskSummary {
+  id: string;
+  parent_id: string | null;
+  kind: string;
+  origin: string;
+  state: TaskState;
+  revision: number;
+  cancel_requested: boolean;
+  cancellable: boolean;
+  progress: TaskProgress | null;
+  created_at_ms: number;
+  updated_at_ms: number;
+  effects: TaskEffects;
+}
+export interface TaskSnapshot extends TaskSummary {
+  diagnostics: TaskDiagnostic[];
+  diagnostics_truncated: boolean;
+  outcome: TaskOutcome | null;
+}
+export interface TaskListFilters { after?: string; limit?: number; active_only?: boolean; origin?: string }
+export interface TaskListPage { tasks: TaskSummary[]; next_cursor: string | null }
+export type TaskCancelReply = "requested" | "already_requested" | "unsupported" | "too_late";
+export interface TaskChanged { id: string; revision: number; state: TaskState }
 
 export interface OutputMessage {
   level: "info" | "warning" | "error" | "clear";

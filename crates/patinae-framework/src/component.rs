@@ -16,6 +16,8 @@ use crate::message::AppMessage;
 /// Components read this context during rendering but never mutate it directly.
 /// All mutations go through [`crate::message::MessageBus`].
 pub struct SharedContext<'a> {
+    /// Host task state, absent in detached dynamic-plugin snapshots.
+    pub tasks: Option<&'a crate::tasks::TaskRunner>,
     // Scene state
     pub registry: &'a ObjectRegistry,
     pub camera: &'a Camera,

@@ -4,7 +4,6 @@
 
 import type { WebViewer } from "../../../pkg/patinae_web.js";
 import type {
-  CommandOutput,
   LabelInfo,
   OutputMessage,
   RenderMemoryProfileOption,
@@ -29,7 +28,7 @@ type WebViewerConstructorWithMemoryProfile = {
 };
 
 type WebViewerWithMemoryWarnings = WebViewer & {
-  takeWarnings?: () => CommandOutput;
+  takeWarnings?: () => { messages: OutputMessage[] };
 };
 
 /** Click-detection threshold: drag distance squared in CSS pixels. */
@@ -146,6 +145,13 @@ export class ViewerCore {
     return this.fatalError;
   }
 
+  /** Task lookup and validation failures belong to the request, not the renderer. */
+  requestWasm<T>(label: string, fn: (wasm: WebViewer) => T): T {
+    if (this.fatalError !== null) throw this.stoppedError(label);
+    if (!this.wasm) throw new Error(`Patinae viewer is not initialized; cannot call ${label}`);
+    return fn(this.wasm);
+  }
+
   callWasm<T>(label: string, fn: (wasm: WebViewer) => T): T | undefined {
     if (this.fatalError !== null) return undefined;
     const wasm = this.wasm;
@@ -227,7 +233,9 @@ export class ViewerCore {
     this.resizeObserver?.disconnect();
     this.labelOverlay.destroy();
     this.canvas.remove();
+    const wasm = this.wasm;
     this.wasm = null;
+    wasm?.free();
   }
 
   getPerformanceSnapshot(): ViewerPerformanceSnapshot {

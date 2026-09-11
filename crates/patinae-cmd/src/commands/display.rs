@@ -678,7 +678,7 @@ impl Command for ColorCommand {
             } else if let Some(idx) = ctx.viewer.color_index(color_name) {
                 patinae_color::ColorIndex::Named(idx)
             } else if let Some(color) = patinae_color::Color::from_hex(color_name) {
-                let index = ctx.viewer.named_palette_mut().set(color_name, color);
+                let index = ctx.viewer.set_named_color(color_name, color);
                 patinae_color::ColorIndex::Named(index)
             } else {
                 return Err(CmdError::invalid_arg(
@@ -728,28 +728,14 @@ impl Command for ColorCommand {
         }
 
         let color_index = i32::from(resolved_color);
-        let total_colored = for_each_selected_molecule_mut(
-            ctx.viewer,
-            selection,
-            DirtyFlags::COLOR,
-            |mol_obj, selected| {
-                let mol_mut = mol_obj.molecule_mut();
-                for idx in selected.indices() {
-                    if let Some(atom) = mol_mut.get_atom_mut(AtomIndex(idx.0)) {
-                        atom.repr.colors.base = color_index;
-                        atom.repr.colors.cartoon = color_index;
-                        atom.repr.colors.ribbon = color_index;
-                        atom.repr.colors.stick = color_index;
-                        atom.repr.colors.line = color_index;
-                        atom.repr.colors.sphere = color_index;
-                        atom.repr.colors.surface = color_index;
-                        atom.repr.colors.mesh = color_index;
-                        atom.repr.colors.dot = color_index;
-                        atom.repr.colors.ellipsoid = color_index;
-                    }
-                }
-            },
-        )?;
+        let selections = evaluate_selection(ctx.viewer, selection)?;
+        let mut total_colored = 0;
+        for (object, selected) in selections {
+            if selected.count() != 0 {
+                ctx.viewer.color_atoms(&object, &selected, color_index);
+                total_colored += selected.count();
+            }
+        }
 
         ctx.viewer.request_redraw();
 
@@ -947,7 +933,7 @@ impl Command for SetColorCommand {
                 as u8;
 
             let color = patinae_color::Color::from_rgb8(r, g, b);
-            let idx = ctx.viewer.named_palette_mut().set(color_name, color);
+            let idx = ctx.viewer.set_named_color(color_name, color);
 
             ctx.viewer.request_redraw();
 
@@ -1382,7 +1368,6 @@ mod tests {
                 render_context: None,
                 default_size: (64, 64),
                 needs_redraw: &mut needs_redraw,
-                async_fetch_fn: None,
             };
             CommandExecutor::new().do_(&mut adapter, command)?;
         }
@@ -1403,7 +1388,6 @@ mod tests {
             render_context: None,
             default_size: (64, 64),
             needs_redraw: &mut needs_redraw,
-            async_fetch_fn: None,
         };
         execute_label_request(&mut adapter, request)
     }
@@ -1630,7 +1614,6 @@ mod tests {
                 render_context: None,
                 default_size: (64, 64),
                 needs_redraw: &mut needs_redraw,
-                async_fetch_fn: None,
             };
             CommandExecutor::new()
                 .do_(&mut adapter, "color chain, distance")
@@ -1871,7 +1854,6 @@ mod tests {
             render_context: None,
             default_size: (64, 64),
             needs_redraw: &mut needs_redraw,
-            async_fetch_fn: None,
         };
         let selected = evaluate_selection(&adapter, "label semantic_label").unwrap();
 

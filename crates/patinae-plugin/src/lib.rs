@@ -27,6 +27,9 @@ pub mod macros;
 pub mod registrar;
 pub mod wire;
 
+/// Shared task identities, snapshots, outcomes, and query options.
+pub use patinae_cmd::tasks;
+
 // Re-export log so the patinae_plugin! macro can reference it without
 // plugins needing an explicit `log` dependency.
 pub use log;
@@ -43,6 +46,11 @@ pub mod __private {
 /// A single `use patinae_plugin::prelude::*;` gives access to all types
 /// needed to implement commands, panels, and message handlers.
 pub mod prelude {
+    pub use crate::registrar::TaskQueryResult;
+    pub use crate::tasks::{TaskId, TaskListRequest, TaskOutcomeStatus, TaskSnapshot, TaskState};
+    pub use patinae_cmd::{
+        ArgumentSyntax, AsyncCommandRequest, CommandReply, PluginTaskRequest, TaskInvocation,
+    };
     // Framework types
     pub use patinae_framework::atom_stream::{
         AtomChunk, AtomColumn, AtomRow, AtomRowKey, AtomStreamMode, AtomStreamRequest,
@@ -94,10 +102,10 @@ pub mod prelude {
 
     // Plugin API
     pub use crate::registrar::{
-        parse_key_string, CommandResult, DynamicCommandInvocation, DynamicSettingDescriptor,
-        DynamicSettingStore, FormatHandler, HotkeyCallback, KeyBinding, KeyCode, MessageHandler,
-        PluginKeyAction, PluginMetadata, PluginReaderFn, PluginRegistrar, PluginWriterFn,
-        PollContext, SharedSettingStore,
+        parse_key_string, CommandResult, DynamicSettingDescriptor, DynamicSettingStore,
+        FormatHandler, HotkeyCallback, KeyBinding, KeyCode, MessageHandler, PluginKeyAction,
+        PluginMetadata, PluginReaderFn, PluginRegistrar, PluginWriterFn, PollContext,
+        SharedSettingStore,
     };
     // Settings side effects (needed for define_plugin_settings! macro)
     pub use patinae_settings::SideEffectCategory;

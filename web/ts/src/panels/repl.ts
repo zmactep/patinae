@@ -42,9 +42,9 @@ export class ReplPanel {
       this.input.value = "";
       this.appendLine(`Patinae> ${cmd}`, "cmd");
 
-      const result = await this.viewer.executeAsync(cmd);
+      const result = await this.viewer.execute(cmd);
       for (const msg of result.messages) {
-        this.appendOutputMessage(msg);
+        this.appendOutputMessage({ level: msg.kind.toLowerCase() as OutputMessage["level"], text: msg.text });
       }
     } else if (e.key === "ArrowUp") {
       e.preventDefault();

@@ -37,15 +37,6 @@ class Viewer(anywidget.AnyWidget):
     # WASM binary as base64 (~4MB string, sent once on init)
     _wasm_b64 = traitlets.Unicode("").tag(sync=True)
 
-    # Fire-and-forget command channel
-    _command = traitlets.Unicode("").tag(sync=True)
-    _command_id = traitlets.Int(0).tag(sync=True)
-
-    # Synchronous query request/response
-    _query_request = traitlets.Dict({}).tag(sync=True)
-    _query_response = traitlets.Dict({}).tag(sync=True)
-    _query_id = traitlets.Int(0).tag(sync=True)
-
     # Layout
     _width = traitlets.Unicode("100%").tag(sync=True)
     _height = traitlets.Unicode("500px").tag(sync=True)
@@ -62,6 +53,17 @@ class Viewer(anywidget.AnyWidget):
         self._width = width
         self._height = height
         self._picking = picking
+        from ._backend import WidgetBackend
+        from ..tasks import Tasks
+
+        self._backend = WidgetBackend(self)
+        self._tasks = Tasks(self._backend)
+        self._cmd = None
+
+    @property
+    def tasks(self):
+        """Task observation and cancellation bound to this viewer's session."""
+        return self._tasks
 
     def show(self):
         """Display the widget in the notebook."""
@@ -75,6 +77,6 @@ class Viewer(anywidget.AnyWidget):
         The returned object has the same API as ``patinae.cmd``.
         """
         from .._cmd import Cmd
-        from ._backend import WidgetBackend
-
-        return Cmd(WidgetBackend(self))
+        if self._cmd is None:
+            self._cmd = Cmd(self._backend)
+        return self._cmd

@@ -3,8 +3,8 @@ use std::rc::Rc;
 
 use slint::ComponentHandle;
 
+use patinae_cmd::tasks::{TaskId, TaskOutcomeStatus};
 use patinae_framework::message::AppMessage;
-use patinae_framework::topics;
 
 use crate::native_file_actions::quote_command_arg;
 use crate::{AppWindow, LayoutState, MenuState, StartState};
@@ -120,21 +120,40 @@ pub fn setup_callbacks(app: Rc<RefCell<crate::app::App>>, window: &AppWindow) {
     }
 }
 
-pub(crate) fn dispatch_metadata_message(msg: &AppMessage, window: &AppWindow) -> bool {
-    let Some(message) = topics::subscribe::<crate::fetch::PdbMetadataMessage>(
-        msg,
-        crate::fetch::PDB_METADATA_TOPIC,
-    ) else {
-        return false;
+pub(crate) fn sync_fetch_preview(
+    kernel: &patinae_framework::kernel::AppKernel,
+    window: &AppWindow,
+) {
+    let menu = window.global::<MenuState>();
+    if !menu.get_fetch_loading() {
+        return;
+    }
+    let Ok(id) = menu.get_fetch_task_id().as_str().parse::<TaskId>() else {
+        return;
+    };
+    let outcome = match kernel.tasks.get(id) {
+        Ok(snapshot) => match snapshot.outcome {
+            Some(outcome) => outcome,
+            None => return,
+        },
+        Err(error) => {
+            menu.set_fetch_loading(false);
+            menu.set_fetch_status(format!("Metadata lookup unavailable: {error}").into());
+            return;
+        }
     };
 
-    let menu = window.global::<MenuState>();
-    if normalize_pdb_id(menu.get_fetch_pdb_id().as_str()) != normalize_pdb_id(&message.pdb_id) {
-        return true;
-    }
-
     menu.set_fetch_loading(false);
-    if message.error.is_empty() {
+    let result = match outcome.status {
+        TaskOutcomeStatus::Success { data: Some(data) } => {
+            serde_json::from_value::<crate::fetch::PdbMetadataMessage>(data.payload)
+                .map_err(|e| e.to_string())
+        }
+        TaskOutcomeStatus::Failure { error } => Err(error.message),
+        TaskOutcomeStatus::Cancelled { reason } => Err(reason),
+        _ => Err("missing metadata result".into()),
+    };
+    if let Ok(message) = result {
         menu.set_fetch_status(String::new().into());
         menu.set_fetch_title(message.title.into());
         menu.set_fetch_details(message.details.into());
@@ -142,11 +161,10 @@ pub(crate) fn dispatch_metadata_message(msg: &AppMessage, window: &AppWindow) ->
         menu.set_fetch_deposit_date(message.deposit_date.into());
         menu.set_fetch_release_date(message.release_date.into());
         menu.set_fetch_doi(message.doi.into());
-    } else {
+    } else if let Err(error) = result {
         clear_fetch_metadata(&menu);
-        menu.set_fetch_status(format!("Metadata lookup failed: {}", message.error).into());
+        menu.set_fetch_status(format!("Metadata lookup failed: {error}").into());
     }
-    true
 }
 
 fn dispatch_menu_action(app: Rc<RefCell<crate::app::App>>, window: &AppWindow, action: &str) {
@@ -212,6 +230,7 @@ fn toggle_opaque_background(app: Rc<RefCell<crate::app::App>>) {
 
 fn open_fetch_dialog(window: &AppWindow) {
     let menu = window.global::<MenuState>();
+    menu.set_fetch_task_id(String::new().into());
     menu.set_fetch_pdb_id(String::new().into());
     menu.set_fetch_object_name(String::new().into());
     menu.set_fetch_format("cif".into());
@@ -224,6 +243,7 @@ fn open_fetch_dialog(window: &AppWindow) {
 fn request_fetch_preview(app: Rc<RefCell<crate::app::App>>, window: &AppWindow, pdb_id: &str) {
     let normalized = normalize_pdb_id(pdb_id);
     let menu = window.global::<MenuState>();
+    menu.set_fetch_task_id(String::new().into());
     if let Err(err) = patinae_io::fetch::validate_pdb_id(&normalized) {
         menu.set_fetch_loading(false);
         clear_fetch_metadata(&menu);
@@ -235,15 +255,23 @@ fn request_fetch_preview(app: Rc<RefCell<crate::app::App>>, window: &AppWindow, 
     menu.set_fetch_loading(true);
     clear_fetch_metadata(&menu);
     menu.set_fetch_status(String::new().into());
-    app.borrow()
+    let admission = app
+        .borrow()
         .kernel
-        .tasks
-        .spawn(crate::fetch::PdbMetadataTask::new(normalized));
+        .spawn_task(crate::fetch::PdbMetadataTask::new(normalized));
+    match admission {
+        Ok(id) => menu.set_fetch_task_id(id.to_string().into()),
+        Err(error) => {
+            menu.set_fetch_loading(false);
+            menu.set_fetch_status(format!("Metadata lookup unavailable: {error}").into());
+        }
+    }
     window.window().request_redraw();
 }
 
 fn normalize_fetch_pdb_edit(window: &AppWindow, pdb_id: &str) {
     let menu = window.global::<MenuState>();
+    menu.set_fetch_task_id(String::new().into());
     let normalized = normalize_pdb_id_for_display(pdb_id);
     if normalized != menu.get_fetch_pdb_id().as_str() {
         menu.set_fetch_pdb_id(normalized.into());

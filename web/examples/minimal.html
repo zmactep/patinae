@@ -29,12 +29,18 @@
             const viewer = new PatinaeViewer(document.getElementById("viewer"));
             await viewer.init();
 
-            await viewer.loadUrl("https://models.rcsb.org/1IGT.bcif.gz", {
+            const reply = await viewer.loadUrl("https://models.rcsb.org/1IGT.bcif.gz", {
                 name: "1IGT",
                 format: "bcif",
             });
 
-            viewer.execute("bg_color white");
+            if ("Err" in reply.result) throw new Error(reply.result.Err);
+            for (const id of reply.task_ids) {
+                const task = await viewer.tasks.wait(id);
+                if (task.state !== "succeeded") throw new Error(`Task ${id} ${task.state}`);
+            }
+
+            await viewer.execute("bg_color white");
             viewer.execute("set shading_mode, skripkin");
             viewer.execute("set ambient, 0.8");
             viewer.execute("set silhouettes, on");

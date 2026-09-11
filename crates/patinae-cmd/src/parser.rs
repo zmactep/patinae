@@ -121,17 +121,35 @@ pub fn join_continued_lines(script: &str) -> String {
 /// assert_eq!(cmd.get_named_str("object"), Some("mol"));
 /// ```
 pub fn parse_command(input: &str) -> Result<ParsedCommand, ParseError> {
-    let input = normalize_continuations(input);
+    parse_with_syntax(input, |_| crate::ArgumentSyntax::Pml)
+}
+
+pub(crate) fn parse_with_syntax(
+    input: &str,
+    syntax: impl Fn(&str) -> crate::ArgumentSyntax,
+) -> Result<ParsedCommand, ParseError> {
     let input = input.trim();
     if input.is_empty() {
         return Err(ParseError::empty_command());
     }
-
-    match parse_single_command(input) {
+    let (tail, name) = parse_command_name(input).map_err(ParseError::from)?;
+    if syntax(name) == crate::ArgumentSyntax::Verbatim {
+        let tail = tail.trim_start();
+        return Ok(ParsedCommand {
+            name: name.into(),
+            args: if tail.is_empty() {
+                Vec::new()
+            } else {
+                vec![(None, ArgValue::String(tail.into()))]
+            },
+            raw_args: (!tail.is_empty()).then(|| tail.into()),
+        });
+    }
+    let input = normalize_continuations(input);
+    match parse_single_command(input.trim()) {
         Ok(("", cmd)) => Ok(cmd),
         Ok((remaining, _)) => Err(ParseError::generic(format!(
-            "unexpected trailing input: '{}'",
-            remaining
+            "unexpected trailing input: '{remaining}'"
         ))),
         Err(e) => Err(e.into()),
     }
@@ -150,64 +168,59 @@ pub fn parse_command(input: &str) -> Result<ParsedCommand, ParseError> {
 /// assert_eq!(cmds[2].name, "show");
 /// ```
 pub fn parse_commands(input: &str) -> Result<Vec<ParsedCommand>, ParseError> {
-    let input = normalize_continuations(input);
-    let input = input.trim();
-    if input.is_empty() {
-        return Ok(Vec::new());
-    }
+    parse_steps(input, |_| crate::ArgumentSyntax::Pml)
+        .map(|steps| steps.into_iter().map(|(_, command)| command).collect())
+        .map_err(|(_, error)| error)
+}
 
-    let mut commands = Vec::new();
-    let mut current: &str = input;
-
+// Command dispatch and PML share splitting, syntax selection, and source locations.
+pub(crate) fn parse_steps(
+    input: &str,
+    syntax: impl Fn(&str) -> crate::ArgumentSyntax,
+) -> Result<Vec<(usize, ParsedCommand)>, (usize, ParseError)> {
+    let mut steps = Vec::new();
+    let mut current = input;
+    let mut line = 1;
     while !current.is_empty() {
-        // Skip leading whitespace and semicolons
-        current = current.trim_start();
-        if current.starts_with(';') {
-            current = &current[1..];
-            continue;
-        }
-
-        // Handle comments
-        if current.starts_with('#') {
-            // Skip to end of line
-            if let Some(newline_pos) = current.find('\n') {
-                current = &current[newline_pos + 1..];
-            } else {
-                break;
-            }
-            continue;
-        }
-
+        let trimmed = current.trim_start_matches(|c: char| c.is_whitespace() || c == ';');
+        line += current[..current.len() - trimmed.len()]
+            .matches('\n')
+            .count();
+        current = trimmed;
         if current.is_empty() {
             break;
         }
-
-        // Find the end of this command (semicolon or newline, but not inside quotes/parens)
-        let end = find_command_end(current);
-        let cmd_str = &current[..end];
-        current = &current[end..];
-
-        let cmd_str = cmd_str.trim();
-        if cmd_str.is_empty() {
+        if current.starts_with('#') {
+            let end = current.find('\n').unwrap_or(current.len());
+            current = &current[end..];
             continue;
         }
-
-        match parse_single_command(cmd_str) {
-            Ok(("", cmd)) => commands.push(cmd),
-            Ok((remaining, cmd)) => {
-                // If there's remaining input, it might be another command
-                if !remaining.trim().is_empty() {
-                    commands.push(cmd);
-                    current = remaining;
-                } else {
-                    commands.push(cmd);
+        let (_, name) =
+            parse_command_name(current).map_err(|error| (line, ParseError::from(error)))?;
+        let mode = syntax(name);
+        let end = if mode == crate::ArgumentSyntax::Verbatim {
+            // A verbatim command owns the rest of its logical line, including semicolons.
+            // Preserve explicit line continuations for its language adapter.
+            let mut end = current.len();
+            for (index, _) in current.match_indices('\n') {
+                if !current[..index].trim_end_matches('\r').ends_with('\\') {
+                    end = index;
+                    break;
                 }
             }
-            Err(e) => return Err(e.into()),
-        }
+            end
+        } else {
+            find_command_end(current)
+        };
+        let command = &current[..end];
+        steps.push((
+            line,
+            parse_with_syntax(command, |_| mode).map_err(|error| (line, error))?,
+        ));
+        line += command.matches('\n').count();
+        current = &current[end..];
     }
-
-    Ok(commands)
+    Ok(steps)
 }
 
 /// Find the end of a command (semicolon or newline), respecting quotes and parens
@@ -233,6 +246,9 @@ fn find_command_end(input: &str) -> usize {
                 }
                 '(' | '[' | '{' => depth += 1,
                 ')' | ']' | '}' => depth = depth.saturating_sub(1),
+                '\\' if chars.peek().is_some_and(|(_, next)| *next == '\n') => {
+                    chars.next();
+                }
                 ';' | '\n' if depth == 0 => return i,
                 _ => {}
             }
@@ -271,17 +287,15 @@ fn parse_single_command(input: &str) -> IResult<&str, ParsedCommand> {
     ))
 }
 
-/// Parse a command name (alphanumeric + underscore + dot for util.xxx, @ for script, / for Python)
+/// Parse an identifier or a single punctuation alias, independent of its owner.
 fn parse_command_name(input: &str) -> IResult<&str, &str> {
     alt((
-        // Special case: @ command for script execution
-        tag("@"),
-        // Special case: / command (Python expression alias)
-        tag("/"),
-        // Regular command names: alphanumeric + underscore + dot
         recognize(pair(
             take_while1(|c: char| c.is_alphanumeric() || c == '_'),
             take_while(|c: char| c.is_alphanumeric() || c == '_' || c == '.'),
+        )),
+        recognize(none_of(
+            "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_ \t\r\n;#\"'",
         )),
     ))(input)
 }

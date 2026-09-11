@@ -767,11 +767,16 @@
                         }
                         setStatus(`Fetching ${pdbId}...`);
                         try {
-                            await viewer.loadUrl(
+                            const reply = await viewer.loadUrl(
                                 `https://files.rcsb.org/download/${pdbId}.pdb`,
                                 { name: pdbId, format: "pdb" },
                             );
-                            viewer.execute("as cartoon");
+                            if ("Err" in reply.result) throw new Error(reply.result.Err);
+                            for (const id of reply.task_ids) {
+                                const task = await viewer.tasks.wait(id);
+                                if (task.state !== "succeeded") throw new Error(`Task ${id} ${task.state}`);
+                            }
+                            await viewer.execute("as cartoon");
                             setStatus(
                                 `Loaded ${pdbId} (${viewer.countAtoms("all")} atoms)`,
                             );
@@ -805,7 +810,8 @@
                         const data = new Uint8Array(await file.arrayBuffer());
                         const name = file.name.replace(/\.[^.]+$/, "");
                         try {
-                            viewer.loadData(data, name, ext);
+                            const reply = viewer.loadData(data, name, ext);
+                            if ("Err" in reply.result) throw new Error(reply.result.Err);
                             setStatus(
                                 `Loaded ${name} (${viewer.countAtoms("all")} atoms)`,
                             );

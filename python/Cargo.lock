@@ -1425,6 +1425,7 @@ dependencies = [
  "patinae-session",
  "patinae-settings",
  "serde",
+ "serde_json",
  "shellexpand",
 ]
 
@@ -1488,7 +1489,10 @@ dependencies = [
  "patinae-select",
  "patinae-settings",
  "pyo3",
+ "serde",
+ "serde_json",
  "thiserror 2.0.18",
+ "tokio",
 ]
 
 [[package]]

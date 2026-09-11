@@ -11,6 +11,7 @@ mod backend;
 mod convert;
 mod error;
 pub mod iterate;
+mod owner;
 
 pub mod color;
 pub mod io;
@@ -18,9 +19,9 @@ pub mod mol;
 pub mod selecting;
 pub mod settings;
 
+pub use color::PyColor;
 pub use error::{PatinaeError, SelectionError};
 pub use mol::{PyAtom, PyBond, PyCoordSet, PyElement, PyObjectMolecule};
-pub use color::PyColor;
 pub use selecting::PySelectionResult;
 
 /// Python module initialization
@@ -58,7 +59,7 @@ fn _patinae(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
 
 /// Create a standalone backend (Session + CommandExecutor, no IPC).
 #[pyfunction]
-fn _create_standalone_backend() -> backend::StandaloneBackend {
+fn _create_standalone_backend() -> PyResult<backend::StandaloneBackend> {
     backend::StandaloneBackend::create()
 }
 

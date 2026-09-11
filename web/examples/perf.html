@@ -308,13 +308,13 @@
       async function loadFixture(file, preset) {
         write(`Loading ${file} (${preset})...`);
         const path = fixturePath(file);
-        const response = await fetch(path);
-        if (!response.ok) {
-          throw new Error(`failed to fetch ${file} from ${path}: ${response.status}`);
-        }
-        const bytes = new Uint8Array(await response.arrayBuffer());
         const format = file.endsWith(".bcif") || file.endsWith(".bcif.gz") ? "bcif" : "cif";
-        viewer.loadData(bytes, file.replace(/\..+$/, ""), format);
+        const reply = await viewer.loadUrl(path, { name: file.replace(/\..+$/, ""), format });
+        if ("Err" in reply.result) throw new Error(reply.result.Err);
+        for (const id of reply.task_ids) {
+          const task = await viewer.tasks.wait(id);
+          if (task.state !== "succeeded") throw new Error(`Task ${id} ${task.state}`);
+        }
         applyRepresentationPreset(preset);
         await sleep(1000);
       }

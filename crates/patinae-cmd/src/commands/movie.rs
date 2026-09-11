@@ -1377,7 +1377,6 @@ mod tests {
                 render_context: None,
                 default_size: (800, 600),
                 needs_redraw: &mut needs_redraw,
-                async_fetch_fn: None,
             };
             let mut executor = CommandExecutor::new();
             executor.do_with_options(&mut adapter, command, true)?;

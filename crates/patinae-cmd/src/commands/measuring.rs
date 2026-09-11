@@ -665,7 +665,6 @@ mod tests {
             render_context: None,
             default_size: (64, 64),
             needs_redraw: &mut needs_redraw,
-            async_fetch_fn: None,
         };
         CommandExecutor::new().do_(&mut adapter, command)
     }
@@ -680,7 +679,6 @@ mod tests {
             render_context: None,
             default_size: (64, 64),
             needs_redraw: &mut needs_redraw,
-            async_fetch_fn: None,
         };
         execute_measurement_request(&mut adapter, request)
     }

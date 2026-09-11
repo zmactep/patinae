@@ -10,9 +10,7 @@ documentation.workspace = true
 description = "Patinae command parsing and execution system"
 
 [features]
-default = ["fetch-async", "fetch", "native-io", "traj"]
-fetch = ["patinae-io/fetch"]
-fetch-async = ["patinae-io/fetch-async"]
+default = ["native-io", "traj"]
 native-io = ["dep:shellexpand", "dep:image"]
 traj = ["patinae-io/traj"]
 
@@ -35,6 +33,7 @@ lin_alg = { workspace = true }
 shellexpand = { workspace = true, optional = true }
 image = { workspace = true, optional = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 
 [dev-dependencies]
 flate2.workspace = true

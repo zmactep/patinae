@@ -820,6 +820,7 @@ dependencies = [
  "patinae-session",
  "patinae-settings",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -949,15 +950,12 @@ dependencies = [
  "js-sys",
  "lin_alg",
  "log",
- "patinae-algos",
  "patinae-cmd",
  "patinae-color",
- "patinae-io",
  "patinae-mol",
  "patinae-render",
  "patinae-scene",
  "patinae-select",
- "patinae-session",
  "patinae-settings",
  "serde",
  "serde-wasm-bindgen",

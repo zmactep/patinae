@@ -1,28 +1,11 @@
 //! Dynamic Commands
 //!
 //! A proxy [`Command`] implementation for commands registered dynamically by
-//! plugins at runtime.  When invoked by the user, the command captures the
-//! invocation (name + args) into a shared list.  The host drains this list
-//! each frame and delivers entries to the plugin via `PollContext`.
-
-use std::sync::{Arc, Mutex};
-
-use serde::{Deserialize, Serialize};
+//! plugins at runtime. An invocation produces a task request; the host assigns
+//! its identity and delivers the accepted work to the owning `PollContext`.
 
 use crate::command::format_help;
 use crate::{ArgHint, CmdResult, Command, CommandContext, ParsedCommand, ViewerLike};
-
-/// Record of a dynamic command invocation.
-///
-/// Produced by [`DynamicCommand::execute`] and delivered to plugins
-/// via the polling context.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DynamicCommandInvocation {
-    /// Command name.
-    pub name: String,
-    /// Positional arguments.
-    pub args: Vec<String>,
-}
 
 /// A command that captures invocations for asynchronous plugin processing.
 ///
@@ -34,21 +17,22 @@ pub struct DynamicCommand {
     usage: String,
     arguments: String,
     help_text: String,
-    /// Shared sink for captured invocations.
-    invocations: Arc<Mutex<Vec<DynamicCommandInvocation>>>,
+    /// Host-bound executor identity.
+    executor: String,
+    owner_tag: Option<u64>,
 }
 
 impl DynamicCommand {
     /// Create a new dynamic command.
     ///
-    /// `invocations` is shared with the `PluginManager` which drains it
-    /// each frame and delivers entries to plugins.
+    /// The host binds the executor and optional external connection identity.
     pub fn new(
         name: String,
         description: String,
         usage: String,
         arguments: String,
-        invocations: Arc<Mutex<Vec<DynamicCommandInvocation>>>,
+        executor: String,
+        owner_tag: Option<u64>,
     ) -> Self {
         let help_text = format_help(&description, &usage, &arguments);
         Self {
@@ -57,7 +41,8 @@ impl DynamicCommand {
             usage,
             arguments,
             help_text,
-            invocations,
+            executor,
+            owner_tag,
         }
     }
 }
@@ -90,16 +75,14 @@ impl Command for DynamicCommand {
     ) -> CmdResult {
         let arg_strings: Vec<String> = args.args.iter().map(|(_, v)| v.to_string()).collect();
 
-        if let Ok(mut list) = self.invocations.lock() {
-            list.push(DynamicCommandInvocation {
-                name: self.name.clone(),
-                args: arg_strings,
-            });
-            ctx.mark_deferred();
-        }
-
-        // Always succeeds -- actual handling is asynchronous in the plugin.
-        Ok(())
+        let mut request = crate::PluginTaskRequest::new(
+            "dynamic_command",
+            serde_json::json!({"name": self.name, "args": arg_strings}),
+        );
+        request.executor = self.executor.clone();
+        request.scene_scoped = false;
+        request.owner_tag = self.owner_tag;
+        ctx.request_task(crate::AsyncCommandRequest::Plugin(request))
     }
 
     fn arg_hints(&self) -> &[ArgHint] {

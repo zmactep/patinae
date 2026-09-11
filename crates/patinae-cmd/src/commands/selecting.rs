@@ -241,6 +241,12 @@ pub fn select_with_context(
                 .map_err(|error| CmdError::selection(error.to_string()))?;
             match patinae_select::evaluate(&parsed_expr, &ctx) {
                 Ok(result) => {
+                    // Explicit objects already use source indices. Reuse the bitset
+                    // instead of rebuilding it one atom at a time.
+                    if table.is_none() {
+                        projected = result;
+                        continue;
+                    }
                     for atom in result.indices() {
                         if let (Some(table), Some(copy)) = (table, instance) {
                             if !table.contains(copy, atom.0, mol.atom_count()) {
@@ -802,9 +808,44 @@ mod tests {
             render_context: None,
             default_size: (64, 64),
             needs_redraw: &mut needs_redraw,
-            async_fetch_fn: None,
         };
         select_with_context(&adapter, selection)
+    }
+
+    #[test]
+    fn explicit_selection_matches_identity_copy_projection() {
+        use patinae_mol::{InstanceGroup, InstanceTable, ObjectInstance, IDENTITY_INSTANCE};
+        let mut explicit = recent_atom_session();
+        let mut instanced = recent_atom_session();
+        instanced
+            .registry
+            .get_molecule_mut("source")
+            .unwrap()
+            .state_mut()
+            .instances = Some(InstanceTable {
+            groups: vec![InstanceGroup::default()],
+            copies: vec![ObjectInstance {
+                group: 0,
+                transform: IDENTITY_INSTANCE,
+            }],
+        });
+        for expression in [
+            "all",
+            "none",
+            "not name A",
+            "name A or name C",
+            "x > 2",
+            "source and not name B",
+        ] {
+            let (count, results) = evaluate_recent(&mut explicit, expression).unwrap();
+            let (copy_count, copy_results) = evaluate_recent(&mut instanced, expression).unwrap();
+            assert_eq!(count, copy_count, "{expression}");
+            assert_eq!(
+                results[0].1.indices().collect::<Vec<_>>(),
+                copy_results[0].1.indices().collect::<Vec<_>>(),
+                "{expression}"
+            );
+        }
     }
 
     #[test]
@@ -858,7 +899,6 @@ mod tests {
             render_context: None,
             default_size: (800, 600),
             needs_redraw: &mut needs_redraw,
-            async_fetch_fn: None,
         };
 
         let (count, results) = select_with_context(&adapter, "x > 4").unwrap();

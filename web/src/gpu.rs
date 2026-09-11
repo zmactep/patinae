@@ -3,6 +3,7 @@
 //! Hosts `patinae_render::RenderState` for the frame pipeline. The surface
 //! owns the canvas-backed swapchain.
 
+#[cfg(target_arch = "wasm32")]
 use std::sync::Arc;
 
 use wasm_bindgen::JsCast;
@@ -124,10 +125,7 @@ impl GpuState {
             // PreMultiplied/PostMultiplied, so the compositor blends the surface over the page
             // and the canvas renders black even though the scene draws correctly. Opaque removes
             // the compositor alpha path; fall back to the first advertised mode if unsupported.
-            let alpha_mode = if caps
-                .alpha_modes
-                .contains(&wgpu::CompositeAlphaMode::Opaque)
-            {
+            let alpha_mode = if caps.alpha_modes.contains(&wgpu::CompositeAlphaMode::Opaque) {
                 wgpu::CompositeAlphaMode::Opaque
             } else {
                 caps.alpha_modes[0]
@@ -146,6 +144,9 @@ impl GpuState {
 
             // patinae-render takes Arc<Device>/Arc<Queue>; wrap the wgpu handles
             // (which are themselves Arc-backed internally — clone is cheap).
+            // The shared renderer accepts Arc on every target; WASM uses it on
+            // the browser thread only, without transferring the device.
+            #[expect(clippy::arc_with_non_send_sync)]
             let device_arc = Arc::new(device);
             let queue_arc = Arc::new(queue);
             let state =

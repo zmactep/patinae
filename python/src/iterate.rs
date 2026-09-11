@@ -5,9 +5,9 @@
 
 use std::sync::Arc;
 
+use patinae_mol::{Atom, Element, SecondaryStructure};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
-use patinae_mol::{Atom, Element, SecondaryStructure};
 
 /// Populate a Python dict with atom properties for use as `locals` in
 /// `py.run()` during iterate/alter.
@@ -39,10 +39,7 @@ pub fn set_atom_locals(
     locals.set_item("ss", ss_to_str(atom.ss_type))?;
     locals.set_item("color", atom.repr.colors.base)?;
     locals.set_item("hetatm", atom.state.hetatm)?;
-    locals.set_item(
-        "type",
-        if atom.state.hetatm { "HETATM" } else { "ATOM" },
-    )?;
+    locals.set_item("type", if atom.state.hetatm { "HETATM" } else { "ATOM" })?;
 
     // Index / ID
     locals.set_item("index", index + 1)?; // 1-based command API index.
@@ -202,9 +199,9 @@ pub fn build_globals<'py>(
 /// Convert a `SecondaryStructure` enum to the command API single-letter code.
 pub fn ss_to_str(ss: SecondaryStructure) -> &'static str {
     match ss {
-        SecondaryStructure::Helix
-        | SecondaryStructure::Helix310
-        | SecondaryStructure::HelixPi => "H",
+        SecondaryStructure::Helix | SecondaryStructure::Helix310 | SecondaryStructure::HelixPi => {
+            "H"
+        }
         SecondaryStructure::Sheet => "S",
         _ => "L",
     }

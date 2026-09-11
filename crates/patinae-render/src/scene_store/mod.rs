@@ -1110,7 +1110,8 @@ impl SceneStore {
         let offset = slot.table_index as usize * ObjectEntry::STRIDE as usize;
         let end = offset + std::mem::size_of::<ObjectEntry>();
         if end <= self.obj_table_cpu.len() {
-            return *bytemuck::from_bytes(&self.obj_table_cpu[offset..end]);
+            // A byte buffer does not guarantee ObjEntry alignment on WASM.
+            return bytemuck::pod_read_unaligned(&self.obj_table_cpu[offset..end]);
         }
         ObjectEntry {
             atom_offset: slot.atom_offset,

@@ -92,7 +92,7 @@ pub use scene::{
     Scene, SceneAtomData, SceneManager, SceneObjectData, ScenePerAtomData, SceneStoreMask,
 };
 pub use selection::{SelectionEntry, SelectionManager};
-pub use session::{AnimationUpdate, HoverTarget, MovieStateSnapshot, Session};
+pub use session::{AnimationUpdate, HoverTarget, MovieStateSnapshot, MutationStamp, Session};
 pub use session_adapter::SessionAdapter;
 pub use view::ViewManager;
 pub use viewer_trait::{ViewerLike, ViewportImage};

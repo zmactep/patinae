@@ -275,6 +275,18 @@ pub trait ViewerLike {
         self.named_palette().get_by_name(name).map(|(idx, _)| idx)
     }
 
+    /// Color source atoms, returning the number whose stored colors changed.
+    fn color_atoms(&mut self, object: &str, selected: &SelectionResult, color: i32) -> usize {
+        self.objects_mut()
+            .get_molecule_mut(object)
+            .map_or(0, |molecule| molecule.color_selection(selected, color))
+    }
+
+    /// Register or update a named color, returning its palette index.
+    fn set_named_color(&mut self, name: &str, color: patinae_color::Color) -> u32 {
+        self.named_palette_mut().set(name, color)
+    }
+
     /// Set the background color
     fn set_background_color(&mut self, r: f32, g: f32, b: f32) {
         self.set_clear_color([r, g, b]);
@@ -694,18 +706,6 @@ pub trait ViewerLike {
     /// Clear the viewport image overlay
     fn clear_viewport_image(&mut self) {
         self.set_viewport_image_internal(None);
-    }
-
-    // =========================================================================
-    // Async Operations — Optional Override
-    // =========================================================================
-
-    /// Request an async fetch operation from RCSB PDB (non-blocking)
-    ///
-    /// Returns `true` if the request was accepted, `false` if async fetch
-    /// is not supported (caller should use sync fallback).
-    fn request_async_fetch(&mut self, _code: &str, _name: &str, _format: u8) -> bool {
-        false
     }
 
     // =========================================================================

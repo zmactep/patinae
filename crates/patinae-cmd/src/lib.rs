@@ -34,7 +34,7 @@
 //! - **Command trait**: Interface for implementing commands
 //! - **CommandRegistry**: Maps command names to implementations
 //! - **CommandExecutor**: Dispatches and executes commands
-//! - **ScriptEngine**: Executes .pml script files
+//! - **script_steps**: Parses .pml commands for host task execution
 
 mod args;
 mod command;
@@ -44,17 +44,20 @@ mod error;
 mod executor;
 pub mod helpers;
 mod history;
+pub mod loading;
 mod parser;
-mod script;
+pub mod script;
 mod setting_access;
+pub mod tasks;
 
 // Re-export main types
 pub use args::{ArgValue, ParsedCommand};
 pub use command::{
-    ArgHint, AsyncCommandRequest, AsyncCommandSink, Command, CommandAction, CommandContext,
-    CommandRegistry, CommandRuntimeRequirements, CommandSource, DynamicSettingEntry,
-    DynamicSettingRegistry, FetchFormatCode, FetchRequest, FormatHandler, LoadedPluginCapability,
-    MessageKind, OutputMessage, PluginReaderFn, PluginWriterFn, ScriptHandler, ViewerLike,
+    ArgHint, ArgumentSyntax, AsyncCommandAcceptance, AsyncCommandRequest, AsyncCommandSink,
+    Command, CommandAction, CommandContext, CommandRegistry, CommandRuntimeRequirements,
+    CommandSource, DynamicSettingEntry, DynamicSettingRegistry, FetchFormatCode, FetchRequest,
+    FormatHandler, LoadedPluginCapability, MessageKind, OutputMessage, PluginReaderFn,
+    PluginTaskRequest, PluginWriterFn, ScriptHandler, TaskInvocation, ViewerLike,
 };
 #[doc(inline)]
 pub use commands::display::{
@@ -65,12 +68,12 @@ pub use commands::measuring::{
     execute_measurement_request, measurement_kind_for_count, MeasurementOutcome,
     MeasurementRequest, MeasurementTarget,
 };
-pub use dynamic::{DynamicCommand, DynamicCommandInvocation};
+pub use dynamic::DynamicCommand;
 pub use error::{CmdError, CmdResult, ParseError};
-pub use executor::{CommandExecution, CommandExecutor, CommandOutput};
+pub use executor::{CommandExecution, CommandExecutor, CommandOutput, CommandReply};
 pub use history::CommandHistory;
 pub use parser::{join_continued_lines, parse_command, parse_commands};
-pub use script::ScriptEngine;
+pub use script::script_steps;
 pub use setting_access::{ResolvedSetting, SettingSource};
 
 /// Represents one native annotation mutation request.

@@ -256,42 +256,12 @@ cmd.color("green", "chain A")
 
 ## Web Viewer
 
-Patinae runs in the browser through WebAssembly and WebGPU. The web viewer is
-published as `@patinae/viewer` and can be embedded into applications or static
-pages.
+Patinae runs in the browser through WebAssembly and WebGPU. The web package
+provides a JavaScript API and a `<patinae-viewer>` custom element for embedding
+in applications and static pages.
 
-```html
-<div id="viewer" style="width: 800px; height: 600px"></div>
-
-<script type="module">
-  import { PatinaeViewer } from "@patinae/viewer";
-
-  const viewer = new PatinaeViewer(document.getElementById("viewer"));
-  await viewer.init();
-
-  await viewer.loadUrl("https://models.rcsb.org/1IGT.bcif.gz", {
-    name: "1IGT",
-    format: "bcif",
-  });
-
-  viewer.execute("show cartoon");
-  viewer.execute("color green, chain A");
-</script>
-```
-
-The package can also register a custom element:
-
-```html
-<script type="module">
-  import { registerElement } from "@patinae/viewer";
-  registerElement();
-</script>
-
-<patinae-viewer
-  src="https://models.rcsb.org/1IGT.bcif.gz"
-  command="show cartoon; color green, chain A">
-</patinae-viewer>
-```
+See the [Web Viewer README](web/README.md) for local setup, embedding examples,
+loading and task completion, panels, and deployment requirements.
 
 ## Architecture
 

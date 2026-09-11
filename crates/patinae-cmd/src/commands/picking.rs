@@ -211,7 +211,6 @@ mod tests {
             render_context: None,
             default_size: (64, 64),
             needs_redraw: &mut needs_redraw,
-            async_fetch_fn: None,
         };
         CommandExecutor::new().do_with_options(&mut adapter, command, false)
     }

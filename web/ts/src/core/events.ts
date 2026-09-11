@@ -1,3 +1,5 @@
+import type { TaskChanged } from './types.js';
+
 /** Typed event system for viewer state changes. */
 
 export type ViewerEventType =
@@ -6,7 +8,8 @@ export type ViewerEventType =
   | "command-output"
   | "movie-state-changed"
   | "atom-picked"
-  | "ready";
+  | "ready"
+  | "tasks.changed";
 
 export interface ViewerEventMap {
   "objects-changed": { names: string[] };
@@ -21,6 +24,7 @@ export interface ViewerEventMap {
     expression: string | null;
   };
   "ready": {};
+  "tasks.changed": TaskChanged;
 }
 
 type EventCallback<T> = (data: T) => void;

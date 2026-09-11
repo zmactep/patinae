@@ -684,6 +684,7 @@ mod tests {
 
         fn shared(&self) -> SharedContext<'_> {
             SharedContext {
+                tasks: None,
                 registry: &self.session.registry,
                 camera: &self.session.camera,
                 selections: &self.session.selections,

@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use slint::{ComponentHandle, Image, Rgba8Pixel, SharedPixelBuffer};
+use slint::{ComponentHandle, Image, Model, Rgba8Pixel, SharedPixelBuffer};
 
 use patinae_cmd::AnnotationRequest;
 use patinae_framework::component::SharedContext;
@@ -183,6 +183,8 @@ pub struct App {
     pending_annotation_requests: VecDeque<AnnotationRequest>,
     save_file_dialog_scheduled: bool,
     transient_notification: Option<(String, Instant)>,
+    // Retained for the event-loop lifetime; dropping a Slint timer stops it.
+    host_timer: slint::Timer,
     last_empty_mode: bool,
 }
 
@@ -244,6 +246,7 @@ impl App {
             pending_annotation_requests: VecDeque::new(),
             save_file_dialog_scheduled: false,
             transient_notification: None,
+            host_timer: slint::Timer::default(),
             last_empty_mode: true,
         }
     }
@@ -359,6 +362,53 @@ impl App {
             processed += 1;
         }
         processed
+    }
+
+    /// Services commands and tasks independently of rendering or window visibility.
+    fn pump_host(&mut self, app: &AppWindow) -> Option<bool> {
+        let mut window_visibility = None;
+        let viewport_size = Self::viewport_size(app);
+        self.poll_plugins(viewport_size);
+        self.drain_annotation_requests();
+        let rc = self
+            .renderer
+            .as_mut()
+            .map(|r| r as &mut dyn CaptureRenderer);
+        let unhandled = self.kernel.process_messages(rc, viewport_size);
+        dispatch_lifecycle_messages(&unhandled, slint::quit_event_loop);
+        let mut layout_messages = Vec::new();
+        for msg in &unhandled {
+            let window_action = match msg {
+                AppMessage::ShowWindow => Some(true),
+                AppMessage::HideWindow => Some(false),
+                _ => None,
+            };
+            if window_action.is_some() {
+                window_visibility = window_action;
+                continue;
+            }
+            if self.dispatch_recent_file_message(msg, app) || self.queue_save_file_request(msg) {
+                continue;
+            }
+            self.plugins.broadcast(msg, &mut self.kernel.bus);
+            if !self.dispatch_plugin_layout_message(msg) {
+                layout_messages.push(msg.clone());
+            }
+        }
+        if !layout_messages.is_empty() {
+            crate::bridges::layout::dispatch_messages(&layout_messages, app);
+        }
+        self.kernel.process_async_tasks();
+        crate::native_menu::sync_fetch_preview(&self.kernel, app);
+        self.sync_notifications(app);
+        self.sync_empty_mode(app);
+        self.sync_plugins(app);
+        self.repl.sync(&self.kernel, app);
+        if self.kernel.needs_redraw() {
+            app.window().request_redraw();
+            self.kernel.clear_redraw_flag();
+        }
+        window_visibility
     }
 
     // --- Per-frame rendering ---
@@ -490,53 +540,6 @@ impl App {
         }
         mark("input+pick", &mut t_section);
 
-        self.poll_plugins((vw, vh));
-        mark("plugins.poll", &mut t_section);
-
-        self.kernel.process_async_tasks();
-        mark("async.tasks", &mut t_section);
-        self.sync_notifications(app);
-
-        self.drain_annotation_requests();
-        mark("annotations", &mut t_section);
-
-        // Drain pending commands (color, show, etc. — sets dirty flags on molecules).
-        // Cast the renderer to `&mut dyn CaptureRenderer` for the trait-based
-        // command path; commands that need GPU access (just `png` /
-        // `movie render`) call back through the trait.
-        let rc: Option<&mut dyn CaptureRenderer> = self
-            .renderer
-            .as_mut()
-            .map(|r| r as &mut dyn CaptureRenderer);
-        let unhandled = self.kernel.process_messages(rc, (vw, vh));
-        dispatch_lifecycle_messages(&unhandled, slint::quit_event_loop);
-        mark("commands", &mut t_section);
-
-        let mut forwarded_messages = Vec::with_capacity(unhandled.len());
-        for msg in &unhandled {
-            if crate::native_menu::dispatch_metadata_message(msg, app) {
-                continue;
-            }
-            if self.dispatch_recent_file_message(msg, app) {
-                continue;
-            }
-            if self.queue_save_file_request(msg) {
-                continue;
-            }
-            self.plugins.broadcast(msg, &mut self.kernel.bus);
-            forwarded_messages.push(msg.clone());
-        }
-        let layout_messages: Vec<_> = forwarded_messages
-            .iter()
-            .filter_map(|msg| {
-                if self.dispatch_plugin_layout_message(msg) {
-                    None
-                } else {
-                    Some(msg.clone())
-                }
-            })
-            .collect();
-
         let animation_dt = self
             .last_animation_instant
             .get()
@@ -546,10 +549,6 @@ impl App {
         self.kernel.update_animations(animation_dt);
         mark("animations", &mut t_section);
 
-        // Dispatch layout messages (ShowPanel, HidePanel, TogglePanel)
-        if !layout_messages.is_empty() {
-            crate::bridges::layout::dispatch_messages(&layout_messages, app);
-        }
         self.sync_empty_mode(app);
 
         self.sync_plugins(app);
@@ -671,14 +670,27 @@ impl App {
         }
 
         self.capture_pending_recent_thumbnail(app);
-        self.run_startup_actions(app, (vw, vh));
+        self.run_startup_actions((vw, vh));
     }
 
     fn poll_plugins(&mut self, viewport_size: (u32, u32)) {
+        // Drain ready acknowledgements without waiting for another host tick.
+        // No wait or speculative polling: stop as soon as transport is empty.
+        for pass in 0..self.kernel.tasks.config().batch_size {
+            self.poll_plugins_once(viewport_size, pass == 0);
+            self.plugins.prepare_task_dispatch(&mut self.kernel);
+            if !self.plugins.has_ready_task_delivery() {
+                break;
+            }
+        }
+    }
+
+    fn poll_plugins_once(&mut self, viewport_size: (u32, u32), first_pass: bool) {
         if self.plugins.plugin_count() == 0 {
             return;
         }
 
+        self.plugins.prepare_task_dispatch(&mut self.kernel);
         let scene_generation = self.plugin_scene_generation();
         {
             let gpu_device = self.renderer.as_ref().map(|r| r.gpu_device().as_ref());
@@ -701,9 +713,16 @@ impl App {
                 command_registry: kernel.executor.registry(),
                 setting_names: &self.setting_names_cache,
                 dynamic_settings: Some(kernel.executor.dynamic_settings()),
+                tasks: Some(&kernel.tasks),
             };
-            self.plugins.poll_all(&shared, &mut kernel.bus);
+            if first_pass {
+                self.plugins.poll_all(&shared, &mut kernel.bus);
+            } else {
+                self.plugins.poll_task_deliveries(&shared, &mut kernel.bus);
+            }
         }
+
+        self.plugins.apply_task_controls(&mut self.kernel);
 
         let mut results = Vec::new();
         for request in self.plugins.take_pending_executions() {
@@ -876,6 +895,7 @@ impl App {
         let gpu_queue = self.renderer.as_ref().map(|r| r.gpu_queue().as_ref());
         let scene_generation = self.plugin_scene_generation();
         let shared = SharedContext {
+            tasks: Some(&self.kernel.tasks),
             registry: &self.kernel.session.registry,
             camera: &self.kernel.session.camera,
             selections: &self.kernel.session.selections,
@@ -906,9 +926,29 @@ impl App {
     }
 
     fn sync_notifications(&mut self, app: &AppWindow) {
-        let mut messages = self.kernel.task_notification_messages();
-        messages.extend(self.plugins.notification_messages().iter().cloned());
-        if messages.is_empty() {
+        let tasks: Vec<_> = self
+            .kernel
+            .tasks
+            .active_snapshots()
+            .into_iter()
+            .map(|snapshot| {
+                let message = snapshot
+                    .progress
+                    .as_ref()
+                    .map_or_else(String::new, |progress| progress.message.clone());
+                crate::TaskNotification {
+                    task_id: snapshot.id.to_string().into(),
+                    text: if snapshot.cancel_requested {
+                        format!("{} — cancelling...", message).into()
+                    } else {
+                        message.into()
+                    },
+                    cancellable: snapshot.cancellable && !snapshot.cancel_requested,
+                }
+            })
+            .collect();
+        let mut messages = Vec::new();
+        if messages.is_empty() && tasks.is_empty() {
             if let Some((message, expires_at)) = &self.transient_notification {
                 if Instant::now() <= *expires_at {
                     messages.push(message.clone());
@@ -919,8 +959,12 @@ impl App {
         }
 
         let state = app.global::<NotificationState>();
-        state.set_visible(!messages.is_empty());
+        state.set_visible(!messages.is_empty() || !tasks.is_empty());
         state.set_text(messages.join("\n").into());
+        // Avoid creating a new model (and redraw) on every idle timer tick.
+        if !state.get_tasks().iter().eq(tasks.iter().cloned()) {
+            state.set_tasks(Rc::new(slint::VecModel::from(tasks)).into());
+        }
     }
 
     fn refresh_command_names_cache(&mut self) {
@@ -954,14 +998,13 @@ impl App {
             .wrapping_add(self.kernel.session.recent_atoms.generation().rotate_left(3))
     }
 
-    fn run_startup_actions(&mut self, app: &AppWindow, viewport_size: (u32, u32)) {
+    fn run_startup_actions(&mut self, viewport_size: (u32, u32)) {
         while let Some(action) = self.startup_actions.pop_front() {
             match action {
                 StartupAction::Warning(message) => {
                     self.kernel.bus.print_warning(message);
                 }
                 StartupAction::RunPatinaerc(path) => {
-                    app.global::<crate::ReplState>().set_busy(true);
                     let path_text = path.to_string_lossy();
                     let command = format!("run {}", quote_command_arg(path_text.as_ref()));
                     let rc: Option<&mut dyn CaptureRenderer> = self
@@ -976,7 +1019,6 @@ impl App {
                     );
                 }
                 StartupAction::RouteArgvFile(path) => {
-                    app.global::<crate::ReplState>().set_busy(true);
                     enqueue_file_action(&mut self.kernel, &path, NativeFileSource::StartupArgv);
                 }
             }
@@ -1896,6 +1938,51 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Wire native menu and fetch dialog callbacks
     crate::native_menu::setup_callbacks(app.clone(), &window);
 
+    {
+        let weak_app = Rc::downgrade(&app);
+        let weak_window = window.as_weak();
+        // A bounded host tick keeps completion observable while rendering is suspended.
+        app.borrow().host_timer.start(
+            slint::TimerMode::Repeated,
+            Duration::from_millis(16),
+            move || {
+                let (Some(app), Some(window)) = (weak_app.upgrade(), weak_window.upgrade()) else {
+                    return;
+                };
+                let visibility = app.borrow_mut().pump_host(&window);
+                // Show/hide can invoke renderer callbacks, which borrow App again.
+                if let Some(visible) = visibility {
+                    let result = if visible {
+                        window.show()
+                    } else {
+                        window.hide()
+                    };
+                    if let Err(error) = result {
+                        app.borrow_mut()
+                            .kernel
+                            .output
+                            .print_error(format!("Window visibility failed: {error}"));
+                    }
+                }
+                schedule_pending_save_file_requests(app, window.as_weak());
+            },
+        );
+    }
+
+    {
+        let weak_app = Rc::downgrade(&app);
+        window
+            .global::<NotificationState>()
+            .on_cancel_task(move |id| {
+                let Some(app) = weak_app.upgrade() else {
+                    return;
+                };
+                if let Ok(id) = id.as_str().parse() {
+                    let _ = app.borrow().kernel.tasks.cancel(id);
+                }
+            });
+    }
+
     // Theme toggle callback — sends `set theme` through the message bus
     {
         let app_ref = app.clone();
@@ -1939,7 +2026,6 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             slint::RenderingState::BeforeRendering => {
                 if let Some(w) = window_weak.upgrade() {
                     app_rc.borrow_mut().render_frame(&w);
-                    schedule_pending_save_file_requests(app_rc.clone(), window_weak.clone());
                     w.window().request_redraw();
                     if timing_callbacks {
                         before_end_clone.set(Some(std::time::Instant::now()));
@@ -1960,7 +2046,12 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             _ => {}
         })?;
 
-    window.run()?;
+    window.show()?;
+    // IPC can hide the last window while tasks continue on the host timer.
+    // User close and Quit still explicitly request event-loop termination.
+    let result = slint::run_event_loop_until_quit();
+    app.borrow().host_timer.stop();
+    result?;
     Ok(())
 }
 

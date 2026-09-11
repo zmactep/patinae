@@ -8,7 +8,7 @@ use std::io::Read;
 use std::sync::{Arc, RwLock};
 
 use patinae_cmd::{
-    CommandAction, DynamicCommandInvocation, DynamicSettingRegistry, OutputMessage, ParsedCommand,
+    CommandAction, DynamicSettingRegistry, OutputMessage, ParsedCommand, TaskInvocation,
 };
 use patinae_framework::atom_stream::{AtomChunk, AtomStreamRequest};
 use patinae_framework::message::AppMessage;
@@ -34,7 +34,7 @@ use patinae_settings::{
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 /// Runtime wire version for MessagePack DTOs.
-pub const RUNTIME_WIRE_VERSION: u32 = 16;
+pub const RUNTIME_WIRE_VERSION: u32 = 18;
 
 /// Maximum MessagePack payload copied across the runtime ABI.
 pub const MAX_WIRE_PAYLOAD_LEN: usize = 64 * 1024 * 1024;
@@ -394,14 +394,83 @@ pub enum WireViewerAction {
 /// Host-side query requested by a dynamic plugin.
 #[derive(Clone, Serialize, Deserialize)]
 pub enum WireHostQuery {
+    /// Forget an observer's pending wait without cancelling its task.
+    ForgetTaskWait {
+        id: u64,
+    },
+    TaskConfig {
+        id: u64,
+    },
+    /// Terminate only this plugin's disconnected connection executor.
+    FailTaskOwner {
+        id: u64,
+        owner_tag: u64,
+    },
+    /// Admit work for the requesting plugin before delivering an invocation.
+    StartTask {
+        id: u64,
+        request: patinae_cmd::PluginTaskRequest,
+        parent_id: Option<patinae_cmd::tasks::TaskId>,
+    },
+    /// Report progress or completion for work assigned to this plugin.
+    TaskEvent {
+        id: u64,
+        task_id: patinae_cmd::tasks::TaskId,
+        event: patinae_cmd::tasks::TaskEvent,
+    },
+    /// Apply a task's portable mutation and acknowledge only after application.
+    TaskAction {
+        id: u64,
+        task_id: patinae_cmd::tasks::TaskId,
+        action: WireViewerAction,
+    },
+    /// Execute a command attributed to its parent task.
+    TaskCommand {
+        id: u64,
+        task_id: patinae_cmd::tasks::TaskId,
+        command: String,
+        silent: bool,
+    },
+    /// Await a terminal snapshot without blocking the host pump.
+    WaitTask {
+        id: u64,
+        task_id: patinae_cmd::tasks::TaskId,
+        waiter: Option<patinae_cmd::tasks::TaskId>,
+        timeout_ms: Option<u64>,
+    },
+
+    /// Read an atomic task snapshot.
+    GetTask {
+        id: u64,
+        task_id: patinae_cmd::tasks::TaskId,
+    },
+    /// List bounded task summaries.
+    ListTasks {
+        id: u64,
+        request: patinae_cmd::tasks::TaskListRequest,
+    },
+    /// Request cancellation after the host read phase ends.
+    CancelTask {
+        id: u64,
+        task_id: patinae_cmd::tasks::TaskId,
+    },
     /// Return loaded object names.
-    ObjectNames { id: u64 },
+    ObjectNames {
+        id: u64,
+    },
     /// Return the current camera view.
-    View { id: u64 },
+    View {
+        id: u64,
+    },
     /// Count atoms matching a selection expression.
-    CountAtoms { id: u64, selection: String },
+    CountAtoms {
+        id: u64,
+        selection: String,
+    },
     /// Return full viewport image bytes.
-    ViewportImage { id: u64 },
+    ViewportImage {
+        id: u64,
+    },
     /// Return one portable label-object inspection snapshot.
     LabelObject {
         /// Correlation id.
@@ -446,6 +515,18 @@ pub struct WireHostQueryResult {
 /// Host-side query value.
 #[derive(Clone, Serialize, Deserialize)]
 pub enum WireHostQueryValue {
+    TaskConfig(patinae_cmd::tasks::TaskConfig),
+    TaskStarted(Result<patinae_cmd::tasks::TaskId, patinae_cmd::tasks::TaskStartError>),
+    TaskAcknowledged(Result<bool, patinae_cmd::tasks::TaskError>),
+    TaskWait(Result<patinae_cmd::tasks::TaskSnapshot, patinae_cmd::tasks::TaskError>),
+    TaskCommand(Result<patinae_cmd::CommandReply, patinae_cmd::tasks::TaskError>),
+
+    /// Task snapshot or a structured lookup failure.
+    TaskSnapshot(Result<patinae_cmd::tasks::TaskSnapshot, patinae_cmd::tasks::TaskLookupError>),
+    /// Task summaries or a structured cursor failure.
+    TaskList(Result<patinae_cmd::tasks::TaskListPage, patinae_cmd::tasks::TaskLookupError>),
+    /// Cancellation acknowledgement or a structured lookup failure.
+    TaskCancel(Result<patinae_cmd::tasks::TaskCancelReply, patinae_cmd::tasks::TaskLookupError>),
     /// Loaded object names.
     ObjectNames(Vec<String>),
     /// Current camera view.
@@ -784,8 +865,9 @@ pub struct WireTraceGeometryOpened {
 /// Command execution output.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct WireCommandOutput {
+    /// Work descriptions admitted by the receiving host.
+    pub task_requests: Vec<patinae_cmd::AsyncCommandRequest>,
     /// Command work was queued rather than completed.
-    pub deferred: bool,
     /// Must equal [`RUNTIME_WIRE_VERSION`].
     pub wire_version: u32,
     /// Command result, using a string error for portability.
@@ -851,18 +933,8 @@ pub struct WirePanelSnapshotOutput {
     pub snapshot: PanelSnapshot,
 }
 
-/// Command execution result delivered during polling.
-#[derive(Clone, Serialize, Deserialize)]
-pub struct WireCommandResult {
-    /// Correlation ID.
-    pub id: u64,
-    /// Result of the command.
-    pub result: Result<(), String>,
-    /// Messages in emission order, independent of UI silence.
-    pub messages: Vec<OutputMessage>,
-    /// Work was queued; this is not its eventual completion result.
-    pub deferred: bool,
-}
+/// Canonical receipt with a plugin-local routing token.
+pub type WireCommandResult = crate::registrar::CommandResult;
 
 /// Deferred command execution request.
 #[derive(Clone, Serialize, Deserialize)]
@@ -886,6 +958,7 @@ pub struct WireDynCmdRegistration {
     pub usage: String,
     /// Argument help text.
     pub arguments: String,
+    pub owner_tag: Option<u64>,
 }
 
 /// Portable hotkey action.
@@ -911,6 +984,8 @@ pub struct WireHotkeyRegistration {
 /// Message handler poll input.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct WirePollInput {
+    /// Cancellation signals addressed to this executor.
+    pub task_cancellations: Vec<patinae_cmd::tasks::TaskId>,
     /// Lightweight shared host state.
     pub shared: WirePollSharedInput,
     /// Results from previously queued commands.
@@ -918,7 +993,7 @@ pub struct WirePollInput {
     /// Results from previously queued host queries.
     pub host_query_results: Vec<WireHostQueryResult>,
     /// Dynamic command invocations since the last poll.
-    pub dynamic_invocations: Vec<DynamicCommandInvocation>,
+    pub task_invocations: Vec<TaskInvocation>,
     /// Plugin directories as UTF-8 paths.
     pub plugin_dirs: Vec<String>,
 }
@@ -926,6 +1001,7 @@ pub struct WirePollInput {
 /// Message handler poll output.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct WirePollOutput {
+    pub executor_failure: Option<String>,
     /// Must equal [`RUNTIME_WIRE_VERSION`].
     pub wire_version: u32,
     /// Bus messages emitted by the plugin.
@@ -936,8 +1012,6 @@ pub struct WirePollOutput {
     pub dynamic_registrations: Vec<WireDynCmdRegistration>,
     /// Dynamic command unregistrations.
     pub dynamic_unregistrations: Vec<String>,
-    /// User notifications.
-    pub notifications: Vec<String>,
     /// Hotkey registrations.
     pub hotkey_registrations: Vec<WireHotkeyRegistration>,
     /// Hotkey unregistrations.
@@ -981,7 +1055,7 @@ pub struct WireScriptOutput {
     /// Must equal [`RUNTIME_WIRE_VERSION`].
     pub wire_version: u32,
     /// Script dispatch result.
-    pub result: Result<(), String>,
+    pub result: Result<patinae_cmd::AsyncCommandRequest, String>,
 }
 
 /// File format reader input.
@@ -1122,6 +1196,56 @@ pub fn dynamic_registry_from_wire(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn task_outcomes_round_trip_nested_json_through_messagepack() {
+        use patinae_cmd::tasks::{
+            TaskData, TaskEffects, TaskId, TaskOutcome, TaskSnapshot, TaskState,
+        };
+        let mut data = TaskData {
+            kind: "fetch".into(),
+            schema_version: 1,
+            payload: Default::default(),
+        };
+        data.payload["object"] = "fetched".into();
+        data.payload["counts"]["atoms"] = 42.into();
+        data.payload["coordinates"] = vec![1.5, 2.5, 3.5].into();
+        for outcome in [
+            TaskOutcome::success(Some(data), TaskEffects::Applied),
+            TaskOutcome::failure("parse_failed", "invalid structure"),
+            TaskOutcome::cancelled("user requested cancellation"),
+        ] {
+            let snapshot = TaskSnapshot {
+                id: TaskId::new(123, 456),
+                parent_id: None,
+                effects: outcome.effects,
+                diagnostics: Vec::new(),
+                diagnostics_truncated: false,
+                kind: "fetch".into(),
+                origin: "host".into(),
+                state: outcome.state(),
+                revision: 4,
+                progress: None,
+                cancel_requested: outcome.state() == TaskState::Cancelled,
+                cancellable: false,
+                created_at_ms: 1,
+                updated_at_ms: 2,
+                outcome: Some(outcome),
+            };
+            let reply = super::WireHostQueryResult {
+                id: 7,
+                result: Ok(super::WireHostQueryValue::TaskSnapshot(
+                    Ok(snapshot.clone()),
+                )),
+            };
+            let decoded: super::WireHostQueryResult =
+                super::decode(&super::encode(&reply).unwrap()).unwrap();
+            let Ok(super::WireHostQueryValue::TaskSnapshot(Ok(decoded))) = decoded.result else {
+                panic!("task snapshot variant must survive the wire");
+            };
+            assert_eq!(decoded, snapshot);
+        }
+    }
+
     use super::*;
     use patinae_scene::{
         GpuBatchCommand, GpuBindingType, GpuCacheStats, GpuCacheStatus, GpuCachedHandle, GpuColor,
@@ -1193,7 +1317,7 @@ mod tests {
             decoded.recent_atoms.paths().collect::<Vec<_>>(),
             paths.iter().map(String::as_str).collect::<Vec<_>>()
         );
-        assert_eq!(RUNTIME_WIRE_VERSION, 16);
+        assert_eq!(RUNTIME_WIRE_VERSION, 18);
     }
 
     #[test]

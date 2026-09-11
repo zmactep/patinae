@@ -6,10 +6,10 @@
 
 use lin_alg::f32::Vec3;
 use patinae_cmd::{
-    AnnotationOutcome, AnnotationRequest, AsyncCommandRequest, CmdError, CommandAction,
-    CommandExecution, CommandExecutor, CommandOutput, FetchRequest, MessageKind, ViewerLike,
+    AnnotationOutcome, AnnotationRequest, AsyncCommandAcceptance, AsyncCommandRequest, CmdError,
+    CommandAction, CommandExecution, CommandExecutor, CommandOutput, FetchRequest, MessageKind,
+    ViewerLike,
 };
-use patinae_mol::ObjectMolecule;
 use patinae_scene::{
     AnimationUpdate, CameraDelta, CaptureRenderer, Session, SessionAdapter, ViewportImage,
 };
@@ -19,10 +19,11 @@ use crate::model::command_line::CommandLineModel;
 use crate::model::output::OutputModel;
 use crate::model::scene::SceneModel;
 use crate::model::ViewportModel;
-use crate::tasks::{AsyncTask, TaskRunner};
+use crate::tasks::{native_task_runner, AsyncTask, NativeTaskExecutor, TaskRunner};
 
 /// Host hook that maps command async requests to executable tasks.
-pub type AsyncCommandHandler = Box<dyn FnMut(AsyncCommandRequest) -> Option<Box<dyn AsyncTask>>>;
+pub type AsyncCommandHandler =
+    Box<dyn FnMut(AsyncCommandRequest, u64) -> Option<Box<dyn AsyncTask>>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CommandFailureOutput {
@@ -43,7 +44,14 @@ pub struct AppKernel {
     pub viewport: ViewportModel,
     pub scene: SceneModel,
     pub tasks: TaskRunner,
+    task_executor: NativeTaskExecutor,
     async_command_handler: Option<AsyncCommandHandler>,
+    task_invocations: Vec<patinae_cmd::TaskInvocation>,
+    // Presentation labels only; lifecycle and elapsed time belong to TaskRunner.
+    task_command_labels: std::collections::BTreeMap<patinae_cmd::tasks::TaskId, String>,
+    command_parent: Option<patinae_cmd::tasks::TaskId>,
+    pml_tasks: Vec<PmlExecution>,
+    script_lineage: Vec<String>,
     needs_redraw: bool,
     command_generation: u64,
 }
@@ -58,8 +66,14 @@ impl AppKernel {
             output: OutputModel::new(),
             viewport: ViewportModel::new(),
             scene: SceneModel::new(),
-            tasks: TaskRunner::new(),
+            tasks: native_task_runner(),
+            task_executor: NativeTaskExecutor::default(),
             async_command_handler: None,
+            task_invocations: Vec::new(),
+            task_command_labels: std::collections::BTreeMap::new(),
+            command_parent: None,
+            pml_tasks: Vec::new(),
+            script_lineage: Vec::new(),
             needs_redraw: true,
             command_generation: 0,
         }
@@ -167,25 +181,74 @@ impl AppKernel {
         }
         self.command_generation = self.command_generation.wrapping_add(1);
 
+        let scene_epoch = self.session.task_epoch();
         let mut adapter = SessionAdapter {
             session: &mut self.session,
             render_context,
             default_size: viewport_size,
             needs_redraw: &mut self.needs_redraw,
-            async_fetch_fn: None,
         };
+        let parent_id = self.command_parent;
+        let pml_tasks = &mut self.pml_tasks;
+        let script_lineage = self.script_lineage.clone();
+        let plugin_executors = self.executor.task_executors().clone();
+        let task_invocations = &mut self.task_invocations;
         let executor = &mut self.executor;
         let tasks = &self.tasks;
+        let task_executor = &self.task_executor;
         let async_command_handler = &mut self.async_command_handler;
         let mut async_sink = |request: AsyncCommandRequest| {
+            if let AsyncCommandRequest::RunScript { path } = request {
+                let path = patinae_cmd::commands::io::expand_path(&path);
+                let canonical = path.canonicalize().unwrap_or(path.clone());
+                let execution = match patinae_cmd::script::ScriptExecution::new(
+                    path.to_string_lossy().into_owned(),
+                    canonical.to_string_lossy().into_owned(),
+                    &script_lineage,
+                ) {
+                    Ok(execution) => execution,
+                    Err(error) => return AsyncCommandAcceptance::Rejected(error),
+                };
+                let mut spec = patinae_cmd::tasks::TaskSpec::new("script", PML_EXECUTOR);
+                spec.parent_id = parent_id;
+                spec.message = format!("Running {}", path.display());
+                return match tasks.admit(spec) {
+                    Ok(task_id) => {
+                        pml_tasks.push(PmlExecution { task_id, execution });
+                        AsyncCommandAcceptance::Accepted(task_id)
+                    }
+                    Err(error) => AsyncCommandAcceptance::Rejected(error),
+                };
+            }
+
+            if let AsyncCommandRequest::Plugin(request) = request {
+                if !plugin_executors.contains(&request.executor) {
+                    return AsyncCommandAcceptance::Rejected(
+                        patinae_cmd::tasks::TaskStartError::ExecutorUnavailable,
+                    );
+                }
+                return match admit_plugin_task(
+                    tasks,
+                    task_invocations,
+                    request,
+                    parent_id,
+                    scene_epoch,
+                ) {
+                    Ok(id) => AsyncCommandAcceptance::Accepted(id),
+                    Err(error) => AsyncCommandAcceptance::Rejected(error),
+                };
+            }
+
             let Some(handler) = async_command_handler.as_mut() else {
-                return false;
+                return AsyncCommandAcceptance::Unsupported;
             };
-            let Some(task) = handler(request) else {
-                return false;
+            let Some(task) = handler(request, scene_epoch) else {
+                return AsyncCommandAcceptance::Unsupported;
             };
-            tasks.spawn_boxed(task);
-            true
+            match task_executor.spawn(tasks, task, parent_id) {
+                Ok(id) => AsyncCommandAcceptance::Accepted(id),
+                Err(error) => AsyncCommandAcceptance::Rejected(error),
+            }
         };
         let mut execution = executor.execute_captured(
             &mut adapter,
@@ -195,6 +258,11 @@ impl AppKernel {
         );
 
         let output = &mut execution.output;
+        if !quiet {
+            for id in &output.task_ids {
+                self.task_command_labels.insert(*id, cmd.to_owned());
+            }
+        }
         if execution.result.is_ok() || capture_output {
             for msg in &output.messages {
                 if quiet && capture_output && msg.kind != MessageKind::Error {
@@ -209,7 +277,7 @@ impl AppKernel {
         }
         match &execution.result {
             Ok(()) => {
-                if !quiet {
+                if !quiet && output.task_ids.is_empty() {
                     if let Some(d) = output.duration {
                         self.output.print_timing(format_duration(d));
                     }
@@ -279,6 +347,52 @@ impl AppKernel {
         self.command_generation
     }
 
+    /// Admit plugin work before delivering its invocation to the assigned executor.
+    pub fn start_plugin_task(
+        &mut self,
+        request: patinae_cmd::PluginTaskRequest,
+        parent_id: Option<patinae_cmd::tasks::TaskId>,
+    ) -> Result<patinae_cmd::tasks::TaskId, patinae_cmd::tasks::TaskStartError> {
+        if !self.executor.task_executor_available(&request.executor) {
+            return Err(patinae_cmd::tasks::TaskStartError::ExecutorUnavailable);
+        }
+        admit_plugin_task(
+            &self.tasks,
+            &mut self.task_invocations,
+            request,
+            parent_id,
+            self.session.task_epoch(),
+        )
+    }
+
+    /// Drain admitted invocations; consumers must route by request.executor.
+    pub fn take_task_invocations(&mut self) -> Vec<patinae_cmd::TaskInvocation> {
+        std::mem::take(&mut self.task_invocations)
+    }
+
+    /// Execute a task's acknowledged command with parent propagation.
+    pub fn execute_task_command(
+        &mut self,
+        task_id: patinae_cmd::tasks::TaskId,
+        owner: &str,
+        command: &str,
+        silent: bool,
+    ) -> Result<CommandExecution, patinae_cmd::tasks::TaskError> {
+        self.tasks
+            .can_apply_effect(task_id, owner, self.session.task_epoch())?;
+        let before = self.session.mutation_revision();
+        let previous = self.command_parent.replace(task_id);
+        let execution = self.execute_command_captured(command, silent, None, (1, 1));
+        self.command_parent = previous;
+        // Commands may change view or scene before returning an error.
+        self.tasks.record_effects(
+            task_id,
+            owner,
+            patinae_cmd::tasks::TaskEffects::between(before, self.session.mutation_revision()),
+        )?;
+        Ok(execution)
+    }
+
     /// Install or replace the command async handler.
     pub fn set_async_command_handler(&mut self, handler: Option<AsyncCommandHandler>) {
         self.async_command_handler = handler;
@@ -297,29 +411,8 @@ impl AppKernel {
             render_context,
             default_size: viewport_size,
             needs_redraw: &mut self.needs_redraw,
-            async_fetch_fn: None,
         };
         f(&mut adapter)
-    }
-
-    /// Apply a fetched molecule using the same viewer behavior as the sync command.
-    pub fn apply_fetched_molecule(&mut self, request: &FetchRequest, mol: ObjectMolecule) {
-        let mut adapter = SessionAdapter {
-            session: &mut self.session,
-            render_context: None,
-            default_size: (1, 1),
-            needs_redraw: &mut self.needs_redraw,
-            async_fetch_fn: None,
-        };
-        patinae_cmd::commands::io::finalize_fetched_molecule(
-            &mut adapter,
-            &request.name,
-            mol,
-            request.auto_dss,
-            request.dss_algorithm,
-        );
-        self.output
-            .print_info(format!(" Fetched {} as \"{}\"", request.code, request.name));
     }
 
     /// Print a fetch failure from an async task.
@@ -331,27 +424,152 @@ impl AppKernel {
         ));
     }
 
-    /// Poll and apply all completed async task results.
+    /// Apply a bounded batch of results, publishing completion after their effects.
     pub fn process_async_tasks(&mut self) -> bool {
-        let mut results = Vec::new();
-        while let Some(result) = self.tasks.poll() {
-            results.push(result);
+        use patinae_cmd::tasks::{TaskError, TaskOutcome, TaskOutcomeStatus};
+        let mut processed = false;
+        // Leave remaining ready results in the runner to preserve event-loop service.
+        for _ in 0..self.tasks.config().batch_size {
+            let Some(ready) = self.task_executor.poll(&self.tasks) else {
+                break;
+            };
+            processed = true;
+            if !self.tasks.begin_apply(ready.id, self.session.task_epoch()) {
+                continue;
+            }
+            let outcome = match ready.result.preflight(self) {
+                Err(error) => TaskOutcome::failure(error.code, error.message),
+                Ok(()) => ready.result.apply(self, ready.id),
+            };
+            let mut outcome = outcome;
+            if let Some(error) = ready.runtime_failure {
+                outcome.status = TaskOutcomeStatus::Failure {
+                    error: TaskError::new("worker_failed", error),
+                };
+            }
+            self.tasks.finish(ready.id, outcome);
         }
-
-        if results.is_empty() {
-            return false;
+        processed |= self.process_pml_tasks();
+        for change in self.tasks.take_changes() {
+            if change.state == patinae_cmd::tasks::TaskState::Cancelled
+                && !self.task_command_labels.contains_key(&change.id)
+            {
+                self.output
+                    .print_warning(format!("Cancelled: task {}", change.id));
+                processed = true;
+            }
+            crate::topics::publish(&mut self.bus, "patinae.tasks.changed", &change);
         }
-
-        for result in results {
-            result.apply(self);
-        }
-        self.needs_redraw = true;
-        true
+        // Re-read retained state rather than depending on delivery of change hints.
+        self.task_command_labels.retain(|id, command| {
+            let Ok(snapshot) = self.tasks.get(*id) else {
+                self.output
+                    .print_warning(format!("Task history expired: {command}"));
+                processed = true;
+                return false;
+            };
+            if !snapshot.state.is_terminal() {
+                return true;
+            }
+            if snapshot.state == patinae_cmd::tasks::TaskState::Cancelled {
+                self.output.print_warning(format!("Cancelled: {command}"));
+            }
+            if let Ok(elapsed) = self.tasks.elapsed_ms(*id) {
+                self.output.print_timing(format!(
+                    "{command}: {}",
+                    format_duration(std::time::Duration::from_millis(elapsed))
+                ));
+            }
+            processed = true;
+            false
+        });
+        processed
     }
 
-    /// User-visible messages for currently running async tasks.
-    pub fn task_notification_messages(&self) -> Vec<String> {
-        self.tasks.pending_messages()
+    fn process_pml_tasks(&mut self) -> bool {
+        use patinae_cmd::script::{resolve_file_include, ScriptAction};
+        use patinae_cmd::tasks::TaskOutcome;
+        let mut processed = 0;
+        for mut script in std::mem::take(&mut self.pml_tasks) {
+            if processed >= self.tasks.config().batch_size {
+                self.pml_tasks.push(script);
+                continue;
+            }
+            let mut action = script
+                .execution
+                .advance(&self.tasks, script.task_id, PML_EXECUTOR);
+            if action == ScriptAction::ReadSource {
+                let source = std::fs::read_to_string(script.execution.path())
+                    .map_err(|e| {
+                        patinae_cmd::tasks::TaskError::new("script_read_failed", e.to_string())
+                    })
+                    .and_then(|source| {
+                        script
+                            .execution
+                            .set_source(&source, self.executor.registry())
+                    });
+                if let Err(error) = source {
+                    self.tasks.finish(
+                        script.task_id,
+                        TaskOutcome::failure(error.code, error.message),
+                    );
+                    processed += 1;
+                    continue;
+                }
+                let _ = self.tasks.started(script.task_id, PML_EXECUTOR);
+                action = script
+                    .execution
+                    .advance(&self.tasks, script.task_id, PML_EXECUTOR);
+            }
+            match action {
+                ScriptAction::Wait => self.pml_tasks.push(script),
+                ScriptAction::Execute { line, command } => {
+                    processed += 1;
+                    let result = script
+                        .execution
+                        .resolve_command(&command, self.executor.registry(), resolve_file_include)
+                        .and_then(|command| {
+                            self.script_lineage = script.execution.lineage().to_vec();
+                            let result = self.execute_task_command(
+                                script.task_id,
+                                PML_EXECUTOR,
+                                &command,
+                                false,
+                            );
+                            self.script_lineage.clear();
+                            result
+                        });
+                    let result = match result {
+                        Ok(execution) => {
+                            for message in &execution.output.messages {
+                                let _ =
+                                    self.tasks
+                                        .output(script.task_id, PML_EXECUTOR, message.into());
+                            }
+                            execution.result.map_err(|e| e.to_string())
+                        }
+                        Err(error) => Err(error.to_string()),
+                    };
+                    if script
+                        .execution
+                        .complete_step(&self.tasks, script.task_id, line, result)
+                    {
+                        self.pml_tasks.push(script);
+                    }
+                }
+                ScriptAction::Finished => processed += 1,
+                ScriptAction::ReadSource => unreachable!("source installed above"),
+            }
+        }
+        processed > 0
+    }
+
+    /// Admit native work through this session's task lifecycle.
+    pub fn spawn_task(
+        &self,
+        task: impl AsyncTask,
+    ) -> Result<patinae_cmd::tasks::TaskId, patinae_cmd::tasks::TaskStartError> {
+        self.task_executor.spawn(&self.tasks, Box::new(task), None)
     }
 
     // =========================================================================
@@ -533,6 +751,30 @@ impl AppKernel {
     }
 }
 
+const PML_EXECUTOR: &str = "native:pml";
+struct PmlExecution {
+    task_id: patinae_cmd::tasks::TaskId,
+    execution: patinae_cmd::script::ScriptExecution,
+}
+
+fn admit_plugin_task(
+    tasks: &TaskRunner,
+    invocations: &mut Vec<patinae_cmd::TaskInvocation>,
+    request: patinae_cmd::PluginTaskRequest,
+    parent_id: Option<patinae_cmd::tasks::TaskId>,
+    scene_epoch: u64,
+) -> Result<patinae_cmd::tasks::TaskId, patinae_cmd::tasks::TaskStartError> {
+    let mut spec = patinae_cmd::tasks::TaskSpec::new(&request.kind, request.owner());
+    spec.origin = request.executor.clone();
+    spec.parent_id = parent_id;
+    spec.scene_epoch = request.scene_scoped.then_some(scene_epoch);
+    spec.cancellable = request.cancellable;
+    spec.message = request.kind.clone();
+    let task_id = tasks.admit(spec)?;
+    invocations.push(patinae_cmd::TaskInvocation { task_id, request });
+    Ok(task_id)
+}
+
 impl Default for AppKernel {
     fn default() -> Self {
         Self::new()
@@ -563,6 +805,7 @@ mod tests {
     use super::*;
     use lin_alg::f32::Vec3;
     use patinae_cmd::{AnnotationRequest, MeasurementRequest, MeasurementTarget};
+    use patinae_mol::ObjectMolecule;
     use patinae_mol::{Atom, CoordSet, Element};
     use patinae_scene::{MeasurementKind, MoleculeObject};
 
@@ -580,6 +823,509 @@ mod tests {
             .registry
             .add(MoleculeObject::with_name(molecule, "source"));
         kernel
+    }
+
+    fn script_fixture(text: &str) -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "patinae-pml-{}-{}.pml",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::write(&path, text).unwrap();
+        path
+    }
+
+    #[test]
+    fn background_output_waits_for_completion_and_reports_cancellation_once() {
+        use crate::model::output::OutputKind;
+        use patinae_cmd::tasks::{TaskConfig, TaskEffects, TaskOutcome, TaskTime};
+        use std::sync::{
+            atomic::{AtomicU64, Ordering},
+            Arc,
+        };
+
+        struct BackgroundCommand;
+        impl patinae_cmd::Command for BackgroundCommand {
+            fn name(&self) -> &str {
+                "background"
+            }
+            fn execute<'v, 'r>(
+                &self,
+                ctx: &mut patinae_cmd::CommandContext<'v, 'r, dyn ViewerLike + 'v>,
+                _args: &patinae_cmd::ParsedCommand,
+            ) -> patinae_cmd::CmdResult {
+                let mut request =
+                    patinae_cmd::PluginTaskRequest::new("fixture", serde_json::Value::Null);
+                request.executor = "fixture".into();
+                ctx.request_task(AsyncCommandRequest::Plugin(request))?;
+                Err(CmdError::execution("failure after admission"))
+            }
+        }
+
+        for (outcome, cancelled) in [
+            (TaskOutcome::success(None, TaskEffects::Applied), false),
+            (TaskOutcome::failure("fixture", "failed"), false),
+            (TaskOutcome::cancelled("stopped"), true),
+        ] {
+            let clock = Arc::new(AtomicU64::new(100));
+            let source = clock.clone();
+            let mut kernel = AppKernel::new();
+            kernel.tasks = TaskRunner::new(
+                11,
+                TaskConfig::default(),
+                Box::new(move || {
+                    let ms = source.load(Ordering::Relaxed);
+                    TaskTime {
+                        unix_ms: ms,
+                        monotonic_ms: ms,
+                    }
+                }),
+            );
+            kernel.executor.register_task_executor("fixture");
+            kernel.executor.registry_mut().register(BackgroundCommand);
+            // A partial command failure must retain presentation of accepted work.
+            let receipt = kernel.execute_command_captured("background", false, None, (1, 1));
+            assert!(receipt.result.is_err());
+            let id = receipt.output.task_ids[0];
+            kernel.process_async_tasks();
+            assert!(!kernel
+                .output
+                .buffer
+                .iter()
+                .any(|m| m.kind == OutputKind::Timing));
+            if cancelled {
+                kernel.tasks.cancel(id).unwrap();
+                kernel.process_async_tasks();
+                assert!(!kernel
+                    .output
+                    .buffer
+                    .iter()
+                    .any(|m| m.text.starts_with("Cancelled:")));
+            }
+            clock.store(2100, Ordering::Relaxed);
+            kernel.tasks.finish_owned(id, "fixture", outcome).unwrap();
+            // Display still works when a notification hint was consumed elsewhere.
+            kernel.tasks.take_changes();
+            clock.store(9100, Ordering::Relaxed);
+            kernel.process_async_tasks();
+            let timings: Vec<_> = kernel
+                .output
+                .buffer
+                .iter()
+                .filter(|m| m.kind == OutputKind::Timing)
+                .collect();
+            assert_eq!(timings.len(), 1);
+            assert_eq!(timings[0].text, "background: 2.0 s");
+            assert_eq!(
+                kernel
+                    .output
+                    .buffer
+                    .iter()
+                    .filter(|m| m.text == "Cancelled: background")
+                    .count(),
+                usize::from(cancelled)
+            );
+            let count = kernel.output.buffer.len();
+            kernel
+                .tasks
+                .finish(id, TaskOutcome::success(None, TaskEffects::None));
+            kernel.process_async_tasks();
+            assert_eq!(kernel.output.buffer.len(), count);
+            assert!(kernel.task_command_labels.is_empty());
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pml_symlink_preserves_include_base_and_detects_canonical_cycles() {
+        let seed = script_fixture("");
+        let dir = seed.with_extension("dir");
+        std::fs::create_dir_all(dir.join("source")).unwrap();
+        std::fs::create_dir_all(dir.join("entry")).unwrap();
+        let original = dir.join("source/main.pml");
+        let entry = dir.join("entry/main.pml");
+        std::fs::write(&original, "@child.pml\ngroup after_include\n").unwrap();
+        std::fs::write(dir.join("entry/child.pml"), "group correct_base\n").unwrap();
+        std::fs::write(dir.join("source/child.pml"), "group wrong_base\n").unwrap();
+        std::os::unix::fs::symlink(&original, &entry).unwrap();
+        let mut kernel = AppKernel::new();
+        let receipt = kernel.execute_command_captured(
+            &format!("run {}", serde_json::to_string(&entry).unwrap()),
+            true,
+            None,
+            (1, 1),
+        );
+        assert!(receipt.result.is_ok());
+        let id = receipt.output.task_ids[0];
+        for _ in 0..30 {
+            kernel.process_async_tasks();
+        }
+        assert_eq!(
+            kernel.tasks.get(id).unwrap().state,
+            patinae_cmd::tasks::TaskState::Succeeded
+        );
+        assert!(kernel.session.registry.contains("correct_base"));
+        assert!(kernel.session.registry.contains("after_include"));
+        assert!(!kernel.session.registry.contains("wrong_base"));
+        std::fs::write(&original, "@../source/main.pml\ngroup unreachable\n").unwrap();
+        let receipt = kernel.execute_command_captured(
+            &format!("run {}", serde_json::to_string(&entry).unwrap()),
+            true,
+            None,
+            (1, 1),
+        );
+        let id = receipt.output.task_ids[0];
+        for _ in 0..30 {
+            kernel.process_async_tasks();
+        }
+        assert_eq!(
+            kernel.tasks.get(id).unwrap().state,
+            patinae_cmd::tasks::TaskState::Failed
+        );
+        assert!(!kernel.session.registry.contains("unreachable"));
+        std::fs::remove_dir_all(dir).unwrap();
+        std::fs::remove_file(seed).unwrap();
+    }
+
+    #[test]
+    fn pml_timing_is_emitted_after_scene_changes_and_quiet_suppresses_it() {
+        use crate::model::output::OutputKind;
+        for quiet in [false, true] {
+            let mut kernel = AppKernel::new();
+            let path = script_fixture("group loaded\n");
+            let receipt = kernel.execute_command_captured(
+                &format!("run \"{}\"", path.display()),
+                quiet,
+                None,
+                (1, 1),
+            );
+            let id = receipt.output.task_ids[0];
+            assert!(!kernel
+                .output
+                .buffer
+                .iter()
+                .any(|m| m.kind == OutputKind::Timing));
+            while !kernel.tasks.get(id).unwrap().state.is_terminal() {
+                kernel.process_async_tasks();
+            }
+            assert!(kernel.session.registry.contains("loaded"));
+            let timings = kernel
+                .output
+                .buffer
+                .iter()
+                .filter(|m| m.kind == OutputKind::Timing && m.text.starts_with("run "))
+                .count();
+            assert_eq!(timings, usize::from(!quiet));
+            std::fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
+    fn pml_waits_for_child_and_survives_child_history_eviction() {
+        use patinae_cmd::tasks::{TaskConfig, TaskEffects, TaskOutcome, TaskSpec, TaskTime};
+        let mut kernel = AppKernel::new();
+        kernel.tasks = TaskRunner::new(
+            11,
+            TaskConfig {
+                max_terminal: 1,
+                ..Default::default()
+            },
+            Box::new(TaskTime::default),
+        );
+        kernel.executor.register_task_executor("fixture");
+        kernel
+            .executor
+            .registry_mut()
+            .register(patinae_cmd::DynamicCommand::new(
+                "background".into(),
+                "fixture".into(),
+                String::new(),
+                String::new(),
+                "fixture".into(),
+                None,
+            ));
+        let path = script_fixture("background; group after\n");
+        let receipt = kernel.execute_command_captured(
+            &format!("run \"{}\"", path.display()),
+            true,
+            None,
+            (1, 1),
+        );
+        assert!(receipt.result.is_ok());
+        let parent = receipt.output.task_ids[0];
+        assert!(!kernel.session.registry.contains("after"));
+        kernel.process_async_tasks();
+        let invocation = kernel.take_task_invocations().remove(0);
+        assert_eq!(
+            kernel.tasks.get(invocation.task_id).unwrap().parent_id,
+            Some(parent)
+        );
+        kernel.process_async_tasks();
+        assert!(!kernel.session.registry.contains("after"));
+        kernel
+            .tasks
+            .finish_owned(
+                invocation.task_id,
+                "fixture",
+                TaskOutcome::success(None, TaskEffects::None),
+            )
+            .unwrap();
+        let other = kernel
+            .tasks
+            .admit(TaskSpec::new("other", "fixture"))
+            .unwrap();
+        kernel
+            .tasks
+            .finish(other, TaskOutcome::success(None, TaskEffects::None));
+        assert!(kernel.tasks.get(invocation.task_id).is_err());
+        kernel.process_async_tasks();
+        assert!(kernel.session.registry.contains("after"));
+        kernel.process_async_tasks();
+        assert_eq!(
+            kernel.tasks.get(parent).unwrap().state,
+            patinae_cmd::tasks::TaskState::Succeeded
+        );
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn pml_cancel_before_start_does_not_apply_commands() {
+        let mut kernel = AppKernel::new();
+        let path = script_fixture("group should_not_exist\n");
+        let execution = kernel.execute_command_captured(
+            &format!("run \"{}\"", path.display()),
+            true,
+            None,
+            (1, 1),
+        );
+        let id = execution.output.task_ids[0];
+        kernel.tasks.cancel(id).unwrap();
+        kernel.process_async_tasks();
+        assert_eq!(
+            kernel.tasks.get(id).unwrap().state,
+            patinae_cmd::tasks::TaskState::Cancelled
+        );
+        assert!(!kernel.session.registry.contains("should_not_exist"));
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn task_commands_distinguish_reads_and_untracked_writes() {
+        use patinae_cmd::tasks::{TaskEffects, TaskSpec};
+        let mut kernel = AppKernel::new();
+        let id = kernel
+            .tasks
+            .admit(TaskSpec::new("script", "fixture"))
+            .unwrap();
+        let execution = kernel
+            .execute_task_command(id, "fixture", "help", true)
+            .unwrap();
+        assert!(execution.result.is_ok());
+        assert_eq!(kernel.tasks.get(id).unwrap().effects, TaskEffects::None);
+        let execution = kernel
+            .execute_task_command(id, "fixture", "group inserted", true)
+            .unwrap();
+        assert!(execution.result.is_ok());
+        assert_eq!(kernel.tasks.get(id).unwrap().effects, TaskEffects::Unknown);
+        assert!(kernel
+            .execute_task_command(id, "foreign", "group forbidden", true)
+            .is_err());
+        assert!(!kernel.session.registry.contains("forbidden"));
+    }
+
+    #[test]
+    fn task_color_effects_track_actual_writes_and_terminal_disposition() {
+        use patinae_cmd::tasks::{TaskEffects, TaskOutcome, TaskSpec};
+        let mut kernel = kernel_with_measurement_atoms();
+        for (command, expected) in [
+            ("color red", TaskEffects::Applied),
+            ("color red", TaskEffects::None),
+            ("color blue, none", TaskEffects::None),
+            ("color blue, name A", TaskEffects::Applied),
+            ("color blue, name A", TaskEffects::None),
+            ("bg_color red", TaskEffects::Applied),
+            ("bg_color red", TaskEffects::None),
+            ("bg_color", TaskEffects::Applied),
+            ("bg_color", TaskEffects::None),
+            (
+                "set_color experiment, [0.1, 0.2, 0.3]",
+                TaskEffects::Applied,
+            ),
+            ("set_color experiment, [0.1, 0.2, 0.3]", TaskEffects::None),
+        ] {
+            let id = kernel
+                .tasks
+                .admit(TaskSpec::new("script", "fixture"))
+                .unwrap();
+            let execution = kernel
+                .execute_task_command(id, "fixture", command, true)
+                .unwrap();
+            assert!(
+                execution.result.is_ok(),
+                "{command}: {:?}",
+                execution.result
+            );
+            assert_eq!(kernel.tasks.get(id).unwrap().effects, expected, "{command}");
+            kernel
+                .tasks
+                .finish_owned(id, "fixture", TaskOutcome::success(None, TaskEffects::None))
+                .unwrap();
+            assert_eq!(kernel.tasks.get(id).unwrap().effects, expected, "{command}");
+        }
+        // Palette insertion precedes selection validation and remains observable
+        // even if the command subsequently fails.
+        let id = kernel
+            .tasks
+            .admit(TaskSpec::new("script", "fixture"))
+            .unwrap();
+        let execution = kernel
+            .execute_task_command(id, "fixture", "color 0x123456, (", true)
+            .unwrap();
+        assert!(execution.result.is_err());
+        assert_eq!(kernel.tasks.get(id).unwrap().effects, TaskEffects::Applied);
+        kernel
+            .tasks
+            .finish_owned(id, "fixture", TaskOutcome::failure("test", "failed"))
+            .unwrap();
+        assert_eq!(kernel.tasks.get(id).unwrap().effects, TaskEffects::Partial);
+
+        let id = kernel
+            .tasks
+            .admit(TaskSpec::new("script", "fixture"))
+            .unwrap();
+        kernel
+            .execute_task_command(id, "fixture", "color green", true)
+            .unwrap();
+        kernel.tasks.cancel(id).unwrap();
+        kernel
+            .tasks
+            .finish_owned(id, "fixture", TaskOutcome::success(None, TaskEffects::None))
+            .unwrap();
+        assert_eq!(kernel.tasks.get(id).unwrap().effects, TaskEffects::Partial);
+        assert!(kernel
+            .execute_task_command(id, "fixture", "color red", true)
+            .is_err());
+    }
+
+    #[test]
+    fn raw_task_access_is_unknown_and_does_not_taint_later_commands() {
+        use patinae_cmd::tasks::{TaskEffects, TaskOutcome, TaskSpec};
+        struct Probe;
+        impl patinae_cmd::Command for Probe {
+            fn name(&self) -> &str {
+                "probe_access"
+            }
+            fn execute<'v, 'r>(
+                &self,
+                ctx: &mut patinae_cmd::CommandContext<'v, 'r, dyn ViewerLike + 'v>,
+                args: &patinae_cmd::ParsedCommand,
+            ) -> patinae_cmd::CmdResult {
+                match args.str_arg_or(0, "mode", "read") {
+                    "read" => {
+                        let _ = ctx.viewer.camera();
+                    }
+                    "redraw" => ctx.viewer.request_redraw(),
+                    "borrow" => {
+                        let _ = ctx.viewer.camera_mut();
+                    }
+                    "write" => ctx.viewer.camera_mut().view_mut().origin.x += 1.0,
+                    _ => unreachable!(),
+                }
+                Ok(())
+            }
+        }
+        let mut kernel = AppKernel::new();
+        kernel.executor.registry_mut().register(Probe);
+        for (mode, expected) in [
+            ("borrow", TaskEffects::Unknown),
+            ("write", TaskEffects::Unknown),
+            ("read", TaskEffects::None),
+            ("redraw", TaskEffects::None),
+        ] {
+            let id = kernel
+                .tasks
+                .admit(TaskSpec::new("script", "fixture"))
+                .unwrap();
+            kernel
+                .execute_task_command(id, "fixture", &format!("probe_access {mode}"), true)
+                .unwrap();
+            assert_eq!(kernel.tasks.get(id).unwrap().effects, expected);
+            kernel
+                .tasks
+                .finish_owned(id, "fixture", TaskOutcome::failure("test", "failed"))
+                .unwrap();
+            assert_eq!(kernel.tasks.get(id).unwrap().effects, expected);
+        }
+        for commands in [
+            ["probe_access borrow", "bg_color blue"],
+            ["bg_color red", "probe_access borrow"],
+        ] {
+            let id = kernel
+                .tasks
+                .admit(TaskSpec::new("script", "fixture"))
+                .unwrap();
+            for command in commands {
+                let execution = kernel
+                    .execute_task_command(id, "fixture", command, true)
+                    .unwrap();
+                assert!(execution.result.is_ok());
+            }
+            assert_eq!(kernel.tasks.get(id).unwrap().effects, TaskEffects::Unknown);
+        }
+    }
+
+    #[test]
+    fn task_effects_include_writes_before_failure_and_session_replacement() {
+        use patinae_cmd::tasks::{TaskEffects, TaskOutcome, TaskSpec};
+        struct PartialWrite;
+        impl patinae_cmd::Command for PartialWrite {
+            fn name(&self) -> &str {
+                "partial_write"
+            }
+            fn execute<'v, 'r>(
+                &self,
+                ctx: &mut patinae_cmd::CommandContext<'v, 'r, dyn ViewerLike + 'v>,
+                _args: &patinae_cmd::ParsedCommand,
+            ) -> patinae_cmd::CmdResult {
+                ctx.viewer.set_clear_color([1.0, 0.0, 0.0]);
+                Err(CmdError::execution("failure after write"))
+            }
+        }
+        let mut kernel = AppKernel::new();
+        kernel.executor.registry_mut().register(PartialWrite);
+        for command in ["partial_write", "reinitialize"] {
+            let id = kernel
+                .tasks
+                .admit(TaskSpec::new("script", "fixture"))
+                .unwrap();
+            let execution = kernel
+                .execute_task_command(id, "fixture", command, true)
+                .unwrap();
+            assert_eq!(execution.result.is_err(), command == "partial_write");
+            assert_eq!(kernel.tasks.get(id).unwrap().effects, TaskEffects::Applied);
+            kernel
+                .tasks
+                .finish_owned(id, "fixture", TaskOutcome::failure("test", "failed"))
+                .unwrap();
+            assert_eq!(kernel.tasks.get(id).unwrap().effects, TaskEffects::Partial);
+        }
+        for command in ["", "help", "color not_a_color", "view missing_view, recall"] {
+            let id = kernel
+                .tasks
+                .admit(TaskSpec::new("script", "fixture"))
+                .unwrap();
+            kernel
+                .execute_task_command(id, "fixture", command, true)
+                .unwrap();
+            assert_eq!(
+                kernel.tasks.get(id).unwrap().effects,
+                TaskEffects::None,
+                "{command}"
+            );
+        }
     }
 
     #[test]

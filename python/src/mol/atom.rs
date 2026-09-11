@@ -1,7 +1,7 @@
 //! Python bindings for Atom
 
-use pyo3::prelude::*;
 use patinae_mol::{Atom, Element, SecondaryStructure};
+use pyo3::prelude::*;
 
 use super::element::PyElement;
 
@@ -15,7 +15,7 @@ pub struct PyAtom {
     // Identity
     pub(crate) name: String,
     pub(crate) element: Element,
-    
+
     // Residue info
     pub(crate) resn: String,
     pub(crate) resv: i32,
@@ -23,24 +23,24 @@ pub struct PyAtom {
     pub(crate) chain: String,
     pub(crate) segi: String,
     pub(crate) alt: char,
-    
+
     // Physical properties
     pub(crate) b_factor: f32,
     pub(crate) occupancy: f32,
     pub(crate) vdw: f32,
     pub(crate) partial_charge: f32,
     pub(crate) formal_charge: i8,
-    
+
     // Display
     pub(crate) color: i32,
     pub(crate) hetatm: bool,
-    
+
     // Secondary structure
     pub(crate) ss_type: SecondaryStructure,
-    
+
     // Coordinates (if available)
     pub(crate) coord: Option<(f32, f32, f32)>,
-    
+
     // Index in parent molecule
     pub(crate) index: usize,
 }
@@ -82,7 +82,9 @@ impl PyAtom {
     /// Chemical element
     #[getter]
     fn element(&self) -> PyElement {
-        PyElement { inner: self.element }
+        PyElement {
+            inner: self.element,
+        }
     }
 
     /// Element symbol (e.g., "C", "N", "O")
@@ -207,7 +209,9 @@ impl PyAtom {
     #[getter]
     fn ss(&self) -> &'static str {
         match self.ss_type {
-            SecondaryStructure::Helix | SecondaryStructure::Helix310 | SecondaryStructure::HelixPi => "H",
+            SecondaryStructure::Helix
+            | SecondaryStructure::Helix310
+            | SecondaryStructure::HelixPi => "H",
             SecondaryStructure::Sheet => "S",
             _ => "L",
         }

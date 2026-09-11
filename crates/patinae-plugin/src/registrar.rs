@@ -11,7 +11,10 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-pub use patinae_cmd::DynamicCommandInvocation;
+use patinae_cmd::tasks::{
+    TaskCancelReply, TaskId, TaskListPage, TaskListRequest, TaskLookupError, TaskSnapshot,
+};
+pub use patinae_cmd::TaskInvocation;
 use patinae_cmd::{Command, CommandContext, CommandRegistry};
 pub use patinae_cmd::{FormatHandler, PluginReaderFn, PluginWriterFn, ScriptHandler, ViewerLike};
 use patinae_framework::component::SharedContext;
@@ -67,28 +70,44 @@ pub type ViewerMutation = Box<dyn FnOnce(&mut dyn ViewerLike) + Send>;
 /// Result of a command execution requested via [`PollContext::execute_command`].
 ///
 /// Delivered only to the requesting plugin in a subsequent `poll()` call.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CommandResult {
-    /// Correlation ID (set by the plugin when requesting execution).
+    /// Plugin-local routing token; not a task identity.
     pub id: u64,
-    /// Execution status; `Ok(())` with `deferred` means accepted, not completed.
-    pub result: Result<(), String>,
-    /// Command messages in emission order, independent of UI silence.
-    pub messages: Vec<patinae_cmd::OutputMessage>,
-    /// Work was queued; no eventual completion result is provided by this API.
-    pub deferred: bool,
+    #[serde(flatten)]
+    pub reply: patinae_cmd::CommandReply,
 }
-
+impl std::ops::Deref for CommandResult {
+    type Target = patinae_cmd::CommandReply;
+    fn deref(&self) -> &Self::Target {
+        &self.reply
+    }
+}
 impl CommandResult {
-    /// Capture command messages without replaying host actions.
+    /// Capture the canonical receipt without replaying host actions.
     pub fn from_execution(id: u64, execution: patinae_cmd::CommandExecution) -> Self {
         Self {
             id,
-            result: execution.result.map_err(|error| error.to_string()),
-            messages: execution.output.messages,
-            deferred: execution.output.deferred,
+            reply: execution.into(),
         }
     }
+}
+
+/// Typed task reply borrowed from the current plugin poll.
+pub enum TaskQueryResult<'a> {
+    Started(&'a Result<TaskId, patinae_cmd::tasks::TaskStartError>),
+    Acknowledged(&'a Result<bool, patinae_cmd::tasks::TaskError>),
+    Wait(&'a Result<TaskSnapshot, patinae_cmd::tasks::TaskError>),
+    Command(&'a Result<patinae_cmd::CommandReply, patinae_cmd::tasks::TaskError>),
+
+    /// Atomic status and terminal outcome.
+    Snapshot(&'a Result<TaskSnapshot, TaskLookupError>),
+    /// Bounded summaries without result payloads.
+    List(&'a Result<TaskListPage, TaskLookupError>),
+    /// Cancellation acknowledgement, distinct from actual completion.
+    Cancel(&'a Result<TaskCancelReply, TaskLookupError>),
+    /// Host task support is unavailable or the transport rejected the request.
+    Unavailable(&'a str),
 }
 
 /// Queued command execution request (internal).
@@ -104,6 +123,9 @@ pub struct DynCmdRegistration {
     pub description: String,
     pub usage: String,
     pub arguments: String,
+    /// Host-bound executor identity.
+    pub executor: String,
+    pub owner_tag: Option<u64>,
 }
 
 // =============================================================================
@@ -113,14 +135,15 @@ pub struct DynCmdRegistration {
 /// Callback for hotkey actions — runs during the plugin poll phase.
 pub type HotkeyCallback = Box<dyn FnMut(&mut PollContext<'_>) + Send>;
 
-type ScriptHandlerCallback = dyn Fn(&str) -> Result<(), String> + Send + Sync;
+type ScriptHandlerCallback =
+    dyn Fn(&str) -> Result<patinae_cmd::AsyncCommandRequest, String> + Send + Sync;
 type BoxedScriptHandler = Box<ScriptHandlerCallback>;
 
 /// Action to perform when a plugin hotkey is triggered.
 pub enum PluginKeyAction {
     /// Execute a command string.
     Command(String),
-    /// Invoke a dynamic command (delivered via `dynamic_invocations` in next poll).
+    /// Invoke a dynamic command (delivered via `task_invocations` in next poll).
     DynamicCommand { name: String, args: Vec<String> },
     /// Publish a custom message to the message bus.
     Custom { topic: String, payload: Vec<u8> },
@@ -134,6 +157,10 @@ pub enum PluginKeyAction {
 /// It provides read-only state access, message bus, deferred command
 /// execution, and dynamic command registration.
 pub struct PollContext<'a> {
+    /// Fatal executor failure reported by an adapter during this poll.
+    pub executor_failure: Option<String>,
+    /// Requested cancellations for work owned by this executor.
+    pub task_cancellations: Vec<TaskId>,
     /// Read-only application state.
     pub shared: &'a SharedContext<'a>,
     /// Lightweight portable host state for dynamic poll paths.
@@ -145,7 +172,7 @@ pub struct PollContext<'a> {
     /// Results from host queries requested in previous poll cycles.
     pub host_query_results: &'a [WireHostQueryResult],
     /// Invocations of dynamic commands since last poll.
-    pub dynamic_invocations: &'a [DynamicCommandInvocation],
+    pub task_invocations: &'a [TaskInvocation],
     /// Hotkey bindings triggered since last poll (read-only).
     pub triggered_hotkeys: &'a [KeyBinding],
     /// Directories from which plugins were loaded (for resource discovery).
@@ -154,7 +181,6 @@ pub struct PollContext<'a> {
     pub(crate) exec_queue: &'a mut Vec<CommandExecRequest>,
     pub(crate) reg_queue: &'a mut Vec<DynCmdRegistration>,
     pub(crate) unreg_queue: &'a mut Vec<String>,
-    pub(crate) notification_queue: &'a mut Vec<String>,
     pub(crate) hotkey_reg_queue: &'a mut Vec<(String, PluginKeyAction)>,
     pub(crate) hotkey_unreg_queue: &'a mut Vec<String>,
     pub(crate) mutation_queue: &'a mut Vec<ViewerMutation>,
@@ -174,13 +200,12 @@ impl<'a> PollContext<'a> {
         bus: &'a mut MessageBus,
         command_results: &'a [CommandResult],
         host_query_results: &'a [WireHostQueryResult],
-        dynamic_invocations: &'a [DynamicCommandInvocation],
+        task_invocations: &'a [TaskInvocation],
         triggered_hotkeys: &'a [KeyBinding],
         plugin_dirs: &'a [PathBuf],
         exec_queue: &'a mut Vec<CommandExecRequest>,
         reg_queue: &'a mut Vec<DynCmdRegistration>,
         unreg_queue: &'a mut Vec<String>,
-        notification_queue: &'a mut Vec<String>,
         hotkey_reg_queue: &'a mut Vec<(String, PluginKeyAction)>,
         hotkey_unreg_queue: &'a mut Vec<String>,
         mutation_queue: &'a mut Vec<ViewerMutation>,
@@ -189,18 +214,19 @@ impl<'a> PollContext<'a> {
         panel_update_requested: &'a mut bool,
     ) -> Self {
         Self {
+            executor_failure: None,
+            task_cancellations: Vec::new(),
             shared,
             poll_shared,
             bus,
             command_results,
             host_query_results,
-            dynamic_invocations,
+            task_invocations,
             triggered_hotkeys,
             plugin_dirs,
             exec_queue,
             reg_queue,
             unreg_queue,
-            notification_queue,
             hotkey_reg_queue,
             hotkey_unreg_queue,
             mutation_queue,
@@ -210,13 +236,19 @@ impl<'a> PollContext<'a> {
         }
     }
 
+    /// Disable a failed executor and fail its active tasks on the host.
+    pub fn fail_executor(&mut self, error: impl Into<String>) {
+        let error = error.into();
+        self.bus.print_error(error.clone());
+        self.executor_failure = Some(error);
+    }
+
     /// Queue a command for execution.
     ///
     /// The command is executed by the host after `poll()` returns.
     /// Status and typed messages are delivered only to this plugin through
     /// [`PollContext::command_results`], with the original `id`. `silent`
-    /// controls UI output, not result capture. Check [`CommandResult::deferred`]
-    /// before treating success as completion; queued work has no later result.
+    /// controls UI output, not result capture. Read task_ids for accepted work.
     pub fn execute_command(&mut self, id: u64, command: &str, silent: bool) {
         self.exec_queue.push(CommandExecRequest {
             id,
@@ -229,7 +261,7 @@ impl<'a> PollContext<'a> {
     ///
     /// The command appears in autocomplete and help immediately (next frame).
     /// When a user invokes it, the invocation is delivered to the plugin
-    /// via [`PollContext::dynamic_invocations`] in the next `poll()` call.
+    /// via [`PollContext::task_invocations`] in the next `poll()` call.
     pub fn register_dynamic_command(
         &mut self,
         name: String,
@@ -238,6 +270,8 @@ impl<'a> PollContext<'a> {
         arguments: String,
     ) {
         self.reg_queue.push(DynCmdRegistration {
+            executor: String::new(),
+            owner_tag: None,
             name,
             description,
             usage,
@@ -245,18 +279,29 @@ impl<'a> PollContext<'a> {
         });
     }
 
+    /// Scope a dynamic callback to its current external executor connection.
+    pub fn register_owned_dynamic_command(
+        &mut self,
+        name: String,
+        description: String,
+        usage: String,
+        arguments: String,
+        owner_tag: u64,
+    ) {
+        self.register_dynamic_command(name, description, usage, arguments);
+        if let Some(request) = self.reg_queue.last_mut() {
+            request.owner_tag = Some(owner_tag);
+        }
+    }
+
+    /// Report loss of this plugin's connection executor.
+    pub fn fail_task_owner(&mut self, id: u64, owner_tag: u64) {
+        self.query_host(WireHostQuery::FailTaskOwner { id, owner_tag });
+    }
+
     /// Unregister a dynamic command.
     pub fn unregister_dynamic_command(&mut self, name: &str) {
         self.unreg_queue.push(name.to_string());
-    }
-
-    /// Show a notification message in the overlay (spinner + text).
-    ///
-    /// Call this during `poll()` while a background operation is in progress.
-    /// The notification is cleared automatically when `poll()` returns without
-    /// calling this method.
-    pub fn set_notification(&mut self, msg: impl Into<String>) {
-        self.notification_queue.push(msg.into());
     }
 
     /// Register a hotkey binding by key string (e.g. `"ctrl+s"`).
@@ -286,6 +331,111 @@ impl<'a> PollContext<'a> {
     /// Queue a portable host query for dynamic plugin runtimes.
     pub fn query_host(&mut self, query: WireHostQuery) {
         self.host_query_queue.push(query);
+    }
+
+    /// Request a task snapshot, correlated by a plugin-local query ID.
+    pub fn get_task(&mut self, id: u64, task_id: TaskId) {
+        self.query_host(WireHostQuery::GetTask { id, task_id });
+    }
+
+    /// Request bounded task summaries, correlated by a plugin-local query ID.
+    pub fn list_tasks(&mut self, id: u64, request: TaskListRequest) {
+        self.query_host(WireHostQuery::ListTasks { id, request });
+    }
+
+    /// Request cancellation without waiting for the worker to stop.
+    pub fn cancel_task(&mut self, id: u64, task_id: TaskId) {
+        self.query_host(WireHostQuery::CancelTask { id, task_id });
+    }
+
+    /// Submit work for this plugin; wait for TaskStarted before assuming admission.
+    pub fn start_task(
+        &mut self,
+        id: u64,
+        request: patinae_cmd::PluginTaskRequest,
+        parent_id: Option<TaskId>,
+    ) {
+        self.query_host(WireHostQuery::StartTask {
+            id,
+            request,
+            parent_id,
+        });
+    }
+
+    /// Report an event for an invocation assigned to this executor.
+    pub fn report_task_event(
+        &mut self,
+        id: u64,
+        task_id: TaskId,
+        event: patinae_cmd::tasks::TaskEvent,
+    ) {
+        self.query_host(WireHostQuery::TaskEvent { id, task_id, event });
+    }
+
+    /// Request a mutation; its response acknowledges the actual application.
+    pub fn apply_task_action(&mut self, id: u64, task_id: TaskId, action: WireViewerAction) {
+        self.query_host(WireHostQuery::TaskAction {
+            id,
+            task_id,
+            action,
+        });
+    }
+
+    /// Execute a child command with ownership checks and task-parent propagation.
+    pub fn execute_task_command(&mut self, id: u64, task_id: TaskId, command: &str, silent: bool) {
+        self.query_host(WireHostQuery::TaskCommand {
+            id,
+            task_id,
+            command: command.into(),
+            silent,
+        });
+    }
+
+    /// Drop a disconnected observer's pending wait by its original query ID.
+    pub fn forget_task_wait(&mut self, id: u64) {
+        self.query_host(WireHostQuery::ForgetTaskWait { id });
+    }
+
+    /// Wait asynchronously; timeouts stop the wait, never the task.
+    pub fn wait_task(
+        &mut self,
+        id: u64,
+        task_id: TaskId,
+        waiter: Option<TaskId>,
+        timeout_ms: Option<u64>,
+    ) {
+        self.query_host(WireHostQuery::WaitTask {
+            id,
+            task_id,
+            waiter,
+            timeout_ms,
+        });
+    }
+
+    /// Read a typed task reply delivered during this poll.
+    ///
+    /// Query IDs must be unique among a plugin's outstanding host queries.
+    /// Returns `None` when no matching task reply has arrived.
+    pub fn task_result(&self, id: u64) -> Option<TaskQueryResult<'_>> {
+        use crate::wire::WireHostQueryValue;
+        let reply = self
+            .host_query_results
+            .iter()
+            .find(|reply| reply.id == id)?;
+        match &reply.result {
+            Ok(WireHostQueryValue::TaskStarted(value)) => Some(TaskQueryResult::Started(value)),
+            Ok(WireHostQueryValue::TaskAcknowledged(value)) => {
+                Some(TaskQueryResult::Acknowledged(value))
+            }
+            Ok(WireHostQueryValue::TaskWait(value)) => Some(TaskQueryResult::Wait(value)),
+            Ok(WireHostQueryValue::TaskCommand(value)) => Some(TaskQueryResult::Command(value)),
+
+            Ok(WireHostQueryValue::TaskSnapshot(value)) => Some(TaskQueryResult::Snapshot(value)),
+            Ok(WireHostQueryValue::TaskList(value)) => Some(TaskQueryResult::List(value)),
+            Ok(WireHostQueryValue::TaskCancel(value)) => Some(TaskQueryResult::Cancel(value)),
+            Err(error) => Some(TaskQueryResult::Unavailable(error)),
+            _ => None,
+        }
     }
 
     /// Queue a portable viewer action for dynamic plugin runtimes.
@@ -468,6 +618,7 @@ impl<'a> PluginRegistrar<'a> {
                 ptr: arg_hints.as_ptr(),
                 len: arg_hints.len(),
             },
+            argument_syntax: cmd_ref.argument_syntax() as u8,
             runtime_requirements: cmd_ref.runtime_requirements().bits(),
         };
 
@@ -556,7 +707,10 @@ impl<'a> PluginRegistrar<'a> {
     pub fn register_script_handler(
         &mut self,
         extension: &str,
-        handler: impl Fn(&str) -> Result<(), String> + Send + Sync + 'static,
+        handler: impl Fn(&str) -> Result<patinae_cmd::AsyncCommandRequest, String>
+            + Send
+            + Sync
+            + 'static,
     ) {
         let Some(register_script_handler) = self.callbacks.register_script_handler else {
             self.record_status(AbiStatus::INVALID);
@@ -752,7 +906,7 @@ unsafe extern "C" fn plugin_command_execute(
         )?;
         viewer.session.viewport_image = input.viewport_image;
         let dynamic_settings = wire::dynamic_registry_from_wire(&input.dynamic_settings)?;
-        let (result, output, actions, deferred) = {
+        let (result, output, actions, task_requests) = {
             let viewer_like: &mut dyn ViewerLike = &mut viewer;
             let mut ctx = CommandContext::new(viewer_like)
                 .with_quiet(input.quiet)
@@ -767,7 +921,7 @@ unsafe extern "C" fn plugin_command_execute(
                 result,
                 ctx.take_output(),
                 ctx.take_actions(),
-                ctx.is_deferred(),
+                ctx.take_task_requests(),
             )
         };
         let session = if result.is_ok() && viewer.session_write_requested {
@@ -776,7 +930,7 @@ unsafe extern "C" fn plugin_command_execute(
             Vec::new()
         };
         let output = WireCommandOutput {
-            deferred,
+            task_requests,
             wire_version: RUNTIME_WIRE_VERSION,
             result,
             output,
@@ -888,7 +1042,8 @@ unsafe extern "C" fn plugin_message_poll(
             shared,
             command_results,
             host_query_results,
-            dynamic_invocations,
+            task_invocations,
+            task_cancellations,
             plugin_dirs,
         } = input;
         validate_wire_version(shared.wire_version)?;
@@ -896,25 +1051,16 @@ unsafe extern "C" fn plugin_message_poll(
         let runtime = RuntimeShared::from_poll_wire(shared)?;
         let mut bus = MessageBus::new();
         let plugin_dirs: Vec<PathBuf> = plugin_dirs.into_iter().map(PathBuf::from).collect();
-        let command_results: Vec<CommandResult> = command_results
-            .into_iter()
-            .map(|result| CommandResult {
-                id: result.id,
-                result: result.result,
-                messages: result.messages,
-                deferred: result.deferred,
-            })
-            .collect();
         let mut exec_queue = Vec::new();
         let mut reg_queue = Vec::new();
         let mut unreg_queue = Vec::new();
-        let mut notification_queue = Vec::new();
         let mut hotkey_reg_queue = Vec::new();
         let mut hotkey_unreg_queue = Vec::new();
         let mut mutation_queue = Vec::new();
         let mut host_query_queue = Vec::new();
         let mut viewer_action_queue = Vec::new();
         let mut panel_update_requested = false;
+        let mut executor_failure = None;
 
         runtime.with_shared(|shared| {
             let mut ctx = PollContext::new(
@@ -923,13 +1069,12 @@ unsafe extern "C" fn plugin_message_poll(
                 &mut bus,
                 &command_results,
                 &host_query_results,
-                &dynamic_invocations,
+                &task_invocations,
                 &[],
                 &plugin_dirs,
                 &mut exec_queue,
                 &mut reg_queue,
                 &mut unreg_queue,
-                &mut notification_queue,
                 &mut hotkey_reg_queue,
                 &mut hotkey_unreg_queue,
                 &mut mutation_queue,
@@ -937,11 +1082,14 @@ unsafe extern "C" fn plugin_message_poll(
                 &mut viewer_action_queue,
                 &mut panel_update_requested,
             );
-            with_message_handler(handle, |handler| handler.poll(&mut ctx))
+            ctx.task_cancellations = task_cancellations;
+            let result = with_message_handler(handle, |handler| handler.poll(&mut ctx));
+            executor_failure = ctx.executor_failure;
+            result
         })?;
 
         if !mutation_queue.is_empty() {
-            notification_queue.push(
+            bus.print_error(
                 "dynamic plugin queued Rust-only viewer mutations; use portable viewer actions"
                     .to_string(),
             );
@@ -959,13 +1107,14 @@ unsafe extern "C" fn plugin_message_poll(
             .filter_map(|(key, action)| match wire_hotkey_action(action) {
                 Ok(action) => Some(WireHotkeyRegistration { key, action }),
                 Err(error) => {
-                    notification_queue.push(error);
+                    bus.print_error(error);
                     None
                 }
             })
             .collect();
 
         let output = WirePollOutput {
+            executor_failure,
             wire_version: RUNTIME_WIRE_VERSION,
             messages: bus.drain_outbox(),
             command_exec: exec_queue
@@ -979,6 +1128,7 @@ unsafe extern "C" fn plugin_message_poll(
             dynamic_registrations: reg_queue
                 .into_iter()
                 .map(|registration| WireDynCmdRegistration {
+                    owner_tag: registration.owner_tag,
                     name: registration.name,
                     description: registration.description,
                     usage: registration.usage,
@@ -986,7 +1136,6 @@ unsafe extern "C" fn plugin_message_poll(
                 })
                 .collect(),
             dynamic_unregistrations: unreg_queue,
-            notifications: notification_queue,
             hotkey_registrations,
             hotkey_unregistrations: hotkey_unreg_queue,
             host_queries: host_query_queue,
@@ -1144,7 +1293,9 @@ fn with_message_handler<T>(
 
 fn with_script_handler<T>(
     handle: PluginScriptHandlerHandle,
-    f: impl FnOnce(&(dyn Fn(&str) -> Result<(), String> + Send + Sync)) -> T,
+    f: impl FnOnce(
+        &(dyn Fn(&str) -> Result<patinae_cmd::AsyncCommandRequest, String> + Send + Sync),
+    ) -> T,
 ) -> Result<T, String> {
     if handle.0.is_null() {
         return Err("script handler handle was null".to_string());
@@ -2315,6 +2466,7 @@ impl RuntimeShared {
     fn with_shared<T>(&self, f: impl FnOnce(SharedContext<'_>) -> T) -> T {
         let setting_names: Vec<&str> = self.setting_names.iter().map(String::as_str).collect();
         let shared = SharedContext {
+            tasks: None,
             registry: &self.viewer.session.registry,
             camera: &self.viewer.session.camera,
             selections: &self.viewer.session.selections,

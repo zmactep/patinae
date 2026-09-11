@@ -4,7 +4,7 @@ import { ObjectsState } from "states/objects-state.slint";
 import { ViewportState } from "states/viewport-state.slint";
 import { ReplState, OutputItem, CompletionItem } from "states/repl-state.slint";
 import { StartState } from "states/start-state.slint";
-import { NotificationState } from "states/notification-state.slint";
+import { NotificationState, TaskNotification } from "states/notification-state.slint";
 import { SequenceState, SeqChainRow } from "states/sequence-state.slint";
 import {
     MovieState,
@@ -27,7 +27,7 @@ import { Theme } from "theme.slint";
 import { Tokens } from "tokens.slint";
 import { Palette, Button } from "std-widgets.slint";
 
-export { ViewportState, LayoutState, ObjectsState, ReplState, OutputItem, CompletionItem, StartState, NotificationState, SequenceState, SeqChainRow, MovieState, MovieTick, MovieMarker, MovieBlock, MovieLane, PluginState, PluginToolbarItem, PluginPanelTab, PluginControl, PluginOption, PluginButtonItem, MenuState, RecentFileItem, Theme, Tokens, Palette }
+export { ViewportState, LayoutState, ObjectsState, ReplState, OutputItem, CompletionItem, StartState, NotificationState, TaskNotification, SequenceState, SeqChainRow, MovieState, MovieTick, MovieMarker, MovieBlock, MovieLane, PluginState, PluginToolbarItem, PluginPanelTab, PluginControl, PluginOption, PluginButtonItem, MenuState, RecentFileItem, Theme, Tokens, Palette }
 
 export component StartupErrorWindow inherits Window {
     in property <string> dialog-title: "Patinae Renderer Unavailable";

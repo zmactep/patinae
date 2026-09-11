@@ -10,8 +10,11 @@ The ``cmd`` object is created lazily on first access.
 """
 
 import sys
+from contextvars import ContextVar
 
 from ._cmd import Cmd
+from . import tasks
+from .tasks import CommandError, TaskError, TaskApiError, Tasks
 from ._labels import LabelAnchor, LabelEntity, LabelObject, LabelRevisions
 from ._patinae import (
     Atom,
@@ -37,7 +40,12 @@ __version__ = "0.4.0"
 
 __all__ = [
     "cmd",
+    "tasks",
     "Cmd",
+    "CommandError",
+    "TaskError",
+    "TaskApiError",
+    "Tasks",
     "ObjectMolecule",
     "Atom",
     "Bond",
@@ -60,6 +68,7 @@ __all__ = [
 
 # Lazy cmd singleton
 _cmd = None
+_task_cmd = ContextVar("patinae_task_cmd", default=None)
 
 
 class Store:
@@ -76,6 +85,9 @@ stored = Store()
 def _get_cmd():
     """Get or create the global cmd instance."""
     global _cmd
+    task_cmd = _task_cmd.get()
+    if task_cmd is not None:
+        return task_cmd
     if _cmd is None:
         if hasattr(sys, "_patinae_backend"):
             # Embedded mode: running inside Patinae GUI (plugin set this up)

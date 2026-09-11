@@ -1,6 +1,14 @@
 // Global notification state for background work.
 
+export struct TaskNotification {
+    task-id: string,
+    text: string,
+    cancellable: bool,
+}
+
 export global NotificationState {
     in-out property <bool> visible: false;
     in-out property <string> text: "";
+    in-out property <[TaskNotification]> tasks;
+    callback cancel-task(string);
 }

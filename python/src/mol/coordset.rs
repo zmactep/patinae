@@ -1,7 +1,7 @@
 //! Python bindings for CoordSet
 
-use pyo3::prelude::*;
 use patinae_mol::CoordSet;
+use pyo3::prelude::*;
 
 use crate::convert::coordset_to_py_list;
 

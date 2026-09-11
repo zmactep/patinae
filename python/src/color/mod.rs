@@ -2,8 +2,8 @@
 //!
 //! Provides color types, named colors, and gradients.
 
-use pyo3::prelude::*;
 use patinae_color::{Color, Gradient, NamedPalette};
+use pyo3::prelude::*;
 
 /// RGB Color with floating-point components (0.0-1.0)
 #[pyclass(name = "Color")]
@@ -89,7 +89,10 @@ impl PyColor {
     }
 
     fn __repr__(&self) -> String {
-        format!("Color({:.3}, {:.3}, {:.3})", self.inner.r, self.inner.g, self.inner.b)
+        format!(
+            "Color({:.3}, {:.3}, {:.3})",
+            self.inner.r, self.inner.g, self.inner.b
+        )
     }
 
     fn __str__(&self) -> String {
@@ -106,19 +109,39 @@ impl PyColor {
 
 impl PyColor {
     pub const BLACK: PyColor = PyColor {
-        inner: Color { r: 0.0, g: 0.0, b: 0.0 },
+        inner: Color {
+            r: 0.0,
+            g: 0.0,
+            b: 0.0,
+        },
     };
     pub const WHITE: PyColor = PyColor {
-        inner: Color { r: 1.0, g: 1.0, b: 1.0 },
+        inner: Color {
+            r: 1.0,
+            g: 1.0,
+            b: 1.0,
+        },
     };
     pub const RED: PyColor = PyColor {
-        inner: Color { r: 1.0, g: 0.0, b: 0.0 },
+        inner: Color {
+            r: 1.0,
+            g: 0.0,
+            b: 0.0,
+        },
     };
     pub const GREEN: PyColor = PyColor {
-        inner: Color { r: 0.0, g: 1.0, b: 0.0 },
+        inner: Color {
+            r: 0.0,
+            g: 1.0,
+            b: 0.0,
+        },
     };
     pub const BLUE: PyColor = PyColor {
-        inner: Color { r: 0.0, g: 0.0, b: 1.0 },
+        inner: Color {
+            r: 0.0,
+            g: 0.0,
+            b: 1.0,
+        },
     };
 }
 
@@ -140,42 +163,58 @@ impl PyGradient {
 
     #[staticmethod]
     fn blue_white_red() -> Self {
-        PyGradient { inner: Gradient::blue_white_red() }
+        PyGradient {
+            inner: Gradient::blue_white_red(),
+        }
     }
 
     #[staticmethod]
     fn rainbow() -> Self {
-        PyGradient { inner: Gradient::rainbow() }
+        PyGradient {
+            inner: Gradient::rainbow(),
+        }
     }
 
     #[staticmethod]
     fn viridis() -> Self {
-        PyGradient { inner: Gradient::viridis() }
+        PyGradient {
+            inner: Gradient::viridis(),
+        }
     }
 
     #[staticmethod]
     fn plasma() -> Self {
-        PyGradient { inner: Gradient::plasma() }
+        PyGradient {
+            inner: Gradient::plasma(),
+        }
     }
 
     #[staticmethod]
     fn inferno() -> Self {
-        PyGradient { inner: Gradient::inferno() }
+        PyGradient {
+            inner: Gradient::inferno(),
+        }
     }
 
     #[staticmethod]
     fn magma() -> Self {
-        PyGradient { inner: Gradient::magma() }
+        PyGradient {
+            inner: Gradient::magma(),
+        }
     }
 
     #[staticmethod]
     fn coolwarm() -> Self {
-        PyGradient { inner: Gradient::coolwarm() }
+        PyGradient {
+            inner: Gradient::coolwarm(),
+        }
     }
 
     #[staticmethod]
     fn grayscale() -> Self {
-        PyGradient { inner: Gradient::grayscale() }
+        PyGradient {
+            inner: Gradient::grayscale(),
+        }
     }
 
     /// Add a color stop at position (0.0-1.0)
@@ -191,7 +230,9 @@ impl PyGradient {
 
     /// Sample the gradient at position t (0.0-1.0)
     fn sample(&self, t: f32) -> PyColor {
-        PyColor { inner: self.inner.sample(t) }
+        PyColor {
+            inner: self.inner.sample(t),
+        }
     }
 
     /// Map a value to a color within a range
@@ -232,9 +273,7 @@ impl PyNamedPalette {
     }
 
     fn get_by_index(&self, index: u32) -> Option<PyColor> {
-        self.inner
-            .get_by_index(index)
-            .map(|c| PyColor { inner: c })
+        self.inner.get_by_index(index).map(|c| PyColor { inner: c })
     }
 
     fn register(&mut self, name: &str, color: &PyColor) -> u32 {

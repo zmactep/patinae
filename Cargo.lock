@@ -4095,6 +4095,7 @@ dependencies = [
  "pollster",
  "raw-window-handle",
  "serde",
+ "serde_json",
  "slint",
  "slint-build",
  "tokio",
@@ -4155,6 +4156,7 @@ dependencies = [
  "patinae-settings",
  "rmp-serde",
  "serde",
+ "serde_json",
  "shellexpand",
  "tempfile",
 ]
@@ -4185,6 +4187,7 @@ dependencies = [
  "patinae-settings",
  "rmp-serde",
  "serde",
+ "serde_json",
  "tempfile",
  "tokio",
  "wgpu",
@@ -4271,6 +4274,7 @@ dependencies = [
  "patinae-settings",
  "rmp-serde",
  "serde",
+ "serde_json",
  "wgpu",
 ]
 
@@ -4734,6 +4738,7 @@ dependencies = [
  "patinae-scene",
  "patinae-select",
  "pyo3",
+ "serde_json",
  "tree-sitter-highlight",
  "tree-sitter-python",
 ]

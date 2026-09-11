@@ -326,7 +326,6 @@ mod tests {
             render_context: None,
             default_size: (64, 64),
             needs_redraw: &mut needs_redraw,
-            async_fetch_fn: None,
         };
 
         executor.do_with_options(&mut adapter, command, false)
@@ -584,11 +583,26 @@ mod tests {
             true,
             true,
         );
-        executor.register_script_handler("pml", Arc::new(|_| Ok(())));
-        executor.register_script_handler("zed", Arc::new(|_| Ok(())));
-        executor.register_script_handler(".dotted", Arc::new(|_| Ok(())));
-        executor.register_script_handler("UPPER", Arc::new(|_| Ok(())));
-        executor.register_script_handler("foo.gz", Arc::new(|_| Ok(())));
+        executor.register_script_handler(
+            "pml",
+            Arc::new(|path| Ok(crate::AsyncCommandRequest::RunScript { path: path.into() })),
+        );
+        executor.register_script_handler(
+            "zed",
+            Arc::new(|path| Ok(crate::AsyncCommandRequest::RunScript { path: path.into() })),
+        );
+        executor.register_script_handler(
+            ".dotted",
+            Arc::new(|path| Ok(crate::AsyncCommandRequest::RunScript { path: path.into() })),
+        );
+        executor.register_script_handler(
+            "UPPER",
+            Arc::new(|path| Ok(crate::AsyncCommandRequest::RunScript { path: path.into() })),
+        );
+        executor.register_script_handler(
+            "foo.gz",
+            Arc::new(|path| Ok(crate::AsyncCommandRequest::RunScript { path: path.into() })),
+        );
 
         let load = execute_text(&mut executor, "capabilities formats load");
         assert_eq!(load.lines().filter(|line| *line == ".both").count(), 1);

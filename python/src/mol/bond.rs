@@ -1,7 +1,7 @@
 //! Python bindings for Bond
 
-use pyo3::prelude::*;
 use patinae_mol::{Bond, BondOrder, BondStereo};
+use pyo3::prelude::*;
 
 /// Python wrapper for bond data
 #[pyclass(name = "Bond")]

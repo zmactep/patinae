@@ -18,7 +18,6 @@ pub struct ReplBridge {
     output_model: Rc<VecModel<OutputItem>>,
     pub(crate) completion_model: Rc<VecModel<CompletionItem>>,
     last_output_generation: u64,
-    last_command_generation: u64,
 }
 
 impl ReplBridge {
@@ -27,7 +26,6 @@ impl ReplBridge {
             output_model: Rc::new(VecModel::default()),
             completion_model: Rc::new(VecModel::default()),
             last_output_generation: 0,
-            last_command_generation: 0,
         }
     }
 
@@ -42,8 +40,6 @@ impl ReplBridge {
     pub fn sync(&mut self, kernel: &AppKernel, window: &AppWindow) {
         let output_generation = kernel.output.generation();
         let output_changed = output_generation != self.last_output_generation;
-        let command_generation = kernel.command_generation();
-        let command_completed = command_generation != self.last_command_generation;
         let rs = window.global::<ReplState>();
 
         if output_changed {
@@ -51,18 +47,8 @@ impl ReplBridge {
             self.output_model.set_vec(items);
             self.last_output_generation = output_generation;
 
-            // Bump generation to trigger scroll-to-bottom + clear busy
+            // Bump generation to trigger scroll-to-bottom
             rs.set_output_generation(rs.get_output_generation().wrapping_add(1));
-            if rs.get_busy() {
-                rs.set_busy(false);
-            }
-        }
-
-        if command_completed {
-            self.last_command_generation = command_generation;
-            if rs.get_busy() {
-                rs.set_busy(false);
-            }
         }
     }
 }
@@ -134,7 +120,6 @@ pub fn setup_callbacks(app: Rc<RefCell<crate::app::App>>, window: &AppWindow) {
 
                 let rs = w.global::<ReplState>();
                 rs.set_input_text(slint::SharedString::default());
-                rs.set_busy(true);
                 rs.set_completion_visible(false);
             }
         });

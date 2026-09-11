@@ -294,7 +294,6 @@ mod tests {
             render_context: None,
             default_size: (800, 600),
             needs_redraw: &mut needs_redraw,
-            async_fetch_fn: None,
         };
 
         let coords = collect_selection_coords(&adapter, "all").unwrap();
@@ -341,7 +340,6 @@ mod tests {
             render_context: None,
             default_size: (800, 600),
             needs_redraw: &mut needs_redraw,
-            async_fetch_fn: None,
         };
         let coords = collect_selection_coords(&adapter, "obj and instance 2").unwrap();
         assert_eq!(coords.len(), 1);

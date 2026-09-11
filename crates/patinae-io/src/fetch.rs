@@ -102,6 +102,31 @@ fn ensure_rustls_crypto_provider() {
     });
 }
 
+/// Download URL bytes with Patinae's TLS provider and request timeout.
+///
+/// # Errors
+/// Returns an I/O error for client setup, network, HTTP status or body failures.
+#[cfg(feature = "fetch-async")]
+pub async fn fetch_url_bytes(url: &str, timeout: std::time::Duration) -> IoResult<Vec<u8>> {
+    ensure_rustls_crypto_provider();
+    let result = async {
+        reqwest::Client::builder()
+            .user_agent(USER_AGENT)
+            .timeout(timeout)
+            .build()?
+            .get(url)
+            .send()
+            .await?
+            .error_for_status()?
+            .bytes()
+            .await
+    }
+    .await;
+    result
+        .map(|bytes| bytes.to_vec())
+        .map_err(|error| IoError::fetch(format_reqwest_error(error)))
+}
+
 #[cfg(feature = "fetch-async")]
 fn format_reqwest_error(err: reqwest::Error) -> String {
     let mut message = err.to_string();
@@ -518,7 +543,7 @@ pub async fn fetch_pdb_metadata(pdb_id: &str) -> IoResult<PdbMetadataPreview> {
         ))
     })?;
     let json: serde_json::Value = serde_json::from_slice(&bytes)
-        .map_err(|err| IoError::fetch(format!("Invalid metadata response: {err}")))?;
+        .map_err(|err| IoError::parse_msg(format!("Invalid metadata response: {err}")))?;
 
     parse_pdb_metadata_json(&json)
 }

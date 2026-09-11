@@ -207,7 +207,17 @@ mod tests {
     #[test]
     fn scripts_route_to_run() {
         let mut executor = CommandExecutor::new();
-        executor.register_script_handler("py", Arc::new(|_| Ok(())));
+        executor.register_script_handler(
+            "py",
+            Arc::new(|path| {
+                Ok(patinae_cmd::AsyncCommandRequest::Plugin(
+                    patinae_cmd::PluginTaskRequest::new(
+                        "python",
+                        serde_json::json!({"path": path}),
+                    ),
+                ))
+            }),
+        );
 
         assert_eq!(command_for("setup.pml", &executor), "run setup.pml");
         assert_eq!(command_for("analysis.py", &executor), "run analysis.py");

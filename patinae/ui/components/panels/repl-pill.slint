@@ -603,15 +603,7 @@ export component ReplPill inherits Rectangle {
             }
         }
 
-        // Busy shimmer overlay
-        if ReplState.busy: Rectangle {
-            width: parent.width;
-            height: parent.height;
-            border-radius: Tokens.repl-pill-radius;
-            border-width: 1px;
-            border-color: Theme.cyan-dim.with-alpha(0.4);
-            background: transparent;
-        }
+
     }
 
     // Focus interceptor — when unfocused, route clicks through focus-input()

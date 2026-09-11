@@ -1,5 +1,6 @@
 //! Runtime host for dynamically loaded Patinae plugins.
 
+mod actions;
 mod host;
 mod loader;
 mod panel_events;
@@ -8,9 +9,6 @@ mod panic;
 mod paths;
 mod plugin;
 mod runtime;
-
-#[cfg(test)]
-mod tests;
 
 pub use host::PluginHost;
 pub use loader::validate_declaration_versions;

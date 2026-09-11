@@ -14,6 +14,7 @@ class RecordingBackend:
 
     def execute(self, command, silent=False):
         self.commands.append((command, silent))
+        return {"result": {"Ok": None}, "messages": [], "task_ids": []}
 
     def get_label(self, name):
         if self.label_snapshot is None or self.label_snapshot["name"] != name:

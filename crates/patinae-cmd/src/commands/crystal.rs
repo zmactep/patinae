@@ -689,7 +689,6 @@ mod assembly_command_tests {
             render_context: None,
             default_size: (64, 64),
             needs_redraw: &mut needs_redraw,
-            async_fetch_fn: None,
         };
         CommandExecutor::new().do_with_options(&mut adapter, command, false)
     }
@@ -1080,7 +1079,6 @@ mod assembly_command_tests {
             render_context: None,
             default_size: (64, 64),
             needs_redraw: &mut needs_redraw,
-            async_fetch_fn: None,
         };
         assert_eq!(
             crate::commands::selecting::evaluate_atom_anchors(&adapter, "mixed_sources")
@@ -1129,7 +1127,6 @@ mod assembly_command_tests {
             render_context: None,
             default_size: (64, 64),
             needs_redraw: &mut needs_redraw,
-            async_fetch_fn: None,
         };
         for (expression, copy) in [
             ("assembly_view and not instance 1", 1),

@@ -33,6 +33,10 @@ use crate::viewer_trait::ViewportImage;
 /// Implements `Serialize` and `Deserialize` via a proxy that converts
 /// the [`ObjectRegistry`] to/from an [`ObjectRegistrySnapshot`].
 pub struct Session {
+    // Transient causal boundary for background results; never restored from a file.
+    task_epoch: u64,
+    // Transient command write boundary; never persisted with molecular data.
+    mutation_revision: MutationStamp,
     // =========================================================================
     // Scene
     // =========================================================================
@@ -84,6 +88,28 @@ pub struct Session {
     pub highlight_state: HighlightState,
     /// Active hover target. `None` when nothing is hovered.
     pub hover_target: Option<HoverTarget>,
+}
+
+/// Opaque observation of applied writes and unrestricted mutable access.
+///
+/// Compare stamps from the same session around a synchronous operation.
+/// Session replacement preserves both counters. Neither is persisted.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct MutationStamp {
+    applied: u64,
+    untracked: u64,
+}
+
+impl MutationStamp {
+    /// Whether an observed write occurred since `before`.
+    pub fn has_applied_since(self, before: Self) -> bool {
+        self.applied != before.applied
+    }
+
+    /// Whether unrestricted write access occurred since `before`.
+    pub fn has_untracked_since(self, before: Self) -> bool {
+        self.untracked != before.untracked
+    }
 }
 
 /// Atoms currently under the cursor, fed into the screen-space highlight pass.
@@ -207,6 +233,8 @@ impl<'de> Deserialize<'de> for Session {
         let mut recent_atoms = proxy.recent_atoms;
         recent_atoms.enforce_limit(proxy.settings.behavior.recent_pick_limit());
         let mut session = Session {
+            task_epoch: 0,
+            mutation_revision: MutationStamp::default(),
             registry: ObjectRegistry::from_snapshot(proxy.registry),
             camera: proxy.camera,
             selections: proxy.selections,
@@ -238,6 +266,8 @@ impl Session {
     /// Create a new session with default values.
     pub fn new() -> Self {
         Self {
+            task_epoch: 0,
+            mutation_revision: MutationStamp::default(),
             registry: ObjectRegistry::new(),
             camera: Camera::new(),
             selections: SelectionManager::new(),
@@ -528,6 +558,10 @@ impl Session {
 
     /// Clears all objects and reconciles recent atom paths.
     pub fn clear_objects(&mut self) {
+        self.task_epoch = self
+            .task_epoch
+            .checked_add(1)
+            .expect("scene epoch exhausted");
         self.registry.clear();
         self.reconcile_recent_atoms();
     }
@@ -548,6 +582,12 @@ impl Session {
 
     /// Replaces all session state and invalidates transient observer tokens.
     pub fn replace_contents(&mut self, mut replacement: Session) {
+        replacement.mutation_revision = self.mutation_revision;
+        replacement.record_mutation();
+        replacement.task_epoch = self
+            .task_epoch
+            .checked_add(1)
+            .expect("scene epoch exhausted");
         let old_registry_generation = self.registry.generation();
         let old_selection_generation = self.selections.generation();
         let old_recent_generation = self.recent_atoms.generation();
@@ -567,6 +607,29 @@ impl Session {
         if self.recent_atoms.generation() == old_recent_generation {
             self.recent_atoms.invalidate();
         }
+    }
+
+    /// Returns the transient scene identity for background result validation.
+    ///
+    /// Clearing or replacing scene contents advances this identity. Styling,
+    /// selection, settings, and camera changes preserve it.
+    pub fn task_epoch(&self) -> u64 {
+        self.task_epoch
+    }
+
+    /// Read the command mutation boundary without traversing scene data.
+    pub fn mutation_revision(&self) -> MutationStamp {
+        self.mutation_revision
+    }
+
+    /// Record an applied operation, independently of renderer dirty flags.
+    pub(crate) fn record_mutation(&mut self) {
+        self.mutation_revision.applied = self.mutation_revision.applied.wrapping_add(1);
+    }
+
+    /// Record write access whose actual effects cannot be observed.
+    pub(crate) fn record_untracked_access(&mut self) {
+        self.mutation_revision.untracked = self.mutation_revision.untracked.wrapping_add(1);
     }
 
     /// Set the active hover target. Renders next frame.
@@ -973,6 +1036,23 @@ mod tests {
         assert!(session.sync_movie_frame());
 
         assert_eq!(session.camera.fov(), 35.0);
+    }
+
+    #[test]
+    fn task_epoch_changes_only_when_scene_contents_are_discarded() {
+        let mut session = Session::new();
+        let initial = session.task_epoch();
+        session.camera.set_fov(35.0);
+        session.clear_color = [1.0, 0.0, 0.0];
+        assert_eq!(session.task_epoch(), initial);
+        session.clear_objects();
+        assert!(session.task_epoch() > initial);
+        let cleared = session.task_epoch();
+        session.replace_contents(Session::new());
+        assert!(session.task_epoch() > cleared);
+        let replaced = session.task_epoch();
+        session.replace_contents(Session::new());
+        assert!(session.task_epoch() > replaced);
     }
 
     #[test]

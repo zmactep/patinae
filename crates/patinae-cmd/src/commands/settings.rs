@@ -746,7 +746,6 @@ mod tests {
             render_context: None,
             default_size: (800, 600),
             needs_redraw: &mut needs_redraw,
-            async_fetch_fn: None,
         };
         executor.do_(&mut adapter, cmd)
     }

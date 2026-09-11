@@ -19,9 +19,6 @@ use crate::session::Session;
 use crate::view::ViewManager;
 use crate::viewer_trait::{ViewerLike, ViewportImage};
 
-/// Callback type for async fetch operations (GUI sets this; headless leaves None).
-type AsyncFetchFn<'a> = Box<dyn Fn(&str, &str, u8) -> bool + 'a>;
-
 /// Adapter that wraps a [`Session`] to implement [`ViewerLike`] for command execution.
 ///
 /// Borrows a mutable reference to a `Session` (scene state) plus an optional
@@ -38,8 +35,6 @@ pub struct SessionAdapter<'a> {
     pub default_size: (u32, u32),
     /// Redraw flag — set to true when a re-render is needed
     pub needs_redraw: &'a mut bool,
-    /// Optional callback for async fetch (GUI sets this; headless leaves None)
-    pub async_fetch_fn: Option<AsyncFetchFn<'a>>,
 }
 
 impl<'a> ViewerLike for SessionAdapter<'a> {
@@ -51,61 +46,111 @@ impl<'a> ViewerLike for SessionAdapter<'a> {
         &self.session.registry
     }
     fn objects_mut(&mut self) -> &mut ObjectRegistry {
+        self.session.record_untracked_access();
         &mut self.session.registry
     }
     fn camera(&self) -> &Camera {
         &self.session.camera
     }
     fn camera_mut(&mut self) -> &mut Camera {
+        self.session.record_untracked_access();
         &mut self.session.camera
     }
     fn settings(&self) -> &Settings {
         &self.session.settings
     }
     fn settings_mut(&mut self) -> &mut Settings {
+        self.session.record_untracked_access();
         &mut self.session.settings
     }
     fn movie(&self) -> &Movie {
         &self.session.movie
     }
     fn movie_mut(&mut self) -> &mut Movie {
+        self.session.record_untracked_access();
         &mut self.session.movie
     }
     fn scenes(&self) -> &SceneManager {
         &self.session.scenes
     }
     fn scenes_mut(&mut self) -> &mut SceneManager {
+        self.session.record_untracked_access();
         &mut self.session.scenes
     }
     fn views(&self) -> &ViewManager {
         &self.session.views
     }
     fn views_mut(&mut self) -> &mut ViewManager {
+        self.session.record_untracked_access();
         &mut self.session.views
     }
     fn selections(&self) -> &SelectionManager {
         &self.session.selections
     }
     fn selections_mut(&mut self) -> &mut SelectionManager {
+        self.session.record_untracked_access();
         &mut self.session.selections
     }
     fn named_palette(&self) -> &NamedPalette {
         &self.session.named_palette
     }
     fn named_palette_mut(&mut self) -> &mut NamedPalette {
+        self.session.record_untracked_access();
         &mut self.session.named_palette
     }
     fn clear_color(&self) -> [f32; 3] {
         self.session.clear_color
     }
     fn set_clear_color(&mut self, color: [f32; 3]) {
+        if self.session.clear_color != color || !self.session.clear_color_set {
+            self.session.record_mutation();
+        }
         self.session.clear_color = color;
         self.session.clear_color_set = true;
+    }
+
+    fn reset_background_color(&mut self) {
+        let color = self.session.palette.viewport_bg.to_array();
+        if self.session.clear_color != color || self.session.clear_color_set {
+            self.session.record_mutation();
+        }
+        self.session.clear_color = color;
+        self.session.clear_color_set = false;
+        self.request_redraw();
+    }
+
+    fn color_atoms(
+        &mut self,
+        object: &str,
+        selected: &patinae_select::SelectionResult,
+        color: i32,
+    ) -> usize {
+        let changed = self
+            .session
+            .registry
+            .get_molecule_mut(object)
+            .map_or(0, |molecule| molecule.color_selection(selected, color));
+        if changed != 0 {
+            self.session.record_mutation();
+        }
+        changed
+    }
+
+    fn set_named_color(&mut self, name: &str, color: patinae_color::Color) -> u32 {
+        if let Some((index, existing)) = self.session.named_palette.get_by_name(name) {
+            if existing == color {
+                return index;
+            }
+        }
+        let index = self.session.named_palette.set(name, color);
+        self.session.record_mutation();
+        index
     }
     fn viewport_image_ref(&self) -> Option<&ViewportImage> {
         self.session.viewport_image.as_ref()
     }
     fn set_viewport_image_internal(&mut self, image: Option<ViewportImage>) {
+        self.session.record_untracked_access();
         self.session.viewport_image = image;
         if let Some(render_context) = self.render_context.as_deref_mut() {
             render_context.clear_viewport_gpu_image();
@@ -120,24 +165,13 @@ impl<'a> ViewerLike for SessionAdapter<'a> {
         self.session
     }
     fn session_mut(&mut self) -> &mut Session {
+        self.session.record_untracked_access();
         self.session
     }
 
     fn replace_session(&mut self, session: Session) {
         self.session.replace_contents(session);
         *self.needs_redraw = true;
-    }
-
-    // =========================================================================
-    // Async fetch
-    // =========================================================================
-
-    fn request_async_fetch(&mut self, code: &str, name: &str, format: u8) -> bool {
-        if let Some(ref f) = self.async_fetch_fn {
-            f(code, name, format)
-        } else {
-            false
-        }
     }
 
     // =========================================================================
@@ -186,6 +220,7 @@ impl<'a> ViewerLike for SessionAdapter<'a> {
             .set_viewport_gpu_image_from_buffer(buffer, buffer_size, width, height)
             .map_err(|e| e.to_string())?;
         self.session.viewport_image = None;
+        self.session.record_mutation();
         *self.needs_redraw = true;
         Ok(())
     }
@@ -202,6 +237,7 @@ impl<'a> ViewerLike for SessionAdapter<'a> {
     fn clear_viewport_gpu_image(&mut self) {
         if let Some(render_context) = self.render_context.as_deref_mut() {
             render_context.clear_viewport_gpu_image();
+            self.session.record_untracked_access();
         }
     }
 
@@ -301,6 +337,7 @@ impl<'a> ViewerLike for SessionAdapter<'a> {
         width: Option<u32>,
         height: Option<u32>,
     ) -> Result<(), String> {
+        self.session.record_untracked_access();
         self.session.movie.goto_frame(frame);
         self.session.sync_movie_frame();
         self.capture_png(path, width, height)
@@ -315,6 +352,7 @@ impl<'a> ViewerLike for SessionAdapter<'a> {
         self.session
             .scenes
             .store(key, mask, &self.session.camera, &self.session.registry);
+        self.session.record_untracked_access();
         *self.needs_redraw = true;
     }
 
@@ -329,6 +367,7 @@ impl<'a> ViewerLike for SessionAdapter<'a> {
                 duration,
             )
             .map_err(|e| e.to_string())?;
+        self.session.record_untracked_access();
         *self.needs_redraw = true;
         Ok(())
     }
@@ -338,6 +377,7 @@ impl<'a> ViewerLike for SessionAdapter<'a> {
             .views
             .recall(key, &mut self.session.camera, animate)
             .map_err(|e| e.to_string())?;
+        self.session.record_untracked_access();
         *self.needs_redraw = true;
         Ok(())
     }
@@ -361,6 +401,44 @@ mod tests {
     struct StateCheckingRenderer {
         expected_state: usize,
         seen_state: Option<usize>,
+    }
+
+    #[test]
+    fn command_revision_tracks_adapter_writes_and_survives_replacement() {
+        let mut session = Session::new();
+        let mut redraw = false;
+        let mut adapter = SessionAdapter {
+            session: &mut session,
+            render_context: None,
+            default_size: (1, 1),
+            needs_redraw: &mut redraw,
+        };
+        let before = adapter.session().mutation_revision();
+        let _ = (
+            adapter.objects(),
+            adapter.camera(),
+            adapter.settings(),
+            adapter.movie(),
+            adapter.scenes(),
+            adapter.views(),
+            adapter.selections(),
+            adapter.named_palette(),
+        );
+        adapter.request_redraw();
+        assert_eq!(adapter.session().mutation_revision(), before);
+        assert!(adapter.scene_recall("missing", false, 0.0).is_err());
+        assert!(adapter.view_recall("missing", 0.0).is_err());
+        assert_eq!(adapter.session().mutation_revision(), before);
+        adapter.camera_mut().view_mut().origin.x = 3.0;
+        let camera_revision = adapter.session().mutation_revision();
+        assert_ne!(camera_revision, before);
+        adapter.settings_mut().behavior.auto_dss = false;
+        assert_ne!(adapter.session().mutation_revision(), camera_revision);
+        let settings_revision = adapter.session().mutation_revision();
+        adapter.replace_session(Session::new());
+        assert_ne!(adapter.session().mutation_revision(), settings_revision);
+        let saved = serde_json::to_value(adapter.session()).unwrap();
+        assert!(saved.get("mutation_revision").is_none());
     }
 
     impl CaptureRenderer for StateCheckingRenderer {
@@ -420,7 +498,6 @@ mod tests {
                 render_context: Some(&mut renderer),
                 default_size: (64, 64),
                 needs_redraw: &mut needs_redraw,
-                async_fetch_fn: None,
             };
             adapter
                 .capture_frame_png(2, Path::new("/tmp/movie-frame.png"), None, None)
@@ -470,7 +547,6 @@ mod tests {
                 render_context: None,
                 default_size: (64, 64),
                 needs_redraw: &mut needs_redraw,
-                async_fetch_fn: None,
             };
             adapter.replace_session(replacement);
         }

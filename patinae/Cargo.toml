@@ -17,8 +17,9 @@ wgpu = { workspace = true }
 log = { workspace = true }
 env_logger = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 webbrowser = { workspace = true }
-patinae-cmd = { workspace = true, features = ["fetch", "fetch-async", "native-io", "traj"] }
+patinae-cmd = { workspace = true, features = ["native-io", "traj"] }
 patinae-color = { workspace = true }
 patinae-framework = { workspace = true }
 patinae-io = { workspace = true, features = ["fetch-async"] }

@@ -9,7 +9,6 @@
 mod handler;
 mod protocol;
 mod server;
-
 use patinae_plugin::patinae_plugin;
 
 use handler::IpcMessageHandler;
@@ -35,4 +34,21 @@ patinae_plugin! {
             log::info!("IPC plugin: PATINAE_IPC_SOCKET not set, server disabled");
         }
     },
+}
+
+#[cfg(test)]
+mod tests {
+    //! Shared deterministic IPC test fixtures.
+
+    #[cfg(unix)]
+    pub(crate) fn socket_path(label: &str) -> std::path::PathBuf {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT_PATH: AtomicU64 = AtomicU64::new(1);
+        // A short /tmp path stays within Unix socket path limits on macOS.
+        std::path::PathBuf::from(format!(
+            "/tmp/patinae-ipc-{}-{}-{label}.sock",
+            std::process::id(),
+            NEXT_PATH.fetch_add(1, Ordering::Relaxed)
+        ))
+    }
 }

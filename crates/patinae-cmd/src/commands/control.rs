@@ -8,8 +8,6 @@ use crate::command::{
 };
 use crate::command_help;
 use crate::error::{CmdError, CmdResult};
-use crate::executor::CommandExecutor;
-use crate::script::ScriptEngine;
 
 use super::io::expand_path;
 
@@ -415,26 +413,15 @@ impl Command for RunCommand {
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("pml");
 
         if RUN_CAPABILITY.supports_suffix(ext) {
-            let executor = if let Some(registry) = ctx.registry() {
-                CommandExecutor::with_registry(
-                    registry.clone(),
-                    ctx.script_handlers_map().cloned().unwrap_or_default(),
-                    ctx.format_handlers_map().cloned().unwrap_or_default(),
-                    ctx.clone_dynamic_settings_for_child_executor(),
-                )
-                .with_loaded_plugin_capabilities(
-                    ctx.clone_loaded_plugin_capabilities_for_child_executor(),
-                )
-            } else {
-                CommandExecutor::new()
-            };
-            let mut engine = ScriptEngine::with_executor(executor);
-            engine.run_pml(ctx.viewer, &path)
+            ctx.request_task(crate::AsyncCommandRequest::RunScript {
+                path: filename.to_string(),
+            })
         } else if let Some(handler) = ctx.script_handler(ext) {
             let path_str = path
                 .to_str()
                 .ok_or_else(|| CmdError::execution("invalid path encoding".to_string()))?;
-            handler(path_str).map_err(CmdError::execution)
+            let request = handler(path_str).map_err(CmdError::execution)?;
+            ctx.request_task(request)
         } else {
             Err(CmdError::execution(format!(
                 "no handler for .{} files. Install a plugin that handles this format.",
@@ -446,37 +433,10 @@ impl Command for RunCommand {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        CmdError, CmdResult, Command, CommandAction, CommandContext, CommandExecutor,
-        DynamicCommand, LoadedPluginCapability, ParsedCommand, ViewerLike,
-    };
+    use crate::{CmdError, CommandAction, CommandExecutor, DynamicCommand};
     use patinae_mol::{AtomBuilder, AtomIndex, ObjectMolecule};
     use patinae_scene::{MoleculeObject, Session, SessionAdapter};
     use patinae_settings::groups::RecentPickLimit;
-    use std::sync::{Arc, Mutex};
-
-    struct CaptureLoadedPlugins {
-        observed: Arc<Mutex<Vec<LoadedPluginCapability>>>,
-    }
-
-    impl Command for CaptureLoadedPlugins {
-        fn name(&self) -> &str {
-            "capture_loaded_plugins"
-        }
-
-        fn execute<'v, 'r>(
-            &self,
-            ctx: &mut CommandContext<'v, 'r, dyn ViewerLike + 'v>,
-            _args: &ParsedCommand,
-        ) -> CmdResult {
-            *self
-                .observed
-                .lock()
-                .expect("captured plugin metadata should be available") =
-                ctx.loaded_plugin_capabilities().to_vec();
-            Ok(())
-        }
-    }
 
     #[test]
     fn run_capability_shares_the_registered_alias_and_builtin_pml_suffix() {
@@ -496,7 +456,6 @@ mod tests {
             render_context: None,
             default_size: (800, 600),
             needs_redraw: &mut needs_redraw,
-            async_fetch_fn: None,
         };
         let mut executor = CommandExecutor::new();
 
@@ -510,7 +469,6 @@ mod tests {
             render_context: None,
             default_size: (800, 600),
             needs_redraw: &mut needs_redraw,
-            async_fetch_fn: None,
         };
         CommandExecutor::new().do_(&mut adapter, command)
     }
@@ -609,8 +567,7 @@ mod tests {
     }
 
     #[test]
-    fn run_command_inherits_plugin_registered_commands() {
-        let invocations = Arc::new(Mutex::new(Vec::new()));
+    fn run_command_preserves_plugin_registration_but_requires_its_executor() {
         let mut session = Session::new();
         let mut needs_redraw = false;
         let mut adapter = SessionAdapter {
@@ -618,7 +575,6 @@ mod tests {
             render_context: None,
             default_size: (800, 600),
             needs_redraw: &mut needs_redraw,
-            async_fetch_fn: None,
         };
         let mut executor = CommandExecutor::new();
         executor
@@ -628,7 +584,8 @@ mod tests {
                 "test plugin command".into(),
                 "plugin_marker value".into(),
                 "value: marker payload".into(),
-                invocations.clone(),
+                "fixture".into(),
+                None,
             )));
         let script_path = temp_script_path("run-plugin-command");
         std::fs::write(&script_path, "plugin_marker alpha\n")
@@ -638,54 +595,7 @@ mod tests {
         let result = executor.do_with_options(&mut adapter, &command, false);
         let _ = std::fs::remove_file(&script_path);
 
-        result.expect("run should execute plugin-registered command");
-        let invocations = invocations
-            .lock()
-            .expect("dynamic invocation list should be available");
-        assert_eq!(invocations.len(), 1);
-        assert_eq!(invocations[0].name, "plugin_marker");
-        assert_eq!(invocations[0].args, vec!["alpha"]);
-    }
-
-    #[test]
-    fn run_command_child_inherits_loaded_plugin_metadata() {
-        let observed = Arc::new(Mutex::new(Vec::new()));
-        let mut session = Session::new();
-        let mut needs_redraw = false;
-        let mut adapter = SessionAdapter {
-            session: &mut session,
-            render_context: None,
-            default_size: (800, 600),
-            needs_redraw: &mut needs_redraw,
-            async_fetch_fn: None,
-        };
-        let mut executor = CommandExecutor::new();
-        executor
-            .registry_mut()
-            .register_boxed(Box::new(CaptureLoadedPlugins {
-                observed: observed.clone(),
-            }));
-        let expected = LoadedPluginCapability {
-            name: "python".to_string(),
-            version: "1.2.3".to_string(),
-            description: "Python integration".to_string(),
-        };
-        executor.record_loaded_plugin_capability(expected.clone());
-        let script_path = temp_script_path("run-plugin-metadata");
-        std::fs::write(&script_path, "capture_loaded_plugins\n")
-            .expect("test script should be writable");
-        let command = format!("run \"{}\"", script_path.display());
-
-        let result = executor.do_with_options(&mut adapter, &command, false);
-        let _ = std::fs::remove_file(&script_path);
-
-        result.expect("run should preserve loaded-plugin metadata");
-        assert_eq!(
-            observed
-                .lock()
-                .expect("captured plugin metadata should be available")
-                .as_slice(),
-            &[expected]
-        );
+        let error = result.expect_err("async plugin work requires a host executor");
+        assert!(error.to_string().contains("task executor unavailable"));
     }
 }

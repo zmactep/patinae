@@ -6,10 +6,7 @@
 //! Unlike `StandaloneBackend` (which owns a Session), this backend
 //! communicates with the host through shared snapshots and a command queue.
 
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-};
+use std::sync::atomic::Ordering;
 
 use numpy::ndarray::Array3;
 use numpy::{IntoPyArray, PyArray3, PyArrayMethods, PyUntypedArrayMethods};
@@ -25,6 +22,18 @@ use pyo3::types::{PyDict, PyList};
 use crate::atom_ops::{build_globals, expression_to_cstring};
 use crate::shared::{HostBridgeHandle, HostBridgeRequestKind, HostBridgeValue, SharedStateHandle};
 
+// The binding transports error fields; the Python API owns exception semantics.
+fn task_error(code: &str, message: &str) -> PyErr {
+    let error = pyo3::exceptions::PyRuntimeError::new_err(format!("{code}: {message}"));
+    Python::attach(|py| {
+        let value = error.value(py);
+        value.setattr("code", code)?;
+        value.setattr("message", message)
+    })
+    .err()
+    .unwrap_or(error)
+}
+
 const PYTHON_ATOM_STREAM_CHUNK_ROWS: usize = 4096;
 
 /// Python-visible backend for embedded (plugin) mode.
@@ -35,24 +44,25 @@ const PYTHON_ATOM_STREAM_CHUNK_ROWS: usize = 4096;
 pub struct PluginBackend {
     shared: SharedStateHandle,
     host_bridge: HostBridgeHandle,
-    interrupt_requested: Arc<AtomicBool>,
 }
 
 impl PluginBackend {
     pub fn new(shared: SharedStateHandle) -> Self {
-        let (interrupt_requested, host_bridge) = {
-            let state = shared.lock().unwrap();
-            (state.interrupt_requested.clone(), state.host_bridge.clone())
-        };
+        let host_bridge = shared.lock().unwrap().host_bridge.clone();
         Self {
             shared,
             host_bridge,
-            interrupt_requested,
         }
     }
 
     fn check_interrupt(&self) -> PyResult<()> {
-        if self.interrupt_requested.load(Ordering::Acquire) {
+        if self
+            .shared
+            .lock()
+            .unwrap()
+            .interrupt_requested
+            .load(Ordering::Acquire)
+        {
             Err(pyo3::exceptions::PyRuntimeError::new_err(
                 "Python script interrupted",
             ))
@@ -62,9 +72,22 @@ impl PluginBackend {
     }
 
     fn host_request(&self, kind: HostBridgeRequestKind) -> PyResult<HostBridgeValue> {
-        self.host_bridge
-            .request(kind, &self.interrupt_requested)
-            .map_err(pyo3::exceptions::PyRuntimeError::new_err)
+        let (task_id, cancellation) = {
+            let state = self.shared.lock().unwrap();
+            (state.current_task, state.interrupt_requested.clone())
+        };
+        Python::attach(|py| py.detach(|| self.host_bridge.request(kind, task_id, &cancellation)))
+            .map_err(|error| task_error(&error.code, &error.message))
+    }
+
+    fn json_request(&self, py: Python<'_>, kind: HostBridgeRequestKind) -> PyResult<Py<PyAny>> {
+        match self.host_request(kind)? {
+            HostBridgeValue::Json(value) => py
+                .import("json")?
+                .call_method1("loads", (value.to_string(),))
+                .map(Bound::unbind),
+            _ => Err(unexpected_host_result_error()),
+        }
     }
 
     fn open_atom_stream(&self, selection: &str, mode: AtomStreamMode) -> PyResult<u64> {
@@ -326,20 +349,73 @@ fn changed_wire_value(
 
 #[pymethods]
 impl PluginBackend {
-    /// Queue a command for execution by the host.
-    ///
-    /// The command is not executed immediately — it is drained during
-    /// the next `poll()` cycle by the message handler.
-    #[pyo3(signature = (command, silent=false))]
-    fn execute(&self, command: &str, silent: bool) -> PyResult<()> {
-        let mut state = self.shared.lock().unwrap();
-        state.cmd_queue.push((command.to_string(), silent));
-        Ok(())
+    /// Execute on the owner thread and return the complete acceptance receipt.
+    #[pyo3(signature = (command, quiet=false))]
+    fn execute(&self, py: Python<'_>, command: &str, quiet: bool) -> PyResult<Py<PyAny>> {
+        self.json_request(
+            py,
+            HostBridgeRequestKind::Execute {
+                command: command.into(),
+                quiet,
+            },
+        )
     }
 
-    /// Return whether the host has requested cooperative cancellation.
+    fn get_task(&self, py: Python<'_>, task_id: &str) -> PyResult<Py<PyAny>> {
+        self.json_request(
+            py,
+            HostBridgeRequestKind::GetTask {
+                task_id: parse_task_id(task_id)?,
+            },
+        )
+    }
+
+    fn list_tasks(&self, py: Python<'_>, request: &Bound<'_, PyDict>) -> PyResult<Py<PyAny>> {
+        let json: String = py
+            .import("json")?
+            .call_method1("dumps", (request,))?
+            .extract()?;
+        let request = serde_json::from_str(&json)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        self.json_request(py, HostBridgeRequestKind::ListTasks { request })
+    }
+
+    fn cancel_task(&self, py: Python<'_>, task_id: &str) -> PyResult<Py<PyAny>> {
+        self.json_request(
+            py,
+            HostBridgeRequestKind::CancelTask {
+                task_id: parse_task_id(task_id)?,
+            },
+        )
+    }
+
+    #[pyo3(signature = (task_id, timeout=None))]
+    fn wait_task(
+        &self,
+        py: Python<'_>,
+        task_id: &str,
+        timeout: Option<f64>,
+    ) -> PyResult<Py<PyAny>> {
+        if timeout.is_some_and(|value| !value.is_finite() || value < 0.0) {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "timeout must be finite and nonnegative",
+            ));
+        }
+        self.json_request(
+            py,
+            HostBridgeRequestKind::WaitTask {
+                task_id: parse_task_id(task_id)?,
+                timeout_ms: timeout.map(|seconds| (seconds * 1000.0) as u64),
+            },
+        )
+    }
+
     fn is_interrupt_requested(&self) -> bool {
-        self.interrupt_requested.load(Ordering::Acquire)
+        self.shared
+            .lock()
+            .unwrap()
+            .interrupt_requested
+            .load(Ordering::Acquire)
     }
 
     /// Get the latest host movie state snapshot as a Python dict.
@@ -498,8 +574,13 @@ impl PluginBackend {
         let height = shape[0] as u32;
         let width = shape[1] as u32;
         let data = arr.to_vec()?;
-        let mut state = self.shared.lock().unwrap();
-        state.set_image_queue = Some(Some((data, width, height)));
+        self.host_request(HostBridgeRequestKind::SetViewportImage {
+            image: Some(patinae_scene::ViewportImage {
+                data,
+                width,
+                height,
+            }),
+        })?;
         Ok(())
     }
 
@@ -507,8 +588,7 @@ impl PluginBackend {
     ///
     /// The clear is queued and applied on the next poll cycle.
     fn clear_viewport_image(&self) -> PyResult<()> {
-        let mut state = self.shared.lock().unwrap();
-        state.set_image_queue = Some(None);
+        self.host_request(HostBridgeRequestKind::SetViewportImage { image: None })?;
         Ok(())
     }
 
@@ -562,8 +642,41 @@ impl PluginBackend {
     }
 }
 
+fn parse_task_id(value: &str) -> PyResult<patinae_plugin::tasks::TaskId> {
+    value
+        .parse()
+        .map_err(|error: patinae_plugin::tasks::TaskLookupError| {
+            task_error(&error.to_string(), &error.to_string())
+        })
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn binding_transports_unknown_error_codes_without_interpreting_them() {
+        Python::attach(|py| {
+            let error = task_error("future_executor_error", "host detail");
+            assert_eq!(
+                error
+                    .value(py)
+                    .getattr("code")
+                    .unwrap()
+                    .extract::<String>()
+                    .unwrap(),
+                "future_executor_error"
+            );
+            assert_eq!(
+                error
+                    .value(py)
+                    .getattr("message")
+                    .unwrap()
+                    .extract::<String>()
+                    .unwrap(),
+                "host detail"
+            );
+        });
+    }
+
     use super::*;
     use patinae_plugin::prelude::AtomRowKey;
 

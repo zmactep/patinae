@@ -13,13 +13,13 @@ use crate::command::{
 };
 use crate::error::{CmdError, CmdResult};
 use crate::history::CommandHistory;
-use crate::parser::{parse_command, parse_commands};
 
 /// Result of command execution including any output messages and actions
 #[derive(Debug, Default)]
 pub struct CommandOutput {
     /// Work was queued; successful dispatch does not imply completion.
-    pub deferred: bool,
+    /// Task identities accepted during execution, even if a later step failed.
+    pub task_ids: Vec<crate::tasks::TaskId>,
     /// Output messages from the command (typed with info/warning/error)
     pub messages: Vec<OutputMessage>,
     /// Side-effect actions requested by the command
@@ -32,7 +32,7 @@ impl CommandOutput {
     /// Create a new empty output
     pub fn new() -> Self {
         Self {
-            deferred: false,
+            task_ids: Vec::new(),
             messages: Vec::new(),
             actions: Vec::new(),
             duration: None,
@@ -64,6 +64,23 @@ impl CommandExecution {
     }
 }
 
+/// Portable command receipt; accepted tasks retain their own completion records.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CommandReply {
+    pub result: Result<(), String>,
+    pub messages: Vec<crate::OutputMessage>,
+    pub task_ids: Vec<crate::tasks::TaskId>,
+}
+impl From<CommandExecution> for CommandReply {
+    fn from(execution: CommandExecution) -> Self {
+        Self {
+            result: execution.result.map_err(|error| error.to_string()),
+            messages: execution.output.messages,
+            task_ids: execution.output.task_ids,
+        }
+    }
+}
+
 /// Command executor
 ///
 /// Manages command execution and history.
@@ -80,6 +97,7 @@ pub struct CommandExecutor {
     dynamic_settings: DynamicSettingRegistry,
     /// Metadata for plugins loaded into this executor.
     loaded_plugin_capabilities: Vec<LoadedPluginCapability>,
+    task_executors: std::collections::HashSet<String>,
 }
 
 impl Default for CommandExecutor {
@@ -98,36 +116,23 @@ impl CommandExecutor {
             format_handlers: AHashMap::new(),
             dynamic_settings: DynamicSettingRegistry::new(),
             loaded_plugin_capabilities: Vec::new(),
+            task_executors: std::collections::HashSet::new(),
         }
     }
 
-    /// Create an executor with a pre-populated registry and handlers.
-    ///
-    /// Used by the `run` command to create a script engine that inherits
-    /// plugin-registered commands and handlers from the calling context.
-    pub fn with_registry(
-        registry: CommandRegistry,
-        script_handlers: AHashMap<String, ScriptHandler>,
-        format_handlers: AHashMap<String, Arc<FormatHandler>>,
-        dynamic_settings: DynamicSettingRegistry,
-    ) -> Self {
-        Self {
-            registry,
-            history: CommandHistory::new(),
-            script_handlers,
-            format_handlers,
-            dynamic_settings,
-            loaded_plugin_capabilities: Vec::new(),
-        }
+    /// Register a host-verified plugin executor during plugin installation.
+    pub fn register_task_executor(&mut self, name: impl Into<String>) {
+        self.task_executors.insert(name.into());
     }
 
-    /// Sets loaded-plugin metadata while constructing a child executor.
-    pub(crate) fn with_loaded_plugin_capabilities(
-        mut self,
-        capabilities: Vec<LoadedPluginCapability>,
-    ) -> Self {
-        self.loaded_plugin_capabilities = capabilities;
-        self
+    /// Whether the host installed an executor for this plugin.
+    pub fn task_executor_available(&self, name: &str) -> bool {
+        self.task_executors.contains(name)
+    }
+
+    /// Registered task executor names, for host admission routing.
+    pub fn task_executors(&self) -> &std::collections::HashSet<String> {
+        &self.task_executors
     }
 
     /// Get a reference to the command registry
@@ -288,7 +293,7 @@ impl CommandExecutor {
         self.history.push(cmd.to_string());
 
         // Parse the command
-        let parsed = parse_command(cmd)?;
+        let parsed = self.registry.parse_command(cmd)?;
 
         // Look up the command
         let command = self
@@ -307,12 +312,15 @@ impl CommandExecutor {
             .with_loaded_plugin_capabilities(&self.loaded_plugin_capabilities)
             .with_async_command_sink(async_command_sink);
         let start = command_timer_start();
-        let result = command.execute(&mut ctx, &parsed);
+        let mut result = command.execute(&mut ctx, &parsed);
+        if !ctx.take_task_requests().is_empty() && result.is_ok() {
+            result = Err(CmdError::execution("task executor unavailable"));
+        }
         let duration = start.map(|start| start.elapsed());
 
         // Return collected output, actions, and timing
         *output = CommandOutput {
-            deferred: ctx.is_deferred(),
+            task_ids: ctx.take_task_ids(),
             messages: ctx.take_output(),
             actions: ctx.take_actions(),
             duration,
@@ -324,7 +332,7 @@ impl CommandExecutor {
     ///
     /// Stops on first error unless the command is prefixed with `-` (silent fail).
     pub fn do_multi(&mut self, viewer: &mut dyn ViewerLike, cmds: &str) -> CmdResult {
-        let commands = parse_commands(cmds)?;
+        let commands = self.registry.parse_commands(cmds)?;
 
         for cmd in commands {
             // Reconstruct command string for logging

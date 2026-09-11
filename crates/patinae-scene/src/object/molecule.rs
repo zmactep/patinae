@@ -188,6 +188,38 @@ impl MoleculeObject {
         &mut self.molecule
     }
 
+    /// Color selected atoms, returning the number whose stored colors changed.
+    ///
+    /// Only changed colors invalidate the renderer's color cache. Existing
+    /// dirty flags are preserved; coordinates and representations are untouched.
+    pub fn color_selection(&mut self, selected: &SelectionResult, color: i32) -> usize {
+        let colors = patinae_mol::AtomColors {
+            base: color,
+            cartoon: color,
+            ribbon: color,
+            stick: color,
+            line: color,
+            surface: color,
+            mesh: color,
+            sphere: color,
+            dot: color,
+            ellipsoid: color,
+        };
+        let mut changed = 0;
+        for index in selected.indices() {
+            if let Some(atom) = self.molecule.get_atom_mut(AtomIndex(index.0)) {
+                if atom.repr.colors != colors {
+                    atom.repr.colors = colors.clone();
+                    changed += 1;
+                }
+            }
+        }
+        if changed != 0 {
+            self.dirty |= DirtyFlags::COLOR;
+        }
+        changed
+    }
+
     /// Get the display state index
     pub fn display_state(&self) -> usize {
         self.display_state
@@ -650,6 +682,55 @@ mod tests {
 
     fn all_atoms(obj: &MoleculeObject) -> SelectionResult {
         SelectionResult::all(obj.molecule().atom_count())
+    }
+
+    #[test]
+    fn coloring_changes_only_selected_colors_and_preserves_other_dirty_flags() {
+        let mut object = MoleculeObject::new(create_test_molecule());
+        let selected = one_atom(&object, 0);
+        let untouched = object
+            .molecule()
+            .get_atom(AtomIndex(1))
+            .unwrap()
+            .repr
+            .colors
+            .clone();
+        object.clear_dirty();
+        assert_eq!(object.color_selection(&selected, 4), 1);
+        assert_eq!(object.dirty_flags(), DirtyFlags::COLOR);
+        assert_eq!(
+            object
+                .molecule()
+                .get_atom(AtomIndex(1))
+                .unwrap()
+                .repr
+                .colors,
+            untouched
+        );
+        object.clear_dirty();
+        assert_eq!(object.color_selection(&selected, 4), 0);
+        assert_eq!(object.dirty_flags(), DirtyFlags::empty());
+        // A non-base override must be detected, even if base is unchanged.
+        object
+            .molecule
+            .get_atom_mut(AtomIndex(0))
+            .unwrap()
+            .repr
+            .colors
+            .ellipsoid = 7;
+        object.invalidate(DirtyFlags::COORDS);
+        assert_eq!(object.color_selection(&selected, 4), 1);
+        assert_eq!(object.dirty_flags(), DirtyFlags::COLOR | DirtyFlags::COORDS);
+        assert_eq!(
+            object
+                .molecule()
+                .get_atom(AtomIndex(0))
+                .unwrap()
+                .repr
+                .colors
+                .ellipsoid,
+            4
+        );
     }
 
     fn one_atom(obj: &MoleculeObject, idx: u32) -> SelectionResult {

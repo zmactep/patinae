@@ -2,8 +2,8 @@
 //!
 //! Provides access to runtime settings.
 
-use pyo3::prelude::*;
 use patinae_settings::{GlobalSettings, SettingType, SettingValue};
+use pyo3::prelude::*;
 
 /// Get a setting value by name
 pub fn get_setting_py<'py>(
@@ -55,7 +55,10 @@ fn setting_value_to_py(py: Python<'_>, value: &SettingValue) -> PyResult<Py<PyAn
 }
 
 /// Convert a Python object to SettingValue
-fn py_to_setting_value(value: &Bound<'_, PyAny>, expected_type: SettingType) -> PyResult<SettingValue> {
+fn py_to_setting_value(
+    value: &Bound<'_, PyAny>,
+    expected_type: SettingType,
+) -> PyResult<SettingValue> {
     match expected_type {
         SettingType::Bool => {
             let b: bool = value.extract()?;
@@ -81,9 +84,9 @@ fn py_to_setting_value(value: &Bound<'_, PyAny>, expected_type: SettingType) -> 
             let s: String = value.extract()?;
             Ok(SettingValue::String(s))
         }
-        SettingType::Blank => {
-            Err(pyo3::exceptions::PyValueError::new_err("Cannot set a blank setting"))
-        }
+        SettingType::Blank => Err(pyo3::exceptions::PyValueError::new_err(
+            "Cannot set a blank setting",
+        )),
     }
 }
 

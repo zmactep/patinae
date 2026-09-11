@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
-use patinae_cmd::{CommandAction, CommandExecutor, MessageKind};
+use patinae_cmd::CommandExecutor;
 use patinae_render::picking::readback::{PendingPick, PickReadbackTarget};
 use patinae_render::{
     render_memory_policy_from_settings, FrameStatsHistory, PickingMode, RenderConfig,
@@ -21,7 +21,7 @@ use patinae_scene::bridge::{
 use patinae_scene::{
     expand_pick_to_selection, label_object_view, pick_expression_for_hit,
     resolve_annotation_bundles, AnnotationColorSummary, CameraDelta, InputState, MeasurementKind,
-    MoleculeObject, Object, PickHit, ResolvedAnnotationBundle, Session, SessionAdapter,
+    Object, PickHit, ResolvedAnnotationBundle, Session, SessionAdapter,
 };
 use patinae_select::{build_sele_command, select};
 
@@ -30,6 +30,10 @@ use crate::picking::PickHitInfo;
 use crate::event;
 use crate::gpu::GpuState;
 use crate::render_loop;
+
+#[path = "tasks.rs"]
+mod tasks;
+use tasks::browser_task_runner;
 
 /// Browser WebGPU readbacks can disturb frame pacing when every mousemove
 /// submits a hover pick. Only large Auto-LOD scenes use this cap; small scenes
@@ -41,7 +45,7 @@ const LARGE_LOD_HOVER_PICK_INTERVAL_MS: f64 = 33.0;
 // ---------------------------------------------------------------------------
 
 #[derive(Serialize)]
-struct CmdOutput {
+struct OutputBatch {
     messages: Vec<OutputMsg>,
 }
 
@@ -268,43 +272,49 @@ async fn create_web_viewer(
     let last_registry_generation = session.registry.generation();
 
     Ok(WebViewer {
-        session,
-        executor: CommandExecutor::new(),
-        gpu: Some(gpu),
-        auto_memory_policy,
-        recovery,
-        last_registry_generation,
-        render_scene: CachedRenderScene::default(),
-        projected_labels: RefCell::new(ProjectedSceneLabels::default()),
-        input: InputState::new(),
-        needs_redraw: true,
-        width,
-        height,
-        picking_enabled,
-        selection_overlay_enabled,
-        hover_hit: None,
-        pending_hover: None,
-        hover_epoch: 0,
-        pending_hover_epoch: None,
-        queued_hover: None,
-        pending_click: None,
-        last_completed_click: None,
-        perf_history: FrameStatsHistory::with_default_capacity(),
-        last_render_ms: 0.0,
-        last_poll_picks_ms: 0.0,
-        last_render_timings: render_loop::WebRenderTimings::default(),
-        render_count: 0,
-        hover_submitted: 0,
-        hover_completed: 0,
-        hover_stale: 0,
-        hover_queued: 0,
-        hover_deferred: 0,
-        hover_cancelled: 0,
-        click_submitted: 0,
-        click_completed: 0,
-        last_hover_submit_ms: f64::NEG_INFINITY,
-        warned_unsupported_memory_policy: false,
-        pending_warnings: Vec::new(),
+        state: std::rc::Rc::new(RefCell::new(WebState {
+            session,
+            executor: CommandExecutor::new(),
+            gpu: Some(gpu),
+            auto_memory_policy,
+            recovery,
+            last_registry_generation,
+            render_scene: CachedRenderScene::default(),
+            projected_labels: RefCell::new(ProjectedSceneLabels::default()),
+            input: InputState::new(),
+            needs_redraw: true,
+            width,
+            height,
+            picking_enabled,
+            selection_overlay_enabled,
+            hover_hit: None,
+            pending_hover: None,
+            hover_epoch: 0,
+            pending_hover_epoch: None,
+            queued_hover: None,
+            pending_click: None,
+            last_completed_click: None,
+            perf_history: FrameStatsHistory::with_default_capacity(),
+            last_render_ms: 0.0,
+            last_poll_picks_ms: 0.0,
+            last_render_timings: render_loop::WebRenderTimings::default(),
+            render_count: 0,
+            hover_submitted: 0,
+            hover_completed: 0,
+            hover_stale: 0,
+            hover_queued: 0,
+            hover_deferred: 0,
+            hover_cancelled: 0,
+            click_submitted: 0,
+            click_completed: 0,
+            last_hover_submit_ms: f64::NEG_INFINITY,
+            warned_unsupported_memory_policy: false,
+            pending_warnings: Vec::new(),
+            pending_output: Vec::new(),
+            tasks: browser_task_runner(),
+            aborts: HashMap::new(),
+            task_listener: None,
+        })),
     })
 }
 
@@ -315,6 +325,13 @@ async fn create_web_viewer(
 /// The main web viewer — owns scene state, command executor, and GPU resources.
 #[wasm_bindgen]
 pub struct WebViewer {
+    state: std::rc::Rc<RefCell<WebState>>,
+}
+
+struct WebState {
+    tasks: patinae_cmd::tasks::TaskRunner,
+    aborts: HashMap<patinae_cmd::tasks::TaskId, web_sys::AbortController>,
+    task_listener: Option<js_sys::Function>,
     session: Session,
     executor: CommandExecutor,
     gpu: Option<GpuState>,
@@ -361,6 +378,7 @@ pub struct WebViewer {
     last_hover_submit_ms: f64,
     warned_unsupported_memory_policy: bool,
     pending_warnings: Vec<String>,
+    pending_output: Vec<OutputMsg>,
 }
 
 #[wasm_bindgen]
@@ -399,12 +417,152 @@ impl WebViewer {
         .await
     }
 
+    #[wasm_bindgen]
+    pub fn render_frame(&mut self) {
+        self.state.borrow_mut().render_frame()
+    }
+
+    #[wasm_bindgen]
+    pub fn needs_redraw(&self) -> bool {
+        self.state.borrow().needs_redraw()
+    }
+
+    #[wasm_bindgen]
+    pub fn update_animations(&mut self, dt: f32) {
+        self.state.borrow_mut().update_animations(dt)
+    }
+
+    #[wasm_bindgen]
+    pub fn resize(&mut self, width: u32, height: u32) {
+        self.state.borrow_mut().resize(width, height)
+    }
+
+    #[wasm_bindgen]
+    pub fn on_mouse_down(&mut self, x: f32, y: f32, button: u32, modifiers: u32) {
+        self.state
+            .borrow_mut()
+            .on_mouse_down(x, y, button, modifiers)
+    }
+
+    #[wasm_bindgen]
+    pub fn on_mouse_move(&mut self, x: f32, y: f32, modifiers: u32) {
+        self.state.borrow_mut().on_mouse_move(x, y, modifiers)
+    }
+
+    #[wasm_bindgen]
+    pub fn on_mouse_up(&mut self, x: f32, y: f32, button: u32) {
+        self.state.borrow_mut().on_mouse_up(x, y, button)
+    }
+
+    #[wasm_bindgen]
+    pub fn on_wheel(&mut self, delta_y: f32, modifiers: u32) {
+        self.state.borrow_mut().on_wheel(delta_y, modifiers)
+    }
+
+    #[wasm_bindgen]
+    pub fn set_picking_enabled(&mut self, enabled: bool) {
+        self.state.borrow_mut().set_picking_enabled(enabled)
+    }
+
+    #[wasm_bindgen]
+    pub fn set_selection_overlay_enabled(&mut self, enabled: bool) {
+        self.state
+            .borrow_mut()
+            .set_selection_overlay_enabled(enabled)
+    }
+
+    #[wasm_bindgen]
+    pub fn process_hover(&mut self, screen_x: f32, screen_y: f32) {
+        self.state.borrow_mut().process_hover(screen_x, screen_y)
+    }
+
+    #[wasm_bindgen]
+    pub fn pick_at_screen(&mut self, screen_x: f32, screen_y: f32) -> JsValue {
+        self.state.borrow_mut().pick_at_screen(screen_x, screen_y)
+    }
+
+    #[wasm_bindgen]
+    pub fn take_completed_pick(&mut self) -> JsValue {
+        self.state.borrow_mut().take_completed_pick()
+    }
+
+    #[wasm_bindgen]
+    pub fn get_performance_snapshot(&self) -> JsValue {
+        self.state.borrow().get_performance_snapshot()
+    }
+
+    #[wasm_bindgen]
+    pub fn reset_performance_stats(&mut self) {
+        self.state.borrow_mut().reset_performance_stats()
+    }
+
+    #[wasm_bindgen]
+    pub fn poll_pending_picks(&mut self) {
+        self.state.borrow_mut().poll_pending_picks()
+    }
+
+    #[wasm_bindgen]
+    pub fn process_input(&mut self) {
+        self.state.borrow_mut().process_input()
+    }
+
+    #[wasm_bindgen(js_name = takeWarnings)]
+    pub fn take_warnings(&mut self) -> JsValue {
+        self.state.borrow_mut().take_warnings()
+    }
+
+    #[wasm_bindgen]
+    pub fn get_object_names(&self) -> JsValue {
+        self.state.borrow().get_object_names()
+    }
+
+    #[wasm_bindgen]
+    pub fn get_object_info(&self, name: &str) -> JsValue {
+        self.state.borrow().get_object_info(name)
+    }
+
+    #[wasm_bindgen]
+    pub fn get_object_infos(&self) -> JsValue {
+        self.state.borrow().get_object_infos()
+    }
+
+    #[wasm_bindgen]
+    pub fn get_label_object(&self, name: &str) -> JsValue {
+        self.state.borrow().get_label_object(name)
+    }
+
+    #[wasm_bindgen]
+    pub fn get_sequence_data(&self) -> JsValue {
+        self.state.borrow().get_sequence_data()
+    }
+
+    #[wasm_bindgen]
+    pub fn get_movie_state(&self) -> JsValue {
+        self.state.borrow().get_movie_state()
+    }
+
+    #[wasm_bindgen]
+    pub fn get_selection_list(&self) -> JsValue {
+        self.state.borrow().get_selection_list()
+    }
+
+    #[wasm_bindgen]
+    pub fn count_atoms(&self, selection: &str) -> Result<usize, JsValue> {
+        self.state.borrow_mut().count_atoms(selection)
+    }
+
+    #[wasm_bindgen]
+    pub fn get_labels(&self) -> JsValue {
+        self.state.borrow().get_labels()
+    }
+}
+
+impl WebState {
     // =======================================================================
     // Rendering
     // =======================================================================
 
     /// Render one frame to the canvas.
-    #[wasm_bindgen]
     pub fn render_frame(&mut self) {
         let t0 = performance_now_ms();
         self.refresh_recovery_for_scene_change();
@@ -532,13 +690,11 @@ impl WebViewer {
     }
 
     /// Returns true when the scene has changed and needs a re-render.
-    #[wasm_bindgen]
     pub fn needs_redraw(&self) -> bool {
         self.needs_redraw
     }
 
     /// Advance movie playback, rock animation, and camera interpolation.
-    #[wasm_bindgen]
     pub fn update_animations(&mut self, dt: f32) {
         if self.session.update_animations(dt).needs_redraw {
             self.needs_redraw = true;
@@ -546,7 +702,6 @@ impl WebViewer {
     }
 
     /// Handle canvas resize.
-    #[wasm_bindgen]
     pub fn resize(&mut self, width: u32, height: u32) {
         self.width = width.max(1);
         self.height = height.max(1);
@@ -563,13 +718,11 @@ impl WebViewer {
     // Input events
     // =======================================================================
 
-    #[wasm_bindgen]
     pub fn on_mouse_down(&mut self, x: f32, y: f32, button: u32, modifiers: u32) {
         event::handle_mouse_down(&mut self.input, x, y, button, modifiers);
         self.needs_redraw = true;
     }
 
-    #[wasm_bindgen]
     pub fn on_mouse_move(&mut self, x: f32, y: f32, modifiers: u32) {
         event::handle_mouse_move(&mut self.input, x, y, modifiers);
         if self.input.any_button_pressed() {
@@ -577,13 +730,11 @@ impl WebViewer {
         }
     }
 
-    #[wasm_bindgen]
     pub fn on_mouse_up(&mut self, x: f32, y: f32, button: u32) {
         event::handle_mouse_up(&mut self.input, x, y, button);
         self.needs_redraw = true;
     }
 
-    #[wasm_bindgen]
     pub fn on_wheel(&mut self, delta_y: f32, modifiers: u32) {
         event::handle_wheel(&mut self.input, delta_y, modifiers);
         self.needs_redraw = true;
@@ -594,14 +745,12 @@ impl WebViewer {
     // =======================================================================
 
     /// Enable or disable cursor-based atom picking (default: disabled).
-    #[wasm_bindgen]
     pub fn set_picking_enabled(&mut self, enabled: bool) {
         self.picking_enabled = enabled;
     }
 
     /// Enable or disable the visible selection / hover overlay. Hit-test
     /// picking remains controlled by `set_picking_enabled`.
-    #[wasm_bindgen]
     pub fn set_selection_overlay_enabled(&mut self, enabled: bool) {
         self.selection_overlay_enabled = enabled;
         if let Some(gpu) = &mut self.gpu {
@@ -612,7 +761,6 @@ impl WebViewer {
 
     /// Update hover indicators by submitting a GPU pick at physical-pixel
     /// coordinates.
-    #[wasm_bindgen]
     pub fn process_hover(&mut self, screen_x: f32, screen_y: f32) {
         if !self.picking_enabled || self.input.any_button_pressed() {
             return;
@@ -667,7 +815,6 @@ impl WebViewer {
     /// Submit a GPU click pick at physical-pixel canvas coordinates.
     /// Returns `null` immediately — the actual hit lands asynchronously
     /// via `take_completed_pick()`.
-    #[wasm_bindgen]
     pub fn pick_at_screen(&mut self, screen_x: f32, screen_y: f32) -> JsValue {
         if !self.picking_enabled {
             return JsValue::NULL;
@@ -683,7 +830,6 @@ impl WebViewer {
     }
 
     /// Drain the most recent GPU click pick result.
-    #[wasm_bindgen]
     pub fn take_completed_pick(&mut self) -> JsValue {
         match self.last_completed_click.take() {
             Some(Some(info)) => serde_wasm_bindgen::to_value(&info).unwrap_or(JsValue::NULL),
@@ -693,7 +839,6 @@ impl WebViewer {
     }
 
     /// Return debug performance counters for browser-side perf harnesses.
-    #[wasm_bindgen]
     pub fn get_performance_snapshot(&self) -> JsValue {
         let sphere_lod = self
             .gpu
@@ -810,7 +955,6 @@ impl WebViewer {
     }
 
     /// Clear debug performance counters for the next harness scenario.
-    #[wasm_bindgen]
     pub fn reset_performance_stats(&mut self) {
         self.perf_history.clear();
         self.last_render_ms = 0.0;
@@ -870,7 +1014,6 @@ impl WebViewer {
                 render_context: None,
                 default_size: (self.width, self.height),
                 needs_redraw: &mut self.needs_redraw,
-                async_fetch_fn: None,
             };
             let _ = self.executor.do_with_options(&mut adapter, cmd, true);
         }
@@ -950,7 +1093,6 @@ impl WebViewer {
 
     /// Try to drain any in-flight GPU picks. JS calls this every rAF so
     /// readbacks complete even when no visible redraw is pending.
-    #[wasm_bindgen]
     pub fn poll_pending_picks(&mut self) {
         // Hover.
         let hover_raw = match (self.pending_hover.as_ref(), self.gpu.as_ref()) {
@@ -994,7 +1136,6 @@ impl WebViewer {
     }
 
     /// Process accumulated input deltas and update the camera.
-    #[wasm_bindgen]
     pub fn process_input(&mut self) {
         let deltas = self.input.take_camera_deltas();
         let screen_vertex_scale = self.session.camera.screen_vertex_scale(self.height as f32);
@@ -1041,59 +1182,7 @@ impl WebViewer {
     // Commands
     // =======================================================================
 
-    /// Execute a command string. Returns JSON with output messages.
-    #[wasm_bindgen]
-    pub fn execute(&mut self, command: &str) -> JsValue {
-        // Web doesn't implement `CaptureRenderer` yet — commands that
-        // need GPU access (png / movie render) will fail. Future work.
-        let mut adapter = SessionAdapter {
-            session: &mut self.session,
-            render_context: None,
-            default_size: (self.width, self.height),
-            needs_redraw: &mut self.needs_redraw,
-            async_fetch_fn: None,
-        };
-
-        let result = self.executor.do_with_options(&mut adapter, command, false);
-
-        let messages = match result {
-            Ok(output) => {
-                let mut messages: Vec<OutputMsg> = output
-                    .messages
-                    .iter()
-                    .map(|m| OutputMsg {
-                        level: match m.kind {
-                            MessageKind::Info => "info",
-                            MessageKind::Warning => "warning",
-                            MessageKind::Error => "error",
-                        },
-                        text: m.text.clone(),
-                    })
-                    .collect();
-
-                for action in &output.actions {
-                    if matches!(action, CommandAction::ClearOutput) {
-                        messages.push(OutputMsg {
-                            level: "clear",
-                            text: String::new(),
-                        });
-                    }
-                }
-
-                messages
-            }
-            Err(e) => vec![OutputMsg {
-                level: "error",
-                text: e.to_string(),
-            }],
-        };
-
-        let output = CmdOutput { messages };
-        serde_wasm_bindgen::to_value(&output).unwrap_or(JsValue::NULL)
-    }
-
     /// Drain renderer warnings produced outside direct command execution.
-    #[wasm_bindgen(js_name = takeWarnings)]
     pub fn take_warnings(&mut self) -> JsValue {
         self.drain_memory_warnings();
         let messages = self
@@ -1103,106 +1192,39 @@ impl WebViewer {
                 level: "warning",
                 text,
             })
+            .chain(self.pending_output.drain(..))
             .collect();
-        serde_wasm_bindgen::to_value(&CmdOutput { messages }).unwrap_or(JsValue::NULL)
+        serde_wasm_bindgen::to_value(&OutputBatch { messages }).unwrap_or(JsValue::NULL)
     }
 
     /// Load molecular or map data from bytes.
-    #[wasm_bindgen]
-    pub fn load_data(&mut self, data: &[u8], name: &str, format: &str) -> Result<(), JsValue> {
-        let decompressed;
-        let data = if data.len() >= 2 && data[0] == 0x1f && data[1] == 0x8b {
-            use std::io::Read;
-            let mut decoder = patinae_io::compress::gzip_reader(data);
-            let mut buf = Vec::new();
-            decoder
-                .read_to_end(&mut buf)
-                .map_err(|e| JsValue::from_str(&format!("Gzip decompression failed: {}", e)))?;
-            decompressed = buf;
-            decompressed.as_slice()
-        } else {
-            data
+    fn load_data(&mut self, data: &[u8], name: &str, format: &str) -> Result<(), JsValue> {
+        let options = patinae_cmd::loading::LoadOptions::from(&self.session.settings);
+        let mut adapter = SessionAdapter {
+            session: &mut self.session,
+            render_context: None,
+            default_size: (self.width, self.height),
+            needs_redraw: &mut self.needs_redraw,
         };
-
-        let fmt = format.to_lowercase();
-
-        if fmt == "prs" {
-            let document = patinae_session::decode_prs_document(data)
-                .map_err(|e| JsValue::from_str(&format!("PRS parse error: {}", e)))?;
-            self.pending_warnings.extend(document.warning_messages());
-            self.session.replace_contents(document.session);
-            self.needs_redraw = true;
-            return Ok(());
-        }
-
-        if matches!(fmt.as_str(), "ccp4" | "map" | "mrc") {
-            let ccp4 = patinae_io::ccp4::read_ccp4_from(std::io::Cursor::new(data))
-                .map_err(|e| JsValue::from_str(&format!("CCP4 parse error: {}", e)))?;
-            let grid = patinae_algos::surface::Grid3D::from_dims(
-                ccp4.origin,
-                ccp4.spacing,
-                ccp4.dims,
-                ccp4.values,
-            );
-            let map_data = patinae_scene::MapData::new(grid);
-            let map_obj = patinae_scene::MapObject::from_map_data(name, map_data);
-            self.session.insert_object(Box::new(map_obj));
-            if let Some((min, max)) = self.session.registry.extent() {
-                self.session.camera.zoom_to(min, max, 0.0);
-            }
-            self.needs_redraw = true;
-            return Ok(());
-        }
-
-        let mol = match fmt.as_str() {
-            "bcif" => patinae_io::bcif::read_bcif_bytes(data),
-            _ => {
-                let data_str = std::str::from_utf8(data)
-                    .map_err(|_| JsValue::from_str("Data is not valid UTF-8"))?;
-                match fmt.as_str() {
-                    "pdb" => patinae_io::pdb::read_pdb_str(data_str),
-                    "xyz" => patinae_io::xyz::read_xyz_str(data_str),
-                    "cif" | "mmcif" => patinae_io::cif::read_cif_str(data_str),
-                    _ => {
-                        return Err(JsValue::from_str(&format!(
-                            "Direct loading not yet supported for: {}. Use execute() instead.",
-                            fmt
-                        )))
-                    }
-                }
-            }
-        };
-
-        match mol {
-            Ok(mut molecule) => {
-                let behavior = &self.session.settings.behavior;
-                if behavior.auto_dss {
-                    let assigner = patinae_mol::dss::assigner_for(behavior.dss_algorithm);
-                    patinae_mol::dss::assign_secondary_structure(
-                        &mut molecule,
-                        0,
-                        assigner.as_ref(),
-                    );
-                }
-
-                let mol_obj = MoleculeObject::with_name(molecule, name);
-                self.session.insert_object(Box::new(mol_obj));
-                self.session.refresh_movie_state_count();
-                if let Some((min, max)) = self.session.registry.extent() {
-                    self.session.camera.zoom_to(min, max, 0.0);
-                }
-                self.needs_redraw = true;
-                Ok(())
-            }
-            Err(e) => Err(JsValue::from_str(&format!("Parse error: {}", e))),
-        }
+        let warnings = patinae_cmd::commands::io::apply_loaded_data(
+            &mut adapter,
+            data,
+            name,
+            format,
+            options.bond_tolerance,
+            options.auto_dss,
+            options.dss_algorithm,
+        )
+        .map_err(|error| JsValue::from_str(&error.to_string()))?;
+        self.pending_warnings.extend(warnings);
+        self.needs_redraw = true;
+        Ok(())
     }
 
     // =======================================================================
     // State queries
     // =======================================================================
 
-    #[wasm_bindgen]
     pub fn get_object_names(&self) -> JsValue {
         let names: Vec<String> = self
             .session
@@ -1213,20 +1235,17 @@ impl WebViewer {
         serde_wasm_bindgen::to_value(&names).unwrap_or(JsValue::NULL)
     }
 
-    #[wasm_bindgen]
     pub fn get_object_info(&self, name: &str) -> JsValue {
         object_info_for_session(&self.session, name)
             .and_then(|info| serde_wasm_bindgen::to_value(&info).ok())
             .unwrap_or(JsValue::NULL)
     }
 
-    #[wasm_bindgen]
     pub fn get_object_infos(&self) -> JsValue {
         serde_wasm_bindgen::to_value(&object_infos_for_session(&self.session))
             .unwrap_or(JsValue::NULL)
     }
 
-    #[wasm_bindgen]
     pub fn get_label_object(&self, name: &str) -> JsValue {
         label_object_view(
             &self.session.registry,
@@ -1238,7 +1257,6 @@ impl WebViewer {
         .unwrap_or(JsValue::NULL)
     }
 
-    #[wasm_bindgen]
     pub fn get_sequence_data(&self) -> JsValue {
         let mut chains: Vec<SequenceChain> = Vec::new();
 
@@ -1288,12 +1306,10 @@ impl WebViewer {
         serde_wasm_bindgen::to_value(&chains).unwrap_or(JsValue::NULL)
     }
 
-    #[wasm_bindgen]
     pub fn get_movie_state(&self) -> JsValue {
         serde_wasm_bindgen::to_value(&self.session.movie_state_snapshot()).unwrap_or(JsValue::NULL)
     }
 
-    #[wasm_bindgen]
     pub fn get_selection_list(&self) -> JsValue {
         let mut list: Vec<SelectionInfo> = self
             .session
@@ -1309,22 +1325,18 @@ impl WebViewer {
         serde_wasm_bindgen::to_value(&list).unwrap_or(JsValue::NULL)
     }
 
-    #[wasm_bindgen]
-    pub fn count_atoms(&self, selection: &str) -> Result<usize, JsValue> {
-        let mut total = 0;
-        for name in self.session.registry.names() {
-            if let Some(mol_obj) = self.session.registry.get_molecule(name) {
-                let mol = mol_obj.molecule();
-                match select(mol, selection) {
-                    Ok(mask) => total += mask.count(),
-                    Err(e) => return Err(JsValue::from_str(&format!("Selection error: {}", e))),
-                }
-            }
-        }
-        Ok(total)
+    pub fn count_atoms(&mut self, selection: &str) -> Result<usize, JsValue> {
+        let adapter = SessionAdapter {
+            session: &mut self.session,
+            render_context: None,
+            default_size: (self.width, self.height),
+            needs_redraw: &mut self.needs_redraw,
+        };
+        patinae_cmd::commands::selecting::evaluate_selection(&adapter, selection)
+            .map(|results| results.iter().map(|(_, mask)| mask.count()).sum())
+            .map_err(|error| JsValue::from_str(&error.to_string()))
     }
 
-    #[wasm_bindgen]
     pub fn get_labels(&self) -> JsValue {
         let viewport = (0.0, 0.0, self.width as f32, self.height as f32);
         let mut projected = self.projected_labels.borrow_mut();

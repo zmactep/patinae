@@ -5,7 +5,8 @@
  *   import { PatinaeViewer } from "@patinae/viewer";
  *   const viewer = new PatinaeViewer(document.getElementById("container")!);
  *   await viewer.init();
- *   viewer.execute("load https://files.rcsb.org/download/1CRN.pdb");
+ *   const reply = await viewer.execute("fetch 1CRN");
+ *   await Promise.all(reply.task_ids.map(id => viewer.tasks.wait(id)));
  */
 
 import type { RenderMemoryProfileOption } from "./core/types.js";
@@ -13,6 +14,17 @@ import type { RenderMemoryProfileOption } from "./core/types.js";
 export { PatinaeViewer } from "./core/api.js";
 export type {
   CommandOutput,
+  TaskState,
+  TaskEffects,
+  TaskProgress,
+  TaskDiagnostic,
+  TaskOutcome,
+  TaskSnapshot,
+  TaskSummary,
+  TaskListFilters,
+  TaskListPage,
+  TaskCancelReply,
+  TaskChanged,
   OutputMessage,
   ObjectInfo,
   SequenceChain,
@@ -93,16 +105,28 @@ export function registerElement(tagName = "patinae-viewer"): void {
         if (src) {
           const urls = src.split(/\s+/).filter(Boolean);
           for (const url of urls) {
-            await this.viewer.loadUrl(url);
+            const reply = await this.viewer.loadUrl(url);
+            await Promise.all(reply.task_ids.map(async id => {
+              const task = await this.viewer!.tasks.wait(id);
+              if (task.state !== "succeeded") throw new Error(`Task ${id} ${task.state}`);
+            }));
+            if ("Err" in reply.result) throw new Error(reply.result.Err);
           }
         }
 
         if (cmd) {
           // Split on semicolons to support multiple commands;
-          // use executeAsync so fetch/load complete before reveal.
+          // Wait for accepted tasks before revealing the initialized scene.
           for (const c of cmd.split(";")) {
             const trimmed = c.trim();
-            if (trimmed) await this.viewer.executeAsync(trimmed);
+            if (trimmed) {
+              const reply = await this.viewer.execute(trimmed);
+              await Promise.all(reply.task_ids.map(async id => {
+                const task = await this.viewer!.tasks.wait(id);
+                if (task.state !== "succeeded") throw new Error(`Task ${id} ${task.state}`);
+              }));
+              if ("Err" in reply.result) throw new Error(reply.result.Err);
+            }
           }
         }
 

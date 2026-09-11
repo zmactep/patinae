@@ -105,13 +105,13 @@ impl PyFileFormat {
 #[pyo3(signature = (path, format=None))]
 pub fn read_file(path: &str, format: Option<PyFileFormat>) -> PyResult<PyObjectMolecule> {
     let path = Path::new(path);
-    
+
     let mol = if let Some(fmt) = format {
         patinae_io::read_file_format(path, fmt.into()).map_py_err()?
     } else {
         patinae_io::read_file(path).map_py_err()?
     };
-    
+
     Ok(PyObjectMolecule::from(mol))
 }
 
@@ -130,13 +130,13 @@ pub fn read_file(path: &str, format: Option<PyFileFormat>) -> PyResult<PyObjectM
 #[pyo3(signature = (path, format=None))]
 pub fn read_all(path: &str, format: Option<PyFileFormat>) -> PyResult<Vec<PyObjectMolecule>> {
     let path = Path::new(path);
-    
+
     let mols = if let Some(fmt) = format {
         patinae_io::read_all_format(path, fmt.into()).map_py_err()?
     } else {
         patinae_io::read_all(path).map_py_err()?
     };
-    
+
     Ok(mols.into_iter().map(PyObjectMolecule::from).collect())
 }
 
@@ -148,15 +148,19 @@ pub fn read_all(path: &str, format: Option<PyFileFormat>) -> PyResult<Vec<PyObje
 ///     format: Optional format override (default: auto-detect from extension)
 #[pyfunction]
 #[pyo3(signature = (path, mol, format=None))]
-pub fn write_file(path: &str, mol: &PyObjectMolecule, format: Option<PyFileFormat>) -> PyResult<()> {
+pub fn write_file(
+    path: &str,
+    mol: &PyObjectMolecule,
+    format: Option<PyFileFormat>,
+) -> PyResult<()> {
     let path = Path::new(path);
-    
+
     if let Some(fmt) = format {
         patinae_io::write_file_format(path, mol.inner(), fmt.into()).map_py_err()?;
     } else {
         patinae_io::write_file(path, mol.inner()).map_py_err()?;
     }
-    
+
     Ok(())
 }
 
@@ -209,7 +213,7 @@ pub fn fetch(pdb_id: &str, format: &str) -> PyResult<PyObjectMolecule> {
             )))
         }
     };
-    
+
     let mol = patinae_io::fetch(pdb_id, fetch_format).map_py_err()?;
     Ok(PyObjectMolecule::from(mol))
 }

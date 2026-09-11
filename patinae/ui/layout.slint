@@ -1,3 +1,4 @@
+import { Button, ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { Tokens } from "tokens.slint";
 import { Viewport } from "components/viewport/viewport.slint";
@@ -165,38 +166,45 @@ export component MainLayout inherits Rectangle {
 
     // ── Background task notification overlay ─────────────────────
     if NotificationState.visible: Rectangle {
-        width: min(
-            max(96px, notification-text.preferred-width + Tokens.space-md + Tokens.space-sm + 14px),
-            parent.width - root.sw - root.rw - 2 * Tokens.space-md
-        );
-        height: max(Tokens.repl-pill-h, notification-text.preferred-height + 2 * Tokens.space-xs);
+        width: min(420px, parent.width - root.sw - root.rw - 2 * Tokens.space-md);
+        height: min(notification-content.preferred-height + 2 * Tokens.space-xs, parent.height / 2);
         x: root.sw + (parent.width - root.sw - root.rw - self.width) / 2;
         y: Tokens.space-lg;
         border-radius: Tokens.repl-pill-radius;
         border-width: 1px;
         border-color: Theme.cyan-dim.with-alpha(0.45);
         background: Theme.bg-inset.with-alpha(0.92);
-        opacity: 0.92;
 
-        Rectangle {
+        ScrollView {
             x: Tokens.space-sm;
-            y: (parent.height - self.height) / 2;
-            width: 6px;
-            height: 6px;
-            border-radius: 3px;
-            background: Theme.cyan;
-        }
-
-        notification-text := Text {
-            x: Tokens.space-sm + 14px;
-            y: 0;
-            height: parent.height;
-            width: parent.width - self.x - Tokens.space-md;
-            text: NotificationState.text;
-            color: Theme.text;
-            font-size: Tokens.font-md;
-            vertical-alignment: center;
-            wrap: word-wrap;
+            y: Tokens.space-xs;
+            width: parent.width - 2 * Tokens.space-sm;
+            height: parent.height - 2 * Tokens.space-xs;
+            notification-content := VerticalLayout {
+                spacing: Tokens.space-xs;
+                for task in NotificationState.tasks: HorizontalLayout {
+                    spacing: Tokens.space-sm;
+                    Text {
+                        text: task.text;
+                        color: Theme.text;
+                        font-size: Tokens.font-md;
+                        vertical-alignment: center;
+                        wrap: word-wrap;
+                        horizontal-stretch: 1;
+                    }
+                    Button {
+                        text: "Cancel";
+                        enabled: task.cancellable;
+                        clicked => { NotificationState.cancel-task(task.task-id); }
+                    }
+                }
+                if NotificationState.text != "": Text {
+                    text: NotificationState.text;
+                    color: Theme.text;
+                    font-size: Tokens.font-md;
+                    wrap: word-wrap;
+                }
+            }
         }
     }
 

@@ -5,40 +5,37 @@
 //! - Client → GUI: Send commands, register external commands, respond to callbacks
 //! - GUI → Client: Send responses, request callback execution for external commands
 
+use patinae_plugin::tasks::{
+    TaskCancelReply, TaskId, TaskListPage, TaskListRequest, TaskLookupError, TaskSnapshot,
+};
 use serde::{Deserialize, Serialize};
 
-/// Output message kind for categorizing output
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum OutputKind {
-    /// Informational message (default)
-    #[default]
-    Info,
-    /// Warning message
-    Warning,
-    /// Error message
-    Error,
-    /// Wall-clock timing badge
-    Timing,
-}
-
-/// Output message from client (for GUI output view)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OutputMessage {
-    /// The message text
-    pub text: String,
-    /// The message kind
-    #[serde(default)]
-    pub kind: OutputKind,
-}
+/// Version required before commands or executor messages are accepted.
+pub const IPC_PROTOCOL_VERSION: u32 = 2;
 
 /// Message FROM client TO GUI
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum IpcRequest {
+    /// Read status and retained outcome atomically without consuming it.
+    GetTask { id: u64, task_id: TaskId },
+    /// Enumerate a bounded page of task summaries.
+    ListTasks {
+        id: u64,
+        #[serde(default)]
+        request: TaskListRequest,
+    },
+    /// Request cooperative cancellation; acknowledgement is not completion.
+    CancelTask { id: u64, task_id: TaskId },
+    /// Discover the task protocol and retention limits.
+    Capabilities { id: u64 },
     /// Execute a command string (parsed by CommandExecutor)
     Execute {
         /// Request ID for matching responses
         id: u64,
+        /// Parent callback task for executor-originated commands.
+        #[serde(default)]
+        parent_id: Option<TaskId>,
         /// Command string to execute
         command: String,
         /// If true, suppress command echo and info/warning output
@@ -68,14 +65,19 @@ pub enum IpcRequest {
     /// Response to a CallbackRequest from GUI
     /// Includes captured output from execution
     CallbackResponse {
-        /// Request ID this is responding to
         id: u64,
-        /// Whether execution succeeded
-        success: bool,
-        /// Error message if failed
-        error: Option<String>,
-        /// Captured output (print statements, warnings, errors)
-        output: Vec<OutputMessage>,
+        task_id: TaskId,
+        outcome: patinae_plugin::tasks::TaskOutcome,
+    },
+
+    /// Wait for completion while the host continues processing all clients.
+    WaitTask {
+        id: u64,
+        task_id: TaskId,
+        #[serde(default)]
+        waiter: Option<TaskId>,
+        #[serde(default)]
+        timeout_ms: Option<u64>,
     },
 
     /// Get current state (objects, settings, etc.)
@@ -102,6 +104,9 @@ pub enum IpcRequest {
     Hello {
         /// Client identifier string (e.g. "patinae-python", "script:analysis.py")
         client_id: String,
+        /// Must match the current protocol; omitted versions are rejected.
+        #[serde(default)]
+        protocol_version: u32,
     },
 
     /// Close the GUI application
@@ -136,6 +141,41 @@ pub enum IpcRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum IpcResponse {
+    /// Execution receipt; accepted tasks survive a subsequent command error.
+    Execution {
+        id: u64,
+        #[serde(flatten)]
+        reply: patinae_plugin::prelude::CommandReply,
+    },
+    TaskWait {
+        id: u64,
+        result: Result<TaskSnapshot, patinae_plugin::tasks::TaskError>,
+    },
+    TaskAcknowledged {
+        id: u64,
+        result: Result<bool, patinae_plugin::tasks::TaskError>,
+    },
+
+    /// Task status and terminal outcome, or a structured lookup error.
+    Task {
+        id: u64,
+        result: Result<TaskSnapshot, TaskLookupError>,
+    },
+    /// Bounded summaries without terminal payloads.
+    Tasks {
+        id: u64,
+        result: Result<TaskListPage, TaskLookupError>,
+    },
+    /// Cancellation acknowledgement from the host task runner.
+    TaskCancellation {
+        id: u64,
+        result: Result<TaskCancelReply, TaskLookupError>,
+    },
+    /// Supported producers and upper bounds, not guaranteed retention durations.
+    Capabilities {
+        id: u64,
+        capabilities: TaskCapabilities,
+    },
     /// Command executed successfully
     Ok {
         /// Request ID this is responding to
@@ -161,6 +201,7 @@ pub enum IpcResponse {
     /// GUI requests client to execute an external command or script
     /// Sent when user invokes a registered command from GUI command line
     CallbackRequest {
+        task_id: TaskId,
         /// Request ID for matching responses
         id: u64,
         /// Command name
@@ -168,6 +209,9 @@ pub enum IpcResponse {
         /// Command arguments
         args: Vec<String>,
     },
+
+    /// Cooperative cancellation for an external callback.
+    CallbackCancel { task_id: TaskId },
 
     /// Pong response to Ping
     Pong {
@@ -179,13 +223,101 @@ pub enum IpcResponse {
     Closing,
 }
 
+/// Version and limits of the native task protocol.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskCapabilities {
+    pub task_protocol_version: u32,
+    pub tracked_kinds: Vec<String>,
+    pub max_active_tasks: usize,
+    pub max_terminal_records: usize,
+    pub terminal_ttl_seconds: u64,
+    pub max_snapshot_bytes: usize,
+    pub max_list_items: usize,
+    pub max_list_bytes: usize,
+}
+
+impl TaskCapabilities {
+    pub fn from_config(config: &patinae_plugin::tasks::TaskConfig) -> Self {
+        Self {
+            task_protocol_version: IPC_PROTOCOL_VERSION,
+            tracked_kinds: vec![
+                "fetch".into(),
+                "pdb_metadata".into(),
+                "python".into(),
+                "dynamic_command".into(),
+                "script".into(),
+                "load".into(),
+            ],
+            max_active_tasks: config.max_active,
+            max_terminal_records: config.max_terminal,
+            terminal_ttl_seconds: config.terminal_ttl_ms / 1000,
+            max_snapshot_bytes: config.max_snapshot_bytes,
+            max_list_items: config.max_page_items,
+            max_list_bytes: config.max_snapshot_bytes,
+        }
+    }
+}
+
+impl Default for TaskCapabilities {
+    fn default() -> Self {
+        Self::from_config(&patinae_plugin::tasks::TaskConfig::default())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
+    fn task_requests_use_opaque_identity_and_optional_list_options() {
+        let task_id = TaskId::new(42, 1);
+        let encoded =
+            serde_json::json!({"type": "GetTask", "id": 7, "task_id": task_id.to_string()});
+        assert!(
+            matches!(serde_json::from_value::<IpcRequest>(encoded).unwrap(), IpcRequest::GetTask { id: 7, task_id: decoded } if decoded == task_id)
+        );
+        assert!(
+            matches!(serde_json::from_str::<IpcRequest>(r#"{"type":"ListTasks","id":8}"#).unwrap(), IpcRequest::ListTasks { id: 8, request } if request == TaskListRequest::default())
+        );
+    }
+
+    #[test]
+    fn lookup_and_cancel_replies_remain_machine_readable() {
+        let expired = IpcResponse::Task {
+            id: 1,
+            result: Err(TaskLookupError::Expired),
+        };
+        assert_eq!(
+            serde_json::to_value(expired).unwrap()["result"]["Err"],
+            "expired"
+        );
+        let cancelled = IpcResponse::TaskCancellation {
+            id: 2,
+            result: Ok(TaskCancelReply::Requested),
+        };
+        assert_eq!(
+            serde_json::to_value(cancelled).unwrap()["result"]["Ok"],
+            "requested"
+        );
+    }
+
+    #[test]
+    fn capabilities_distinguish_tracked_producers_and_retention_bounds() {
+        let capabilities = TaskCapabilities::default();
+        assert_eq!(capabilities.task_protocol_version, 2);
+        assert!(capabilities
+            .tracked_kinds
+            .iter()
+            .any(|kind| kind == "fetch"));
+
+        assert_eq!(capabilities.max_snapshot_bytes, 64 * 1024);
+        assert_eq!(capabilities.terminal_ttl_seconds, 1800);
+    }
+
+    #[test]
     fn test_request_serialization() {
         let req = IpcRequest::Execute {
+            parent_id: None,
             id: 1,
             command: "load protein.pdb".to_string(),
             silent: false,
@@ -206,6 +338,7 @@ mod tests {
     #[test]
     fn test_response_serialization() {
         let resp = IpcResponse::CallbackRequest {
+            task_id: TaskId::new(1, 1),
             id: 42,
             name: "highlight".to_string(),
             args: vec!["chain".to_string(), "A".to_string()],
@@ -214,24 +347,12 @@ mod tests {
         assert!(json.contains("CallbackRequest"));
 
         let parsed: IpcResponse = serde_json::from_str(&json).unwrap();
-        if let IpcResponse::CallbackRequest { id, name, args } = parsed {
+        if let IpcResponse::CallbackRequest { id, name, args, .. } = parsed {
             assert_eq!(id, 42);
             assert_eq!(name, "highlight");
             assert_eq!(args, vec!["chain", "A"]);
         } else {
             panic!("Wrong variant");
         }
-    }
-
-    #[test]
-    fn test_output_message() {
-        let msg = OutputMessage {
-            text: "Something went wrong".to_string(),
-            kind: OutputKind::Error,
-        };
-        let json = serde_json::to_string(&msg).unwrap();
-        let parsed: OutputMessage = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.text, "Something went wrong");
-        assert_eq!(parsed.kind, OutputKind::Error);
     }
 }
