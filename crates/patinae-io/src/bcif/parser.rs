@@ -312,7 +312,7 @@ fn parse_atom_site(
             .or_insert_with(|| ParsedModel::new(model_num));
         model
             .source_chains
-            .push(cols.str_at("label_asym_id", i).unwrap_or("").to_owned());
+            .push(cols.str_at("label_asym_id", i).unwrap_or(""));
         model.atoms.push(ParsedAtom {
             name: atom_name.to_string(),
             element,

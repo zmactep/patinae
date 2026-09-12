@@ -121,6 +121,15 @@ impl SelectionResult {
         !self.any()
     }
 
+    /// Returns whether every atom covered by this selection is selected.
+    ///
+    /// An empty selection covers no atoms and returns `true`. Callers applying
+    /// a selection to a molecule must also check that their atom counts match.
+    #[inline]
+    pub fn is_all(&self) -> bool {
+        self.bits.all()
+    }
+
     /// Iterate over indices of selected atoms
     pub fn indices(&self) -> impl Iterator<Item = AtomIndex> + '_ {
         self.bits.iter_ones().map(|i| AtomIndex(i as u32))
@@ -284,6 +293,21 @@ impl std::fmt::Display for SelectionResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn full_selection_ignores_unused_storage_bits() {
+        for atom_count in [0, 1, 63, 64, 65, 129] {
+            let mut selected = SelectionResult::all(atom_count);
+            assert!(selected.is_all());
+            if atom_count != 0 {
+                selected.unset_index(atom_count - 1);
+                assert!(!selected.is_all());
+                selected.set_index(atom_count - 1);
+                assert!(selected.is_all());
+                assert!(!SelectionResult::none(atom_count).is_all());
+            }
+        }
+    }
 
     #[test]
     fn test_new_selection() {

@@ -90,7 +90,7 @@ impl<R: Read> PdbReader<R> {
                         let effective_chain = chain_ids.effective_chain(&record.chain);
                         let model = current_model
                             .get_or_insert_with(|| ParsedModel::new(next_model_number));
-                        model.source_chains.push(record.chain.clone());
+                        model.source_chains.push(&record.chain);
                         model
                             .atoms
                             .push(parsed_atom_from_record(&record, effective_chain));

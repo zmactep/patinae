@@ -30,7 +30,7 @@ pub(crate) struct ParsedModel {
     pub(crate) atoms: Vec<ParsedAtom>,
     pub(crate) coords: Vec<Vec3>,
     /// Original assembly chain identifiers, in source atom order.
-    pub(crate) source_chains: Vec<String>,
+    pub(crate) source_chains: SourceChains,
 }
 
 impl ParsedModel {
@@ -39,8 +39,44 @@ impl ParsedModel {
             model_number,
             atoms: Vec::new(),
             coords: Vec::new(),
-            source_chains: Vec::new(),
+            source_chains: SourceChains::default(),
         }
+    }
+}
+
+/// Interned assembly chain identifiers, assigned in first-appearance order.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SourceChains {
+    names: Vec<String>,
+    atom_chains: Vec<usize>,
+    index_by_name: HashMap<String, usize>,
+}
+
+impl SourceChains {
+    pub(crate) fn push(&mut self, name: &str) {
+        let index = if let Some(&index) = self.index_by_name.get(name) {
+            index
+        } else {
+            let index = self.names.len();
+            self.names.push(name.to_owned());
+            self.index_by_name.insert(name.to_owned(), index);
+            index
+        };
+        self.atom_chains.push(index);
+    }
+
+    pub(crate) fn clear(&mut self) {
+        self.names.clear();
+        self.atom_chains.clear();
+        self.index_by_name.clear();
+    }
+
+    fn is_empty(&self) -> bool {
+        self.atom_chains.is_empty()
+    }
+
+    fn len(&self) -> usize {
+        self.atom_chains.len()
     }
 }
 
@@ -96,14 +132,11 @@ pub(crate) fn build_molecules(
 }
 
 fn group_models_by_topology(models: Vec<ParsedModel>) -> IoResult<Vec<TopologyGroup>> {
-    let mut groups: Vec<TopologyGroup> = Vec::new();
-    let mut group_index_by_signature: HashMap<(Vec<AtomIdentity>, Vec<String>), usize> =
-        HashMap::new();
-
-    for model in models {
-        if model.atoms.is_empty() {
-            continue;
-        }
+    let models: Vec<_> = models
+        .into_iter()
+        .filter(|model| !model.atoms.is_empty())
+        .collect();
+    for model in &models {
         if model.atoms.len() != model.coords.len() {
             return Err(IoError::parse_msg(format!(
                 "Model {} has {} atoms but {} coordinates",
@@ -118,15 +151,35 @@ fn group_models_by_topology(models: Vec<ParsedModel>) -> IoResult<Vec<TopologyGr
                 "Assembly chain membership does not match atoms",
             ));
         }
+    }
+
+    // A single model cannot have a topology conflict; retain the same validation
+    // without allocating and hashing a second copy of every atom identity.
+    if models.len() <= 1 {
+        return Ok(if models.is_empty() {
+            Vec::new()
+        } else {
+            vec![TopologyGroup { models }]
+        });
+    }
+
+    let mut groups: Vec<TopologyGroup> = Vec::new();
+    let mut group_index_by_signature: HashMap<_, usize> = HashMap::new();
+    for model in models {
         let signature = (
-            model.atoms.iter().map(AtomIdentity::from).collect(),
-            model.source_chains.clone(),
+            model
+                .atoms
+                .iter()
+                .map(AtomIdentity::from)
+                .collect::<Vec<_>>(),
+            model.source_chains.names.clone(),
+            model.source_chains.atom_chains.clone(),
         );
         if let Some(&idx) = group_index_by_signature.get(&signature) {
             groups[idx].models.push(model);
         } else {
             let idx = groups.len();
-            group_index_by_signature.insert(signature.clone(), idx);
+            group_index_by_signature.insert(signature, idx);
             groups.push(TopologyGroup {
                 models: vec![model],
             });
@@ -154,14 +207,14 @@ fn build_group_molecule(
 
     let mut mol = ObjectMolecule::with_capacity(name, first_model.atoms.len(), 0);
     mol.title = title.to_string();
-    for (index, chain) in first_model.source_chains.iter().enumerate() {
+    let mut chain_members = vec![Vec::new(); first_model.source_chains.names.len()];
+    for (index, &chain) in first_model.source_chains.atom_chains.iter().enumerate() {
         let index = u32::try_from(index)
             .map_err(|_| IoError::parse_msg("Assembly atom index exceeds u32"))?;
-        mol.assembly
-            .chains
-            .entry(chain.clone())
-            .or_default()
-            .push(index);
+        chain_members[chain].push(index);
+    }
+    for (name, members) in first_model.source_chains.names.iter().zip(chain_members) {
+        mol.assembly.chains.insert(name.clone(), members);
     }
 
     let mut residue_cache: HashMap<AtomResidue, Arc<AtomResidue>> = HashMap::new();
@@ -199,5 +252,58 @@ fn suffixed_name(base_name: &str, model_number: i32) -> String {
         format!("model_{model_number}")
     } else {
         format!("{base_name}_model_{model_number}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn model() -> ParsedModel {
+        let mut model = ParsedModel::new(1);
+        model.atoms.push(ParsedAtom {
+            name: "CA".to_owned(),
+            element: Element::Carbon,
+            chain: "A".to_owned(),
+            resn: "GLY".to_owned(),
+            resv: 1,
+            icode: ' ',
+            alt: ' ',
+            hetatm: false,
+            serial: None,
+            formal_charge: None,
+            occupancy: 1.0,
+            b_factor: 0.0,
+            segi: String::new(),
+        });
+        model.coords.push(Vec3::new(1.0, 2.0, 3.0));
+        model
+    }
+
+    #[test]
+    fn single_model_still_validates_coordinates_and_assembly_membership() {
+        let mut missing_coord = model();
+        missing_coord.coords.clear();
+        let error = build_molecules("bad", "", vec![missing_coord])
+            .err()
+            .unwrap();
+        assert!(error.to_string().contains("1 atoms but 0 coordinates"));
+
+        let mut extra_chain = model();
+        extra_chain.source_chains.push("A");
+        extra_chain.source_chains.push("B");
+        let error = build_molecules("bad", "", vec![extra_chain]).err().unwrap();
+        assert!(error.to_string().contains("Assembly chain membership"));
+    }
+
+    #[test]
+    fn empty_models_do_not_change_single_model_output() {
+        let molecules =
+            build_molecules("one", "title", vec![ParsedModel::new(0), model()]).unwrap();
+        assert_eq!(molecules.len(), 1);
+        assert_eq!(molecules[0].name, "one");
+        assert_eq!(molecules[0].title, "title");
+        assert_eq!(molecules[0].state_count(), 1);
+        assert_eq!(molecules[0].atom_count(), 1);
     }
 }

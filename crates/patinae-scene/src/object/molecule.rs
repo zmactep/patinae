@@ -206,11 +206,22 @@ impl MoleculeObject {
             ellipsoid: color,
         };
         let mut changed = 0;
-        for index in selected.indices() {
-            if let Some(atom) = self.molecule.get_atom_mut(AtomIndex(index.0)) {
-                if atom.repr.colors != colors {
-                    atom.repr.colors = colors.clone();
-                    changed += 1;
+        let mut set_color = |atom: &mut Atom| {
+            if atom.repr.colors != colors {
+                atom.repr.colors = colors.clone();
+                changed += 1;
+            }
+        };
+        if selected.atom_count() == self.molecule.atom_count() && selected.is_all() {
+            // Whole-object styling can walk contiguous atoms without decoding
+            // every selected bit and looking up each atom separately.
+            for atom in self.molecule.atoms_mut() {
+                set_color(atom);
+            }
+        } else {
+            for index in selected.indices() {
+                if let Some(atom) = self.molecule.get_atom_mut(index) {
+                    set_color(atom);
                 }
             }
         }
@@ -731,6 +742,102 @@ mod tests {
                 .ellipsoid,
             4
         );
+    }
+
+    #[test]
+    fn full_coloring_counts_changed_atoms_and_preserves_geometry_and_instances() {
+        use patinae_mol::{InstanceGroup, InstanceTable, ObjectInstance, IDENTITY_INSTANCE};
+
+        let mut object = MoleculeObject::new(create_test_molecule());
+        object.state.instances = Some(InstanceTable {
+            groups: vec![InstanceGroup {
+                indices: vec![0, 1],
+            }],
+            copies: vec![
+                ObjectInstance {
+                    group: 0,
+                    transform: IDENTITY_INSTANCE
+                };
+                2
+            ],
+        });
+        let selected = all_atoms(&object);
+        assert_eq!(object.color_selection(&selected, 4), 2);
+        let before_coords: Vec<_> = (0..2).map(|i| object.display_coord(AtomIndex(i))).collect();
+        let before_reps: Vec<_> = object
+            .molecule()
+            .atoms()
+            .map(|a| a.repr.visible_reps)
+            .collect();
+        object.clear_dirty();
+        assert_eq!(object.color_selection(&selected, 4), 0);
+        assert_eq!(object.dirty_flags(), DirtyFlags::empty());
+
+        // The full-object path must inspect every representation override and
+        // count changed source atoms once, regardless of the number of copies.
+        object
+            .molecule
+            .get_atom_mut(AtomIndex(1))
+            .unwrap()
+            .repr
+            .colors
+            .ellipsoid = 9;
+        object.invalidate(DirtyFlags::COORDS);
+        assert_eq!(object.color_selection(&selected, 4), 1);
+        assert_eq!(object.dirty_flags(), DirtyFlags::COLOR | DirtyFlags::COORDS);
+        assert_eq!(object.displayed_atom_count(), 4);
+        assert_eq!(
+            (0..2)
+                .map(|i| object.display_coord(AtomIndex(i)))
+                .collect::<Vec<_>>(),
+            before_coords
+        );
+        assert_eq!(
+            object
+                .molecule()
+                .atoms()
+                .map(|a| a.repr.visible_reps)
+                .collect::<Vec<_>>(),
+            before_reps
+        );
+        assert!(object
+            .molecule()
+            .atoms()
+            .all(|a| a.repr.colors.ellipsoid == 4));
+    }
+
+    #[test]
+    fn coloring_mismatched_selection_lengths_keeps_indexed_semantics() {
+        let mut object = MoleculeObject::new(create_test_molecule());
+        assert_eq!(object.color_selection(&SelectionResult::all(1), 4), 1);
+        assert_ne!(
+            object
+                .molecule()
+                .get_atom(AtomIndex(1))
+                .unwrap()
+                .repr
+                .colors
+                .base,
+            4
+        );
+        // A mask can select as many atoms as the molecule contains yet omit a
+        // real atom and include an out-of-range index instead.
+        let oversized = SelectionResult::from_indices(3, [AtomIndex(0), AtomIndex(2)].into_iter());
+        assert_eq!(object.color_selection(&oversized, 5), 1);
+        assert_ne!(
+            object
+                .molecule()
+                .get_atom(AtomIndex(1))
+                .unwrap()
+                .repr
+                .colors
+                .base,
+            5
+        );
+        assert_eq!(object.color_selection(&SelectionResult::all(3), 5), 1);
+        object.clear_dirty();
+        assert_eq!(object.color_selection(&SelectionResult::none(2), 9), 0);
+        assert_eq!(object.dirty_flags(), DirtyFlags::empty());
     }
 
     fn one_atom(obj: &MoleculeObject, idx: u32) -> SelectionResult {

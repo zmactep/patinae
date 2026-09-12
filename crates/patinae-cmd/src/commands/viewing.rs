@@ -309,15 +309,23 @@ impl Command for OrientCommand {
             )));
         }
 
-        // 2. Compute centroid
+        // 2. Compute centroid and bounds from the same resolved coordinates.
         let n = coords.len() as f32;
         let mut cx = 0.0f32;
         let mut cy = 0.0f32;
         let mut cz = 0.0f32;
+        let mut min = Vec3::new(f32::MAX, f32::MAX, f32::MAX);
+        let mut max = Vec3::new(f32::MIN, f32::MIN, f32::MIN);
         for c in &coords {
             cx += c.x;
             cy += c.y;
             cz += c.z;
+            min.x = min.x.min(c.x);
+            min.y = min.y.min(c.y);
+            min.z = min.z.min(c.z);
+            max.x = max.x.max(c.x);
+            max.y = max.y.max(c.y);
+            max.z = max.z.max(c.z);
         }
         cx /= n;
         cy /= n;
@@ -427,10 +435,8 @@ impl Command for OrientCommand {
             apply_camera_rotation(ctx.viewer.camera_mut(), 180.0, 0.0, 0.0, 1.0);
         }
 
-        // 9. Zoom to fit the selection
-        if let Some((min, max)) = selection_extent(ctx.viewer, selection)? {
-            ctx.viewer.camera_mut().zoom_to(min, max, 0.0);
-        }
+        // 9. Fit the bounds already accumulated before changing the camera.
+        ctx.viewer.camera_mut().zoom_to(min, max, 0.0);
 
         ctx.viewer.set_viewport_image(None);
         ctx.viewer.request_redraw();

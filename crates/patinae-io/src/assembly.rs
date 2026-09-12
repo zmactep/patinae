@@ -371,6 +371,55 @@ mod tests {
     }
 
     #[test]
+    fn cif_assembly_categories_can_surround_atoms_and_unrelated_loops() {
+        let (singles, operators) = CIF_ASSEMBLY.split_once("loop_\n").unwrap();
+        let unrelated = "loop_\n_audit.id\n_audit.details\n1 ignored\n";
+        for body in [
+            format!("{CIF_ASSEMBLY}{CIF_ATOMS}"),
+            format!("loop_\n{operators}{CIF_ATOMS}{unrelated}{singles}"),
+            format!("{singles}{CIF_ATOMS}{unrelated}loop_\n{operators}"),
+        ] {
+            let molecules = cif(&format!("data_order\n{body}")).unwrap();
+            assert_composed_copy(&molecules[0]);
+            assert_eq!(molecules[0].assembly.definitions[0].details, "test dimer");
+        }
+    }
+
+    #[test]
+    fn cif_incomplete_assembly_loop_keeps_error_and_empty_block_behavior() {
+        let incomplete = "loop_\n_pdbx_struct_assembly.id\n_pdbx_struct_assembly.details\n1\n";
+        for body in [
+            format!("{CIF_ATOMS}{incomplete}"),
+            format!("{incomplete}{CIF_ATOMS}"),
+        ] {
+            let error = cif(&format!("data_bad\n{body}")).err().unwrap();
+            assert!(error.to_string().contains("Incomplete assembly loop row"));
+        }
+        // Metadata-only blocks are ignored by molecule loading, as before.
+        let molecules = cif(&format!(
+            "data_metadata\n{incomplete}data_valid\n{CIF_ATOMS}{CIF_ASSEMBLY}"
+        ))
+        .unwrap();
+        assert_eq!(molecules.len(), 1);
+        assert_composed_copy(&molecules[0]);
+    }
+
+    #[test]
+    fn cif_interned_chains_keep_names_and_atom_order_across_models() {
+        let atoms = format!(
+            "{CIF_ATOMS}3 C CA GLY L-1 A 1 2 0 0 2\n4 C CA GLY L-2 A 2 5 0 0 2\n5 C CA GLY L-2 A 1 3 0 0 3\n6 C CA GLY L-1 A 2 6 0 0 3\n"
+        );
+        let molecules = cif(&format!("data_chains\n{atoms}{CIF_ASSEMBLY}")).unwrap();
+        assert_eq!(molecules.len(), 2);
+        assert_eq!(molecules[0].state_count(), 2);
+        assert_eq!(molecules[1].state_count(), 1);
+        assert_eq!(molecules[0].assembly.chains["L-1"], vec![0]);
+        assert_eq!(molecules[0].assembly.chains["L-2"], vec![1]);
+        assert_eq!(molecules[1].assembly.chains["L-1"], vec![1]);
+        assert_eq!(molecules[1].assembly.chains["L-2"], vec![0]);
+    }
+
+    #[test]
     fn cif_single_operator_category_is_supported() {
         let mut single = String::from("data_single\n");
         single.push_str(CIF_ATOMS);

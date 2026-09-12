@@ -50,6 +50,9 @@ struct CifBlockData {
     cell: CellInfo,
     ss_ranges: Vec<SecondaryStructureRange>,
     space_group: Option<String>,
+    assemblies: AssemblyRows,
+    assembly_singles: BTreeMap<String, AssemblyRow>,
+    assembly_error: Option<IoError>,
 }
 
 impl CifBlockData {
@@ -61,6 +64,9 @@ impl CifBlockData {
             cell: CellInfo::default(),
             ss_ranges: Vec::new(),
             space_group: None,
+            assemblies: AssemblyRows::default(),
+            assembly_singles: BTreeMap::new(),
+            assembly_error: None,
         }
     }
 }
@@ -269,6 +275,20 @@ fn parse_cif_block(
                     &mut block.ss_ranges,
                 );
             }
+            Token::DataName(name) => {
+                if let Some((category, field)) = name.split_once('.') {
+                    if CATEGORIES.contains(&category) {
+                        if let Some(value) = tokens.get(pos + 1).and_then(token_value_str) {
+                            block
+                                .assembly_singles
+                                .entry(category.to_owned())
+                                .or_default()
+                                .insert(field.to_owned(), value.to_owned());
+                        }
+                    }
+                }
+                pos += 1;
+            }
             Token::Eof => break,
             _ => pos += 1,
         }
@@ -278,7 +298,15 @@ fn parse_cif_block(
         return Ok(Vec::new());
     }
 
-    let definitions = parse_assemblies(tokens)?.resolve()?;
+    // Resolve after reading the complete block: categories may follow the atoms.
+    // Keep assembly errors deferred, including for blocks without atom data.
+    if let Some(error) = block.assembly_error {
+        return Err(error);
+    }
+    for (category, row) in block.assembly_singles {
+        block.assemblies.push(&category, row);
+    }
+    let definitions = block.assemblies.resolve()?;
     if definitions.is_empty() {
         for model in block.models.values_mut() {
             model.source_chains.clear();
@@ -325,6 +353,13 @@ fn parse_loop(tokens: &[Token], mut pos: usize, block: &mut CifBlockData) -> IoR
         return Ok(pos);
     }
 
+    let assembly_category = columns
+        .first()
+        .and_then(|name| name.split_once('.'))
+        .map(|(category, _)| category)
+        .filter(|category| CATEGORIES.contains(category));
+    let data_start = pos;
+
     // Check loop category
     let is_atom_site = columns.iter().any(|c| c.starts_with("_atom_site."));
     let is_struct_conf = columns.iter().any(|c| c.starts_with("_struct_conf."));
@@ -357,6 +392,17 @@ fn parse_loop(tokens: &[Token], mut pos: usize, block: &mut CifBlockData) -> IoR
                 Token::Loop | Token::DataName(_) | Token::DataBlock(_) | Token::Eof => break,
                 _ => pos += 1,
             }
+        }
+    }
+
+    if let Some(category) = assembly_category {
+        if let Err(error) = parse_assembly_loop(
+            &tokens[data_start..pos],
+            &columns,
+            category,
+            &mut block.assemblies,
+        ) {
+            block.assembly_error.get_or_insert(error);
         }
     }
 
@@ -504,7 +550,7 @@ fn parse_atom_site_loop(
             .or_insert_with(|| ParsedModel::new(model_num));
         model
             .source_chains
-            .push(col!(cols.label_asym_id).unwrap_or("").to_owned());
+            .push(col!(cols.label_asym_id).unwrap_or(""));
         model.atoms.push(ParsedAtom {
             name: atom_name.to_string(),
             element,
@@ -526,81 +572,28 @@ fn parse_atom_site_loop(
     Ok(pos)
 }
 
-/// Collect both loop and single-value assembly categories without assuming their order.
-fn parse_assemblies(tokens: &[Token]) -> IoResult<AssemblyRows> {
-    let mut rows = AssemblyRows::default();
-    let mut singles: BTreeMap<&str, AssemblyRow> = BTreeMap::new();
-    let mut pos = 0;
-    while pos < tokens.len() {
-        if matches!(tokens[pos], Token::Loop) {
-            pos += 1;
-            let mut columns = Vec::new();
-            while let Some(Token::DataName(name)) = tokens.get(pos) {
-                columns.push(*name);
-                pos += 1;
-            }
-            let category = columns
-                .first()
-                .and_then(|name| name.split_once('.'))
-                .map(|(category, _)| category)
-                .unwrap_or("");
-            let relevant = CATEGORIES.contains(&category);
-            while pos < tokens.len()
-                && !matches!(
-                    tokens[pos],
-                    Token::Loop | Token::DataName(_) | Token::DataBlock(_) | Token::Eof
-                )
+/// Collect assembly rows from a loop already located by the block parser.
+fn parse_assembly_loop(
+    tokens: &[Token],
+    columns: &[&str],
+    category: &str,
+    rows: &mut AssemblyRows,
+) -> IoResult<()> {
+    let mut chunks = tokens.chunks_exact(columns.len());
+    for tokens in &mut chunks {
+        let mut row = AssemblyRow::new();
+        for (name, token) in columns.iter().zip(tokens) {
+            if let (Some((_, field)), Some(value)) = (name.split_once('.'), token_value_str(token))
             {
-                if columns.is_empty() {
-                    pos += 1;
-                    continue;
-                }
-                let mut row = AssemblyRow::new();
-                for name in &columns {
-                    let Some(token) = tokens.get(pos).filter(|token| {
-                        !matches!(
-                            token,
-                            Token::Loop | Token::DataName(_) | Token::DataBlock(_) | Token::Eof
-                        )
-                    }) else {
-                        if relevant {
-                            return Err(IoError::parse_msg("Incomplete assembly loop row"));
-                        }
-                        break;
-                    };
-                    if relevant {
-                        if let (Some((_, field)), Some(value)) =
-                            (name.split_once('.'), token_value_str(token))
-                        {
-                            row.insert(field.to_owned(), value.to_owned());
-                        }
-                    }
-                    pos += 1;
-                }
-                if relevant {
-                    rows.push(category, row);
-                }
+                row.insert(field.to_owned(), value.to_owned());
             }
-        } else if let Token::DataName(name) = &tokens[pos] {
-            if let Some((category, field)) = name.split_once('.') {
-                if CATEGORIES.contains(&category) {
-                    if let Some(value) = tokens.get(pos + 1).and_then(token_value_str) {
-                        singles
-                            .entry(category)
-                            .or_default()
-                            .insert(field.to_owned(), value.to_owned());
-                    }
-                }
-            }
-            pos += 1;
-        } else {
-            pos += 1;
         }
-    }
-    for (category, row) in singles {
         rows.push(category, row);
     }
-    Ok(rows)
+    if !chunks.remainder().is_empty() {
+        return Err(IoError::parse_msg("Incomplete assembly loop row"));
+    }
+    Ok(())
 }
 
 /// Parse _cell data items

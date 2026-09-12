@@ -2,6 +2,7 @@
 //!
 //! Evaluates parsed selection expressions against molecules in a context.
 
+use ahash::AHashSet;
 use lin_alg::f32::Vec3;
 use patinae_mol::{
     spatial::SpatialGrid, three_to_one, Atom, AtomFlags, AtomIndex, SecondaryStructure,
@@ -644,29 +645,33 @@ fn eval_byres(ctx: &EvalContext, inner: &SelectionExpr) -> EvalResult<SelectionR
 
     for (mol, offset) in ctx.molecules_with_offsets() {
         // Find residues with any selected atom
-        let mut selected_residues: Vec<(String, i32, char, String)> = Vec::new();
+        // Borrow residue identities for this molecule only. A linear search here
+        // makes expansion quadratic when many residues contain selected atoms.
+        let mut selected_residues = AHashSet::new();
 
         for (local_idx, atom) in mol.atoms().enumerate() {
             if inner_result.contains_index(offset + local_idx) {
                 let key = (
-                    atom.residue.chain.clone(),
+                    atom.residue.chain.as_str(),
                     atom.residue.resv,
                     atom.residue.inscode,
-                    atom.residue.segi.clone(),
+                    atom.residue.segi.as_str(),
                 );
-                if !selected_residues.contains(&key) {
-                    selected_residues.push(key);
-                }
+                selected_residues.insert(key);
             }
+        }
+
+        if selected_residues.is_empty() {
+            continue;
         }
 
         // Select all atoms in those residues
         for (local_idx, atom) in mol.atoms().enumerate() {
             let key = (
-                atom.residue.chain.clone(),
+                atom.residue.chain.as_str(),
                 atom.residue.resv,
                 atom.residue.inscode,
-                atom.residue.segi.clone(),
+                atom.residue.segi.as_str(),
             );
             if selected_residues.contains(&key) {
                 result.set_index(offset + local_idx);
@@ -1166,6 +1171,43 @@ mod tests {
         )));
         let result = evaluate(&expr, &ctx).unwrap();
         assert_eq!(result.count(), 4); // Full ALA residue
+    }
+
+    #[test]
+    fn byres_preserves_residue_identity_and_object_boundaries() {
+        let mut mol = ObjectMolecule::new("first");
+        // Residue name and Arc identity do not define residue membership. The
+        // other identity fields do, including case and insertion codes.
+        for (chain, resn, resv, inscode, segi) in [
+            ("A", "ALA", 1, ' ', "S"),
+            ("A", "GLY", 1, ' ', "S"),
+            ("B", "ALA", 1, ' ', "S"),
+            ("A", "ALA", 2, ' ', "S"),
+            ("A", "ALA", 1, 'A', "S"),
+            ("A", "ALA", 1, ' ', "T"),
+            ("a", "ALA", 1, ' ', "S"),
+            ("A", "ALA", 1, ' ', "S"),
+        ] {
+            let mut atom = Atom::new("C", Element::Carbon);
+            atom.residue = Arc::new(AtomResidue::from_parts(chain, resn, resv, inscode, segi));
+            mol.add_atom(atom);
+        }
+        let mut other = mol.clone();
+        other.name = "second".to_string();
+        let mut ctx = EvalContext::multi(vec![&mol, &other]);
+        ctx.add_selection(
+            "seed".to_string(),
+            SelectionResult::from_indices(
+                ctx.total_atoms(),
+                [AtomIndex(0), AtomIndex(7)].into_iter(),
+            ),
+        );
+        let result = evaluate(&crate::parse("byres seed").unwrap(), &ctx).unwrap();
+        assert_eq!(result.raw_indices().collect::<Vec<_>>(), [0, 1, 7]);
+        let all = evaluate(&crate::parse("byres all").unwrap(), &ctx).unwrap();
+        assert_eq!(all, SelectionResult::all(ctx.total_atoms()));
+        let none = evaluate(&crate::parse("byres none").unwrap(), &ctx).unwrap();
+        assert!(none.is_empty());
     }
 
     #[test]

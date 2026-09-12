@@ -14,7 +14,7 @@ use patinae_scene::{DirtyFlags, MoleculeObject, ObjectRegistry};
 use patinae_select::SelectionResult;
 
 use crate::command::ViewerLike;
-use crate::commands::selecting::{evaluate_atom_anchors, evaluate_selection};
+use crate::commands::selecting::{evaluate_selection, visit_selected_instances};
 use crate::error::{CmdError, CmdResult};
 
 // ============================================================================
@@ -227,26 +227,32 @@ pub fn selection_extent(
     let mut min = Vec3::new(f32::MAX, f32::MAX, f32::MAX);
     let mut max = Vec3::new(f32::MIN, f32::MIN, f32::MIN);
     let mut has_coords = false;
-
-    for anchor in evaluate_atom_anchors(viewer, selection)? {
-        if let Some(mol_obj) = viewer.objects().get_molecule(&anchor.object_name) {
-            if let Some(coord) = mol_obj.instance_world_coord(anchor.atom_index, anchor.instance) {
-                min.x = min.x.min(coord.x);
-                min.y = min.y.min(coord.y);
-                min.z = min.z.min(coord.z);
-                max.x = max.x.max(coord.x);
-                max.y = max.y.max(coord.y);
-                max.z = max.z.max(coord.z);
-                has_coords = true;
+    visit_selected_instances(viewer, selection, |_, object, instance, atoms| {
+        let mut part_min = Vec3::new(f32::MAX, f32::MAX, f32::MAX);
+        let mut part_max = Vec3::new(f32::MIN, f32::MIN, f32::MIN);
+        let mut found = false;
+        for atom in atoms.indices() {
+            if let Some(coord) = object.instance_world_coord(atom, instance) {
+                part_min.x = part_min.x.min(coord.x);
+                part_min.y = part_min.y.min(coord.y);
+                part_min.z = part_min.z.min(coord.z);
+                part_max.x = part_max.x.max(coord.x);
+                part_max.y = part_max.y.max(coord.y);
+                part_max.z = part_max.z.max(coord.z);
+                found = true;
             }
         }
-    }
-
-    if has_coords {
-        Ok(Some((min, max)))
-    } else {
-        Ok(None)
-    }
+        if found {
+            min.x = min.x.min(part_min.x);
+            min.y = min.y.min(part_min.y);
+            min.z = min.z.min(part_min.z);
+            max.x = max.x.max(part_max.x);
+            max.y = max.y.max(part_max.y);
+            max.z = max.z.max(part_max.z);
+            has_coords = true;
+        }
+    })?;
+    Ok(has_coords.then_some((min, max)))
 }
 
 /// Collect all 3D coordinates of atoms matching a selection expression
@@ -254,20 +260,29 @@ pub fn selection_extent(
 pub fn collect_selection_coords(viewer: &dyn ViewerLike, selection: &str) -> CmdResult<Vec<Vec3>> {
     let mut coords = Vec::new();
 
-    for anchor in evaluate_atom_anchors(viewer, selection)? {
-        if let Some(mol_obj) = viewer.objects().get_molecule(&anchor.object_name) {
-            if let Some(coord) = mol_obj.instance_world_coord(anchor.atom_index, anchor.instance) {
-                coords.push(coord);
+    visit_selection_coords(viewer, selection, |coord| coords.push(coord))?;
+    Ok(coords)
+}
+
+/// Consume world coordinates without constructing persistent atom identities.
+fn visit_selection_coords(
+    viewer: &dyn ViewerLike,
+    selection: &str,
+    mut visit: impl FnMut(Vec3),
+) -> CmdResult {
+    visit_selected_instances(viewer, selection, |_, object, instance, atoms| {
+        for atom in atoms.indices() {
+            if let Some(coord) = object.instance_world_coord(atom, instance) {
+                visit(coord);
             }
         }
-    }
-
-    Ok(coords)
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::selecting::evaluate_atom_anchors;
     use patinae_mol::{AtomBuilder, CoordSet, ObjectMolecule};
     use patinae_scene::{MoleculeObject, Session, SessionAdapter};
 
@@ -348,5 +363,242 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!((min.x, max.x, min.y, max.y), (16., 16., 20., 20.));
+    }
+
+    fn session_with_transformed_subset_copies() -> Session {
+        use patinae_mol::{InstanceGroup, InstanceTable, ObjectInstance, IDENTITY_INSTANCE};
+        use patinae_scene::Object;
+
+        let mut mol = ObjectMolecule::new("obj");
+        for name in ["CA", "N", "O"] {
+            mol.add_atom(AtomBuilder::new().name(name).element_symbol("C").build());
+        }
+        mol.add_coord_set(CoordSet::from_vec3(&[Vec3::new(-1., -1., -1.); 3]));
+        mol.add_coord_set(CoordSet::from_vec3(&[
+            Vec3::new(1., 2., 3.),
+            Vec3::new(4., 5., 6.),
+            Vec3::new(7., 8., 9.),
+        ]));
+        let mut object = MoleculeObject::new(mol);
+        assert!(object.set_display_state(1));
+        // Copy 2 rotates 90 degrees around Z, then translates by (10, 0, 0).
+        let mut copy_transform = IDENTITY_INSTANCE;
+        copy_transform[0] = [0., 1., 0., 0.];
+        copy_transform[1] = [-1., 0., 0., 0.];
+        copy_transform[3][0] = 10.;
+        object.state_mut().instances = Some(InstanceTable {
+            groups: vec![
+                InstanceGroup {
+                    indices: vec![0, 2],
+                },
+                InstanceGroup {
+                    indices: vec![1, 2],
+                },
+            ],
+            copies: vec![
+                ObjectInstance {
+                    group: 0,
+                    transform: IDENTITY_INSTANCE,
+                },
+                ObjectInstance {
+                    group: 1,
+                    transform: copy_transform,
+                },
+            ],
+        });
+        // The object applies another 90-degree Z rotation and (0, 20, 0).
+        // Noncommuting transforms catch an accidental world/copy order swap.
+        let mut world_transform = IDENTITY_INSTANCE;
+        world_transform[0] = [0., 1., 0., 0.];
+        world_transform[1] = [-1., 0., 0., 0.];
+        world_transform[3][1] = 20.;
+        object.state_mut().transform = Mat4 {
+            data: std::array::from_fn(|i| world_transform[i / 4][i % 4]),
+        };
+        let mut session = Session::new();
+        session.registry.add(object);
+        session
+    }
+
+    fn assert_selection_geometry(
+        adapter: &SessionAdapter<'_>,
+        selection: &str,
+        expected_anchors: &[(u32, u32)],
+        expected_sources: &[usize],
+        expected_coords: &[(f32, f32, f32)],
+    ) {
+        let anchors = evaluate_atom_anchors(adapter, selection).unwrap();
+        assert!(anchors.iter().all(|anchor| anchor.object_name == "obj"));
+        assert_eq!(
+            anchors
+                .iter()
+                .map(|anchor| (anchor.instance.unwrap(), anchor.atom_index.0))
+                .collect::<Vec<_>>(),
+            expected_anchors,
+            "anchors: {selection}"
+        );
+        let sources = evaluate_selection(adapter, selection).unwrap();
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].0, "obj");
+        assert_eq!(
+            sources[0].1.raw_indices().collect::<Vec<_>>(),
+            expected_sources,
+            "source projection: {selection}"
+        );
+        let coords = collect_selection_coords(adapter, selection).unwrap();
+        assert_eq!(
+            coords.iter().map(|p| (p.x, p.y, p.z)).collect::<Vec<_>>(),
+            expected_coords,
+            "coordinates: {selection}"
+        );
+        let expected_bounds = expected_coords
+            .iter()
+            .copied()
+            .fold(None, |bounds, (x, y, z)| {
+                Some(match bounds {
+                    None => ((x, y, z), (x, y, z)),
+                    Some(((a, b, c), (d, e, f))) => (
+                        (x.min(a), y.min(b), z.min(c)),
+                        (x.max(d), y.max(e), z.max(f)),
+                    ),
+                })
+            });
+        assert_eq!(
+            selection_extent(adapter, selection)
+                .unwrap()
+                .map(|(min, max)| ((min.x, min.y, min.z), (max.x, max.y, max.z))),
+            expected_bounds,
+            "extent: {selection}"
+        );
+    }
+
+    #[test]
+    fn selection_geometry_respects_copy_subsets_display_state_and_transform_order() {
+        let mut session = session_with_transformed_subset_copies();
+        let mut needs_redraw = false;
+        let adapter = SessionAdapter {
+            session: &mut session,
+            render_context: None,
+            default_size: (800, 600),
+            needs_redraw: &mut needs_redraw,
+        };
+        assert_selection_geometry(
+            &adapter,
+            "all",
+            &[(0, 0), (0, 2), (1, 1), (1, 2)],
+            &[0, 1, 2],
+            &[
+                (-2., 21., 3.),
+                (-8., 27., 9.),
+                (-4., 25., 6.),
+                (-7., 22., 9.),
+            ],
+        );
+        assert_selection_geometry(&adapter, "obj and instance 2 and name CA", &[], &[], &[]);
+        assert_selection_geometry(&adapter, "none", &[], &[], &[]);
+    }
+
+    #[test]
+    fn wildcard_and_exact_object_selections_share_subset_and_zero_copy_semantics() {
+        use patinae_scene::Object;
+
+        let mut session = session_with_transformed_subset_copies();
+        session
+            .registry
+            .get_molecule_mut("obj")
+            .unwrap()
+            .state_mut()
+            .instances
+            .as_mut()
+            .unwrap()
+            .copies
+            .truncate(1);
+        let mut needs_redraw = false;
+        let adapter = SessionAdapter {
+            session: &mut session,
+            render_context: None,
+            default_size: (800, 600),
+            needs_redraw: &mut needs_redraw,
+        };
+        // Wildcards must select represented source atoms just like an exact
+        // object name; atom 1 exists in storage but belongs to no displayed copy.
+        for selection in ["obj", "obj*"] {
+            assert_selection_geometry(
+                &adapter,
+                selection,
+                &[(0, 0), (0, 2)],
+                &[0, 2],
+                &[(-2., 21., 3.), (-8., 27., 9.)],
+            );
+        }
+        adapter
+            .session
+            .registry
+            .get_molecule_mut("obj")
+            .unwrap()
+            .state_mut()
+            .instances
+            .as_mut()
+            .unwrap()
+            .copies
+            .clear();
+        // Zero copies retain the source object but cannot produce selected
+        // displayed atoms, phantom anchors, coordinates, or an extent.
+        for selection in ["obj", "obj*"] {
+            assert_selection_geometry(&adapter, selection, &[], &[], &[]);
+        }
+    }
+
+    #[test]
+    fn selection_geometry_resolves_named_boolean_expressions_before_source_projection() {
+        let mut session = session_with_transformed_subset_copies();
+        let expression = "(instance 1 and name O) or (instance 2 and name N)";
+        // The cached mask has lost copy identity. Geometry and Boolean algebra
+        // must resolve the expression per copy instead of reusing this union.
+        session.selections.define_with_results(
+            "chosen",
+            expression,
+            vec![(
+                "obj".to_string(),
+                SelectionResult::from_indices(3, [AtomIndex(1), AtomIndex(2)].into_iter()),
+            )],
+        );
+        session.selections.define("second", "chosen and instance 2");
+        let mut needs_redraw = false;
+        let adapter = SessionAdapter {
+            session: &mut session,
+            render_context: None,
+            default_size: (800, 600),
+            needs_redraw: &mut needs_redraw,
+        };
+        assert_selection_geometry(
+            &adapter,
+            expression,
+            &[(0, 2), (1, 1)],
+            &[1, 2],
+            &[(-8., 27., 9.), (-4., 25., 6.)],
+        );
+        assert_selection_geometry(
+            &adapter,
+            "chosen",
+            &[(0, 2), (1, 1)],
+            &[1, 2],
+            &[(-8., 27., 9.), (-4., 25., 6.)],
+        );
+        assert_selection_geometry(&adapter, "second", &[(1, 1)], &[1], &[(-4., 25., 6.)]);
+        assert_selection_geometry(
+            &adapter,
+            "chosen and not instance 2",
+            &[(0, 2)],
+            &[2],
+            &[(-8., 27., 9.)],
+        );
+        assert_selection_geometry(
+            &adapter,
+            "not chosen",
+            &[(0, 0), (1, 2)],
+            &[0, 2],
+            &[(-2., 21., 3.), (-7., 22., 9.)],
+        );
     }
 }
