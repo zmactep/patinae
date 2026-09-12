@@ -6387,7 +6387,7 @@ mod loader_tests {
         assert!(receipt.result.is_ok());
         let id = receipt.output.task_ids[0];
         for _ in 0..20 {
-            kernel.process_async_tasks();
+            kernel.process_async_tasks(None, (1, 1));
         }
         let snapshot = kernel.tasks.get(id).unwrap();
         assert_eq!(snapshot.state, patinae_cmd::tasks::TaskState::Succeeded);

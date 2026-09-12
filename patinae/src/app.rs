@@ -398,7 +398,11 @@ impl App {
         if !layout_messages.is_empty() {
             crate::bridges::layout::dispatch_messages(&layout_messages, app);
         }
-        self.kernel.process_async_tasks();
+        let rc = self
+            .renderer
+            .as_mut()
+            .map(|r| r as &mut dyn CaptureRenderer);
+        self.kernel.process_async_tasks(rc, viewport_size);
         crate::native_menu::sync_fetch_preview(&self.kernel, app);
         self.sync_notifications(app);
         self.sync_empty_mode(app);
@@ -722,7 +726,12 @@ impl App {
             }
         }
 
-        self.plugins.apply_task_controls(&mut self.kernel);
+        let rc = self
+            .renderer
+            .as_mut()
+            .map(|r| r as &mut dyn CaptureRenderer);
+        self.plugins
+            .apply_task_controls(&mut self.kernel, rc, viewport_size);
 
         let mut results = Vec::new();
         for request in self.plugins.take_pending_executions() {

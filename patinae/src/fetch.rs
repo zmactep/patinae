@@ -303,7 +303,7 @@ mod tests {
     fn finish(kernel: &mut AppKernel, id: TaskId) -> patinae_cmd::tasks::TaskSnapshot {
         let deadline = Instant::now() + Duration::from_secs(3);
         loop {
-            kernel.process_async_tasks();
+            kernel.process_async_tasks(None, (1, 1));
             let snapshot = kernel.tasks.get(id).unwrap();
             if snapshot.state.is_terminal() {
                 return snapshot;

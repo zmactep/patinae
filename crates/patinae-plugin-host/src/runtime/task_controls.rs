@@ -25,7 +25,12 @@ const MAX_PENDING_TASK_WAITS: usize = 1024;
 
 impl PluginHost {
     /// Apply producer messages after shared reads without blocking the host pump.
-    pub fn apply_task_controls(&mut self, kernel: &mut patinae_framework::kernel::AppKernel) {
+    pub fn apply_task_controls<'a>(
+        &mut self,
+        kernel: &mut patinae_framework::kernel::AppKernel,
+        mut render_context: Option<&'a mut (dyn patinae_scene::CaptureRenderer + 'a)>,
+        viewport_size: (u32, u32),
+    ) {
         self.host_query_results
             .resize_with(self.plugins.len(), Vec::new);
         for plugin in &self.plugins {
@@ -104,7 +109,17 @@ impl PluginHost {
                 } => {
                     let owner = checked_task_owner(&kernel.tasks, task_id, &owner).unwrap_or(owner);
                     let result = kernel
-                        .execute_task_command(task_id, &owner, &command, silent)
+                        .execute_task_command(
+                            task_id,
+                            &owner,
+                            &command,
+                            silent,
+                            match &mut render_context {
+                                Some(renderer) => Some(&mut **renderer),
+                                None => None,
+                            },
+                            viewport_size,
+                        )
                         .map(patinae_cmd::CommandReply::from);
                     (id, WireHostQueryValue::TaskCommand(result))
                 }
@@ -413,7 +428,7 @@ mod tasks {
         }
         let mut kernel = patinae_framework::kernel::AppKernel::new();
         kernel.tasks = tasks;
-        host.apply_task_controls(&mut kernel);
+        host.apply_task_controls(&mut kernel, None, (1, 1));
         let tasks = kernel.tasks;
         assert!(tasks.get(first).unwrap().cancel_requested);
         assert!(tasks.get(second).unwrap().cancel_requested);
@@ -438,6 +453,235 @@ mod tasks {
         assert!(
             host.command_owners.is_empty(),
             "task replies must not retain command routing tokens"
+        );
+    }
+
+    #[derive(Default)]
+    struct RecordingRenderer {
+        captures: Vec<(std::path::PathBuf, u32, u32)>,
+        fail: bool,
+    }
+
+    impl patinae_scene::CaptureRenderer for RecordingRenderer {
+        fn gpu_device(&self) -> &std::sync::Arc<wgpu::Device> {
+            panic!("PNG routing does not require a GPU device")
+        }
+
+        fn gpu_queue(&self) -> &std::sync::Arc<wgpu::Queue> {
+            panic!("PNG routing does not require a GPU queue")
+        }
+
+        fn capture_png(
+            &mut self,
+            path: &std::path::Path,
+            width: u32,
+            height: u32,
+            _camera: &mut patinae_scene::Camera,
+            _registry: &mut patinae_scene::ObjectRegistry,
+            _settings: &patinae_settings::Settings,
+            _named: &patinae_scene::NamedPalette,
+            _themed: &patinae_scene::ThemedPalette,
+            _clear_color: [f32; 3],
+        ) -> Result<(), patinae_scene::ViewerError> {
+            self.captures.push((path.to_owned(), width, height));
+            if self.fail {
+                Err(patinae_scene::ViewerError::capture_error(
+                    "capture fixture failed",
+                ))
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    fn task_queries(
+        host: &mut PluginHost,
+        kernel: &mut patinae_framework::kernel::AppKernel,
+        plugin: &str,
+        queries: Vec<WireHostQuery>,
+        renderer: Option<&mut dyn patinae_scene::CaptureRenderer>,
+        viewport_size: (u32, u32),
+    ) -> Vec<WireHostQueryResult> {
+        let fixture = SharedFixture::new();
+        request(host, &mut kernel.bus, plugin, queries);
+        {
+            let mut shared = fixture.shared();
+            shared.tasks = Some(&kernel.tasks);
+            host.poll_all(&shared, &mut kernel.bus);
+        }
+        host.apply_task_controls(kernel, renderer, viewport_size);
+        let mut shared = fixture.shared();
+        shared.tasks = Some(&kernel.tasks);
+        host.poll_all(&shared, &mut kernel.bus);
+        replies(&mut kernel.bus)
+            .into_iter()
+            .map(|(topic, reply)| {
+                assert_eq!(topic, format!("{plugin}:task-response"));
+                reply
+            })
+            .collect()
+    }
+
+    #[test]
+    fn dynamic_task_png_preserves_renderer_viewport_errors_and_guards() {
+        let mut host = host(true);
+        let mut kernel = patinae_framework::kernel::AppKernel::new();
+        kernel.executor.register_task_executor("first");
+        let mut description =
+            patinae_cmd::PluginTaskRequest::new("capture", serde_json::Value::Null);
+        description.executor = "first".into();
+        let task_id = kernel.start_plugin_task(description, None).unwrap();
+        let command = |id, text: &str| WireHostQuery::TaskCommand {
+            id,
+            task_id,
+            command: text.into(),
+            silent: true,
+        };
+        let mut renderer = RecordingRenderer::default();
+        let responses = task_queries(
+            &mut host,
+            &mut kernel,
+            "first",
+            vec![
+                command(11, "png default.png"),
+                command(12, "png explicit.png, 80, 40"),
+            ],
+            Some(&mut renderer),
+            (320, 180),
+        );
+        assert_eq!(responses.len(), 2);
+        for (response, id) in responses.iter().zip([11, 12]) {
+            assert_eq!(response.id, id);
+            let Ok(WireHostQueryValue::TaskCommand(Ok(reply))) = &response.result else {
+                panic!("expected command receipt");
+            };
+            assert!(reply.result.is_ok(), "{:?}", reply.result);
+            assert!(reply.task_ids.is_empty());
+            assert!(reply
+                .messages
+                .iter()
+                .any(|message| message.text.contains("Saved")));
+        }
+        assert_eq!(
+            renderer.captures,
+            vec![
+                ("default.png".into(), 320, 180),
+                ("explicit.png".into(), 80, 40)
+            ]
+        );
+
+        renderer.fail = true;
+        for (with_renderer, expected) in [
+            (true, "capture fixture failed"),
+            (false, "No render context available"),
+        ] {
+            let responses = task_queries(
+                &mut host,
+                &mut kernel,
+                "first",
+                vec![command(13, "png failed.png")],
+                if with_renderer {
+                    Some(&mut renderer)
+                } else {
+                    None
+                },
+                (320, 180),
+            );
+            let Ok(WireHostQueryValue::TaskCommand(Ok(reply))) = &responses[0].result else {
+                panic!("expected command failure receipt");
+            };
+            assert!(reply.result.as_ref().unwrap_err().contains(expected));
+        }
+        assert_eq!(renderer.captures.len(), 3);
+
+        for (plugin, expected) in [("second", "wrong_executor"), ("first", "cancelled")] {
+            if plugin == "first" {
+                kernel.tasks.cancel(task_id).unwrap();
+            }
+            let responses = task_queries(
+                &mut host,
+                &mut kernel,
+                plugin,
+                vec![command(14, "png forbidden.png")],
+                Some(&mut renderer),
+                (320, 180),
+            );
+            let Ok(WireHostQueryValue::TaskCommand(Err(error))) = &responses[0].result else {
+                panic!("expected task guard failure");
+            };
+            assert_eq!(error.code, expected);
+        }
+        assert_eq!(
+            renderer.captures.len(),
+            3,
+            "rejected tasks must not reach the renderer"
+        );
+    }
+
+    #[test]
+    fn dynamic_task_pml_child_captures_with_the_current_host_viewport() {
+        use patinae_cmd::tasks::{TaskEffects, TaskOutcome, TaskState};
+        let mut host = host(true);
+        let mut kernel = patinae_framework::kernel::AppKernel::new();
+        kernel.executor.register_task_executor("first");
+        let mut description =
+            patinae_cmd::PluginTaskRequest::new("script", serde_json::Value::Null);
+        description.executor = "first".into();
+        let parent = kernel.start_plugin_task(description, None).unwrap();
+        let path = std::env::temp_dir().join(format!("patinae-task-capture-{parent}.pml"));
+        std::fs::write(
+            &path,
+            "png script-default.png\npng script-explicit.png, 64, 32\n",
+        )
+        .unwrap();
+        let responses = task_queries(
+            &mut host,
+            &mut kernel,
+            "first",
+            vec![WireHostQuery::TaskCommand {
+                id: 21,
+                task_id: parent,
+                command: format!("run {}", serde_json::to_string(&path).unwrap()),
+                silent: true,
+            }],
+            None,
+            (1, 1),
+        );
+        let Ok(WireHostQueryValue::TaskCommand(Ok(reply))) = &responses[0].result else {
+            panic!("expected script admission");
+        };
+        assert!(reply.result.is_ok(), "{:?}", reply.result);
+        assert_eq!(reply.task_ids.len(), 1);
+        let child = reply.task_ids[0];
+        assert_eq!(kernel.tasks.get(child).unwrap().parent_id, Some(parent));
+        kernel
+            .tasks
+            .finish_owned(
+                parent,
+                "first",
+                TaskOutcome::success(None, TaskEffects::None),
+            )
+            .unwrap();
+        assert!(!kernel.tasks.get(parent).unwrap().state.is_terminal());
+        let mut renderer = RecordingRenderer::default();
+        for _ in 0..8 {
+            kernel.process_async_tasks(Some(&mut renderer), (640, 360));
+            if kernel.tasks.get(parent).unwrap().state.is_terminal() {
+                break;
+            }
+        }
+        std::fs::remove_file(path).unwrap();
+        assert_eq!(kernel.tasks.get(child).unwrap().state, TaskState::Succeeded);
+        assert_eq!(
+            kernel.tasks.get(parent).unwrap().state,
+            TaskState::Succeeded
+        );
+        assert_eq!(
+            renderer.captures,
+            vec![
+                ("script-default.png".into(), 640, 360),
+                ("script-explicit.png".into(), 64, 32)
+            ]
         );
     }
 
@@ -504,13 +748,13 @@ mod tasks {
             }],
         );
         host.poll_all(&fixture.shared(), &mut kernel.bus);
-        host.apply_task_controls(&mut kernel);
+        host.apply_task_controls(&mut kernel, None, (1, 1));
         host.poll_all(&fixture.shared(), &mut kernel.bus);
         assert!(replies(&mut kernel.bus).is_empty());
         let mut child = TaskSpec::new("python", "first");
         child.parent_id = Some(target);
         kernel.tasks.admit(child).unwrap();
-        host.apply_task_controls(&mut kernel);
+        host.apply_task_controls(&mut kernel, None, (1, 1));
         host.poll_all(&fixture.shared(), &mut kernel.bus);
         let responses = replies(&mut kernel.bus);
         assert_eq!(responses.len(), 1);
@@ -623,7 +867,7 @@ mod tasks {
             if expected == 1 {
                 assert_eq!(invocations[0], ("first:invocation".into(), task_id));
             }
-            host.apply_task_controls(&mut kernel);
+            host.apply_task_controls(&mut kernel, None, (1, 1));
         }
     }
 
@@ -651,7 +895,7 @@ mod tasks {
         let mut shared = fixture.shared();
         shared.tasks = Some(&kernel.tasks);
         host.poll_all(&shared, &mut kernel.bus);
-        host.apply_task_controls(&mut kernel);
+        host.apply_task_controls(&mut kernel, None, (1, 1));
         let task_id = match &host.host_query_results[0][0].result {
             Ok(WireHostQueryValue::TaskStarted(Ok(id))) => *id,
             _ => panic!("expected admission receipt"),
@@ -675,7 +919,7 @@ mod tasks {
                 silent: true,
             },
         ));
-        host.apply_task_controls(&mut kernel);
+        host.apply_task_controls(&mut kernel, None, (1, 1));
         assert!(
             matches!(&host.host_query_results[1][0].result, Ok(WireHostQueryValue::TaskAcknowledged(Err(error))) if error.code == "wrong_executor")
         );
@@ -689,7 +933,7 @@ mod tasks {
                 event: TaskEvent::Finished(TaskOutcome::success(None, TaskEffects::None)),
             },
         ));
-        host.apply_task_controls(&mut kernel);
+        host.apply_task_controls(&mut kernel, None, (1, 1));
         assert_eq!(
             kernel.tasks.get(task_id).unwrap().state,
             TaskState::Succeeded
@@ -721,7 +965,7 @@ mod tasks {
                 owner_tag: 1,
             },
         ));
-        host.apply_task_controls(&mut kernel);
+        host.apply_task_controls(&mut kernel, None, (1, 1));
         assert_eq!(
             kernel.tasks.get(old).unwrap().state,
             patinae_cmd::tasks::TaskState::Failed

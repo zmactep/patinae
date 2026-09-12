@@ -371,18 +371,34 @@ impl AppKernel {
     }
 
     /// Execute a task's acknowledged command with parent propagation.
-    pub fn execute_task_command(
+    ///
+    /// Uses the same renderer and viewport defaults as ordinary host commands.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid ownership, cancellation, or stale scene state.
+    pub fn execute_task_command<'a>(
         &mut self,
         task_id: patinae_cmd::tasks::TaskId,
         owner: &str,
         command: &str,
         silent: bool,
+        mut render_context: Option<&'a mut (dyn CaptureRenderer + 'a)>,
+        viewport_size: (u32, u32),
     ) -> Result<CommandExecution, patinae_cmd::tasks::TaskError> {
         self.tasks
             .can_apply_effect(task_id, owner, self.session.task_epoch())?;
         let before = self.session.mutation_revision();
         let previous = self.command_parent.replace(task_id);
-        let execution = self.execute_command_captured(command, silent, None, (1, 1));
+        let execution = self.execute_command_captured(
+            command,
+            silent,
+            match &mut render_context {
+                Some(renderer) => Some(&mut **renderer),
+                None => None,
+            },
+            viewport_size,
+        );
         self.command_parent = previous;
         // Commands may change view or scene before returning an error.
         self.tasks.record_effects(
@@ -425,7 +441,11 @@ impl AppKernel {
     }
 
     /// Apply a bounded batch of results, publishing completion after their effects.
-    pub fn process_async_tasks(&mut self) -> bool {
+    pub fn process_async_tasks<'a>(
+        &mut self,
+        render_context: Option<&'a mut (dyn CaptureRenderer + 'a)>,
+        viewport_size: (u32, u32),
+    ) -> bool {
         use patinae_cmd::tasks::{TaskError, TaskOutcome, TaskOutcomeStatus};
         let mut processed = false;
         // Leave remaining ready results in the runner to preserve event-loop service.
@@ -449,7 +469,7 @@ impl AppKernel {
             }
             self.tasks.finish(ready.id, outcome);
         }
-        processed |= self.process_pml_tasks();
+        processed |= self.process_pml_tasks(render_context, viewport_size);
         for change in self.tasks.take_changes() {
             if change.state == patinae_cmd::tasks::TaskState::Cancelled
                 && !self.task_command_labels.contains_key(&change.id)
@@ -486,7 +506,11 @@ impl AppKernel {
         processed
     }
 
-    fn process_pml_tasks(&mut self) -> bool {
+    fn process_pml_tasks<'a>(
+        &mut self,
+        mut render_context: Option<&'a mut (dyn CaptureRenderer + 'a)>,
+        viewport_size: (u32, u32),
+    ) -> bool {
         use patinae_cmd::script::{resolve_file_include, ScriptAction};
         use patinae_cmd::tasks::TaskOutcome;
         let mut processed = 0;
@@ -535,6 +559,11 @@ impl AppKernel {
                                 PML_EXECUTOR,
                                 &command,
                                 false,
+                                match &mut render_context {
+                                    Some(renderer) => Some(&mut **renderer),
+                                    None => None,
+                                },
+                                viewport_size,
                             );
                             self.script_lineage.clear();
                             result
@@ -890,7 +919,7 @@ mod tests {
             let receipt = kernel.execute_command_captured("background", false, None, (1, 1));
             assert!(receipt.result.is_err());
             let id = receipt.output.task_ids[0];
-            kernel.process_async_tasks();
+            kernel.process_async_tasks(None, (1, 1));
             assert!(!kernel
                 .output
                 .buffer
@@ -898,7 +927,7 @@ mod tests {
                 .any(|m| m.kind == OutputKind::Timing));
             if cancelled {
                 kernel.tasks.cancel(id).unwrap();
-                kernel.process_async_tasks();
+                kernel.process_async_tasks(None, (1, 1));
                 assert!(!kernel
                     .output
                     .buffer
@@ -910,7 +939,7 @@ mod tests {
             // Display still works when a notification hint was consumed elsewhere.
             kernel.tasks.take_changes();
             clock.store(9100, Ordering::Relaxed);
-            kernel.process_async_tasks();
+            kernel.process_async_tasks(None, (1, 1));
             let timings: Vec<_> = kernel
                 .output
                 .buffer
@@ -932,7 +961,7 @@ mod tests {
             kernel
                 .tasks
                 .finish(id, TaskOutcome::success(None, TaskEffects::None));
-            kernel.process_async_tasks();
+            kernel.process_async_tasks(None, (1, 1));
             assert_eq!(kernel.output.buffer.len(), count);
             assert!(kernel.task_command_labels.is_empty());
         }
@@ -961,7 +990,7 @@ mod tests {
         assert!(receipt.result.is_ok());
         let id = receipt.output.task_ids[0];
         for _ in 0..30 {
-            kernel.process_async_tasks();
+            kernel.process_async_tasks(None, (1, 1));
         }
         assert_eq!(
             kernel.tasks.get(id).unwrap().state,
@@ -979,7 +1008,7 @@ mod tests {
         );
         let id = receipt.output.task_ids[0];
         for _ in 0..30 {
-            kernel.process_async_tasks();
+            kernel.process_async_tasks(None, (1, 1));
         }
         assert_eq!(
             kernel.tasks.get(id).unwrap().state,
@@ -1009,7 +1038,7 @@ mod tests {
                 .iter()
                 .any(|m| m.kind == OutputKind::Timing));
             while !kernel.tasks.get(id).unwrap().state.is_terminal() {
-                kernel.process_async_tasks();
+                kernel.process_async_tasks(None, (1, 1));
             }
             assert!(kernel.session.registry.contains("loaded"));
             let timings = kernel
@@ -1057,13 +1086,13 @@ mod tests {
         assert!(receipt.result.is_ok());
         let parent = receipt.output.task_ids[0];
         assert!(!kernel.session.registry.contains("after"));
-        kernel.process_async_tasks();
+        kernel.process_async_tasks(None, (1, 1));
         let invocation = kernel.take_task_invocations().remove(0);
         assert_eq!(
             kernel.tasks.get(invocation.task_id).unwrap().parent_id,
             Some(parent)
         );
-        kernel.process_async_tasks();
+        kernel.process_async_tasks(None, (1, 1));
         assert!(!kernel.session.registry.contains("after"));
         kernel
             .tasks
@@ -1081,9 +1110,9 @@ mod tests {
             .tasks
             .finish(other, TaskOutcome::success(None, TaskEffects::None));
         assert!(kernel.tasks.get(invocation.task_id).is_err());
-        kernel.process_async_tasks();
+        kernel.process_async_tasks(None, (1, 1));
         assert!(kernel.session.registry.contains("after"));
-        kernel.process_async_tasks();
+        kernel.process_async_tasks(None, (1, 1));
         assert_eq!(
             kernel.tasks.get(parent).unwrap().state,
             patinae_cmd::tasks::TaskState::Succeeded
@@ -1103,7 +1132,7 @@ mod tests {
         );
         let id = execution.output.task_ids[0];
         kernel.tasks.cancel(id).unwrap();
-        kernel.process_async_tasks();
+        kernel.process_async_tasks(None, (1, 1));
         assert_eq!(
             kernel.tasks.get(id).unwrap().state,
             patinae_cmd::tasks::TaskState::Cancelled
@@ -1121,17 +1150,17 @@ mod tests {
             .admit(TaskSpec::new("script", "fixture"))
             .unwrap();
         let execution = kernel
-            .execute_task_command(id, "fixture", "help", true)
+            .execute_task_command(id, "fixture", "help", true, None, (1, 1))
             .unwrap();
         assert!(execution.result.is_ok());
         assert_eq!(kernel.tasks.get(id).unwrap().effects, TaskEffects::None);
         let execution = kernel
-            .execute_task_command(id, "fixture", "group inserted", true)
+            .execute_task_command(id, "fixture", "group inserted", true, None, (1, 1))
             .unwrap();
         assert!(execution.result.is_ok());
         assert_eq!(kernel.tasks.get(id).unwrap().effects, TaskEffects::Unknown);
         assert!(kernel
-            .execute_task_command(id, "foreign", "group forbidden", true)
+            .execute_task_command(id, "foreign", "group forbidden", true, None, (1, 1))
             .is_err());
         assert!(!kernel.session.registry.contains("forbidden"));
     }
@@ -1161,7 +1190,7 @@ mod tests {
                 .admit(TaskSpec::new("script", "fixture"))
                 .unwrap();
             let execution = kernel
-                .execute_task_command(id, "fixture", command, true)
+                .execute_task_command(id, "fixture", command, true, None, (1, 1))
                 .unwrap();
             assert!(
                 execution.result.is_ok(),
@@ -1182,7 +1211,7 @@ mod tests {
             .admit(TaskSpec::new("script", "fixture"))
             .unwrap();
         let execution = kernel
-            .execute_task_command(id, "fixture", "color 0x123456, (", true)
+            .execute_task_command(id, "fixture", "color 0x123456, (", true, None, (1, 1))
             .unwrap();
         assert!(execution.result.is_err());
         assert_eq!(kernel.tasks.get(id).unwrap().effects, TaskEffects::Applied);
@@ -1197,7 +1226,7 @@ mod tests {
             .admit(TaskSpec::new("script", "fixture"))
             .unwrap();
         kernel
-            .execute_task_command(id, "fixture", "color green", true)
+            .execute_task_command(id, "fixture", "color green", true, None, (1, 1))
             .unwrap();
         kernel.tasks.cancel(id).unwrap();
         kernel
@@ -1206,7 +1235,7 @@ mod tests {
             .unwrap();
         assert_eq!(kernel.tasks.get(id).unwrap().effects, TaskEffects::Partial);
         assert!(kernel
-            .execute_task_command(id, "fixture", "color red", true)
+            .execute_task_command(id, "fixture", "color red", true, None, (1, 1))
             .is_err());
     }
 
@@ -1250,7 +1279,14 @@ mod tests {
                 .admit(TaskSpec::new("script", "fixture"))
                 .unwrap();
             kernel
-                .execute_task_command(id, "fixture", &format!("probe_access {mode}"), true)
+                .execute_task_command(
+                    id,
+                    "fixture",
+                    &format!("probe_access {mode}"),
+                    true,
+                    None,
+                    (1, 1),
+                )
                 .unwrap();
             assert_eq!(kernel.tasks.get(id).unwrap().effects, expected);
             kernel
@@ -1269,7 +1305,7 @@ mod tests {
                 .unwrap();
             for command in commands {
                 let execution = kernel
-                    .execute_task_command(id, "fixture", command, true)
+                    .execute_task_command(id, "fixture", command, true, None, (1, 1))
                     .unwrap();
                 assert!(execution.result.is_ok());
             }
@@ -1302,7 +1338,7 @@ mod tests {
                 .admit(TaskSpec::new("script", "fixture"))
                 .unwrap();
             let execution = kernel
-                .execute_task_command(id, "fixture", command, true)
+                .execute_task_command(id, "fixture", command, true, None, (1, 1))
                 .unwrap();
             assert_eq!(execution.result.is_err(), command == "partial_write");
             assert_eq!(kernel.tasks.get(id).unwrap().effects, TaskEffects::Applied);
@@ -1318,7 +1354,7 @@ mod tests {
                 .admit(TaskSpec::new("script", "fixture"))
                 .unwrap();
             kernel
-                .execute_task_command(id, "fixture", command, true)
+                .execute_task_command(id, "fixture", command, true, None, (1, 1))
                 .unwrap();
             assert_eq!(
                 kernel.tasks.get(id).unwrap().effects,
