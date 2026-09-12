@@ -304,11 +304,14 @@ Plugins are compiled as dynamic libraries (`.dylib` on macOS, `.so` on Linux,
 
 | Plugin | Crate | Description |
 | --- | --- | --- |
-| **hello** | `hello-plugin` | Minimal plugin lifecycle and command-registration example |
-| **raytracer** | `raytracer-plugin` | GPU ray tracing with BVH acceleration, shadows, transparency, and edge detection |
-| **ipc** | `ipc-plugin` | Inter-process communication plugin for external tool integration |
-| **python** | `python-plugin` | Embedded CPython interpreter for scripting inside the native app |
+| **[hello](plugins/hello/README.md)** | `hello-plugin` | Minimal plugin lifecycle and command-registration example |
+| **[raytracer](plugins/raytracer/README.md)** | `raytracer-plugin` | GPU ray tracing with BVH acceleration, shadows, transparency, and edge detection |
+| **[ipc](plugins/ipc/README.md)** | `ipc-plugin` | Inter-process communication plugin for external tool integration |
+| **[python](plugins/python/README.md)** | `python-plugin` | Embedded CPython interpreter for scripting inside the native app |
 | **[ai](plugins/ai/README.md)** | `ai-plugin` | Natural-language commands, scene image inspection, and MCP tools through a configurable Responses API endpoint |
+
+See the [plugin overview](plugins/README.md) for installation, discovery, and
+verification, and each plugin's README for usage and configuration.
 
 Build and stage the reference plugins:
 

@@ -26,6 +26,12 @@ cp plugins/ai/config.example.toml ~/.patinae/plugins/ai/config.toml
 
 On Linux use `libai_plugin.so`; on Windows use `ai_plugin.dll`.
 
+Run these commands from the repository root. Alternatively, `make plugins`
+builds and stages this plugin with the others. See the
+[plugin overview](../README.md) for release builds, discovery, and custom
+installation directories. In Patinae, `capabilities plugins` and `help ai`
+confirm that the command is available.
+
 Edit `config.toml` with your complete Responses API endpoint and a model that
 supports function calling and image input:
 
@@ -87,3 +93,23 @@ resources, prompts, legacy HTTP+SSE and interactive OAuth login are not supporte
 - There is no conversation history between requests or streaming text output.
   Command activity appears in INFO logs; the REPL shows the final answer or error.
   MCP call logs include the server, original tool name and model alias.
+
+## Troubleshooting
+
+- If `ai` is missing, check the plugin directory and startup log, then restart
+  Patinae after rebuilding the host and plugin from the same revision.
+- If configuration cannot be opened, create `ai/config.toml` under the effective
+  plugin directory. The library build does not install the example configuration.
+- If authentication fails, check that the configured key environment variable is
+  visible to the Patinae process. A key stored directly in the file takes precedence.
+- Use the complete Responses endpoint URL, including its path. The model endpoint
+  does not accept query parameters; MCP server URLs do.
+- For a stalled request, inspect `ai status` and use `ai cancel` before retrying.
+  Cancellation does not undo commands already applied to the scene.
+
+## Source
+
+[lib.rs](src/lib.rs) registers the command and manages host tasks;
+[worker.rs](src/worker.rs) runs the agent loop; [config.rs](src/config.rs)
+validates configuration; [mcp.rs](src/mcp.rs) connects MCP tools; and
+[screenshot.rs](src/screenshot.rs) prepares scene images.
