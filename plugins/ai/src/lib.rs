@@ -1,6 +1,7 @@
 //! Minimal AI agent: model work stays in a worker, task ownership stays in Patinae.
 
 mod config;
+mod mcp;
 mod screenshot;
 mod worker;
 
@@ -362,11 +363,12 @@ mod tests {
         std::fs::create_dir(root.path().join("ai")).unwrap();
         let _environment = TestEnvironment::new(root.path());
         let server = Server::new();
+        let mcp_server = Server::mcp();
         std::fs::write(
             root.path().join("ai/config.toml"),
             format!(
-                "endpoint = {:?}\nmodel = 'fixture'\napi_key = 'fixture-key'\nmax_steps = 8\ntimeout_seconds = 5\n",
-                server.endpoint
+                "endpoint = {:?}\nmodel = 'fixture'\napi_key = 'fixture-key'\nmax_steps = 10\ntimeout_seconds = 5\n[mcp_servers.fixture]\nurl = {:?}\nheaders = {{ Authorization = 'Bearer mcp-fixture-key' }}\n",
+                server.endpoint, mcp_server.endpoint
             ),
         ).unwrap();
         let mut kernel = AppKernel::new();
@@ -383,6 +385,8 @@ mod tests {
         assert_eq!(context["request"], "inspect; preserve # literally");
         assert_eq!(request["tools"][0]["name"], "command");
         assert_eq!(request["tools"][1]["name"], "capture_scene");
+        assert_eq!(request["tools"][2]["name"], "mcp_fixture_1");
+        assert_eq!(request["tools"][2]["strict"], false);
 
         let calls = tool_calls(&["fixture_partial_write".into(), "bg_color blue".into()]);
         kernel.output.clear();
@@ -424,6 +428,51 @@ mod tests {
         assert_eq!(image.dimensions(), (2, 1));
         assert_eq!(image.as_raw(), &pixels);
         assert!(kernel.output.buffer.is_empty());
+
+        server.reply(json!({"status": "completed", "output": [
+            {"type": "function_call", "call_id": "mcp_failure", "name": "mcp_fixture_1", "arguments": "{\"fail\":true}"},
+            {"type": "function_call", "call_id": "skipped", "name": "command", "arguments": "{\"command\":\"bg_color red\"}"}
+        ]}));
+        let request = receive(&server, &mut host, &mut kernel);
+        let results = feedback(&request);
+        assert_eq!(results[results.len() - 2]["ok"], false);
+        assert_eq!(
+            results.last().unwrap()["error"]["code"],
+            "skipped_after_error"
+        );
+        assert_eq!(kernel.session.clear_color, [0.0, 0.0, 1.0]);
+        server.reply(json!({"status": "completed", "output": [
+            {"type": "function_call", "call_id": "mcp_success", "name": "mcp_fixture_1", "arguments": "{\"query\":\"structure\"}"}
+        ]}));
+        let request = receive(&server, &mut host, &mut kernel);
+        let results = feedback(&request);
+        let result = results.last().unwrap();
+        assert_eq!(result["ok"], true);
+        assert_eq!(result["result"]["structuredContent"]["query"], "structure");
+        assert_eq!(result["result"]["content"][0]["text"], "MCP fixture result");
+
+        // A malformed command after MCP output must be correctable without
+        // executing valid commands before or after it in the same response.
+        server.reply(json!({"status": "completed", "output": [
+            {"type": "function_call", "call_id": "before_invalid", "name": "command", "arguments": "{\"command\":\"bg_color red\"}"},
+            {"type": "function_call", "call_id": "invalid", "name": "command", "arguments": "{\"code\":\"print('fixture')\"}"},
+            {"type": "function_call", "call_id": "after_invalid", "name": "command", "arguments": "{\"command\":\"bg_color green\"}"}
+        ]}));
+        let request = receive(&server, &mut host, &mut kernel);
+        let results = feedback(&request);
+        let results = &results[results.len() - 3..];
+        assert_eq!(results[0]["error"]["code"], "skipped_invalid_arguments");
+        assert_eq!(results[1]["error"]["code"], "invalid_tool_arguments");
+        assert_eq!(results[2]["error"]["code"], "skipped_invalid_arguments");
+        assert_eq!(kernel.session.clear_color, [0.0, 0.0, 1.0]);
+        assert_eq!(
+            request["input"].as_array().unwrap().last().unwrap()["call_id"],
+            "after_invalid"
+        );
+        server.reply(tool_calls(&["bg_color green".into()]));
+        let request = receive(&server, &mut host, &mut kernel);
+        assert_eq!(feedback(&request).last().unwrap()["ok"], true);
+        assert_eq!(kernel.session.clear_color, [0.0, 1.0, 0.0]);
         server.reply(answer("Done"));
         let outcome = finish(task, &mut host, &mut kernel);
         assert_eq!(outcome.state, TaskState::Succeeded);
@@ -599,8 +648,19 @@ mod tests {
     }
     impl Server {
         fn new() -> Self {
+            Self::start(false)
+        }
+        fn mcp() -> Self {
+            Self::start(true)
+        }
+        fn start(mcp: bool) -> Self {
             let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-            let endpoint = format!("http://{}/v1/responses", listener.local_addr().unwrap());
+            let path = if mcp {
+                "/mcp?api_key=fixture-query&option=foo%2Fbar"
+            } else {
+                "/v1/responses"
+            };
+            let endpoint = format!("http://{}{path}", listener.local_addr().unwrap());
             listener.set_nonblocking(true).unwrap();
             let (request_tx, requests) = mpsc::channel();
             let (responses, response_rx) = mpsc::channel::<Value>();
@@ -627,11 +687,22 @@ mod tests {
                         bytes.push(byte[0]);
                     }
                     let header = String::from_utf8(bytes).unwrap();
-                    assert!(header.starts_with("POST /v1/responses HTTP/1.1\r\n"));
+                    if mcp && !header.starts_with("POST ") {
+                        let _ = write!(socket, "HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                        continue;
+                    }
+                    // Query parameters, including their escaping, survive config
+                    // validation and every MCP initialization/discovery/tool POST.
+                    assert!(header.starts_with(&format!("POST {path} HTTP/1.1\r\n")));
                     assert!(header.lines().any(|line| {
                         line.split_once(':').is_some_and(|(name, value)| {
                             name.eq_ignore_ascii_case("authorization")
-                                && value.trim() == "Bearer fixture-key"
+                                && value.trim()
+                                    == if mcp {
+                                        "Bearer mcp-fixture-key"
+                                    } else {
+                                        "Bearer fixture-key"
+                                    }
                         })
                     }));
                     let length: usize = header
@@ -644,6 +715,35 @@ mod tests {
                         .unwrap();
                     let mut body = vec![0; length];
                     socket.read_exact(&mut body).unwrap();
+                    if mcp {
+                        let request: Value = serde_json::from_slice(&body).unwrap();
+                        let result = match request["method"].as_str().unwrap() {
+                            "initialize" => {
+                                json!({"protocolVersion": request["params"]["protocolVersion"],
+                                "capabilities": {"tools": {}}, "serverInfo": {"name": "http-fixture", "version": "1"}})
+                            }
+                            "notifications/initialized" => {
+                                let _ = write!(socket, "HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                                continue;
+                            }
+                            "tools/list" => {
+                                json!({"tools": [{"name": "lookup", "description": "Look up fixture data",
+                                "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}, "fail": {"type": "boolean"}}}}]})
+                            }
+                            "tools/call" => {
+                                assert_eq!(request["params"]["name"], "lookup");
+                                json!({"content": [{"type": "text", "text": "MCP fixture result"}],
+                                    "structuredContent": request["params"]["arguments"],
+                                    "isError": request["params"]["arguments"]["fail"] == true})
+                            }
+                            method => panic!("unexpected MCP method: {method}"),
+                        };
+                        let response =
+                            json!({"jsonrpc": "2.0", "id": request["id"], "result": result})
+                                .to_string();
+                        let _ = write!(socket, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", response.len(), response);
+                        continue;
+                    }
                     if request_tx
                         .send(serde_json::from_slice(&body).unwrap())
                         .is_err()

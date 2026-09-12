@@ -14,3 +14,18 @@ api_key_env = "OPENAI_API_KEY"
 max_steps = 24
 # Per HTTP request, including body download. Host child tasks have no timeout.
 timeout_seconds = 120
+
+# Optional MCP servers. Each entry uses either command (stdio) or url
+# (Streamable HTTP). Keep these tables after the top-level settings above.
+# [mcp_servers.local]
+# command = "/absolute/path/to/mcp-server"
+# args = ["--stdio"]
+# cwd = "/absolute/path/to/working-directory"
+# env = { API_KEY = "your-server-key" }
+
+# [mcp_servers.remote]
+# url = "https://mcp.example.com/mcp"
+# Query parameters in the provider's MCP URL are supported and passed unchanged.
+# headers = { Authorization = "Bearer your-server-token" }
+# Alternatively, read a complete header value from an environment variable:
+# env_headers = { Authorization = "MCP_AUTHORIZATION" }

@@ -16,8 +16,9 @@ patinae-settings.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 rustls.workspace = true
-tokio = { workspace = true, features = ["macros", "net"] }
+tokio = { workspace = true, features = ["macros", "net", "process", "io-util"] }
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"] }
+rmcp = { version = "3.3", default-features = false, features = ["client", "transport-async-rw", "transport-streamable-http-client-reqwest"] }
 toml = "1.1"
 base64 = "0.22"
 image.workspace = true

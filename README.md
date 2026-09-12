@@ -49,7 +49,7 @@ stack.
 | --- | --- |
 | **Rendering** | WebGPU via `wgpu`, GPU impostors, compute-heavy pipelines, native and web targets |
 | **Workflow** | Interactive command line, object panel, sequence viewer, picking, measurements, sessions |
-| **Extensibility** | Rust plugin SDK, Python plugin, Python package, reusable crates |
+| **Extensibility** | Rust plugin SDK, AI and Python plugins, Python package, reusable crates |
 | **Architecture** | Independent `patinae-*` crates with explicit renderer, scene, command, IO, session, and plugin boundaries |
 | **Portability** | Native desktop app, Python/Jupyter package, and WebAssembly/WebGPU viewer |
 
@@ -308,6 +308,7 @@ Plugins are compiled as dynamic libraries (`.dylib` on macOS, `.so` on Linux,
 | **raytracer** | `raytracer-plugin` | GPU ray tracing with BVH acceleration, shadows, transparency, and edge detection |
 | **ipc** | `ipc-plugin` | Inter-process communication plugin for external tool integration |
 | **python** | `python-plugin` | Embedded CPython interpreter for scripting inside the native app |
+| **[ai](plugins/ai/README.md)** | `ai-plugin` | Natural-language commands, scene image inspection, and MCP tools through a configurable Responses API endpoint |
 
 Build and stage the reference plugins:
 

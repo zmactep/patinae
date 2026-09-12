@@ -2,11 +2,17 @@
 
 use patinae_plugin::tasks::TaskError;
 use serde::Deserialize;
-use std::{path::Path, time::Duration};
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 // Bound configuration reads and runaway agent loops independently of host limits.
 const MAX_CONFIG_BYTES: u64 = 64 * 1024;
 const MAX_STEPS: usize = 128;
+// Keep startup and model tool discovery bounded when several servers are configured.
+const MAX_MCP_SERVERS: usize = 16;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -20,6 +26,132 @@ pub(crate) struct Config {
     pub max_steps: usize,
     #[serde(default = "default_timeout")]
     pub timeout_seconds: u64,
+    #[serde(default)]
+    pub mcp_servers: BTreeMap<String, McpServerConfig>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct McpServerConfig {
+    pub command: Option<String>,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
+    pub cwd: Option<PathBuf>,
+    pub url: Option<String>,
+    #[serde(default)]
+    pub headers: BTreeMap<String, String>,
+    #[serde(default)]
+    pub env_headers: BTreeMap<String, String>,
+}
+
+impl McpServerConfig {
+    fn validate(&self) -> Result<(), TaskError> {
+        let invalid = || {
+            TaskError::new("configuration", "MCP server requires either command (with optional args, env, cwd) or url (with optional headers, env_headers)")
+        };
+        match (&self.command, &self.url) {
+            (Some(command), None) if !command.trim().is_empty() => {
+                if !self.headers.is_empty()
+                    || !self.env_headers.is_empty()
+                    || self
+                        .env
+                        .keys()
+                        .any(|name| name.is_empty() || name.contains(['=', '\0']))
+                {
+                    return Err(invalid());
+                }
+            }
+            (None, Some(url)) => {
+                if !self.args.is_empty() || !self.env.is_empty() || self.cwd.is_some() {
+                    return Err(invalid());
+                }
+                validate_http_url(url)?;
+                self.http_headers()?;
+            }
+            _ => return Err(invalid()),
+        }
+        Ok(())
+    }
+
+    pub fn http_headers(
+        &self,
+    ) -> Result<
+        std::collections::HashMap<reqwest::header::HeaderName, reqwest::header::HeaderValue>,
+        TaskError,
+    > {
+        let mut headers = std::collections::HashMap::new();
+        for (name, source) in self
+            .headers
+            .iter()
+            .map(|(name, value)| (name, Ok(value.clone())))
+            .chain(
+                self.env_headers
+                    .iter()
+                    .map(|(name, variable)| (name, std::env::var(variable))),
+            )
+        {
+            let name = reqwest::header::HeaderName::from_bytes(name.as_bytes())
+                .map_err(|_| TaskError::new("configuration", "invalid MCP HTTP header name"))?;
+            // Protocol headers belong to the SDK; duplicate auth headers are ambiguous.
+            if matches!(
+                name.as_str(),
+                "host"
+                    | "content-length"
+                    | "content-type"
+                    | "accept"
+                    | "connection"
+                    | "transfer-encoding"
+            ) || name.as_str().starts_with("mcp-")
+                || headers.contains_key(&name)
+            {
+                return Err(TaskError::new(
+                    "configuration",
+                    "reserved or duplicate MCP HTTP header",
+                ));
+            }
+            let value = source.map_err(|_| {
+                TaskError::new(
+                    "configuration",
+                    "MCP header environment variable is unavailable",
+                )
+            })?;
+            let mut value = reqwest::header::HeaderValue::from_str(&value)
+                .map_err(|_| TaskError::new("configuration", "invalid MCP HTTP header value"))?;
+            value.set_sensitive(true);
+            headers.insert(name, value);
+        }
+        Ok(headers)
+    }
+}
+
+fn validate_endpoint(endpoint: &str) -> Result<(), TaskError> {
+    let url = validate_http_url(endpoint)?;
+    if url.query().is_some() {
+        return Err(TaskError::new(
+            "configuration",
+            "AI endpoint must not contain query parameters",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_http_url(endpoint: &str) -> Result<reqwest::Url, TaskError> {
+    let url = reqwest::Url::parse(endpoint)
+        .map_err(|_| TaskError::new("configuration", "invalid endpoint URL"))?;
+    let loopback = matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"));
+    if !(url.scheme() == "https" || url.scheme() == "http" && loopback)
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.fragment().is_some()
+    {
+        return Err(TaskError::new(
+            "configuration",
+            "endpoint requires HTTPS (HTTP allowed on loopback), without URL userinfo or fragment",
+        ));
+    }
+    Ok(url)
 }
 
 fn default_key_env() -> String {
@@ -66,17 +198,7 @@ impl Config {
     }
 
     fn validate(&self) -> Result<(), TaskError> {
-        let url = reqwest::Url::parse(&self.endpoint)
-            .map_err(|_| TaskError::new("configuration", "invalid endpoint URL"))?;
-        let loopback = matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"));
-        if !(url.scheme() == "https" || url.scheme() == "http" && loopback)
-            || !url.username().is_empty()
-            || url.password().is_some()
-            || url.query().is_some()
-            || url.fragment().is_some()
-        {
-            return Err(TaskError::new("configuration", "endpoint requires HTTPS (HTTP allowed on loopback), without credentials, query or fragment"));
-        }
+        validate_endpoint(&self.endpoint)?;
         if self.model.trim().is_empty()
             || !(1..=MAX_STEPS).contains(&self.max_steps)
             || !(1..=600).contains(&self.timeout_seconds)
@@ -85,6 +207,25 @@ impl Config {
                 "configuration",
                 "set model, max_steps (1..128), and timeout_seconds (1..600)",
             ));
+        }
+        if self.mcp_servers.len() > MAX_MCP_SERVERS {
+            return Err(TaskError::new(
+                "configuration",
+                "too many MCP servers (maximum 16)",
+            ));
+        }
+        for (name, server) in &self.mcp_servers {
+            if name.is_empty()
+                || name.len() > 32
+                || !name
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+            {
+                return Err(TaskError::new("configuration", "MCP server names must contain 1..32 ASCII letters, digits, underscores or hyphens"));
+            }
+            server.validate().map_err(|error| {
+                TaskError::new(error.code, format!("MCP server {name}: {}", error.message))
+            })?;
         }
         Ok(())
     }
@@ -132,6 +273,7 @@ mod tests {
             api_key_env: String::new(),
             max_steps: 24,
             timeout_seconds: 120,
+            mcp_servers: BTreeMap::new(),
         };
         assert!(config.validate().is_ok());
         for endpoint in [
@@ -204,5 +346,57 @@ mod tests {
         assert!(config.api_key().is_err());
         config.api_key_env.clear();
         assert_eq!(config.api_key().unwrap(), None);
+    }
+
+    #[test]
+    fn mcp_config_accepts_transports_and_rejects_ambiguous_or_secret_bearing_errors() {
+        for server in [
+            "command = 'server'\nargs = ['--stdio']\nenv = { TOKEN = 'fixture' }\ncwd = 'tools'",
+            "url = 'https://example.com/mcp'\nheaders = { Authorization = 'Bearer fixture' }",
+            "url = 'https://example.com/mcp?api_key=private-token&option=foo%2Fbar'",
+        ] {
+            let source = format!(
+                "{}\n[mcp_servers.fixture]\n{server}",
+                include_str!("../config.example.toml")
+            );
+            let config: Config = toml::from_str(&source).unwrap();
+            config.validate().unwrap();
+        }
+        for server in [
+            "command = 'server'\nurl = 'https://example.com/mcp'",
+            "command = ''", "args = ['--stdio']",
+            "command = 'server'\nheaders = { Authorization = 'private-token' }",
+            "url = 'https://example.com/mcp'\ncwd = 'tools'",
+            "url = 'http://example.com/mcp'",
+            "url = 'https://example.com/mcp?key=private-token#fragment'",
+            "url = 'https://example.com/mcp'\nheaders = { Host = 'private-token' }",
+            "url = 'https://example.com/mcp'\nheaders = { Authorization = 'private-token', authorization = 'private-token' }",
+            "url = 'https://example.com/mcp'\nenv_headers = { Authorization = 'INVALID=ENV' }",
+        ] {
+            let config: McpServerConfig = toml::from_str(server).unwrap();
+            let error = config.validate().unwrap_err();
+            assert!(!error.message.contains("private-token"));
+        }
+        let config: McpServerConfig =
+            toml::from_str("url = 'https://example.com/mcp'\nenv_headers = { 'X-Test' = 'PATH' }")
+                .unwrap();
+        assert_eq!(
+            config.http_headers().unwrap()[&reqwest::header::HeaderName::from_static("x-test")]
+                .to_str()
+                .unwrap(),
+            std::env::var("PATH").unwrap()
+        );
+    }
+
+    #[test]
+    fn mcp_url_errors_identify_server_without_exposing_url_or_query_values() {
+        let config: Config = toml::from_str(&format!(
+            "{}\n[mcp_servers.remote]\nurl = 'https://private-host.example/mcp?key=private-token#fragment'",
+            include_str!("../config.example.toml")
+        )).unwrap();
+        let error = config.validate().unwrap_err();
+        assert!(error.message.starts_with("MCP server remote:"));
+        assert!(!error.message.contains("private-host"));
+        assert!(!error.message.contains("private-token"));
     }
 }
