@@ -4124,6 +4124,7 @@ dependencies = [
  "patinae-select",
  "patinae-settings",
  "pollster",
+ "pulldown-cmark",
  "raw-window-handle",
  "serde",
  "serde_json",

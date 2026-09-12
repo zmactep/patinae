@@ -55,6 +55,20 @@
 }
 
 .repl-line { white-space: pre-wrap; word-break: break-all; }
+.repl-markdown { white-space: normal; overflow-wrap: anywhere; word-break: normal; }
+.repl-markdown > :first-child { margin-top: 0; }
+.repl-markdown > :last-child { margin-bottom: 0; }
+.repl-markdown p, .repl-markdown ul, .repl-markdown ol { margin: .5em 0; }
+.repl-markdown h1, .repl-markdown h2, .repl-markdown h3 { margin: .8em 0 .4em; }
+.repl-markdown h1 { font-size: 1.5em; }
+.repl-markdown h2 { font-size: 1.3em; }
+.repl-markdown h3 { font-size: 1.15em; }
+.repl-markdown pre { padding: .6em; background: #ffffff08; overflow-x: auto; white-space: pre; }
+.repl-markdown code { font-family: monospace; }
+.repl-markdown blockquote { margin: .5em 0; padding-left: .8em; border-left: 2px solid currentColor; }
+.repl-markdown table { display: block; overflow-x: auto; border-collapse: collapse; }
+.repl-markdown th, .repl-markdown td { padding: .3em .6em; border: 1px solid #ffffff30; }
+.repl-markdown a { color: inherit; text-decoration: underline; }
 .repl-cmd { color: var(--patinae-cmd); }
 .repl-info { color: var(--patinae-info); }
 .repl-warning { color: var(--patinae-warn); }

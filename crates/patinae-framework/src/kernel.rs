@@ -7,8 +7,7 @@
 use lin_alg::f32::Vec3;
 use patinae_cmd::{
     AnnotationOutcome, AnnotationRequest, AsyncCommandAcceptance, AsyncCommandRequest, CmdError,
-    CommandAction, CommandExecution, CommandExecutor, CommandOutput, FetchRequest, MessageKind,
-    ViewerLike,
+    CommandAction, CommandExecution, CommandExecutor, CommandOutput, FetchRequest, ViewerLike,
 };
 use patinae_scene::{
     AnimationUpdate, CameraDelta, CaptureRenderer, Session, SessionAdapter, ViewportImage,
@@ -270,11 +269,7 @@ impl AppKernel {
                 if quiet && capture_output {
                     continue;
                 }
-                match msg.kind {
-                    MessageKind::Info => self.output.print_info(&msg.text),
-                    MessageKind::Warning => self.output.print_warning(&msg.text),
-                    MessageKind::Error => self.output.print_error(&msg.text),
-                }
+                self.output.add(msg.clone().into());
             }
         }
         match &execution.result {
@@ -721,6 +716,14 @@ impl AppKernel {
                 }
                 AppMessage::RequestRedraw => {
                     self.needs_redraw = true;
+                }
+                AppMessage::PrintOutput(message) => {
+                    match message.kind {
+                        patinae_cmd::MessageKind::Info => log::info!("{}", message.text),
+                        patinae_cmd::MessageKind::Warning => log::warn!("{}", message.text),
+                        patinae_cmd::MessageKind::Error => log::error!("{}", message.text),
+                    }
+                    self.output.add(message.into());
                 }
                 AppMessage::PrintInfo(s) => {
                     log::info!("{}", s);
@@ -1619,6 +1622,23 @@ mod tests {
 
         assert!(unhandled.is_empty());
         assert!(kernel.output.buffer.is_empty());
+    }
+
+    #[test]
+    fn bus_preserves_markdown_format_and_severity() {
+        let mut kernel = AppKernel::new();
+        kernel.bus.print_markdown("# Heading");
+        kernel.bus.print_info("**literal**");
+        kernel.bus.print_message(
+            patinae_cmd::OutputMessage::warning("**warning**")
+                .with_format(patinae_cmd::OutputFormat::Markdown),
+        );
+        assert!(kernel.process_messages(None, (800, 600)).is_empty());
+        let messages: Vec<_> = kernel.output.buffer.iter().collect();
+        assert_eq!(messages[0].format, patinae_cmd::OutputFormat::Markdown);
+        assert_eq!(messages[1].format, patinae_cmd::OutputFormat::Text);
+        assert_eq!(messages[2].kind, crate::model::output::OutputKind::Warning);
+        assert_eq!(messages[2].format, patinae_cmd::OutputFormat::Markdown);
     }
 
     #[test]

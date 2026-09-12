@@ -258,9 +258,29 @@ Useful command helpers:
 | --- | --- |
 | Positional strings, integers, floats, booleans | `get_str`, `get_int`, `get_float`, `get_bool` |
 | Named strings, integers, floats, booleans | `get_named_str`, `get_named_int`, `get_named_float`, `get_named_bool` |
-| Output messages | `CommandContext::print`, `print_warning`, `print_error` |
+| Output messages | `CommandContext::print`, `print_warning`, `print_error`, `print_markdown`, `print_message` |
 | Host actions | `show_panel`, `hide_panel`, `clear_output`, `quit`, `record_recent_file` |
 | Viewer access | `ctx.viewer`, a `ViewerLike` handle |
+
+Output is plain text by default. Opt into Markdown for an individual message:
+
+```rust
+ctx.print_markdown("# Result\n\n**Done**. Use `zoom` to inspect the scene.");
+ctx.print_message(OutputMessage::warning("**Check** the selection.")
+    .with_format(OutputFormat::Markdown));
+```
+
+Poll handlers can use `ctx.bus.print_markdown(answer)` or
+`ctx.bus.print_message(message)`. Existing print methods keep literal text.
+The serialized message adds `"format": "text" | "markdown"`; an omitted field
+reads as `text`. Source text and format survive command receipts and plugin
+polling unchanged, including silent commands whose receipts still contain output.
+
+The desktop REPL renders headings, emphasis, lists and code; unsupported inline
+constructs fall back to readable text within their block. Tables use a compact
+monospace layout. Web REPL renders sanitized Markdown HTML. Images are not loaded.
+The AI plugin opts into Markdown for its final answer. Runtime wire version 21
+requires rebuilding the host and dynamic plugins together.
 
 Commands use `ArgumentSyntax::Pml` by default. If your command interprets its
 own language, override `Command::argument_syntax()` to return

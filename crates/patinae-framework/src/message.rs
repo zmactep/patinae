@@ -34,6 +34,8 @@ pub enum AppMessage {
     PrintTiming(String),
     /// Clear the output log.
     PrintClear,
+    /// Print a typed message with an explicit presentation format.
+    PrintOutput(patinae_cmd::OutputMessage),
 
     /// Record a file opened successfully by a command.
     RecordRecentFile { path: String, command: String },
@@ -167,6 +169,16 @@ impl MessageBus {
             command: cmd.into(),
             silent: true,
         });
+    }
+
+    /// Send a typed output message with its format and severity.
+    pub fn print_message(&mut self, message: patinae_cmd::OutputMessage) {
+        self.send(AppMessage::PrintOutput(message));
+    }
+
+    /// Print an informational Markdown message.
+    pub fn print_markdown(&mut self, msg: impl Into<String>) {
+        self.print_message(patinae_cmd::OutputMessage::markdown(msg));
     }
 
     /// Send a `PrintInfo` message.

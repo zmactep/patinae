@@ -13,7 +13,7 @@ use wgpu::util::DeviceExt;
 use patinae_cmd::{
     ArgHint, CmdError, CmdResult, Command, CommandAction, CommandContext, CommandExecutor,
     CommandRuntimeRequirements, DynamicSettingRegistry, FormatHandler, LoadedPluginCapability,
-    MessageKind, ParsedCommand, PluginReaderFn, PluginWriterFn, ScriptHandler,
+    ParsedCommand, PluginReaderFn, PluginWriterFn, ScriptHandler,
 };
 use patinae_framework::component::SharedContext;
 use patinae_framework::message::{AppMessage, MessageBus};
@@ -5645,11 +5645,7 @@ fn apply_output_message<V: ViewerLike + ?Sized>(
     ctx: &mut CommandContext<'_, '_, V>,
     message: patinae_cmd::OutputMessage,
 ) {
-    match message.kind {
-        MessageKind::Info => ctx.print(&message.text),
-        MessageKind::Warning => ctx.print_warning(&message.text),
-        MessageKind::Error => ctx.print_error(&message.text),
-    }
+    ctx.print_message(message);
 }
 
 fn apply_command_action<V: ViewerLike + ?Sized>(

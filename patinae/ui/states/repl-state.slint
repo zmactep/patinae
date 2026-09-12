@@ -2,7 +2,11 @@
 
 export struct OutputItem {
     /// The message text.
-    text: string,
+    text: styled-text,
+    plain-text: string,
+    markdown: bool,
+    heading-level: int,
+    code-block: bool,
     /// Kind discriminator: "normal" | "info" | "warning" | "error" | "command" | "timing".
     kind: string,
     /// Whether to show the leading icon (false for continuation lines of the same kind).
@@ -19,6 +23,7 @@ export struct CompletionItem {
 }
 
 export global ReplState {
+    callback open-link(string);
     // ── Properties (Rust <-> Slint) ──
     in-out property <string> input-text: "";
     in-out property <bool> focused: false;

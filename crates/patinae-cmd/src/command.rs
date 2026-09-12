@@ -365,6 +365,17 @@ pub enum MessageKind {
     Error,
 }
 
+/// Presentation format for output text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OutputFormat {
+    /// Display the text literally.
+    #[default]
+    Text,
+    /// Render Markdown markup.
+    Markdown,
+}
+
 /// A typed output message from command execution
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutputMessage {
@@ -372,14 +383,30 @@ pub struct OutputMessage {
     pub text: String,
     /// The message kind (info, warning, error)
     pub kind: MessageKind,
+    /// Presentation format; omitted input defaults to plain text.
+    #[serde(default)]
+    pub format: OutputFormat,
 }
 
 impl OutputMessage {
+    /// Set the presentation format while preserving the message kind.
+    #[must_use]
+    pub fn with_format(mut self, format: OutputFormat) -> Self {
+        self.format = format;
+        self
+    }
+
+    /// Create an informational Markdown message.
+    pub fn markdown(text: impl Into<String>) -> Self {
+        Self::info(text).with_format(OutputFormat::Markdown)
+    }
+
     /// Create an info message
     pub fn info(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
             kind: MessageKind::Info,
+            format: OutputFormat::Text,
         }
     }
 
@@ -388,6 +415,7 @@ impl OutputMessage {
         Self {
             text: text.into(),
             kind: MessageKind::Warning,
+            format: OutputFormat::Text,
         }
     }
 
@@ -396,6 +424,7 @@ impl OutputMessage {
         Self {
             text: text.into(),
             kind: MessageKind::Error,
+            format: OutputFormat::Text,
         }
     }
 }
@@ -729,31 +758,42 @@ impl<'v, 'r, V: ViewerLike + ?Sized> CommandContext<'v, 'r, V> {
         std::mem::take(&mut self.task_ids)
     }
 
+    /// Print a typed message, preserving its format and quiet-mode behavior.
+    pub fn print_message(&mut self, message: OutputMessage) {
+        if self.quiet && message.kind != MessageKind::Error {
+            return;
+        }
+        match message.kind {
+            MessageKind::Info => log::info!("{}", message.text),
+            MessageKind::Warning => log::warn!("{}", message.text),
+            MessageKind::Error => log::error!("{}", message.text),
+        }
+        self.output_buffer.push(message);
+    }
+
+    /// Print Markdown unless quiet mode is enabled.
+    pub fn print_markdown(&mut self, msg: &str) {
+        self.print_message(OutputMessage::markdown(msg));
+    }
+
     /// Print an info message (unless quiet mode is enabled)
     ///
     /// The message is both logged and collected in the output buffer
     /// for retrieval by the GUI.
     pub fn print(&mut self, msg: &str) {
-        if !self.quiet {
-            log::info!("{}", msg);
-            self.output_buffer.push(OutputMessage::info(msg));
-        }
+        self.print_message(OutputMessage::info(msg));
     }
 
     /// Print a warning message (unless quiet mode is enabled)
     pub fn print_warning(&mut self, msg: &str) {
-        if !self.quiet {
-            log::warn!("{}", msg);
-            self.output_buffer.push(OutputMessage::warning(msg));
-        }
+        self.print_message(OutputMessage::warning(msg));
     }
 
     /// Print an error message (even in quiet mode)
     ///
     /// Error messages are always shown regardless of quiet mode.
     pub fn print_error(&mut self, msg: &str) {
-        log::error!("{}", msg);
-        self.output_buffer.push(OutputMessage::error(msg));
+        self.print_message(OutputMessage::error(msg));
     }
 
     /// Take the collected output messages, clearing the buffer
@@ -1337,6 +1377,21 @@ mod tests {
 
     use patinae_scene::{Session, SessionAdapter};
     use patinae_settings::{registry, DynamicSettingStore, SettingType};
+
+    #[test]
+    fn output_format_defaults_to_text_and_serializes_markdown() {
+        let legacy: OutputMessage =
+            serde_json::from_str(r#"{"text":"**literal**","kind":"Info"}"#).unwrap();
+        assert_eq!(legacy.format, OutputFormat::Text);
+        assert_eq!(OutputMessage::info("text").format, OutputFormat::Text);
+        let message = OutputMessage::warning("**warning**").with_format(OutputFormat::Markdown);
+        let encoded = serde_json::to_value(&message).unwrap();
+        assert_eq!(encoded["format"], "markdown");
+        let decoded: OutputMessage = serde_json::from_value(encoded).unwrap();
+        assert_eq!(decoded.kind, MessageKind::Warning);
+        assert_eq!(decoded.format, OutputFormat::Markdown);
+        assert_eq!(decoded.text, "**warning**");
+    }
 
     struct TestCommand {
         name: String,

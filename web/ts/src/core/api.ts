@@ -171,7 +171,7 @@ export class PatinaeViewer {
   async execute(command: string): Promise<CommandOutput> {
     const result = this.core.requireWasm("execute", (wasm) => wasm.execute(command) as CommandOutput);
     this.emitCommandMessages(result.messages.map(message => ({
-      level: message.kind.toLowerCase() as OutputMessage["level"], text: message.text,
+      level: message.kind.toLowerCase() as OutputMessage["level"], text: message.text, format: message.format,
     })));
     this.refreshPanels();
     return result;

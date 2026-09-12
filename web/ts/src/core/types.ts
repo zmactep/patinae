@@ -1,8 +1,10 @@
 /** Types matching the WASM bridge serialization format. */
 
+export type OutputFormat = "text" | "markdown";
+
 export interface CommandOutput {
   result: { Ok: null } | { Err: string };
-  messages: { kind: "Info" | "Warning" | "Error"; text: string }[];
+  messages: { kind: "Info" | "Warning" | "Error"; text: string; format?: OutputFormat }[];
   task_ids: string[];
 }
 
@@ -51,6 +53,7 @@ export interface TaskChanged { id: string; revision: number; state: TaskState }
 
 export interface OutputMessage {
   level: "info" | "warning" | "error" | "clear";
+  format?: OutputFormat;
   text: string;
 }
 

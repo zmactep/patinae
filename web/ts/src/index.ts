@@ -25,6 +25,7 @@ export type {
   TaskListPage,
   TaskCancelReply,
   TaskChanged,
+  OutputFormat,
   OutputMessage,
   ObjectInfo,
   SequenceChain,

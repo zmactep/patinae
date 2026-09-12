@@ -628,6 +628,7 @@ mod tests {
                 result: Err("later command failed".into()),
                 messages: vec![patinae_plugin::prelude::OutputMessage {
                     kind: MessageKind::Warning,
+                    format: Default::default(),
                     text: "accepted before error".into(),
                 }],
                 task_ids: vec![task_id],

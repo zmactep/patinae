@@ -158,11 +158,15 @@ component ErrorIcon inherits Rectangle {
 // ── Single output line ──────────────────────────────────────────────
 
 component OutputLine inherits Rectangle {
-    in property <string> text;
+    in property <styled-text> text;
+    in property <string> plain-text;
+    in property <bool> markdown;
+    in property <int> heading-level;
+    in property <bool> code-block;
     in property <string> kind;
     in property <bool> show-icon: true;
 
-    background: kind == "command" ? Theme.bg-raised : transparent;
+    background: kind == "command" || code-block ? Theme.bg-raised : transparent;
     border-radius: kind == "command" ? Tokens.radius-sm : 0px;
     height: row.preferred-height;
 
@@ -184,18 +188,31 @@ component OutputLine inherits Rectangle {
             if root.show-icon && kind == "error": ErrorIcon { tint: Theme.error; }
         }
 
-        // Text — vertically centered by layout
-        line-text := Text {
+        if !root.markdown || root.heading-level > 0 || root.code-block: Text {
             horizontal-stretch: 1;
             vertical-alignment: center;
-            font-size: Tokens.repl-output-font;
-            font-weight: kind == "command" ? 500 : 400;
+            font-size: root.heading-level > 0 ? Tokens.repl-output-font + (7 - root.heading-level) * 1px : Tokens.repl-output-font;
+            font-weight: root.heading-level > 0 ? 700 : kind == "command" ? 500 : 400;
+            font-family: root.code-block ? "monospace" : "";
             wrap: word-wrap;
             color: kind == "command" ? Theme.text-dim
                  : kind == "timing"  ? Theme.text-ghost
                  : kind == "error"   ? Theme.error
                  : kind == "warning" ? Theme.warning
                  :                     Theme.text-muted;
+            text: root.plain-text;
+        }
+        if root.markdown && root.heading-level == 0 && !root.code-block: StyledText {
+            horizontal-stretch: 1;
+            vertical-alignment: center;
+            default-font-size: Tokens.repl-output-font;
+            default-color: kind == "command" ? Theme.text-dim
+                 : kind == "timing"  ? Theme.text-ghost
+                 : kind == "error"   ? Theme.error
+                 : kind == "warning" ? Theme.warning
+                 :                     Theme.text-muted;
+            link-color: Theme.cyan;
+            link-clicked(url) => { ReplState.open-link(url); }
             text: root.text;
         }
     }
@@ -385,6 +402,10 @@ export component ReplPill inherits Rectangle {
                     for item in ReplState.output-items: OutputLine {
                         width: parent.width - 2 * Tokens.repl-output-pad;
                         text: item.text;
+                        plain-text: item.plain-text;
+                        markdown: item.markdown;
+                        heading-level: item.heading-level;
+                        code-block: item.code-block;
                         kind: item.kind;
                         show-icon: item.show-icon;
                     }

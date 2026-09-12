@@ -137,7 +137,7 @@ impl AiHandler {
         match &outcome.status {
             TaskOutcomeStatus::Success { data: Some(data) } => {
                 if let Some(answer) = data.payload["answer"].as_str() {
-                    ctx.bus.print_info(format!("AI: {answer}"));
+                    ctx.bus.print_markdown(format!("**AI:**\n\n{answer}"));
                 }
             }
             TaskOutcomeStatus::Failure { error } => ctx
@@ -478,6 +478,10 @@ mod tests {
         assert_eq!(outcome.state, TaskState::Succeeded);
         assert!(matches!(outcome.outcome.unwrap().status,
             TaskOutcomeStatus::Success { data: Some(data) } if data.payload["answer"] == "Done"));
+
+        assert!(kernel.output.buffer.iter().any(|message| {
+            message.text == "**AI:**\n\nDone" && message.format == OutputFormat::Markdown
+        }));
 
         let pending = start(&mut kernel, "ai wait for model");
         receive(&server, &mut host, &mut kernel);

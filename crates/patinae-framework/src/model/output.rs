@@ -5,6 +5,8 @@
 
 use std::collections::VecDeque;
 
+use patinae_cmd::{MessageKind, OutputFormat};
+
 /// Maximum number of lines in the output buffer
 const MAX_OUTPUT_LINES: usize = 1000;
 
@@ -32,6 +34,8 @@ pub struct OutputMessage {
     pub text: String,
     /// Message type for coloring
     pub kind: OutputKind,
+    /// Presentation format, independent of severity.
+    pub format: OutputFormat,
 }
 
 impl OutputMessage {
@@ -40,6 +44,7 @@ impl OutputMessage {
         Self {
             text: text.into(),
             kind: OutputKind::Normal,
+            format: OutputFormat::Text,
         }
     }
 
@@ -48,6 +53,7 @@ impl OutputMessage {
         Self {
             text: text.into(),
             kind: OutputKind::Info,
+            format: OutputFormat::Text,
         }
     }
 
@@ -56,6 +62,7 @@ impl OutputMessage {
         Self {
             text: text.into(),
             kind: OutputKind::Warning,
+            format: OutputFormat::Text,
         }
     }
 
@@ -64,6 +71,7 @@ impl OutputMessage {
         Self {
             text: text.into(),
             kind: OutputKind::Error,
+            format: OutputFormat::Text,
         }
     }
 
@@ -72,6 +80,7 @@ impl OutputMessage {
         Self {
             text: text.into(),
             kind: OutputKind::Command,
+            format: OutputFormat::Text,
         }
     }
 
@@ -80,6 +89,21 @@ impl OutputMessage {
         Self {
             text: text.into(),
             kind: OutputKind::Timing,
+            format: OutputFormat::Text,
+        }
+    }
+}
+
+impl From<patinae_cmd::OutputMessage> for OutputMessage {
+    fn from(message: patinae_cmd::OutputMessage) -> Self {
+        Self {
+            text: message.text,
+            kind: match message.kind {
+                MessageKind::Info => OutputKind::Info,
+                MessageKind::Warning => OutputKind::Warning,
+                MessageKind::Error => OutputKind::Error,
+            },
+            format: message.format,
         }
     }
 }

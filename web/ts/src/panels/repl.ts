@@ -2,6 +2,9 @@
  * REPL panel — command input with history and scrollable output log.
  */
 
+import { marked } from "marked";
+import DOMPurify from "dompurify";
+
 import type { PatinaeViewer } from "../core/api.js";
 import type { OutputMessage } from "../core/types.js";
 
@@ -44,7 +47,7 @@ export class ReplPanel {
 
       const result = await this.viewer.execute(cmd);
       for (const msg of result.messages) {
-        this.appendOutputMessage({ level: msg.kind.toLowerCase() as OutputMessage["level"], text: msg.text });
+        this.appendOutputMessage({ level: msg.kind.toLowerCase() as OutputMessage["level"], text: msg.text, format: msg.format });
       }
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
@@ -69,13 +72,26 @@ export class ReplPanel {
       this.clearOutput();
       return;
     }
-    this.appendLine(message.text, message.level);
+    this.appendLine(message.text, message.level, message.format);
   }
 
-  private appendLine(text: string, level: string): void {
+  private appendLine(text: string, level: string, format = "text"): void {
     const line = document.createElement("div");
     line.className = `repl-line repl-${level}`;
-    line.textContent = text;
+    if (format === "markdown") {
+      line.classList.add("repl-markdown");
+      line.innerHTML = DOMPurify.sanitize(marked.parse(text, { async: false }), {
+        USE_PROFILES: { html: true },
+        FORBID_TAGS: ["img", "video", "audio", "iframe", "style"],
+        FORBID_ATTR: ["style"],
+      });
+      for (const link of line.querySelectorAll("a")) {
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+      }
+    } else {
+      line.textContent = text;
+    }
     this.output.appendChild(line);
     this.output.scrollTop = this.output.scrollHeight;
   }

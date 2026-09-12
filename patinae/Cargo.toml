@@ -35,6 +35,7 @@ image = { workspace = true }
 ab_glyph = { workspace = true }
 tokio = { workspace = true }
 copypasta = "0.10"
+pulldown-cmark = { version = "0.13", default-features = false }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.5"

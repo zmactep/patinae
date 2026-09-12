@@ -8,6 +8,8 @@ use patinae_framework::completion::{self, CompletionSource};
 use patinae_framework::kernel::AppKernel;
 use patinae_framework::model::output::OutputKind;
 
+mod markdown;
+
 use crate::{AppWindow, CompletionItem, OutputItem, ReplState};
 
 // ---------------------------------------------------------------------------
@@ -70,7 +72,11 @@ fn to_output_item(
     show_icon: bool,
 ) -> OutputItem {
     OutputItem {
-        text: msg.text.clone().into(),
+        text: slint::StyledText::default(),
+        plain_text: msg.text.clone().into(),
+        markdown: false,
+        heading_level: 0,
+        code_block: false,
         kind: match msg.kind {
             OutputKind::Normal => "normal",
             OutputKind::Info => "info",
@@ -92,7 +98,19 @@ fn build_output_items<'a>(
     let mut prev_kind: Option<OutputKind> = None;
     for msg in iter {
         let show_icon = should_show_icon(msg.kind, prev_kind);
-        items.push(to_output_item(msg, show_icon));
+        if msg.format == patinae_cmd::OutputFormat::Markdown {
+            for (index, block) in markdown::render(&msg.text).into_iter().enumerate() {
+                let mut item = to_output_item(msg, show_icon && index == 0);
+                item.text = block.text;
+                item.plain_text = block.plain_text.into();
+                item.markdown = true;
+                item.heading_level = block.heading_level;
+                item.code_block = block.code_block;
+                items.push(item);
+            }
+        } else {
+            items.push(to_output_item(msg, show_icon));
+        }
         prev_kind = Some(msg.kind);
     }
     items
@@ -104,6 +122,14 @@ fn build_output_items<'a>(
 
 pub fn setup_callbacks(app: Rc<RefCell<crate::app::App>>, window: &AppWindow) {
     let rs = window.global::<ReplState>();
+
+    rs.on_open_link(|url| {
+        if url.starts_with("https://") || url.starts_with("http://") {
+            if let Err(error) = webbrowser::open(url.as_str()) {
+                log::warn!("Failed to open REPL link: {error}");
+            }
+        }
+    });
 
     // --- Submit command ---
     {
@@ -353,6 +379,25 @@ fn keyboard_modifier_release_keys() -> &'static [Key] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_explicit_markdown_is_formatted() {
+        let messages = [
+            patinae_cmd::OutputMessage::info("**literal**").into(),
+            patinae_cmd::OutputMessage::markdown("# Heading\n\n**formatted**").into(),
+        ];
+        let items = build_output_items(messages.iter());
+        assert_eq!(items.len(), 3);
+        assert!(!items[0].markdown);
+        assert_eq!(items[0].plain_text, "**literal**");
+        assert!(items[1].markdown);
+        assert_eq!(items[1].heading_level, 1);
+        assert_eq!(
+            items[2].text,
+            slint::StyledText::from_markdown("**formatted**").unwrap()
+        );
+        assert!(!items[2].show_icon);
+    }
 
     #[test]
     fn modifier_reset_releases_left_and_right_modifier_keys() {

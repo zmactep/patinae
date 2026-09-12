@@ -724,6 +724,15 @@ mod command_results {
             ctx: &mut CommandContext<'v, 'r, dyn ViewerLike + 'v>,
             args: &ParsedCommand,
         ) -> CmdResult {
+            if args
+                .args
+                .first()
+                .is_some_and(|(_, value)| value.to_string() == "markdown")
+            {
+                ctx.print_markdown("# Result\n\n**formatted**");
+                ctx.print("**literal**");
+                return Ok(());
+            }
             ctx.print("first\nsecond line");
             ctx.print_warning("warning");
             ctx.print_error("diagnostic");
@@ -916,6 +925,30 @@ mod command_results {
             .iter()
             .map(|m| (m.kind, m.text.as_str()))
             .collect()
+    }
+
+    #[test]
+    fn markdown_survives_command_and_requester_abi_round_trips() {
+        for silent in [false, true] {
+            let mut h = Harness::new(false);
+            let response = h.round_trip("third_party_report markdown", silent);
+            assert!(response.result.is_ok());
+            assert_eq!(response.messages.len(), 2);
+            assert_eq!(
+                response.messages[0].format,
+                patinae_cmd::OutputFormat::Markdown
+            );
+            assert_eq!(response.messages[0].text, "# Result\n\n**formatted**");
+            assert_eq!(response.messages[1].format, patinae_cmd::OutputFormat::Text);
+            if silent {
+                assert!(h.kernel.output.buffer.is_empty());
+            } else {
+                assert!(h.kernel.output.buffer.iter().any(|message| {
+                    message.format == patinae_cmd::OutputFormat::Markdown
+                        && message.text == response.messages[0].text
+                }));
+            }
+        }
     }
 
     #[test]

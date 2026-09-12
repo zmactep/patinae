@@ -56,8 +56,8 @@ pub use command::{
     ArgHint, ArgumentSyntax, AsyncCommandAcceptance, AsyncCommandRequest, AsyncCommandSink,
     Command, CommandAction, CommandContext, CommandRegistry, CommandRuntimeRequirements,
     CommandSource, DynamicSettingEntry, DynamicSettingRegistry, FetchFormatCode, FetchRequest,
-    FormatHandler, LoadedPluginCapability, MessageKind, OutputMessage, PluginReaderFn,
-    PluginTaskRequest, PluginWriterFn, ScriptHandler, TaskInvocation, ViewerLike,
+    FormatHandler, LoadedPluginCapability, MessageKind, OutputFormat, OutputMessage,
+    PluginReaderFn, PluginTaskRequest, PluginWriterFn, ScriptHandler, TaskInvocation, ViewerLike,
 };
 #[doc(inline)]
 pub use commands::display::{
@@ -130,8 +130,8 @@ pub mod prelude {
     pub use crate::command::{
         ArgHint, AsyncCommandRequest, AsyncCommandSink, Command, CommandAction, CommandContext,
         CommandRegistry, CommandRuntimeRequirements, CommandSource, FetchFormatCode, FetchRequest,
-        FormatHandler, LoadedPluginCapability, MessageKind, OutputMessage, PluginReaderFn,
-        PluginWriterFn, ScriptHandler, ViewerLike,
+        FormatHandler, LoadedPluginCapability, MessageKind, OutputFormat, OutputMessage,
+        PluginReaderFn, PluginWriterFn, ScriptHandler, ViewerLike,
     };
     pub use crate::error::{CmdError, CmdResult};
     pub use crate::executor::CommandExecutor;

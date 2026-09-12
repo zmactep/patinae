@@ -34,7 +34,7 @@ use patinae_settings::{
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 /// Runtime wire version for MessagePack DTOs.
-pub const RUNTIME_WIRE_VERSION: u32 = 20;
+pub const RUNTIME_WIRE_VERSION: u32 = 21;
 
 /// Maximum MessagePack payload copied across the runtime ABI.
 pub const MAX_WIRE_PAYLOAD_LEN: usize = 64 * 1024 * 1024;
@@ -1317,7 +1317,7 @@ mod tests {
             decoded.recent_atoms.paths().collect::<Vec<_>>(),
             paths.iter().map(String::as_str).collect::<Vec<_>>()
         );
-        assert_eq!(RUNTIME_WIRE_VERSION, 20);
+        assert_eq!(RUNTIME_WIRE_VERSION, 21);
     }
 
     #[test]

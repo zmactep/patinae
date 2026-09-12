@@ -72,7 +72,7 @@ pub mod prelude {
     pub use patinae_cmd::command_help;
     pub use patinae_cmd::{
         ArgHint, CmdError, CmdResult, Command, CommandContext, CommandRuntimeRequirements,
-        MessageKind, OutputMessage, ParsedCommand, ViewerLike,
+        MessageKind, OutputFormat, OutputMessage, ParsedCommand, ViewerLike,
     };
 
     // Domain types
