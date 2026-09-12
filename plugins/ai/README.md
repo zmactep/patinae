@@ -34,10 +34,17 @@ Patinae must be built from matching SDK versions. Restart Patinae after installi
 
 Edit `config.toml` to set the **complete** Responses endpoint URL (normally
 `https://api.openai.com/v1/responses`) and a model that supports function tool
-calls and image input. For a hosted endpoint, use HTTPS and set `api_key_env` to the
-name of the environment variable containing its key. That variable must be in the
-Patinae process environment. For a local server without authentication, set
-`api_key_env = ""`. No credentials are embedded in the plugin or example.
+calls and image input. For a hosted endpoint, use HTTPS and set the key directly:
+
+```toml
+api_key = "your-api-key"
+```
+
+Alternatively, set `api_key_env` to the name of the environment variable containing
+the key (defaults to `OPENAI_API_KEY`). That variable must be in the Patinae process
+environment. When present, `api_key` takes precedence over `api_key_env`; an empty
+or whitespace-only key is rejected. For a local server without authentication,
+omit `api_key` and set `api_key_env = ""`.
 
 The default configuration path is `~/.patinae/plugins/ai/config.toml`.
 `PATINAE_CONFIG_DIR` changes the base configuration directory;

@@ -365,7 +365,7 @@ mod tests {
         std::fs::write(
             root.path().join("ai/config.toml"),
             format!(
-                "endpoint = {:?}\nmodel = 'fixture'\napi_key_env = ''\nmax_steps = 8\ntimeout_seconds = 5\n",
+                "endpoint = {:?}\nmodel = 'fixture'\napi_key = 'fixture-key'\nmax_steps = 8\ntimeout_seconds = 5\n",
                 server.endpoint
             ),
         ).unwrap();
@@ -628,6 +628,12 @@ mod tests {
                     }
                     let header = String::from_utf8(bytes).unwrap();
                     assert!(header.starts_with("POST /v1/responses HTTP/1.1\r\n"));
+                    assert!(header.lines().any(|line| {
+                        line.split_once(':').is_some_and(|(name, value)| {
+                            name.eq_ignore_ascii_case("authorization")
+                                && value.trim() == "Bearer fixture-key"
+                        })
+                    }));
                     let length: usize = header
                         .lines()
                         .find_map(|line| {

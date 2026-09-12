@@ -13,6 +13,7 @@ const MAX_STEPS: usize = 128;
 pub(crate) struct Config {
     pub endpoint: String,
     pub model: String,
+    pub api_key: Option<String>,
     #[serde(default = "default_key_env")]
     pub api_key_env: String,
     #[serde(default = "default_steps")]
@@ -93,6 +94,12 @@ impl Config {
     }
 
     pub fn api_key(&self) -> Result<Option<String>, TaskError> {
+        if let Some(key) = &self.api_key {
+            if key.trim().is_empty() {
+                return Err(TaskError::new("configuration", "api_key must not be empty"));
+            }
+            return Ok(Some(key.clone()));
+        }
         if self.api_key_env.is_empty() {
             return Ok(None);
         }
@@ -104,7 +111,7 @@ impl Config {
                 TaskError::new(
                     "configuration",
                     format!(
-                        "set environment variable {} (or api_key_env = \"\" for a local server)",
+                        "set api_key in configuration or environment variable {} (or api_key_env = \"\" for a local server)",
                         self.api_key_env
                     ),
                 )
@@ -121,6 +128,7 @@ mod tests {
         let mut config = Config {
             endpoint: "http://127.0.0.1:11434/v1/responses".into(),
             model: "fixture".into(),
+            api_key: None,
             api_key_env: String::new(),
             max_steps: 24,
             timeout_seconds: 120,
@@ -151,10 +159,50 @@ mod tests {
         let config: Config = toml::from_str(include_str!("../config.example.toml")).unwrap();
         assert!(config.validate().is_ok());
         assert_eq!(config.api_key_env, "OPENAI_API_KEY");
-        let with_secret = format!(
-            "{}\napi_key = 'do-not-echo'\n",
+        assert!(config.api_key.is_none());
+        let with_unknown_field = format!(
+            "{}\nunknown_key = 'do-not-echo'\n",
             include_str!("../config.example.toml")
         );
-        assert!(toml::from_str::<Config>(&with_secret).is_err());
+        assert!(toml::from_str::<Config>(&with_unknown_field).is_err());
+    }
+
+    #[test]
+    fn direct_key_takes_precedence_over_environment() {
+        let mut config: Config = toml::from_str(
+            "endpoint = 'https://example.com/v1/responses'\nmodel = 'fixture'\napi_key = 'fixture-key'",
+        )
+        .unwrap();
+        assert_eq!(config.api_key_env, "OPENAI_API_KEY");
+        // An invalid environment name ensures this cannot succeed via fallback.
+        config.api_key_env = "INVALID=ENV".into();
+        assert_eq!(config.api_key().unwrap().as_deref(), Some("fixture-key"));
+        config.api_key_env.clear();
+        assert_eq!(config.api_key().unwrap().as_deref(), Some("fixture-key"));
+    }
+
+    #[test]
+    fn empty_direct_key_is_rejected() {
+        let mut config: Config = toml::from_str(include_str!("../config.example.toml")).unwrap();
+        config.api_key_env.clear();
+        for key in ["", " \t\n"] {
+            config.api_key = Some(key.into());
+            assert!(config.api_key().is_err());
+        }
+    }
+
+    #[test]
+    fn absent_direct_key_preserves_environment_and_no_auth_modes() {
+        let mut config: Config = toml::from_str(include_str!("../config.example.toml")).unwrap();
+        // Read an existing non-secret variable without mutating process environment.
+        config.api_key_env = "PATH".into();
+        assert_eq!(
+            config.api_key().unwrap(),
+            Some(std::env::var("PATH").unwrap())
+        );
+        config.api_key_env = "INVALID=ENV".into();
+        assert!(config.api_key().is_err());
+        config.api_key_env.clear();
+        assert_eq!(config.api_key().unwrap(), None);
     }
 }

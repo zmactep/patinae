@@ -3,9 +3,12 @@
 # and PATINAE_PLUGIN_DIR. The plugin reloads this file for each ai request.
 endpoint = "https://api.openai.com/v1/responses"
 model = "your-tool-capable-model"
-# Name of the environment variable containing the key in the Patinae process.
+# Set the key directly; it takes precedence over api_key_env when present.
+# api_key = "your-api-key"
+# Alternatively, name the environment variable containing the key in Patinae.
 api_key_env = "OPENAI_API_KEY"
 # For a local Responses-compatible server without authentication:
+# Omit api_key and set api_key_env to an empty string.
 # endpoint = "http://127.0.0.1:8080/v1/responses"
 # api_key_env = ""
 max_steps = 24
