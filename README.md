@@ -11,7 +11,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/license-BSD--3--Clause-blue.svg" alt="License">
-  <img src="https://img.shields.io/badge/version-0.4.7-green.svg" alt="Version 0.4.7">
+  <img src="https://img.shields.io/badge/version-0.5.0-green.svg" alt="Version 0.5.0">
   <img src="https://img.shields.io/badge/GPU-WebGPU-purple.svg" alt="WebGPU">
 </p>
 
