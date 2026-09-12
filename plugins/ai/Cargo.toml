@@ -1,0 +1,33 @@
+[package]
+name = "ai-plugin"
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Patinae AI command agent using host-owned tasks"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+patinae-plugin.workspace = true
+patinae-settings.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+rustls.workspace = true
+tokio = { workspace = true, features = ["macros", "net"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"] }
+toml = "1.1"
+base64 = "0.22"
+image.workspace = true
+tempfile = "3.24"
+
+[dev-dependencies]
+patinae-plugin-host.workspace = true
+patinae-framework.workspace = true
+patinae-cmd = { workspace = true, features = ["native-io"] }
+patinae-scene.workspace = true
+
+[lints]
+workspace = true

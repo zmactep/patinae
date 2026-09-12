@@ -131,7 +131,7 @@ python-dev: widget-assets
 
 # ── Plugins ───────────────────────────────────────────────────────
 
-PLUGIN_CRATES := -p raytracer-plugin -p hello-plugin -p python-plugin
+PLUGIN_CRATES := -p raytracer-plugin -p hello-plugin -p python-plugin -p ai-plugin
 ifneq ($(OS),Windows_NT)
 PLUGIN_CRATES += -p ipc-plugin
 endif

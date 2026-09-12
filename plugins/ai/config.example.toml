@@ -1,0 +1,13 @@
+# Copy to <plugin_dir>/ai/config.toml and choose your model.
+# Defaults: ~/.patinae/plugins/ai/config.toml; respects PATINAE_CONFIG_DIR
+# and PATINAE_PLUGIN_DIR. The plugin reloads this file for each ai request.
+endpoint = "https://api.openai.com/v1/responses"
+model = "your-tool-capable-model"
+# Name of the environment variable containing the key in the Patinae process.
+api_key_env = "OPENAI_API_KEY"
+# For a local Responses-compatible server without authentication:
+# endpoint = "http://127.0.0.1:8080/v1/responses"
+# api_key_env = ""
+max_steps = 24
+# Per HTTP request, including body download. Host child tasks have no timeout.
+timeout_seconds = 120

@@ -48,6 +48,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "ai-plugin"
+version = "0.4.7"
+dependencies = [
+ "base64",
+ "image",
+ "patinae-cmd",
+ "patinae-framework",
+ "patinae-plugin",
+ "patinae-plugin-host",
+ "patinae-scene",
+ "patinae-settings",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "toml",
+]
+
+[[package]]
 name = "aligned"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -16,6 +16,7 @@ members = [
     "crates/patinae-session",
     "crates/patinae-mm",
     "plugins/hello",
+    "plugins/ai",
     "plugins/ipc",
     "plugins/python",
     "plugins/raytracer",
