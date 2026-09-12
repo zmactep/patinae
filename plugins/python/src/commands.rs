@@ -194,6 +194,7 @@ pub(crate) fn python_task(payload: serde_json::Value) -> PluginTaskRequest {
     // A script may intentionally replace its own scene; each child captures
     // the scene at admission and each mutation is acknowledged by the host.
     request.scene_scoped = false;
+    request.silent = request.payload["origin"] == "panel";
     request
 }
 

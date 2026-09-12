@@ -92,9 +92,21 @@ impl PluginHost {
                     let result = match event {
                         TaskEvent::Started => kernel.tasks.started(task_id, &owner),
                         TaskEvent::Progress(progress) => {
+                            log::info!(
+                                "Plugin task [plugin={}, task={}]: {}",
+                                owner,
+                                task_id,
+                                progress.message
+                            );
                             kernel.tasks.progress(task_id, &owner, progress)
                         }
-                        TaskEvent::Output(output) => kernel.tasks.output(task_id, &owner, output),
+                        TaskEvent::Output(output) => {
+                            let accepted = kernel.tasks.output(task_id, &owner, output.clone());
+                            if matches!(accepted, Ok(true)) {
+                                kernel.present_task_output(task_id, &output);
+                            }
+                            accepted
+                        }
                         TaskEvent::Finished(outcome) => {
                             kernel.tasks.finish_owned(task_id, &owner, outcome)
                         }
@@ -108,6 +120,13 @@ impl PluginHost {
                     silent,
                 } => {
                     let owner = checked_task_owner(&kernel.tasks, task_id, &owner).unwrap_or(owner);
+                    log::info!(
+                        "Plugin command [plugin={}, task={}, request={}]: {:?}",
+                        owner,
+                        task_id,
+                        id,
+                        command
+                    );
                     let result = kernel
                         .execute_task_command(
                             task_id,

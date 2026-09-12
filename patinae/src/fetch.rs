@@ -5,7 +5,7 @@ use std::pin::Pin;
 use std::time::Duration;
 
 use patinae_cmd::loading::{infer_format, LoadOptions, LoadedData};
-use patinae_cmd::tasks::{TaskData, TaskEffects, TaskError, TaskId, TaskOutcome};
+use patinae_cmd::tasks::{TaskData, TaskDiagnostic, TaskEffects, TaskError, TaskId, TaskOutcome};
 use patinae_cmd::{AsyncCommandRequest, FetchFormatCode, FetchRequest};
 use patinae_framework::kernel::AppKernel;
 use patinae_framework::tasks::{AsyncTask, TaskResult};
@@ -88,7 +88,7 @@ struct UrlResult {
 }
 
 impl TaskResult for UrlResult {
-    fn apply(self: Box<Self>, kernel: &mut AppKernel, _id: TaskId) -> TaskOutcome {
+    fn apply(self: Box<Self>, kernel: &mut AppKernel, id: TaskId) -> TaskOutcome {
         let data = match self.result {
             Ok(data) => data,
             Err(error) => return TaskOutcome::failure(error.code, error.message),
@@ -99,7 +99,7 @@ impl TaskResult for UrlResult {
             LoadedData::file(&self.name, &self.format).apply_bytes(viewer, &data, options, &config)
         });
         for warning in &outcome.diagnostics {
-            kernel.bus.print_warning(&warning.message);
+            kernel.present_task_output(id, warning);
         }
         outcome
     }
@@ -165,7 +165,7 @@ struct FetchResult {
 }
 
 impl TaskResult for FetchResult {
-    fn apply(self: Box<Self>, kernel: &mut AppKernel, _id: TaskId) -> TaskOutcome {
+    fn apply(self: Box<Self>, kernel: &mut AppKernel, id: TaskId) -> TaskOutcome {
         match self.result {
             Ok(molecule) => {
                 let options = LoadOptions::from(&self.request);
@@ -175,15 +175,30 @@ impl TaskResult for FetchResult {
                         .apply_molecule(viewer, molecule, options, &config)
                 });
                 if outcome.state() == patinae_cmd::tasks::TaskState::Succeeded {
-                    kernel.output.print_info(format!(
-                        " Fetched {} as \"{}\"",
-                        self.request.code, self.request.name
-                    ));
+                    kernel.present_task_output(
+                        id,
+                        &TaskDiagnostic {
+                            level: "info".into(),
+                            message: format!(
+                                " Fetched {} as \"{}\"",
+                                self.request.code, self.request.name
+                            ),
+                        },
+                    );
                 }
                 outcome
             }
             Err(error) => {
-                kernel.print_fetch_error(&self.request, &error.message);
+                kernel.present_task_output(
+                    id,
+                    &TaskDiagnostic {
+                        level: "error".into(),
+                        message: format!(
+                            "Fetch failed for {}: {}",
+                            self.request.code, error.message
+                        ),
+                    },
+                );
                 TaskOutcome::failure(error.code, error.message)
             }
         }

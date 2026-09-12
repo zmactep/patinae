@@ -416,6 +416,20 @@ impl<F: Fn() -> TaskTime> TaskClock for F {
     }
 }
 
+/// Controls how child failures affect the parent's final outcome.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChildFailurePolicy {
+    /// Fail a successful parent when any child fails or is cancelled.
+    #[default]
+    Propagate,
+    /// Let the parent executor inspect child outcomes and decide whether recovery succeeded.
+    ///
+    /// Child outcomes, diagnostics, effects, waiting and cancellation remain host-owned.
+    /// Cancelling the parent still overrides a successful executor outcome.
+    ParentDecides,
+}
+
 /// Host-authorized description accepted before an executor starts work.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaskSpec {
@@ -425,6 +439,11 @@ pub struct TaskSpec {
     pub parent_id: Option<TaskId>,
     pub scene_epoch: Option<u64>,
     pub cancellable: bool,
+    #[serde(default)]
+    pub child_failure_policy: ChildFailurePolicy,
+    /// Suppress REPL presentation while retaining task output and logs; inherited by children.
+    #[serde(default)]
+    pub silent: bool,
     pub message: String,
 }
 impl TaskSpec {
@@ -437,6 +456,8 @@ impl TaskSpec {
             parent_id: None,
             scene_epoch: None,
             cancellable: true,
+            child_failure_policy: ChildFailurePolicy::default(),
+            silent: false,
             message: String::new(),
         }
     }

@@ -121,6 +121,16 @@ impl NativeTaskExecutor {
         task: Box<dyn AsyncTask>,
         parent_id: Option<TaskId>,
     ) -> Result<TaskId, TaskStartError> {
+        self.spawn_with_silent(tasks, task, parent_id, false)
+    }
+
+    pub(crate) fn spawn_with_silent(
+        &self,
+        tasks: &TaskRunner,
+        task: Box<dyn AsyncTask>,
+        parent_id: Option<TaskId>,
+        silent: bool,
+    ) -> Result<TaskId, TaskStartError> {
         let spec = TaskSpec {
             kind: task.kind().into(),
             origin: task.origin(),
@@ -128,6 +138,8 @@ impl NativeTaskExecutor {
             parent_id,
             scene_epoch: task.scene_epoch(),
             cancellable: task.cancellable(),
+            child_failure_policy: Default::default(),
+            silent,
             message: task.notification_message(),
         };
         let id = tasks.admit(spec)?;

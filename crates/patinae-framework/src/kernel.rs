@@ -211,6 +211,7 @@ impl AppKernel {
                 };
                 let mut spec = patinae_cmd::tasks::TaskSpec::new("script", PML_EXECUTOR);
                 spec.parent_id = parent_id;
+                spec.silent = quiet;
                 spec.message = format!("Running {}", path.display());
                 return match tasks.admit(spec) {
                     Ok(task_id) => {
@@ -221,7 +222,8 @@ impl AppKernel {
                 };
             }
 
-            if let AsyncCommandRequest::Plugin(request) = request {
+            if let AsyncCommandRequest::Plugin(mut request) = request {
+                request.silent |= quiet;
                 if !plugin_executors.contains(&request.executor) {
                     return AsyncCommandAcceptance::Rejected(
                         patinae_cmd::tasks::TaskStartError::ExecutorUnavailable,
@@ -245,7 +247,7 @@ impl AppKernel {
             let Some(task) = handler(request, scene_epoch) else {
                 return AsyncCommandAcceptance::Unsupported;
             };
-            match task_executor.spawn(tasks, task, parent_id) {
+            match task_executor.spawn_with_silent(tasks, task, parent_id, quiet) {
                 Ok(id) => AsyncCommandAcceptance::Accepted(id),
                 Err(error) => AsyncCommandAcceptance::Rejected(error),
             }
@@ -265,7 +267,7 @@ impl AppKernel {
         }
         if execution.result.is_ok() || capture_output {
             for msg in &output.messages {
-                if quiet && capture_output && msg.kind != MessageKind::Error {
+                if quiet && capture_output {
                     continue;
                 }
                 match msg.kind {
@@ -304,6 +306,7 @@ impl AppKernel {
             }
             Err(e) => {
                 match failure_output {
+                    _ if quiet && capture_output => log::error!("Command failed: {e}"),
                     CommandFailureOutput::Error => self.output.print_error(e.to_string()),
                     CommandFailureOutput::Warning => self.output.print_warning(e.to_string()),
                 }
@@ -390,6 +393,7 @@ impl AppKernel {
             .can_apply_effect(task_id, owner, self.session.task_epoch())?;
         let before = self.session.mutation_revision();
         let previous = self.command_parent.replace(task_id);
+        let silent = silent || self.tasks.is_silent(task_id).unwrap_or(true);
         let execution = self.execute_command_captured(
             command,
             silent,
@@ -407,6 +411,27 @@ impl AppKernel {
             patinae_cmd::tasks::TaskEffects::between(before, self.session.mutation_revision()),
         )?;
         Ok(execution)
+    }
+
+    /// Present task output according to its inherited silent policy, always retaining logs.
+    pub fn present_task_output(
+        &mut self,
+        task_id: patinae_cmd::tasks::TaskId,
+        output: &patinae_cmd::tasks::TaskDiagnostic,
+    ) {
+        match output.level.as_str() {
+            "error" => log::error!("Task {task_id}: {}", output.message.trim_end()),
+            "warning" => log::warn!("Task {task_id}: {}", output.message.trim_end()),
+            _ => log::info!("Task {task_id}: {}", output.message.trim_end()),
+        }
+        if self.tasks.is_silent(task_id).unwrap_or(true) {
+            return;
+        }
+        match output.level.as_str() {
+            "error" => self.output.print_error(output.message.trim_end()),
+            "warning" => self.output.print_warning(output.message.trim_end()),
+            _ => self.output.print_info(output.message.trim_end()),
+        }
     }
 
     /// Install or replace the command async handler.
@@ -473,6 +498,7 @@ impl AppKernel {
         for change in self.tasks.take_changes() {
             if change.state == patinae_cmd::tasks::TaskState::Cancelled
                 && !self.task_command_labels.contains_key(&change.id)
+                && !self.tasks.is_silent(change.id).unwrap_or(true)
             {
                 self.output
                     .print_warning(format!("Cancelled: task {}", change.id));
@@ -798,6 +824,8 @@ fn admit_plugin_task(
     spec.parent_id = parent_id;
     spec.scene_epoch = request.scene_scoped.then_some(scene_epoch);
     spec.cancellable = request.cancellable;
+    spec.child_failure_policy = request.child_failure_policy;
+    spec.silent = request.silent;
     spec.message = request.kind.clone();
     let task_id = tasks.admit(spec)?;
     invocations.push(patinae_cmd::TaskInvocation { task_id, request });
@@ -1138,6 +1166,38 @@ mod tests {
             patinae_cmd::tasks::TaskState::Cancelled
         );
         assert!(!kernel.session.registry.contains("should_not_exist"));
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn silent_commands_and_script_children_keep_output_only_in_receipts() {
+        let mut kernel = AppKernel::new();
+        for command in ["help", "nonexistent_command"] {
+            let result = kernel.execute_command_captured(command, true, None, (1, 1));
+            assert!(!result.output.messages.is_empty());
+            assert!(kernel.output.buffer.is_empty());
+        }
+        let path = script_fixture("help\nnonexistent_command\n");
+        let result = kernel.execute_command_captured(
+            &format!("run \"{}\"", path.display()),
+            true,
+            None,
+            (1, 1),
+        );
+        let task = result.output.task_ids[0];
+        for _ in 0..8 {
+            kernel.process_async_tasks(None, (1, 1));
+        }
+        let result = kernel.tasks.get(task).unwrap();
+        assert_eq!(result.state, patinae_cmd::tasks::TaskState::Failed);
+        assert!(!result.diagnostics.is_empty());
+        assert!(
+            kernel.output.buffer.is_empty(),
+            "{:?}",
+            kernel.output.buffer
+        );
+        kernel.execute_command_captured("nonexistent_command", false, None, (1, 1));
+        assert!(!kernel.output.buffer.is_empty());
         std::fs::remove_file(path).unwrap();
     }
 

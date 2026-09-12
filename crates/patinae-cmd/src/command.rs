@@ -167,6 +167,12 @@ pub struct PluginTaskRequest {
     pub payload: serde_json::Value,
     pub cancellable: bool,
     pub scene_scoped: bool,
+    /// Whether the executor handles failed child tasks itself (for example, by retrying).
+    #[serde(default)]
+    pub child_failure_policy: crate::tasks::ChildFailurePolicy,
+    /// Suppress task output in the REPL, preserving captured diagnostics and logs.
+    #[serde(default)]
+    pub silent: bool,
 }
 
 impl PluginTaskRequest {
@@ -187,6 +193,8 @@ impl PluginTaskRequest {
             payload,
             cancellable: true,
             scene_scoped: true,
+            child_failure_policy: crate::tasks::ChildFailurePolicy::default(),
+            silent: false,
         }
     }
 }

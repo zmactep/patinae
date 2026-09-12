@@ -761,12 +761,23 @@ reporting success. The host checks ownership and scene validity before applying
 an action; atom-property batches are validated completely before the first write.
 Preserve structured error codes when forwarding a failure.
 
+`silent=true` suppresses REPL presentation, including recoverable command errors,
+while preserving receipts and logs. Plugin work can set `PluginTaskRequest::silent`;
+the host inherits silent presentation through child tasks. Send task stdout through
+`TaskEvent::Output` so the host can retain diagnostics, log them and apply this policy.
+Avoid additionally printing the same task output through the unscoped message bus.
+
 Process `ctx.task_cancellations` cooperatively and report a cancelled outcome
 after the worker stops. Cancelling does not undo effects already applied. A wait
 timeout stops only the wait. Child tasks created through `execute_task_command`
 belong to the parent; the parent remains active until they finish, and a child
-failure fails it. Waiting for yourself, an ancestor or blocked work on the same
-serial executor is rejected with `would_deadlock`.
+failure fails it by default. An executor that inspects child outcomes and handles
+recovery can set `PluginTaskRequest::child_failure_policy` to
+`ChildFailurePolicy::ParentDecides` at admission. The host then uses the executor's
+final outcome while retaining failed children, diagnostics and effects. Waiting
+for children and cancellation still apply; cancelling the parent overrides a
+successful executor outcome. Waiting for yourself, an ancestor or blocked work
+on the same serial executor is rejected with `would_deadlock`.
 
 Report small results through `TaskOutcome`, including diagnostics and the actual
 effects (`none`, `applied`, `partial`, `unknown`). Successful completion means

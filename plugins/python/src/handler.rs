@@ -130,8 +130,6 @@ impl PythonHandler {
                     {
                         self.panel_state.lock().unwrap().append_output(&output);
                         ctx.request_panel_update();
-                    } else {
-                        ctx.bus.print_info(output.trim_end());
                     }
                     TaskEvent::Output(TaskDiagnostic {
                         level: "info".into(),

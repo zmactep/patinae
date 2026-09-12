@@ -691,7 +691,6 @@ mod command_results {
     use patinae_framework::kernel::AppKernel;
     use patinae_framework::message::AppMessage;
     use patinae_framework::message::MessageBus;
-    use patinae_framework::model::output::OutputKind;
     use patinae_plugin::ffi::AbiStatus;
     use patinae_plugin::ffi::HostCallbacks;
     use patinae_plugin::ffi::HostRegistrarHandle;
@@ -1076,9 +1075,11 @@ mod command_results {
         let mut h = Harness::new(false);
         let response = h.round_trip("third_party_report", true);
         assert_eq!(response.messages.len(), 4);
-        assert_eq!(h.kernel.output.buffer.len(), 1);
-        assert_eq!(h.kernel.output.buffer[0].kind, OutputKind::Error);
-        assert_eq!(h.kernel.output.buffer[0].text, "diagnostic");
+        assert!(h.kernel.output.buffer.is_empty());
+        assert!(response
+            .messages
+            .iter()
+            .any(|message| message.text == "diagnostic"));
     }
 
     #[test]

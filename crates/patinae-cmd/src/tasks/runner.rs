@@ -14,6 +14,8 @@ struct TaskRecord {
     body_outcome: Option<TaskOutcome>,
     pending_children: usize,
     failed_children: u64,
+    child_failure_policy: ChildFailurePolicy,
+    silent: bool,
     child_diagnostics: Vec<TaskDiagnostic>,
 }
 
@@ -89,6 +91,7 @@ impl TaskRunner {
             }
         }
         let sequence = records.next_sequence;
+        let silent = spec.silent || spec.parent_id.is_some_and(|id| records.tasks[&id].silent);
         let next = sequence.checked_add(1).ok_or(TaskStartError::IdExhausted)?;
         let id = TaskId::new(self.instance, sequence);
         let snapshot = TaskSnapshot {
@@ -126,6 +129,8 @@ impl TaskRunner {
                 body_outcome: None,
                 pending_children: 0,
                 failed_children: 0,
+                child_failure_policy: spec.child_failure_policy,
+                silent,
                 child_diagnostics: Vec::new(),
             },
         );
@@ -331,6 +336,16 @@ impl TaskRunner {
         self.prune(&mut records, self.clock.now());
         self.lookup(&records, id)?;
         Ok(records.tasks[&id].snapshot.clone())
+    }
+
+    /// Read the inherited REPL presentation policy without changing captured output.
+    ///
+    /// # Errors
+    /// Returns a lookup error for unavailable tasks.
+    pub fn is_silent(&self, id: TaskId) -> Result<bool, TaskLookupError> {
+        let records = self.records.borrow();
+        self.lookup(&records, id)?;
+        Ok(records.tasks[&id].silent)
     }
 
     /// Measure admission-to-completion time, including queued work and child tasks.
@@ -724,7 +739,9 @@ impl TaskRunner {
                     outcome.status = TaskOutcomeStatus::Cancelled {
                         reason: "requested".into(),
                     };
-                } else if record.failed_children > 0 {
+                } else if record.failed_children > 0
+                    && record.child_failure_policy == ChildFailurePolicy::Propagate
+                {
                     outcome.status = TaskOutcomeStatus::Failure {
                         error: TaskError::new(
                             "child_failed",
@@ -1073,6 +1090,84 @@ mod tests {
             .diagnostics
             .iter()
             .any(|diagnostic| diagnostic.message.contains("parse_error")));
+    }
+
+    #[test]
+    fn parent_can_recover_child_failure_without_losing_history_or_waiting() {
+        let (runner, _) = runner(TaskConfig::default());
+        let mut spec = TaskSpec::new("agent", "plugin");
+        spec.child_failure_policy = ChildFailurePolicy::ParentDecides;
+        let parent = runner.admit(spec).unwrap();
+        let failed = child(&runner, parent, "native");
+        runner.finish(failed, TaskOutcome::failure("parse_error", "bad syntax"));
+        let retry = child(&runner, parent, "native");
+        runner.finish(parent, success());
+        assert_eq!(runner.get(parent).unwrap().state, TaskState::Running);
+        runner.finish(retry, TaskOutcome::success(None, TaskEffects::Applied));
+        let result = runner.get(parent).unwrap();
+        assert_eq!(result.state, TaskState::Succeeded);
+        assert_eq!(result.effects, TaskEffects::Applied);
+        assert_eq!(runner.get(failed).unwrap().state, TaskState::Failed);
+        assert_eq!(runner.children_status(parent), Ok((0, 1)));
+        assert!(result
+            .diagnostics
+            .iter()
+            .any(|d| d.message.contains("parse_error: bad syntax")));
+    }
+
+    #[test]
+    fn parent_recovery_policy_cannot_override_cancellation_or_its_own_failure() {
+        for cancel in [false, true] {
+            let (runner, _) = runner(TaskConfig::default());
+            let mut spec = TaskSpec::new("agent", "plugin");
+            spec.child_failure_policy = ChildFailurePolicy::ParentDecides;
+            let parent = runner.admit(spec).unwrap();
+            let pending = child(&runner, parent, "native");
+            if cancel {
+                runner.cancel(parent).unwrap();
+                assert!(runner.get(pending).unwrap().cancel_requested);
+                runner.finish(parent, success());
+            } else {
+                runner.finish(parent, TaskOutcome::failure("step_limit", "no recovery"));
+            }
+            assert!(!runner.get(parent).unwrap().state.is_terminal());
+            runner.finish(pending, success());
+            assert_eq!(
+                runner.get(parent).unwrap().state,
+                if cancel {
+                    TaskState::Cancelled
+                } else {
+                    TaskState::Failed
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn silent_policy_is_inherited_without_discarding_output() {
+        let (runner, _) = runner(TaskConfig::default());
+        let mut spec = TaskSpec::new("agent", "plugin");
+        spec.silent = true;
+        let parent = runner.admit(spec).unwrap();
+        let child = child(&runner, parent, "python");
+        assert_eq!(runner.is_silent(child), Ok(true));
+        runner
+            .output(
+                child,
+                "python",
+                TaskDiagnostic {
+                    level: "info".into(),
+                    message: "retained stdout".into(),
+                },
+            )
+            .unwrap();
+        runner.finish(child, success());
+        assert_eq!(
+            runner.get(child).unwrap().outcome.unwrap().diagnostics[0].message,
+            "retained stdout"
+        );
+        let visible = runner.admit(TaskSpec::new("python", "python")).unwrap();
+        assert_eq!(runner.is_silent(visible), Ok(false));
     }
 
     #[test]
