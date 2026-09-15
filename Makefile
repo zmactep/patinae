@@ -5,7 +5,7 @@
        plugins plugins-install \
        python-release python-dev \
        icon icon-windows app app-full \
-       sign sign-full notarize dmg dmg-full \
+       sign sign-full notarize dmg dmg-full dmg-package \
        bundle-windows \
        web-build web-dev web-clean \
        widget-assets widget-build \
@@ -289,20 +289,15 @@ notarize:
 	echo "⚠ Notarization failed — continuing without it"; \
 	rm -f $(APP_ZIP)
 
-# Shared: create DMG from a clean staging directory (only .app + Applications link)
+# Shared: notarize the app, then package it with the branded Finder layout.
 define create-dmg
 	$(MAKE) notarize
-	@echo "── Creating DMG ──"
-	@rm -rf $(DMG_STAGE)
-	@mkdir -p $(DMG_STAGE)
-	@cp -R $(APP_DIR) $(DMG_STAGE)/
-	@ln -sf /Applications $(DMG_STAGE)/Applications
-	hdiutil create -volname "$(APP_NAME)" \
-	    -srcfolder $(DMG_STAGE) -ov -format UDZO \
-	    $(DMG_PATH)
-	@rm -rf $(DMG_STAGE)
-	@echo "✓ $(DMG_PATH)"
+	$(MAKE) dmg-package
 endef
+
+# Repackage an existing app without rebuilding or repeating notarization.
+dmg-package:
+	bash macos/create-dmg.sh "$(APP_DIR)" "$(DMG_PATH)"
 
 dmg: sign
 	$(create-dmg)
@@ -398,6 +393,7 @@ help:
 	@echo "  app-full         Full .app (+ plugins + Python + venv)"
 	@echo "  sign / sign-full Code-sign the .app"
 	@echo "  dmg / dmg-full   Distributable DMG (signed + notarized)"
+	@echo "  dmg-package      Styled DMG from existing APP_DIR (requires create-dmg)"
 	@echo ""
 	@echo "Windows bundle:"
 	@echo "  bundle-windows   Bundle (exe + plugins + Python + venv + launcher)"

@@ -496,6 +496,9 @@ jobs:
           printf "PATINAE_APPLE_TEAMID='%s'\nPATINAE_APPLE_EMAIL='%s'\nPATINAE_APPLE_APP_PASS='%s'\n" \
             "$PATINAE_APPLE_TEAMID" "$PATINAE_APPLE_EMAIL" "$PATINAE_APPLE_APP_PASS" > .env
 
+      - name: Install DMG packaging tool
+        run: brew install create-dmg
+
       - name: Build DMG
         run: make dmg-full
 
