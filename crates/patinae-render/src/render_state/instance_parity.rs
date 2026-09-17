@@ -88,6 +88,132 @@ fn object<'a>(
 }
 
 #[test]
+#[ignore = "requires a real GPU; verifies cached representation and map transparency transitions"]
+fn representation_transparency_updates_cached_draw_phase() {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+    let adapter = pollster::block_on(instance.request_adapter(&Default::default())).unwrap();
+    let memory = RenderMemoryPolicy::performance();
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        required_limits: crate::required_limits_for_memory_policy(&adapter.limits(), memory),
+        ..Default::default()
+    }))
+    .unwrap();
+    let mut renderer = RenderState::with_config(
+        Arc::new(device),
+        Arc::new(queue),
+        wgpu::TextureFormat::Rgba8Unorm,
+        (128, 128),
+        RenderConfig {
+            memory,
+            ..Default::default()
+        },
+    );
+    for (setting_name, rep) in [
+        ("sphere_transparency", RepMask::SPHERES),
+        ("stick_transparency", RepMask::STICKS),
+        ("ellipsoid_transparency", RepMask::ELLIPSOIDS),
+        ("cartoon_transparency", RepMask::CARTOON),
+        ("surface_transparency", RepMask::SURFACE),
+        ("mesh_transparency", RepMask::MESH),
+    ] {
+        let molecule = source(rep);
+        let colors = vec![[0.4, 0.4, 0.4, 1.0]; molecule.atom_count()];
+        let descriptor = patinae_settings::registry::lookup_by_name(setting_name).unwrap();
+        let dirty = descriptor
+            .side_effects
+            .iter()
+            .fold(DirtyFlags::empty(), |dirty, effect| {
+                dirty
+                    | match effect {
+                        patinae_settings::SideEffectCategory::SurfaceTransparency => {
+                            DirtyFlags::TRANSPARENCY
+                        }
+                        patinae_settings::SideEffectCategory::ColorRebuild => DirtyFlags::COLOR,
+                        _ => panic!("unexpected {setting_name} side effect: {effect:?}"),
+                    }
+            });
+        for object_override in [false, true] {
+            for (index, transparency) in [0.0, 0.5, 0.8, 0.0].into_iter().enumerate() {
+                let mut settings = Settings::default();
+                descriptor
+                    .set(
+                        &mut settings,
+                        patinae_settings::SettingValue::Float(transparency),
+                    )
+                    .unwrap();
+                let resolved = ResolvedSettings::resolve(&settings, None);
+                let defaults = ResolvedSettings::resolve(&Settings::default(), None);
+                let mut input_object = object(&molecule, &colors, rep, 1, None);
+                input_object.dirty = if index == 0 { DirtyFlags::ALL } else { dirty };
+                if object_override {
+                    input_object.object_settings = Some(resolved.clone());
+                }
+                renderer.sync(&RenderInput {
+                    objects: &[input_object],
+                    maps: &[],
+                    strokes: &[],
+                    settings: if object_override {
+                        &defaults
+                    } else {
+                        &resolved
+                    },
+                    lod: SceneLod::Auto,
+                });
+                assert_eq!(
+                    renderer.count_wboit_reps(),
+                    u32::from(transparency > 0.0),
+                    "{setting_name}={transparency}, object_override={object_override}",
+                );
+                assert_eq!(
+                    renderer.count_fast_overlay_reps(),
+                    u32::from(rep == RepMask::MESH && transparency == 0.0),
+                    "{setting_name}={transparency}, object_override={object_override}",
+                );
+            }
+        }
+    }
+    let grid = patinae_algos::surface::Grid3D::from_dims(
+        [0.0; 3],
+        [1.0; 3],
+        [1; 3],
+        vec![-1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+    );
+    let settings = ResolvedSettings::resolve(&Settings::default(), None);
+    for mode in [
+        crate::RenderMapMode::Isosurface,
+        crate::RenderMapMode::Isomesh,
+        crate::RenderMapMode::Isosurface,
+    ] {
+        for alpha in [1.0, 0.5, 0.2, 1.0] {
+            let map = crate::RenderMapInput {
+                object_id: ObjectId(2),
+                grid: &grid,
+                mode,
+                level: 0.0,
+                color: [0.4, 0.4, 0.4, alpha],
+                transform: IDENTITY_TRANSFORM,
+                geometry_revision: 1,
+                material_revision: 1,
+                dirty: false,
+            };
+            // Material comparison must notice alpha even with unchanged geometry/revisions.
+            renderer.sync(&RenderInput {
+                objects: &[],
+                maps: &[map],
+                strokes: &[],
+                settings: &settings,
+                lod: SceneLod::Auto,
+            });
+            assert_eq!(
+                renderer.count_wboit_reps(),
+                u32::from(alpha < 1.0),
+                "{mode:?}: alpha={alpha}"
+            );
+        }
+    }
+}
+
+#[test]
 #[ignore = "requires a real GPU; verifies copy-specific recent marker pixels"]
 fn recent_atom_markers_render_only_on_picked_copies() {
     use crate::RecentAtomMarker;

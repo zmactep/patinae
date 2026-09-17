@@ -444,6 +444,65 @@ mod tests {
     }
 
     #[test]
+    fn dash_transparency_refreshes_cached_measurement_material() {
+        use crate::{MeasurementEntity, MeasurementKind, MeasurementObject};
+
+        let mut source = ObjectMolecule::new("source");
+        for _ in 0..4 {
+            source.add_atom(Atom::new("CA", Element::Carbon));
+        }
+        source.add_coord_set(CoordSet::from_vec3(&[
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(2.0, 0.0, 0.0),
+            Vec3::new(2.0, 2.0, 0.0),
+            Vec3::new(2.0, 2.0, 2.0),
+        ]));
+        let mut registry = ObjectRegistry::new();
+        registry.add(MoleculeObject::with_name(source, "source"));
+        for (name, kind) in [
+            ("distance", MeasurementKind::Distance),
+            ("angle", MeasurementKind::Angle),
+            ("dihedral", MeasurementKind::Dihedral),
+        ] {
+            registry.add(
+                MeasurementObject::with_entities(
+                    name,
+                    kind,
+                    vec![MeasurementEntity::new(
+                        (0..kind.anchor_count())
+                            .map(|index| AtomAnchor::new("source", AtomIndex(index as u32)))
+                            .collect(),
+                    )],
+                )
+                .unwrap(),
+            );
+        }
+        registry.clear_all_dirty_objects();
+        let mut settings = Settings::default();
+        let named = NamedPalette::default();
+        let mut cache = ResolvedSceneStrokes::default();
+        let mut previous_revisions = Vec::new();
+        for transparency in [0.0, 0.5, 0.8, 0.0] {
+            settings.measurement.dash_transparency = transparency;
+            assert!(cache.needs_rebuild(&registry, &settings, &named));
+            cache.rebuild(&registry, &settings, &named);
+            let inputs = cache.render_inputs();
+            assert_eq!(inputs.len(), 3);
+            for input in &inputs {
+                assert!(!input.segments.is_empty());
+                assert!(input
+                    .segments
+                    .iter()
+                    .all(|segment| segment.color[3] == 1.0 - transparency));
+            }
+            let revisions: Vec<_> = inputs.iter().map(|input| input.material_revision).collect();
+            assert_ne!(revisions, previous_revisions);
+            previous_revisions = revisions;
+            assert!(!cache.needs_rebuild(&registry, &settings, &named));
+        }
+    }
+
+    #[test]
     fn label_only_owner_keeps_bounds_without_a_drawable_gpu_payload() {
         let mut source = ObjectMolecule::new("source");
         source.add_atom(Atom::new("CA", Element::Carbon));

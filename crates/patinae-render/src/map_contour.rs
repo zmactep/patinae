@@ -102,9 +102,9 @@ impl MapEntry {
                 RenderMapMode::Isomesh => extract_isomesh(input.grid, input.level),
                 RenderMapMode::Isosurface => extract_isosurface(input.grid, input.level),
             };
+            self.mode = input.mode;
             self.upload_geometry(&geometry, device);
             self.geometry_revision = input.geometry_revision;
-            self.mode = input.mode;
         }
 
         let material_changed = self.material_revision != input.material_revision

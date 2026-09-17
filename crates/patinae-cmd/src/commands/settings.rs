@@ -809,6 +809,34 @@ mod tests {
     }
 
     #[test]
+    fn representation_transparency_set_and_unset_preserve_geometry() {
+        let mut session = session_with_single_atom_object("obj");
+        let mut executor = CommandExecutor::new();
+
+        for (setting, expected) in [
+            ("sphere_transparency", DirtyFlags::COLOR),
+            ("stick_transparency", DirtyFlags::COLOR),
+            ("ellipsoid_transparency", DirtyFlags::COLOR),
+            ("cartoon_transparency", DirtyFlags::TRANSPARENCY),
+            ("surface_transparency", DirtyFlags::TRANSPARENCY),
+            ("mesh_transparency", DirtyFlags::TRANSPARENCY),
+        ] {
+            for command in [
+                format!("set {setting}, 0.5"),
+                format!("unset {setting}"),
+                format!("set {setting}, 0.5, obj"),
+                format!("unset {setting}, obj"),
+            ] {
+                session.registry.clear_all_dirty_objects();
+                execute(&mut session, &mut executor, &command).unwrap();
+                let dirty = session.registry.get_molecule("obj").unwrap().dirty_flags();
+                assert!(dirty.contains(expected), "{command}: {dirty:?}");
+                assert!(dirty.is_lut_only(), "{command}: {dirty:?}");
+            }
+        }
+    }
+
+    #[test]
     fn test_object_side_effects_use_descriptor_dirty_contract() {
         let mol = patinae_mol::MoleculeBuilder::new("obj").build();
         let mut obj = MoleculeObject::with_name(mol, "obj");

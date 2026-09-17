@@ -60,7 +60,7 @@ define_settings_group! {
         transparency: f32 = 0.0,
             name = "cartoon_transparency",
             min = 0.0, max = 1.0,
-            side_effects = [ColorRebuild];
+            side_effects = [SurfaceTransparency];
         // Cross-section dimensions. `0.0` = "auto" — fall back to the LOD-picked
         // default so users who don't touch these still get the same look.
         // Non-zero overrides the default and drives GPU extrusion directly.
