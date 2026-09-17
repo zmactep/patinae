@@ -65,4 +65,5 @@ patinae_plugin! {
     commands: [commands::RayCommand],
     panels: [panel::RtPanel::new()],
     settings: [RaySettings],
+    background_registration: true,
 }

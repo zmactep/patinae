@@ -17,6 +17,8 @@ pub(crate) enum NativeFileSource {
     MenuRunScript,
     /// File dropped onto the native window.
     DragDrop,
+    /// File selected from the recent-files list.
+    RecentFile,
 }
 
 impl NativeFileSource {
@@ -28,6 +30,7 @@ impl NativeFileSource {
             #[cfg(target_os = "macos")]
             Self::MenuRunScript => "menu Run Script file",
             Self::DragDrop => "dropped file",
+            Self::RecentFile => "recent file",
         }
     }
 }
@@ -45,6 +48,21 @@ pub(crate) fn enqueue_file_action(kernel: &mut AppKernel, path: &Path, source: N
         NativeFileAction::Warning(message) => kernel.bus.print_warning(message),
     }
     kernel.bus.request_redraw();
+}
+
+/// Scripts may invoke plugins even when the script format is built in.
+/// Unknown formats must be resolved again after all plugins have registered.
+pub(crate) fn needs_plugin_startup(executor: &CommandExecutor, path: &Path) -> bool {
+    let extension = path_extension_lower(path);
+    if matches!(extension.as_deref(), Some("pml" | "py"))
+        || registered_script_extension(executor, extension.as_deref())
+    {
+        return true;
+    }
+    matches!(
+        resolve_file_action(executor, path, NativeFileSource::DragDrop),
+        NativeFileAction::Warning(_)
+    )
 }
 
 fn resolve_file_action(
@@ -173,6 +191,43 @@ mod tests {
     use patinae_cmd::{CommandExecutor, FormatHandler};
 
     use super::*;
+
+    #[test]
+    fn startup_defers_scripts_and_unknown_formats_but_not_builtin_files() {
+        let executor = CommandExecutor::new();
+        for path in ["commands.pml", "script.py", "unknown.custom"] {
+            assert!(needs_plugin_startup(&executor, Path::new(path)), "{path}");
+        }
+        for path in [
+            "molecule.pdb",
+            "molecule.cif",
+            "session.prs",
+            "trajectory.xtc",
+        ] {
+            assert!(!needs_plugin_startup(&executor, Path::new(path)), "{path}");
+        }
+        assert!(matches!(
+            resolve_file_action(
+                &executor,
+                Path::new("unknown.custom"),
+                NativeFileSource::RecentFile
+            ),
+            NativeFileAction::Warning(_)
+        ));
+    }
+
+    #[test]
+    fn recent_files_preserve_quoting_through_shared_router() {
+        let executor = CommandExecutor::new();
+        assert_eq!(
+            resolve_file_action(
+                &executor,
+                Path::new("/tmp/recent files/1fsd.pdb"),
+                NativeFileSource::RecentFile
+            ),
+            NativeFileAction::Command("load \"/tmp/recent files/1fsd.pdb\"".into())
+        );
+    }
 
     fn command_for(path: &str, executor: &CommandExecutor) -> String {
         match resolve_file_action(executor, Path::new(path), NativeFileSource::DragDrop) {

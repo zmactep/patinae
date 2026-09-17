@@ -686,6 +686,11 @@ impl Drop for PythonHandler {
         // drops its transport. Cancellation remains specific to its task token.
         self.host_bridge().close();
         self.worker.cancel_all();
+        let (_, disconnected) = std::sync::mpsc::channel();
+        drop(std::mem::replace(&mut self.result_rx, disconnected));
+        // A plugin library must not unload while its interpreter worker is
+        // still running, including cancellation before the first host poll.
+        self.worker.shutdown();
     }
 }
 

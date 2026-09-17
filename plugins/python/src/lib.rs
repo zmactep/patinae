@@ -22,6 +22,7 @@ patinae_plugin! {
     name: "python",
     description: "Embedded Python interpreter for scripting and automation",
     commands: [],
+    background_registration: true,
     register: |reg| {
         runtime::register(reg);
     },

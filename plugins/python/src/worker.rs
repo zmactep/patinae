@@ -173,9 +173,9 @@ pub enum WorkResultPayload {
 // =============================================================================
 
 /// Transport handle; cancellation tokens belong to individual accepted tasks.
-#[derive(Clone)]
 pub struct WorkerHandle {
     tx: Sender<WorkerRequest>,
+    thread: Option<thread::JoinHandle<()>>,
     tokens: Arc<Mutex<HashMap<TaskId, Arc<AtomicBool>>>>,
     config: Arc<Mutex<patinae_plugin::tasks::TaskConfig>>,
 }
@@ -187,6 +187,16 @@ struct WorkerRequest {
 }
 
 impl WorkerHandle {
+    /// The caller must close host bridges and drop the result receiver first.
+    pub fn shutdown(&mut self) {
+        self.cancel_all();
+        let (disconnected, _) = mpsc::channel();
+        drop(std::mem::replace(&mut self.tx, disconnected));
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+
     pub fn config(&self) -> patinae_plugin::tasks::TaskConfig {
         self.config.lock().unwrap().clone()
     }
@@ -259,13 +269,14 @@ pub fn spawn_worker() -> (WorkerHandle, Receiver<WorkResult>) {
     let tokens = Arc::new(Mutex::new(HashMap::new()));
     let worker_tokens = tokens.clone();
     let worker_config = config.clone();
-    thread::Builder::new()
+    let thread = thread::Builder::new()
         .name("python-worker".into())
         .spawn(move || worker_loop(work_rx, result_tx, worker_tokens, worker_config))
         .expect("Failed to spawn Python worker thread");
     (
         WorkerHandle {
             tx: work_tx,
+            thread: Some(thread),
             tokens,
             config,
         },
@@ -825,6 +836,7 @@ mod tests {
     fn duplicate_delivery_does_not_replace_cancellation_token() {
         let (tx, rx) = mpsc::channel();
         let worker = WorkerHandle {
+            thread: None,
             tx,
             tokens: Arc::new(Mutex::new(HashMap::new())),
             config: Arc::new(Mutex::new(patinae_plugin::tasks::TaskConfig::default())),

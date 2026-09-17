@@ -88,6 +88,9 @@ use crate::panic::panic_payload_to_string;
 use crate::paths::{is_plugin_library_path, PluginDiscovery};
 use crate::plugin::{LibraryHandle, LoadedPanel, LoadedPlugin};
 
+mod startup;
+pub use startup::{BackgroundPluginLoader, PluginLoadEvent, PreparedPlugin};
+
 mod gpu_validation;
 mod render_artifacts;
 
@@ -389,21 +392,25 @@ impl PluginHost {
         path: &Path,
         executor: &mut CommandExecutor,
     ) -> Result<String, String> {
-        #[cfg(target_os = "windows")]
-        crate::paths::apply_deps_search_paths(path);
+        self.attach_prepared(PreparedPlugin::load(path)?, executor)
+    }
 
-        // SAFETY: Loading a plugin is the explicit native-code extension point.
-        // The resulting handle is kept alive in LoadedPlugin while needed.
-        let library =
-            unsafe { Library::new(path).map_err(|e| format!("Failed to load library: {e}"))? };
-
-        let declaration = load_declaration(&library)?;
-        validate_declaration(&declaration)?;
-        initialize_plugin(&declaration)?;
-
-        let mut registration = RegistrationSink::new();
-        register_plugin(&declaration, &mut registration)?;
-
+    /// Installs a prepared plugin into the host and command registry.
+    ///
+    /// Call on the host thread, between command or panel callbacks.
+    /// # Errors
+    /// Returns an error if the plugin did not register metadata.
+    pub fn attach_prepared(
+        &mut self,
+        mut prepared: PreparedPlugin,
+        executor: &mut CommandExecutor,
+    ) -> Result<String, String> {
+        prepared.complete_registration()?;
+        let PreparedPlugin {
+            registration,
+            library,
+            ..
+        } = prepared;
         finish_registration(
             self,
             executor,
@@ -459,7 +466,7 @@ fn finish_registration(
     );
 
     let mut panels = Vec::new();
-    for panel in registration.panels {
+    for panel in std::mem::take(&mut registration.panels) {
         if host.panel_exists(&panel.descriptor.id)
             || panels
                 .iter()
@@ -469,6 +476,7 @@ fn finish_registration(
                 "Skipping duplicate plugin panel id '{}'",
                 panel.descriptor.id
             );
+            destroy_panel_handle(panel.handle, panel.vtable);
             continue;
         }
         let descriptor = panel.descriptor.clone();
@@ -479,7 +487,7 @@ fn finish_registration(
     }
 
     let mut hotkeys = KeyBindings::new();
-    for hotkey in registration.hotkeys {
+    for hotkey in std::mem::take(&mut registration.hotkeys) {
         let key_str = hotkey.key.clone();
         let action = hotkey.into_action(library.clone());
         match parse_key_string(&key_str) {
@@ -488,7 +496,7 @@ fn finish_registration(
         }
     }
 
-    let message_handler = registration.message_handler.map(|handler| {
+    let message_handler = registration.message_handler.take().map(|handler| {
         Box::new(AbiMessageHandlerProxy::new(handler, library.clone())) as Box<dyn MessageHandler>
     });
 
@@ -681,6 +689,32 @@ struct RegistrationSink {
     diagnostics: Vec<String>,
 }
 
+// Accepted descriptors transfer ownership to this sink. Draining them into
+// proxies transfers ownership again; failures and cancelled preparation still
+// destroy every remaining handle before the enclosing library is released.
+impl Drop for RegistrationSink {
+    fn drop(&mut self) {
+        for item in self.commands.drain(..) {
+            destroy_command_handle(item.handle, item.vtable);
+        }
+        for item in self.panels.drain(..) {
+            destroy_panel_handle(item.handle, item.vtable);
+        }
+        if let Some(item) = self.message_handler.take() {
+            destroy_message_handler_handle(item.handle, item.vtable);
+        }
+        for item in self.script_handlers.drain(..) {
+            destroy_script_handler_handle(item.handle, item.vtable);
+        }
+        for item in self.format_handlers.drain(..) {
+            destroy_format_handler_handle(item.handle, item.vtable);
+        }
+        for item in self.hotkeys.drain(..) {
+            destroy_hotkey_handle(item.handle, item.vtable);
+        }
+    }
+}
+
 impl RegistrationSink {
     fn new() -> Self {
         Self::default()
@@ -785,6 +819,9 @@ unsafe extern "C" fn host_register_message_handler(
         // duration of this callback. The host copies handle and vtable here.
         let descriptor = unsafe { &*descriptor };
         validate_message_handler_runtime(descriptor)?;
+        if let Some(previous) = sink.message_handler.take() {
+            destroy_message_handler_handle(previous.handle, previous.vtable);
+        }
         sink.message_handler = Some(RegisteredMessageHandler {
             handle: descriptor.handle,
             vtable: descriptor.vtable,

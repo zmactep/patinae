@@ -14,6 +14,7 @@ patinae_plugin! {
     description: "Example plugin: registers a 'hello' command with a configurable style setting",
     commands: [HelloCommand],
     settings: [HelloSettings],
+    background_registration: true,
 }
 
 struct HelloCommand;

@@ -341,3 +341,25 @@ pub struct RenderState {
     #[cfg(feature = "stats")]
     pub(super) stats: FrameStatsCollector,
 }
+
+/// GPU resources prepared independently of the thread-local scene representations.
+pub struct PreparedRenderState {
+    pub(super) ctx: RenderContext,
+    pub(super) targets: FrameTargets,
+    pub(super) uniforms: FrameUniforms,
+
+    pub(super) scene_layout: SceneStoreLayout,
+    pub(super) scene_store: SceneStore,
+    pub(super) geometry: GeometryRuntime,
+    pub(super) picking: PickingRuntime,
+    pub(super) screen: ScreenRuntime,
+    pub(super) lighting: LightingRuntime,
+    pub(super) memory: MemoryRuntime,
+    pub(super) last_sync_timings: RenderSyncTimings,
+
+    /// Per-frame instrumentation collector. Always present when the
+    /// `stats` feature is compiled in; falls back to CPU-only markers
+    /// when the adapter doesn't expose `TIMESTAMP_QUERY`.
+    #[cfg(feature = "stats")]
+    pub(super) stats: FrameStatsCollector,
+}

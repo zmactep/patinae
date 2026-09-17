@@ -23,7 +23,7 @@ pub(crate) mod state;
 mod sync_flow;
 mod visible_flow;
 
-pub use state::{RenderState, RenderSyncTimings};
+pub use state::{PreparedRenderState, RenderState, RenderSyncTimings};
 
 #[cfg(test)]
 mod memory_render_parity {

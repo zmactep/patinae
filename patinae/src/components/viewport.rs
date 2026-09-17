@@ -142,6 +142,23 @@ pub struct ViewportRenderer {
     warned_unsupported_memory_policy: bool,
 }
 
+/// GPU-only preparation result; live scene caches are created on attachment.
+pub(crate) struct PreparedViewport {
+    state: patinae_render::PreparedRenderState,
+    config: RenderConfig,
+    wgpu_errors: WgpuErrorFlags,
+    info: Option<AdapterInfo>,
+}
+
+impl PreparedViewport {
+    pub(crate) fn finish(self) -> (ViewportRenderer, Option<AdapterInfo>) {
+        (
+            ViewportRenderer::from_prepared(self.state.finish(), self.config, self.wgpu_errors),
+            self.info,
+        )
+    }
+}
+
 impl ViewportRenderer {
     /// Projects all annotation labels resolved for the latest rendered frame.
     pub(crate) fn annotation_labels(
@@ -159,19 +176,13 @@ impl ViewportRenderer {
         self.projected_labels.clear();
     }
 
-    fn new_with_config_and_errors(
-        device: wgpu::Device,
-        queue: wgpu::Queue,
+    fn from_prepared(
+        state: RenderState,
         config: RenderConfig,
         wgpu_errors: WgpuErrorFlags,
     ) -> Self {
-        // wgpu::Device / wgpu::Queue clone bumps an internal Arc refcount.
-        let device_arc = Arc::new(device);
-        let queue_arc = Arc::new(queue);
         let memory_policy = config.memory;
         let recovery = RenderMemoryRecoveryStage::normal(memory_policy.profile);
-        let state =
-            RenderState::with_config(device_arc, queue_arc, VIEWPORT_FORMAT, (1, 1), config);
         Self {
             state,
             config,
@@ -192,9 +203,10 @@ impl ViewportRenderer {
         }
     }
 
-    /// Create from a Slint graphics API handle. Returns the renderer and
-    /// optional adapter info (for HUD display).
-    pub fn setup(api: &slint::GraphicsAPI) -> Option<(Self, Option<AdapterInfo>)> {
+    /// Capture owned GPU handles; defer all preparation until after the first frame.
+    pub fn schedule(
+        api: &slint::GraphicsAPI,
+    ) -> Option<crate::renderer_startup::RendererStartup<PreparedViewport>> {
         let slint::GraphicsAPI::WGPU29 {
             instance,
             device,
@@ -204,7 +216,28 @@ impl ViewportRenderer {
         else {
             return None;
         };
+        let (instance, device, queue) = (instance.clone(), device.clone(), queue.clone());
+        Some(crate::renderer_startup::RendererStartup::new(move || {
+            Self::prepare(instance, device, queue)
+        }))
+    }
 
+    fn prepare(
+        instance: wgpu::Instance,
+        device: wgpu::Device,
+        queue: wgpu::Queue,
+    ) -> PreparedViewport {
+        // Explicit diagnostic fault injection, bounded to avoid accidental long stalls.
+        if let Some(delay) = std::env::var("PATINAE_DEBUG_RENDER_PREPARE_DELAY_MS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .filter(|delay| *delay > 0)
+        {
+            let delay = delay.min(30_000);
+            log::info!("Viewport diagnostic preparation delay: {delay} ms");
+            std::thread::sleep(Duration::from_millis(delay));
+        }
+        let started = Instant::now();
         let adapter_info =
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::HighPerformance,
@@ -228,19 +261,30 @@ impl ViewportRenderer {
             memory_policy.budget_bytes,
             memory_policy.frame_targets.viewport_handoff_ring
         );
-        log_wgpu_device_diagnostics(device);
-        let wgpu_errors = install_wgpu_error_handlers(device);
+        log_wgpu_device_diagnostics(&device);
+        let wgpu_errors = install_wgpu_error_handlers(&device);
 
-        let renderer = Self::new_with_config_and_errors(
-            device.clone(),
-            queue.clone(),
-            RenderConfig {
-                memory: memory_policy,
-                ..Default::default()
-            },
-            wgpu_errors,
+        let config = RenderConfig {
+            memory: memory_policy,
+            ..Default::default()
+        };
+        let state = RenderState::prepare_with_config(
+            Arc::new(device),
+            Arc::new(queue),
+            VIEWPORT_FORMAT,
+            (1, 1),
+            config,
         );
-        Some((renderer, info))
+        log::info!(
+            "Viewport preparation: {:.3} ms",
+            started.elapsed().as_secs_f64() * 1000.0
+        );
+        PreparedViewport {
+            state,
+            config,
+            wgpu_errors,
+            info,
+        }
     }
 
     /// Render the scene and return the result as a Slint image.

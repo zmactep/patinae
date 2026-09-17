@@ -38,6 +38,71 @@ impl ReplBridge {
         rs.set_completion_items(ModelRc::from(self.completion_model.clone()));
     }
 
+    /// Recomputes suggestions after input edits or newly attached plugin commands.
+    pub(crate) fn update_completions(&self, kernel: &AppKernel, window: &AppWindow, input: &str) {
+        // Build completion context
+        let registry = kernel.executor.registry();
+        let command_names: Vec<&str> = registry.names().collect();
+        let setting_names = patinae_settings::setting_names();
+        let setting_name_refs: Vec<&str> = setting_names.to_vec();
+        // Only palette names — SCHEME_NAMES are added by the engine for ArgHint::Color
+        let color_names: Vec<String> = kernel
+            .session
+            .named_palette
+            .names()
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect();
+        let object_names: Vec<String> = kernel
+            .session
+            .registry
+            .names()
+            .map(|s| s.to_string())
+            .collect();
+        let selection_names = kernel.session.selections.names();
+        let dynamic_settings = kernel.executor.dynamic_settings();
+
+        let ctx = completion::CompletionContext {
+            command_names: &command_names,
+            registry,
+            setting_names: &setting_name_refs,
+            color_names: &color_names,
+            object_names: &object_names,
+            selection_names: &selection_names,
+            dynamic_settings: Some(dynamic_settings),
+        };
+
+        let result = completion::generate_completions(input, input.len(), &ctx);
+
+        if result.suggestions.is_empty() {
+            self.completion_model.set_vec(Vec::new());
+            window.global::<ReplState>().set_completion_visible(false);
+            return;
+        }
+
+        // Convert to Slint CompletionItem
+        let items: Vec<CompletionItem> = result
+            .suggestions
+            .iter()
+            .map(|item| CompletionItem {
+                text: item.text.clone().into(),
+                description: item.description.clone().into(),
+                source: match item.source {
+                    CompletionSource::Plugin => "plugin",
+                    _ => "",
+                }
+                .into(),
+            })
+            .collect();
+
+        self.completion_model.set_vec(items);
+
+        let rs = window.global::<ReplState>();
+        rs.set_completion_start_pos(result.start_pos as i32);
+        rs.set_completion_selected(0);
+        rs.set_completion_visible(!input.is_empty());
+    }
+
     /// Sync kernel output buffer to the Slint model. Called each frame.
     pub fn sync(&mut self, kernel: &AppKernel, window: &AppWindow) {
         let output_generation = kernel.output.generation();
@@ -230,78 +295,11 @@ pub fn setup_callbacks(app: Rc<RefCell<crate::app::App>>, window: &AppWindow) {
     {
         let app = app.clone();
         let weak = window.as_weak();
-        let completion_model = app.borrow().repl.completion_model.clone();
         rs.on_completion_text_changed(move |text| {
-            let input = text.to_string();
-
-            let a = app.borrow();
-
-            // Build completion context
-            let registry = a.kernel.executor.registry();
-            let command_names: Vec<&str> = registry.names().collect();
-            let setting_names = patinae_settings::setting_names();
-            let setting_name_refs: Vec<&str> = setting_names.to_vec();
-            // Only palette names — SCHEME_NAMES are added by the engine for ArgHint::Color
-            let color_names: Vec<String> = a
-                .kernel
-                .session
-                .named_palette
-                .names()
-                .into_iter()
-                .map(|s| s.to_string())
-                .collect();
-            let object_names: Vec<String> = a
-                .kernel
-                .session
-                .registry
-                .names()
-                .map(|s| s.to_string())
-                .collect();
-            let selection_names = a.kernel.session.selections.names();
-            let dynamic_settings = a.kernel.executor.dynamic_settings();
-
-            let ctx = completion::CompletionContext {
-                command_names: &command_names,
-                registry,
-                setting_names: &setting_name_refs,
-                color_names: &color_names,
-                object_names: &object_names,
-                selection_names: &selection_names,
-                dynamic_settings: Some(dynamic_settings),
-            };
-
-            let result = completion::generate_completions(&input, input.len(), &ctx);
-
-            if result.suggestions.is_empty() {
-                completion_model.set_vec(Vec::new());
-                if let Some(w) = weak.upgrade() {
-                    w.global::<ReplState>().set_completion_visible(false);
-                }
-                return;
-            }
-
-            // Convert to Slint CompletionItem
-            let items: Vec<CompletionItem> = result
-                .suggestions
-                .iter()
-                .map(|item| CompletionItem {
-                    text: item.text.clone().into(),
-                    description: item.description.clone().into(),
-                    source: match item.source {
-                        CompletionSource::Plugin => "plugin",
-                        _ => "",
-                    }
-                    .into(),
-                })
-                .collect();
-
-            completion_model.set_vec(items);
-
-            if let Some(w) = weak.upgrade() {
-                let rs = w.global::<ReplState>();
-                rs.set_completion_start_pos(result.start_pos as i32);
-                rs.set_completion_selected(0);
-                rs.set_completion_visible(true);
+            if let Some(window) = weak.upgrade() {
+                let app = app.borrow();
+                app.repl
+                    .update_completions(&app.kernel, &window, text.as_str());
             }
         });
     }

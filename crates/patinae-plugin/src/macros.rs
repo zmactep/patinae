@@ -195,6 +195,7 @@ macro_rules! patinae_plugin {
         $(, panels: [$($panel:expr),* $(,)?] )?
         $(, settings: [$( $settings_ty:ty ),* $(,)?] )?
         $(, hotkeys: [$( ($hk_key:expr, $hk_action:expr) ),* $(,)?] )?
+        $(, background_registration: $background:expr )?
         $(, register: |$reg:ident| $body:block )?
         $(,)?
     ) => {
@@ -213,7 +214,8 @@ macro_rules! patinae_plugin {
                     | $crate::ffi::CAPABILITY_MESSAGE_RUNTIME
                     | $crate::ffi::CAPABILITY_SCRIPT_HANDLERS
                     | $crate::ffi::CAPABILITY_FORMAT_HANDLERS
-                    | $crate::ffi::CAPABILITY_HOTKEYS,
+                    | $crate::ffi::CAPABILITY_HOTKEYS
+                    $( | if $background { $crate::ffi::CAPABILITY_BACKGROUND_REGISTRATION } else { 0 } )?,
                 init: Some({
                     unsafe extern "C" fn __patinae_init(
                         _callbacks: *const $crate::ffi::HostCallbacks,
@@ -275,6 +277,7 @@ macro_rules! patinae_plugin {
         $(, panels: [$($panel:expr),* $(,)?] )?
         $(, settings: [$( $settings_ty:ty ),* $(,)?] )?
         $(, hotkeys: [$( ($hk_key:expr, $hk_action:expr) ),* $(,)?] )?
+        $(, background_registration: $background:expr )?
         $(, register: |$reg:ident| $body:block )?
         $(,)?
     ) => {
@@ -286,6 +289,7 @@ macro_rules! patinae_plugin {
             $(, panels: [$($panel),*] )?
             $(, settings: [$( $settings_ty ),*] )?
             $(, hotkeys: [$( ($hk_key, $hk_action) ),*] )?
+            $(, background_registration: $background )?
             $(, register: |$reg| $body )?
         }
     };

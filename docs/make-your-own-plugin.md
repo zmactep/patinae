@@ -1095,3 +1095,48 @@ Use `get_task`, `list_tasks`, `cancel_task`, `wait_task` and `task_result` for
 observation through the existing correlated query transport. Producers return a
 `PluginTaskRequest`; direct untracked worker submission is not a command result.
 See [Background tasks](#background-tasks) for producer responsibilities.
+
+## Background registration and native startup
+
+The native window renders its first frame before discovering plugins. Built-in
+commands remain usable while plugins are prepared sequentially on a loader
+thread. Each completed plugin is attached on the host thread; its commands,
+settings, formats, and panels then become available. `patinaerc` runs after all
+load attempts, followed by startup files and queued user file actions. This
+still happens if the user has already changed the scene.
+
+Opt in to off-thread initialization and registration explicitly, before `register`:
+
+```rust,ignore
+patinae_plugin! {
+    name: "example",
+    description: "Example background-safe plugin",
+    commands: [ExampleCommand],
+    background_registration: true,
+    register: |reg| {
+        // Only construct and register Send-compatible plugin objects here.
+    },
+}
+```
+
+This sets `CAPABILITY_BACKGROUND_REGISTRATION`. Initialization and registration
+must not access GUI APIs or live application state, rely on the main thread, or
+retain the registrar beyond the callback. Registered objects obey the existing
+SDK `Send` requirements; their destruction may occur on the loader/cleanup thread
+when startup is cancelled. Any plugin-owned threads must stop before their owner
+is destroyed, so their code cannot outlive the loaded library. Use runtime host
+callbacks after attachment for scene and UI work.
+
+Without this option, initialization and registration still run on the host
+thread, one plugin per host tick. A slow legacy callback can therefore stall the
+window. The descriptor layout, ABI version, and runtime wire are unchanged. Older
+hosts that do not recognize the capability reject newly opted-in plugins; rebuild
+the host and bundled plugins together.
+
+The loader reports individual failures and continues. Unknown commands entered
+during startup are not automatically replayed. Native file opening runs built-in
+formats immediately; scripts and currently unsupported formats wait for plugin
+loading to finish. Closing the window cancels remaining loading without waiting
+for a running native callback. Each `Loaded plugin` log includes the combined
+preparation and host attachment time, excluding time waiting for the host tick.
+Separate timings report the first frame and completion of plugin startup.

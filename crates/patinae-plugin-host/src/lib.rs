@@ -11,7 +11,9 @@ mod plugin;
 mod runtime;
 
 pub use host::PluginHost;
-pub use loader::validate_declaration_versions;
+pub use loader::{
+    validate_declaration_versions, BackgroundPluginLoader, PluginLoadEvent, PreparedPlugin,
+};
 pub use panels::{PanelFrame, PanelStatus};
 pub use paths::{is_plugin_library_path, standard_plugin_dirs, PluginDiscovery};
 pub use patinae_plugin::registrar::CommandResult;

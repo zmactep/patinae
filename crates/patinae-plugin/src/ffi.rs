@@ -47,6 +47,11 @@ pub const CAPABILITY_SCRIPT_HANDLERS: u64 = 1 << 8;
 pub const CAPABILITY_FORMAT_HANDLERS: u64 = 1 << 9;
 /// Plugin can register portable hotkey actions.
 pub const CAPABILITY_HOTKEYS: u64 = 1 << 10;
+/// Initialization and registration may run on a loader thread without UI access.
+///
+/// Registered objects must satisfy the SDK's Send contracts. Their destruction
+/// may also occur on the loader thread if startup is cancelled before attachment.
+pub const CAPABILITY_BACKGROUND_REGISTRATION: u64 = 1 << 11;
 
 /// Command runtime input: host-resolved displayed geometry.
 pub const COMMAND_RUNTIME_DISPLAYED_GEOMETRY: u64 = 1 << 0;
@@ -83,7 +88,8 @@ pub const KNOWN_CAPABILITIES: u64 = CAPABILITY_REGISTRATION
     | CAPABILITY_MESSAGE_RUNTIME
     | CAPABILITY_SCRIPT_HANDLERS
     | CAPABILITY_FORMAT_HANDLERS
-    | CAPABILITY_HOTKEYS;
+    | CAPABILITY_HOTKEYS
+    | CAPABILITY_BACKGROUND_REGISTRATION;
 
 /// Setting value kind code for an empty value.
 pub const SETTING_VALUE_NONE: u8 = 0;

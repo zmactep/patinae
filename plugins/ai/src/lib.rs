@@ -18,6 +18,7 @@ patinae_plugin! {
     name: "ai",
     description: "AI agent with live command discovery and cancellable host tasks",
     commands: [AiCommand],
+    background_registration: true,
     register: |reg| { reg.set_message_handler(AiHandler::default()); },
 }
 

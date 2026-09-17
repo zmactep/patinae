@@ -82,6 +82,28 @@ impl RenderState {
 
         config: RenderConfig,
     ) -> Self {
+        Self::prepare_with_config(device, queue, color_format, viewport, config).finish()
+    }
+
+    /// Prepares GPU resources without constructing live scene representations.
+    ///
+    /// Native hosts may call this on a worker and finish on their render thread.
+    pub fn prepare_with_config(
+        device: Arc<wgpu::Device>,
+        queue: Arc<wgpu::Queue>,
+        color_format: wgpu::TextureFormat,
+        viewport: (u32, u32),
+        config: RenderConfig,
+    ) -> PreparedRenderState {
+        let startup_started = std::time::Instant::now();
+        let mut stage_started = startup_started;
+        let mut report_stage = |name: &str| {
+            log::info!(
+                "Viewport stage {name}: {:.3} ms",
+                stage_started.elapsed().as_secs_f64() * 1000.0
+            );
+            stage_started = std::time::Instant::now();
+        };
         let memory_policy = config.memory;
         let mut memory_warnings = Vec::new();
         let policy_allows_picking = memory_policy.picking.hit_test_enabled;
@@ -166,6 +188,8 @@ impl RenderState {
 
         let scene_store = SceneStore::new();
 
+        report_stage("resources");
+
         let sphere_compute = SphereBuildPipeline::new(&ctx.device, &scene_layout);
 
         let sphere_lod_count = SphereLodCountPipeline::new(&ctx.device, &scene_layout);
@@ -189,6 +213,8 @@ impl RenderState {
         let surface_ses_morph_compute = SurfaceSesMorphCompute::new(&ctx.device);
 
         let surface_mc_compute = SurfaceMcCompute::new(&ctx.device);
+
+        report_stage("compute pipelines");
 
         let sphere_pipeline = SpherePipeline::new(&ctx, &scene_layout, &sphere_params_layout);
 
@@ -229,6 +255,8 @@ impl RenderState {
             },
         );
 
+        report_stage("render pipelines");
+
         let composite = WboitComposite::new(&ctx);
 
         // Hit-test picking owns only readback/reprojection resources. Visual
@@ -260,6 +288,8 @@ impl RenderState {
         } else {
             None
         };
+
+        report_stage("picking and overlays");
 
         let cull_pipeline = CullPipeline::new(&ctx.device);
 
@@ -316,6 +346,8 @@ impl RenderState {
             _ => (None, None, None, None),
         };
 
+        report_stage("lighting");
+
         let fxaa_pass = FxaaPass::new(&ctx);
 
         let fxaa_bind_group = targets
@@ -331,31 +363,21 @@ impl RenderState {
         #[cfg(feature = "stats")]
         let stats = FrameStatsCollector::new(&ctx.device, &ctx.queue);
 
-        Self {
+        report_stage("postprocessing and bindings");
+        log::info!(
+            "Viewport GPU resources total: {:.3} ms",
+            startup_started.elapsed().as_secs_f64() * 1000.0
+        );
+
+        PreparedRenderState {
             ctx,
 
             targets,
 
             uniforms,
 
-            scene: SceneRuntime {
-                scene_layout,
-                scene_store,
-                reps: HashMap::new(),
-                maps: HashMap::new(),
-                strokes: HashMap::new(),
-                draw_order: Vec::new(),
-                map_draw_order: Vec::new(),
-                stroke_draw_order: Vec::new(),
-                stroke_bounds_hash: 0,
-                scene_dirty: true,
-                cull_pass_initialized: false,
-                last_cull_view_proj_hash: 0,
-                has_any_marker: false,
-                marker_object_hash: 0,
-                scene_bounds: None,
-                lod: SceneLod::Auto,
-            },
+            scene_layout,
+            scene_store,
 
             geometry: GeometryRuntime {
                 sphere_params_layout,
@@ -472,6 +494,59 @@ impl RenderState {
             },
 
             last_sync_timings: RenderSyncTimings::default(),
+
+            #[cfg(feature = "stats")]
+            stats,
+        }
+    }
+}
+
+impl PreparedRenderState {
+    /// Attaches an empty scene without compiling or allocating GPU resources.
+    pub fn finish(self) -> RenderState {
+        let Self {
+            ctx,
+            targets,
+            uniforms,
+            geometry,
+            picking,
+            screen,
+            lighting,
+            memory,
+            last_sync_timings,
+            scene_layout,
+            scene_store,
+            #[cfg(feature = "stats")]
+            stats,
+        } = self;
+        RenderState {
+            ctx,
+            targets,
+            uniforms,
+            geometry,
+            picking,
+            screen,
+            lighting,
+            memory,
+            last_sync_timings,
+            scene: SceneRuntime {
+                scene_layout,
+                scene_store,
+                reps: HashMap::new(),
+                maps: HashMap::new(),
+                strokes: HashMap::new(),
+                draw_order: Vec::new(),
+                map_draw_order: Vec::new(),
+                stroke_draw_order: Vec::new(),
+                stroke_bounds_hash: 0,
+                scene_dirty: true,
+                cull_pass_initialized: false,
+                last_cull_view_proj_hash: 0,
+                has_any_marker: false,
+                marker_object_hash: 0,
+                scene_bounds: None,
+                lod: SceneLod::Auto,
+            },
 
             #[cfg(feature = "stats")]
             stats,

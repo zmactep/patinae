@@ -18,6 +18,7 @@ patinae_plugin! {
     name: "ipc",
     description: "IPC server for external control via Unix domain socket",
     commands: [],
+    background_registration: true,
     register: |reg| {
         if let Ok(socket_path) = std::env::var("PATINAE_IPC_SOCKET") {
             let path = std::path::PathBuf::from(&socket_path);

@@ -1,6 +1,6 @@
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
@@ -43,6 +43,7 @@ use crate::display_recovery::{
     DisplayRecovery,
 };
 use crate::native_file_actions::{enqueue_file_action, quote_command_arg, NativeFileSource};
+use crate::plugin_startup::PluginStartup;
 use crate::recent_files::RecentFilesBridge;
 use crate::recent_thumbnails::{RECENT_THUMBNAIL_HEIGHT, RECENT_THUMBNAIL_WIDTH};
 use crate::startup_alert;
@@ -112,6 +113,9 @@ enum StartupAction {
 pub struct App {
     pub(crate) kernel: AppKernel,
     renderer: Option<ViewportRenderer>,
+    renderer_startup: Option<
+        crate::renderer_startup::RendererStartup<crate::components::viewport::PreparedViewport>,
+    >,
     input: InputBridge,
     /// Hover granularity used to expand the cached pick hit.
     last_hover_mode: Option<MouseSelectionMode>,
@@ -174,6 +178,8 @@ pub struct App {
     /// Ordered startup work. Drained after the first frame so startup
     /// scripts and large loads do not block window creation.
     startup_actions: VecDeque<StartupAction>,
+    plugin_startup: PluginStartup,
+    deferred_file_actions: VecDeque<(PathBuf, NativeFileSource)>,
     /// Save-file picker requests emitted while rendering plugin panel events.
     ///
     /// Drained on a later event-loop tick so native modal dialogs cannot
@@ -196,8 +202,7 @@ impl App {
             .unwrap_or(false);
         let mut kernel = AppKernel::new();
         kernel.set_async_command_handler(Some(Box::new(crate::fetch::task_from_request)));
-        let mut plugins = PluginHost::new();
-        plugins.load_standard_dirs(&mut kernel.executor);
+        let plugins = PluginHost::new();
         let command_names_cache = kernel
             .executor
             .registry()
@@ -208,6 +213,7 @@ impl App {
         Self {
             kernel,
             renderer: None,
+            renderer_startup: None,
             input: InputBridge::new(),
             last_hover_mode: None,
             objects: ObjectsBridge::new(),
@@ -242,6 +248,8 @@ impl App {
             perf_history: RefCell::new(FrameStatsHistory::with_default_capacity()),
             perf_update_counter: Cell::new(0),
             startup_actions: VecDeque::new(),
+            plugin_startup: PluginStartup::new(Instant::now()),
+            deferred_file_actions: VecDeque::new(),
             pending_save_file_requests: VecDeque::new(),
             pending_annotation_requests: VecDeque::new(),
             save_file_dialog_scheduled: false,
@@ -254,9 +262,29 @@ impl App {
     // --- Renderer lifecycle ---
 
     pub fn setup_renderer(&mut self, api: &slint::GraphicsAPI, app: &AppWindow) -> Option<()> {
+        self.renderer_startup = ViewportRenderer::schedule(api);
+        self.sync_notifications(app);
+        self.renderer_startup.as_ref().map(|_| ())
+    }
+
+    fn poll_renderer_startup(&mut self, app: &AppWindow) {
+        let Some(startup) = self.renderer_startup.as_mut() else {
+            return;
+        };
+        let prepared = match startup.tick() {
+            Ok(Some(result)) => result,
+            Ok(None) => return,
+            Err(error) => {
+                self.renderer_startup = None;
+                log::error!("{error}");
+                self.kernel.output.print_error(error);
+                return;
+            }
+        };
+        self.renderer_startup = None;
+        let started = Instant::now();
+        let (renderer, info) = prepared.finish();
         let (vw, vh) = Self::viewport_size(app);
-        let (renderer, info) = ViewportRenderer::setup(api)?;
-        log::info!("wgpu 28 device acquired — initializing viewport");
         self.viewport.resize(vw, vh);
         self.kernel.resize(vw, vh);
         self.renderer = Some(renderer);
@@ -269,11 +297,16 @@ impl App {
             vp.set_engine_name(info.backend.into());
         }
 
-        Some(())
+        log::info!(
+            "Viewport attached: {:.3} ms",
+            started.elapsed().as_secs_f64() * 1000.0
+        );
+        app.window().request_redraw();
     }
 
     pub fn teardown_renderer(&mut self) {
         log::info!("Rendering teardown — dropping viewport");
+        self.renderer_startup = None;
         self.renderer = None;
     }
 
@@ -291,13 +324,26 @@ impl App {
     }
 
     pub(crate) fn submit_repl_command(&mut self, cmd: String, app: &AppWindow) {
+        self.execute_repl_input(cmd, Self::viewport_size(app));
+    }
+
+    fn execute_repl_input(&mut self, cmd: String, viewport_size: (u32, u32)) {
         self.kernel.command_line.input = cmd;
-        let viewport_size = Self::viewport_size(app);
+        let cmd = self.kernel.command_line.take_command();
+        if cmd.is_empty() {
+            return;
+        }
+        self.kernel.command_line.add_to_history(cmd.clone());
         let rc: Option<&mut dyn CaptureRenderer> = self
             .renderer
             .as_mut()
             .map(|r| r as &mut dyn CaptureRenderer);
-        self.kernel.submit_command(rc, viewport_size);
+        let result = self.kernel.execute_command(&cmd, false, rc, viewport_size);
+        if !self.plugin_startup.ready() && result.is_err_and(|error| error.is_unknown_command()) {
+            self.kernel.bus.print_info(
+                "Plugins are still loading; unavailable commands are not retried automatically",
+            );
+        }
     }
 
     /// Route a native menu Open selection through the shared file router.
@@ -317,16 +363,24 @@ impl App {
     }
 
     fn route_native_file(&mut self, path: &std::path::Path, source: NativeFileSource) {
-        enqueue_file_action(&mut self.kernel, path, source);
+        if (!self.plugin_startup.ready() || self.renderer_startup.is_some())
+            && crate::native_file_actions::needs_plugin_startup(&self.kernel.executor, path)
+        {
+            self.deferred_file_actions
+                .push_back((path.to_path_buf(), source));
+            self.kernel
+                .bus
+                .print_info("File queued until startup completes");
+        } else {
+            enqueue_file_action(&mut self.kernel, path, source);
+        }
     }
 
     pub(crate) fn open_recent_file(&mut self, app: &AppWindow, path: &str) {
         let path = PathBuf::from(path);
         match path.try_exists() {
             Ok(true) => {
-                self.kernel
-                    .bus
-                    .execute_command(recent_open_command_for_existing_path(&path));
+                self.route_native_file(&path, NativeFileSource::RecentFile);
             }
             Ok(false) => {
                 if let Err(err) = self.recent_files.remove(&path, app) {
@@ -366,8 +420,28 @@ impl App {
 
     /// Services commands and tasks independently of rendering or window visibility.
     fn pump_host(&mut self, app: &AppWindow) -> Option<bool> {
+        self.poll_renderer_startup(app);
         let mut window_visibility = None;
         let viewport_size = Self::viewport_size(app);
+        match self
+            .plugin_startup
+            .tick(&mut self.plugins, &mut self.kernel.executor)
+        {
+            Ok(true) => {
+                self.refresh_command_names_cache();
+                self.repl.update_completions(
+                    &self.kernel,
+                    app,
+                    app.global::<crate::ReplState>().get_input_text().as_str(),
+                );
+            }
+            Ok(false) => {}
+            Err(error) => {
+                log::warn!("{error}");
+                self.kernel.bus.print_warning(error);
+            }
+        }
+        self.run_startup_actions(viewport_size);
         self.poll_plugins(viewport_size);
         self.drain_annotation_requests();
         let rc = self
@@ -418,6 +492,19 @@ impl App {
     // --- Per-frame rendering ---
 
     pub fn render_frame(&mut self, app: &AppWindow) {
+        // Window chrome must be ready for the first frame, even while GPU
+        // resources are still being prepared in the background.
+        let theme_changed = crate::bridges::theme::sync_theme(
+            &mut self.kernel,
+            &app.global::<Theme>(),
+            app,
+            &mut self.prev_theme,
+        );
+        if theme_changed {
+            self.kernel.session.registry.mark_all_dirty();
+        }
+        self.platform.sync(app);
+
         if self.renderer.is_none() {
             return;
         }
@@ -465,7 +552,7 @@ impl App {
         let fetch_dialog_visible = app.global::<MenuState>().get_fetch_visible();
         mark("setup", &mut t_section);
 
-        // Resize + Input + Theme + Platform
+        // Resize + Input
         self.viewport.resize(vw, vh);
         self.kernel.resize(vw, vh);
         if self.take_live_texture_invalidation() {
@@ -502,17 +589,6 @@ impl App {
             self.kernel.viewport.input.handle_pinch_zoom(pinch);
             self.pinch_accumulator.set(0.0);
         }
-
-        let theme_changed = crate::bridges::theme::sync_theme(
-            &mut self.kernel,
-            &app.global::<Theme>(),
-            app,
-            &mut self.prev_theme,
-        );
-        if theme_changed {
-            self.kernel.session.registry.mark_all_dirty();
-        }
-        self.platform.sync(app);
 
         if fetch_dialog_visible {
             self.kernel.viewport.input.reset();
@@ -674,7 +750,6 @@ impl App {
         }
 
         self.capture_pending_recent_thumbnail(app);
-        self.run_startup_actions((vw, vh));
     }
 
     fn poll_plugins(&mut self, viewport_size: (u32, u32)) {
@@ -956,7 +1031,10 @@ impl App {
                 }
             })
             .collect();
-        let mut messages = Vec::new();
+        let mut messages: Vec<String> = self.plugin_startup.status().into_iter().collect();
+        if self.renderer_startup.is_some() {
+            messages.push("Preparing graphics…".into());
+        }
         if messages.is_empty() && tasks.is_empty() {
             if let Some((message, expires_at)) = &self.transient_notification {
                 if Instant::now() <= *expires_at {
@@ -1008,6 +1086,9 @@ impl App {
     }
 
     fn run_startup_actions(&mut self, viewport_size: (u32, u32)) {
+        if !self.plugin_startup.ready() || self.renderer_startup.is_some() {
+            return;
+        }
         while let Some(action) = self.startup_actions.pop_front() {
             match action {
                 StartupAction::Warning(message) => {
@@ -1031,6 +1112,9 @@ impl App {
                     enqueue_file_action(&mut self.kernel, &path, NativeFileSource::StartupArgv);
                 }
             }
+        }
+        while let Some((path, source)) = self.deferred_file_actions.pop_front() {
+            enqueue_file_action(&mut self.kernel, &path, source);
         }
     }
 
@@ -1470,11 +1554,6 @@ fn startup_actions(patinaerc: PatinaercPath, argv_files: Vec<PathBuf>) -> VecDeq
     actions
 }
 
-fn recent_open_command_for_existing_path(path: &Path) -> String {
-    let path_text = path.to_string_lossy();
-    format!("load {}", quote_command_arg(path_text.as_ref()))
-}
-
 fn should_apply_standard_panel_preset(was_empty: bool, is_empty: bool) -> bool {
     was_empty && !is_empty
 }
@@ -1696,7 +1775,7 @@ fn patinae_wgpu_configuration(
 // run() — entry point
 // ---------------------------------------------------------------------------
 
-pub fn run() -> Result<(), Box<dyn std::error::Error>> {
+pub fn run(started: Instant) -> Result<(), Box<dyn std::error::Error>> {
     let wgpu_configuration = match patinae_wgpu_configuration() {
         Ok(configuration) => configuration,
         Err(err) => return abort_startup_for_renderer_error(err),
@@ -1713,6 +1792,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let mut app_state = App::new();
+    app_state.plugin_startup = PluginStartup::new(started);
     app_state.startup_actions = startup_actions(
         patinae_settings::paths::patinaerc_path(),
         std::env::args_os().skip(1).map(PathBuf::from).collect(),
@@ -1732,7 +1812,11 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     {
         #[cfg(target_os = "macos")]
         let display_link_heartbeat_for_close = display_link_heartbeat.clone();
+        let weak_app_for_close = Rc::downgrade(&app);
         window.window().on_close_requested(move || {
+            if let Some(app) = weak_app_for_close.upgrade() {
+                app.borrow_mut().plugin_startup.cancel();
+            }
             #[cfg(target_os = "macos")]
             display_link_heartbeat_for_close.borrow_mut().take();
             request_event_loop_quit(slint::quit_event_loop);
@@ -2023,7 +2107,11 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             slint::RenderingState::RenderingSetup => {
                 if let Some(w) = window_weak.upgrade() {
                     app_rc.borrow_mut().setup_renderer(api, &w);
-                    log_window_event(w.window(), "rendering-setup", format_args!("wgpu-ready"));
+                    log_window_event(
+                        w.window(),
+                        "rendering-setup",
+                        format_args!("viewport-scheduled"),
+                    );
                     request_display_recovery_redraw(w.window());
                     #[cfg(target_os = "macos")]
                     start_display_link_heartbeat(
@@ -2041,8 +2129,13 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
             }
-            slint::RenderingState::AfterRendering if timing_callbacks => {
-                if let Some(t0) = before_end_clone.get() {
+            slint::RenderingState::AfterRendering => {
+                let mut app = app_rc.borrow_mut();
+                app.plugin_startup.after_frame();
+                if let Some(startup) = &mut app.renderer_startup {
+                    startup.after_frame();
+                }
+                if let Some(t0) = before_end_clone.get().filter(|_| timing_callbacks) {
                     let dt = t0.elapsed().as_secs_f32() * 1000.0;
                     eprintln!("[patinae] slint scene-graph render: {dt:.2} ms");
                 }
@@ -2060,6 +2153,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     // User close and Quit still explicitly request event-loop termination.
     let result = slint::run_event_loop_until_quit();
     app.borrow().host_timer.stop();
+    app.borrow_mut().plugin_startup.cancel();
+    app.borrow_mut().renderer_startup = None;
     result?;
     Ok(())
 }
@@ -2932,6 +3027,68 @@ mod tests {
     }
 
     #[test]
+    fn startup_work_waits_for_plugins_and_drains_once_in_order() {
+        let mut app = App::new();
+        let rc = write_startup_file("plugin-startup-rc");
+        std::fs::write(&rc, "set sphere_scale, 2\n").unwrap();
+        let argv = PathBuf::from("/tmp/startup molecule.pdb");
+        let deferred = PathBuf::from("/tmp/user script.py");
+        app.startup_actions = VecDeque::from([
+            StartupAction::RunPatinaerc(rc.clone()),
+            StartupAction::RouteArgvFile(argv.clone()),
+        ]);
+        app.route_native_file(&deferred, NativeFileSource::DragDrop);
+        app.kernel.bus.drain_outbox();
+        app.run_startup_actions((800, 600));
+        assert_eq!(app.startup_actions.len(), 2);
+        assert_eq!(app.deferred_file_actions.len(), 1);
+        app.plugin_startup.after_frame();
+        app.run_startup_actions((800, 600));
+        assert_eq!(app.startup_actions.len(), 2);
+        app.plugin_startup.finish();
+        app.renderer_startup = Some(crate::renderer_startup::RendererStartup::new(|| {
+            panic!("This test must not start GPU preparation")
+        }));
+        app.run_startup_actions((800, 600));
+        assert_eq!(app.startup_actions.len(), 2);
+        app.renderer_startup = None;
+        app.run_startup_actions((800, 600));
+        assert!(app.startup_actions.is_empty());
+        assert!(app.deferred_file_actions.is_empty());
+        let messages = app.kernel.bus.drain_outbox();
+        let commands: Vec<_> = messages
+            .iter()
+            .filter_map(|message| match message {
+                AppMessage::ExecuteCommand { command, .. } => Some(command.as_str()),
+                _ => None,
+            })
+            .collect();
+        // Python is still unsupported in this empty host: the queued file is
+        // resolved after readiness, then reports a warning rather than vanishing.
+        assert_eq!(
+            commands.last().copied(),
+            Some("load \"/tmp/startup molecule.pdb\"")
+        );
+        assert!(messages.iter().any(|message| matches!(message, AppMessage::PrintWarning(text) if text.contains("user script.py"))));
+        app.run_startup_actions((800, 600));
+        assert!(app.kernel.bus.drain_outbox().is_empty());
+        std::fs::remove_file(rc).unwrap();
+    }
+
+    #[test]
+    fn unknown_repl_commands_explain_loading_without_replay() {
+        let mut app = App::new();
+        app.execute_repl_input("not_registered_yet".into(), (800, 600));
+        assert!(app.kernel.bus.drain_outbox().iter().any(|message| matches!(message, AppMessage::PrintInfo(text) if text.contains("still loading"))));
+        app.execute_repl_input("set sphere_scale, 2".into(), (800, 600));
+        assert!(!app.kernel.bus.drain_outbox().iter().any(|message| matches!(message, AppMessage::PrintInfo(text) if text.contains("still loading"))));
+        app.plugin_startup.finish();
+        app.execute_repl_input("not_registered_yet".into(), (800, 600));
+        assert!(!app.kernel.bus.drain_outbox().iter().any(|message| matches!(message, AppMessage::PrintInfo(text) if text.contains("still loading"))));
+        assert!(app.startup_actions.is_empty());
+    }
+
+    #[test]
     fn startup_actions_skip_missing_default_patinaerc() {
         let path = temp_startup_path("missing-default-patinaerc");
         let actions = startup_actions(
@@ -3018,11 +3175,11 @@ mod tests {
     }
 
     #[test]
-    fn recent_open_command_paths_with_spaces_are_quoted() {
-        assert_eq!(
-            recent_open_command_for_existing_path(Path::new("/tmp/recent files/1fsd.pdb")),
-            "load \"/tmp/recent files/1fsd.pdb\""
-        );
+    fn recent_open_uses_shared_file_router() {
+        let mut app = App::new();
+        let path = PathBuf::from("/tmp/recent files/script.py");
+        app.route_native_file(&path, NativeFileSource::RecentFile);
+        assert_eq!(app.deferred_file_actions.len(), 1);
     }
 
     #[test]

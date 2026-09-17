@@ -82,7 +82,7 @@ pub use render_input::{
     RenderStrokeInput, RepColorLutEntry, SceneLod, StrokeSegment, IDENTITY_TRANSFORM,
     REP_COLOR_INHERIT,
 };
-pub use render_state::{RenderState, RenderSyncTimings};
+pub use render_state::{PreparedRenderState, RenderState, RenderSyncTimings};
 pub use representation_budget::{
     RepBudgetDiagnostic, RepBuildDecision, RepMemoryEstimate, RepQualityLevel, RepSkipReason,
 };

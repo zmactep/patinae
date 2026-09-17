@@ -166,7 +166,8 @@ impl PluginHost {
         self.bump_panel_ui_generation_if_changed(before)
     }
 
-    pub(crate) fn add_plugin_dir(&mut self, dir: &Path) {
+    /// Retains a discovered directory for plugin resource lookup.
+    pub fn add_plugin_dir(&mut self, dir: &Path) {
         if !self.plugin_dirs.iter().any(|p| p == dir) {
             self.plugin_dirs.push(dir.to_path_buf());
         }
