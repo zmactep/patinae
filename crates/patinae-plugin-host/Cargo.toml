@@ -24,6 +24,7 @@ patinae-settings = { workspace = true }
 rmp-serde = { workspace = true }
 serde = { workspace = true }
 toml = "1.1"
+tempfile = "3"
 wgpu = { workspace = true }
 
 [dev-dependencies]

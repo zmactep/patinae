@@ -23,11 +23,11 @@ pub struct PluginHost {
     pub(crate) pending_task_controls: Vec<(usize, patinae_plugin::wire::WireHostQuery)>,
     pub(crate) pending_task_waits: Vec<super::runtime::PendingTaskWait>,
     pub(crate) task_invocations: Vec<TaskInvocation>,
-    pub(crate) pending_registrations: Vec<DynCmdRegistration>,
-    pub(crate) pending_unregistrations: Vec<String>,
+    pub(crate) pending_registrations: Vec<(u64, DynCmdRegistration)>,
+    pub(crate) pending_unregistrations: Vec<(u64, String)>,
     pub(crate) triggered_hotkeys: Vec<TriggeredHotkey>,
-    pub(crate) pending_hotkey_registrations: Vec<(String, PluginKeyAction)>,
-    pub(crate) pending_hotkey_unregistrations: Vec<String>,
+    pub(crate) pending_hotkey_registrations: Vec<(u64, String, PluginKeyAction)>,
+    pub(crate) pending_hotkey_unregistrations: Vec<(u64, String)>,
     pub(crate) pending_mutations: Vec<ViewerMutation>,
     pub(crate) pending_panel_events: Vec<PanelEvent>,
 }
@@ -65,6 +65,98 @@ impl PluginHost {
     pub fn plugin_count(&self) -> usize {
         self.plugins.len()
     }
+
+    /// Detach a library and all its registrations between host callbacks.
+    ///
+    /// Outstanding tasks lose their executor; other plugins retain their routing.
+    /// Plugin destructors stop workers before the last library reference is dropped.
+    pub fn unload_library(
+        &mut self,
+        path: &std::path::Path,
+        executor: &mut patinae_cmd::CommandExecutor,
+        tasks: &patinae_cmd::tasks::TaskRunner,
+    ) -> bool {
+        let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        let Some(index) = self
+            .plugins
+            .iter()
+            .position(|plugin| plugin.path.as_ref() == Some(&path))
+        else {
+            return false;
+        };
+        let plugin = self.plugins.remove(index);
+        let owner = plugin.registration_owner;
+        executor.unregister_plugin(owner);
+        if !self
+            .plugins
+            .iter()
+            .any(|other| other.metadata.name == plugin.metadata.name)
+        {
+            let prefix = format!("{}/", plugin.metadata.name);
+            let owners: std::collections::HashSet<_> = tasks
+                .active_snapshots()
+                .iter()
+                .filter_map(|task| tasks.owner(task.id).ok())
+                .filter(|name| name == &plugin.metadata.name || name.starts_with(&prefix))
+                .collect();
+            for name in owners {
+                tasks.fail_owner(&name);
+            }
+            self.task_invocations
+                .retain(|invocation| invocation.request.executor != plugin.metadata.name);
+        }
+        self.command_owners
+            .retain(|_, (target, _)| remap_plugin_index(target, index));
+        self.pending_executions
+            .retain(|request| self.command_owners.contains_key(&request.id));
+        if index < self.command_results.len() {
+            self.command_results.remove(index);
+        }
+        if index < self.host_query_results.len() {
+            self.host_query_results.remove(index);
+        }
+        self.pending_task_controls
+            .retain_mut(|(target, _)| remap_plugin_index(target, index));
+        self.pending_task_waits
+            .retain_mut(|wait| remap_plugin_index(&mut wait.plugin_index, index));
+        self.triggered_hotkeys
+            .retain_mut(|hotkey| remap_plugin_index(&mut hotkey.plugin_index, index));
+        self.pending_registrations.retain(|(id, _)| *id != owner);
+        self.pending_unregistrations.retain(|(id, _)| *id != owner);
+        self.pending_hotkey_registrations
+            .retain(|(id, _, _)| *id != owner);
+        self.pending_hotkey_unregistrations
+            .retain(|(id, _)| *id != owner);
+        self.pending_panel_events.retain(|event| {
+            !plugin
+                .panels
+                .iter()
+                .any(|panel| panel.descriptor.id == event.panel_id)
+        });
+        drop(plugin);
+        self.ensure_single_active_per_placement();
+        self.bump_panel_ui_generation();
+        true
+    }
+
+    /// Returns paths and metadata of successfully attached dynamic libraries.
+    pub fn loaded_libraries(
+        &self,
+    ) -> impl Iterator<Item = (&std::path::Path, &patinae_plugin::registrar::PluginMetadata)> {
+        self.plugins
+            .iter()
+            .filter_map(|plugin| plugin.path.as_deref().map(|path| (path, &plugin.metadata)))
+    }
+}
+
+fn remap_plugin_index(target: &mut usize, removed: usize) -> bool {
+    if *target == removed {
+        return false;
+    }
+    if *target > removed {
+        *target -= 1;
+    }
+    true
 }
 
 impl Default for PluginHost {
@@ -537,6 +629,8 @@ pub(crate) mod tests {
     fn host_with_panels(panels: Vec<LoadedPanel>) -> PluginHost {
         let mut host = PluginHost::new();
         host.plugins.push(LoadedPlugin {
+            registration_owner: 0,
+            path: None,
             _library: Arc::new(LibraryHandle::Static),
             metadata: PluginMetadata::new("test-plugin", "0.0.0", "test"),
             message_handler: None,
@@ -557,6 +651,8 @@ pub(crate) mod tests {
         let mut host = PluginHost::new();
         for (index, handler) in handlers.into_iter().enumerate() {
             host.plugins.push(LoadedPlugin {
+                registration_owner: 0,
+                path: None,
                 _library: Arc::new(LibraryHandle::Static),
                 metadata: PluginMetadata::new(format!("test-plugin-{index}"), "0.0.0", "test"),
                 message_handler: Some(handler),
@@ -1328,6 +1424,97 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn unloading_abi_registration_removes_assets_and_preserves_other_routes() {
+        let mut kernel = patinae_framework::kernel::AppKernel::new();
+        let mut host = PluginHost::new();
+        for (register, path) in [
+            (register_fixture as PluginRegisterFn, "/fixture/one"),
+            (register_reader_format_fixture, "/fixture/two"),
+        ] {
+            load_declaration_for_test(
+                &mut host,
+                &mut kernel.executor,
+                test_declaration(Some(register)),
+            )
+            .unwrap();
+            host.plugins.last_mut().unwrap().path = Some(path.into());
+        }
+        let reader = kernel.executor.format_handlers()["reader_only"].clone();
+        host.command_owners.insert(10, (0, 100));
+        host.command_owners.insert(20, (1, 200));
+        host.command_results.resize_with(2, Vec::new);
+        host.host_query_results.resize_with(2, Vec::new);
+        let generation = host.panel_ui_generation();
+        assert!(host.unload_library(
+            Path::new("/fixture/one"),
+            &mut kernel.executor,
+            &kernel.tasks
+        ));
+        assert!(!kernel.executor.registry().contains("abi_fixture"));
+        assert!(!kernel.executor.registry().contains("af"));
+        assert!(kernel
+            .executor
+            .dynamic_settings()
+            .lookup("abi_enabled")
+            .is_none());
+        assert!(!host.has_panel("abi_panel"));
+        assert!(host.panel_ui_generation() > generation);
+        assert_eq!(host.plugin_count(), 1);
+        assert_eq!(kernel.executor.loaded_plugin_capabilities().len(), 1);
+        assert!(Arc::ptr_eq(
+            &reader,
+            &kernel.executor.format_handlers()["reader_only"]
+        ));
+        assert!(!host.command_owners.contains_key(&10));
+        assert_eq!(host.command_owners[&20], (0, 200));
+        assert_eq!(host.command_results.len(), 1);
+        assert_eq!(host.host_query_results.len(), 1);
+        assert!(!host.unload_library(
+            Path::new("/fixture/one"),
+            &mut kernel.executor,
+            &kernel.tasks
+        ));
+    }
+
+    #[test]
+    fn unloading_format_overrides_restores_survivors_in_either_removal_order() {
+        for remove_reader_first in [false, true] {
+            let mut kernel = patinae_framework::kernel::AppKernel::new();
+            let mut host = PluginHost::new();
+            for (register, path) in [
+                (
+                    register_reader_format_fixture as PluginRegisterFn,
+                    "/fixture/reader",
+                ),
+                (register_writer_format_fixture, "/fixture/writer"),
+            ] {
+                load_declaration_for_test(
+                    &mut host,
+                    &mut kernel.executor,
+                    test_declaration(Some(register)),
+                )
+                .unwrap();
+                host.plugins.last_mut().unwrap().path = Some(path.into());
+            }
+            let paths = if remove_reader_first {
+                ["/fixture/reader", "/fixture/writer"]
+            } else {
+                ["/fixture/writer", "/fixture/reader"]
+            };
+            host.unload_library(Path::new(paths[0]), &mut kernel.executor, &kernel.tasks);
+            let load = execute_text(&mut kernel.executor, "capabilities formats load");
+            assert_eq!(
+                load.lines().any(|line| line == ".runtime_collision"),
+                !remove_reader_first
+            );
+            host.unload_library(Path::new(paths[1]), &mut kernel.executor, &kernel.tasks);
+            assert!(kernel.executor.format_handlers().is_empty());
+            assert!(kernel.executor.loaded_plugin_capabilities().is_empty());
+            assert!(kernel.executor.registry().contains("load"));
+        }
+    }
+
+    #[test]
     fn loads_abi_fixture_into_host_owned_registrations() {
         let declaration = test_declaration(Some(register_fixture));
         let mut executor = CommandExecutor::new();
@@ -1368,6 +1555,7 @@ pub(crate) mod tests {
         .unwrap_err();
         assert!(error.contains("Plugin register failed: invalid ABI input"));
         assert_eq!(host.plugin_count(), 0);
+        assert!(executor.loaded_plugin_capabilities().is_empty());
         assert_eq!(
             execute_text(&mut executor, "capabilities plugins"),
             "Loaded plugins:\n(none)"
@@ -1391,6 +1579,24 @@ pub(crate) mod tests {
                 "abi-fixture\t1.2.3\tABI fixture plugin"
             )
         );
+    }
+
+    #[test]
+    fn plugin_list_metadata_includes_plugins_without_panels() {
+        let mut executor = CommandExecutor::new();
+        let mut host = PluginHost::new();
+        load_declaration_for_test(
+            &mut host,
+            &mut executor,
+            test_declaration(Some(register_reader_format_fixture)),
+        )
+        .unwrap();
+        assert!(host.plugins[0].panels.is_empty());
+        let loaded = executor.loaded_plugin_capabilities();
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].name, "reader-fixture");
+        assert_eq!(loaded[0].version, "1.0.0");
+        assert_eq!(loaded[0].description, "Reader format fixture");
     }
 
     #[test]
@@ -1621,18 +1827,22 @@ pub(crate) mod tests {
         let mut host = PluginHost::new();
         let mut executor = CommandExecutor::new();
 
-        host.pending_registrations.push(DynCmdRegistration {
-            executor: "fixture".into(),
-            owner_tag: None,
-            name: "dynamic_test".into(),
-            description: "Dynamic test".into(),
-            usage: "dynamic_test".into(),
-            arguments: String::new(),
-        });
+        host.pending_registrations.push((
+            0,
+            DynCmdRegistration {
+                executor: "fixture".into(),
+                owner_tag: None,
+                name: "dynamic_test".into(),
+                description: "Dynamic test".into(),
+                usage: "dynamic_test".into(),
+                arguments: String::new(),
+            },
+        ));
         host.apply_dynamic_command_changes(&mut executor);
         assert!(executor.registry().contains("dynamic_test"));
 
-        host.pending_unregistrations.push("dynamic_test".into());
+        host.pending_unregistrations
+            .push((0, "dynamic_test".into()));
         host.apply_dynamic_command_changes(&mut executor);
         assert!(!executor.registry().contains("dynamic_test"));
     }

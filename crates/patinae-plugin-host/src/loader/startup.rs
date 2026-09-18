@@ -15,6 +15,7 @@ const PREPARED_PLUGIN_CAPACITY: usize = 1;
 /// Legacy plugins defer registration until attachment. Fields deliberately drop
 /// in this order: accepted handles first, the library containing their code last.
 pub struct PreparedPlugin {
+    pub(super) path: PathBuf,
     pub(super) registration: RegistrationSink,
     pub(super) library: Library,
     registered: bool,
@@ -39,6 +40,10 @@ impl PreparedPlugin {
         let background = declaration.capabilities & CAPABILITY_BACKGROUND_REGISTRATION != 0;
         Ok((
             Self {
+                path: path
+                    .canonicalize()
+                    .or_else(|_| std::path::absolute(path))
+                    .map_err(|error| format!("Cannot resolve plugin path: {error}"))?,
                 registration: RegistrationSink::new(),
                 library,
                 registered: false,
@@ -100,15 +105,33 @@ impl BackgroundPluginLoader {
     /// # Errors
     /// Returns an error if the operating system cannot create the loader thread.
     pub fn start(discovery: PluginDiscovery) -> std::io::Result<Self> {
+        Self::start_selection(move || {
+            let directories = discovery.standard_plugin_dirs();
+            let selection = plugin_library_paths(&directories);
+            (directories, selection)
+        })
+    }
+
+    /// Prepare an explicit ordered set of libraries without rediscovering a manifest.
+    ///
+    /// # Errors
+    /// Returns an error if the loader thread cannot be created.
+    pub fn start_paths(paths: Vec<PathBuf>) -> std::io::Result<Self> {
+        Self::start_selection(move || (Vec::new(), Ok(paths)))
+    }
+
+    fn start_selection(
+        selection: impl FnOnce() -> (Vec<PathBuf>, Result<Vec<PathBuf>, String>) + Send + 'static,
+    ) -> std::io::Result<Self> {
         let (tx, rx) = mpsc::sync_channel(PREPARED_PLUGIN_CAPACITY);
+
         let (ack_tx, ack_rx) = mpsc::channel();
         let cancelled = Arc::new(AtomicBool::new(false));
         let worker_cancelled = cancelled.clone();
         std::thread::Builder::new()
             .name("plugin-loader".into())
             .spawn(move || {
-                let directories = discovery.standard_plugin_dirs();
-                let selection = plugin_library_paths(&directories);
+                let (directories, selection) = selection();
                 if tx
                     .send(PluginLoadEvent::Discovered {
                         directories,
@@ -337,6 +360,28 @@ pub static PATINAE_PLUGIN_DECLARATION: PluginDeclaration = PluginDeclaration {{
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.root);
         }
+    }
+
+    #[test]
+    fn unload_destroys_native_handles_only_after_inflight_command_references_are_released() {
+        let fixture = Fixture::new(true, false, false);
+        fixture.release();
+        let mut host = PluginHost::new();
+        let mut kernel = patinae_framework::kernel::AppKernel::new();
+        host.load_library(&fixture.library, &mut kernel.executor)
+            .unwrap();
+        let retained_command = kernel.executor.registry().get("slow_fixture").unwrap();
+        assert!(host.unload_library(&fixture.library, &mut kernel.executor, &kernel.tasks));
+        assert_eq!(host.plugin_count(), 0);
+        assert!(!kernel.executor.registry().contains("slow_fixture"));
+        assert!(!fixture.root.join("destroyed").exists());
+        drop(retained_command);
+        fixture.wait_for("destroyed");
+        std::fs::remove_file(fixture.root.join("destroyed")).unwrap();
+        host.load_library(&fixture.library, &mut kernel.executor)
+            .unwrap();
+        assert!(host.unload_library(&fixture.library, &mut kernel.executor, &kernel.tasks));
+        fixture.wait_for("destroyed");
     }
 
     fn next(loader: &BackgroundPluginLoader) -> PluginLoadEvent {

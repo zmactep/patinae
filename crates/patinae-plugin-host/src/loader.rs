@@ -412,12 +412,14 @@ impl PluginHost {
         let PreparedPlugin {
             registration,
             library,
+            path,
             ..
         } = prepared;
         finish_registration(
             self,
             executor,
             LibraryHandle::Dynamic(library),
+            Some(path),
             registration,
         )
     }
@@ -435,13 +437,14 @@ pub(crate) fn load_declaration_for_test(
     let mut registration = RegistrationSink::new();
     register_plugin(&declaration, &mut registration)?;
 
-    finish_registration(host, executor, LibraryHandle::Static, registration)
+    finish_registration(host, executor, LibraryHandle::Static, None, registration)
 }
 
 fn finish_registration(
     host: &mut PluginHost,
     executor: &mut CommandExecutor,
     library_handle: LibraryHandle,
+    path: Option<PathBuf>,
     mut registration: RegistrationSink,
 ) -> Result<String, String> {
     let metadata = registration
@@ -453,19 +456,18 @@ fn finish_registration(
     let gpu_cache = Arc::new(Mutex::new(GpuPluginCache::new(plugin_id)));
     let library = Arc::new(library_handle);
 
-    if registration
+    let registration_owner = executor.allocate_plugin_owner();
+    let has_executor = registration
         .message_handler
         .as_ref()
-        .is_some_and(|handler| handler.vtable.needs_poll != 0)
-    {
-        executor.register_task_executor(&metadata.name);
-    }
+        .is_some_and(|handler| handler.vtable.needs_poll != 0);
     install_registration_assets(
         executor,
         &mut registration,
         library.clone(),
         gpu_cache,
         &metadata.name,
+        registration_owner,
     );
 
     let mut panels = Vec::new();
@@ -508,6 +510,8 @@ fn finish_registration(
     }
 
     host.plugins.push(LoadedPlugin {
+        registration_owner,
+        path,
         _library: library,
         metadata,
         message_handler,
@@ -521,11 +525,15 @@ fn finish_registration(
         .last()
         .expect("plugin was just retained by the host")
         .metadata;
-    executor.record_loaded_plugin_capability(LoadedPluginCapability {
-        name: retained_metadata.name.clone(),
-        version: retained_metadata.version.clone(),
-        description: retained_metadata.description.clone(),
-    });
+    executor.record_owned_plugin(
+        registration_owner,
+        LoadedPluginCapability {
+            name: retained_metadata.name.clone(),
+            version: retained_metadata.version.clone(),
+            description: retained_metadata.description.clone(),
+        },
+        has_executor,
+    );
     host.ensure_single_active_per_placement();
     host.bump_panel_ui_generation();
 
@@ -593,33 +601,41 @@ fn install_registration_assets(
     library: Arc<LibraryHandle>,
     gpu_cache: SharedGpuPluginCache,
     task_owner: &str,
+    registration_owner: u64,
 ) {
     for command in std::mem::take(&mut registration.commands) {
-        executor
-            .registry_mut()
-            .register_boxed(Box::new(AbiCommandProxy::new(
+        executor.registry_mut().register_owned(
+            registration_owner,
+            Box::new(AbiCommandProxy::new(
                 command,
                 library.clone(),
                 gpu_cache.clone(),
                 task_owner.to_string(),
-            )));
+            )),
+        );
     }
 
     for script in std::mem::take(&mut registration.script_handlers) {
-        executor.register_script_handler(
+        executor.register_owned_script(
+            registration_owner,
             script.extension.clone(),
             AbiScriptHandlerProxy::into_handler(script, library.clone(), task_owner.to_string()),
         );
     }
 
     for format in std::mem::take(&mut registration.format_handlers) {
-        executor
-            .register_format_handler(AbiFormatHandlerProxy::into_handler(format, library.clone()));
+        executor.register_owned_format(
+            registration_owner,
+            AbiFormatHandlerProxy::into_handler(format, library.clone()),
+        );
     }
 
     for (descriptor, store) in std::mem::take(&mut registration.settings) {
+        let name = descriptor.name.clone();
         if let Err(e) = executor.dynamic_settings_mut().register(descriptor, store) {
             log::warn!("Failed to register plugin setting: {}", e);
+        } else {
+            executor.record_plugin_setting(registration_owner, name);
         }
     }
 }

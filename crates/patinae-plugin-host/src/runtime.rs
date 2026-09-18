@@ -110,6 +110,9 @@ impl PluginHost {
         for (plugin_index, plugin) in self.plugins.iter_mut().enumerate() {
             let mut plugin_exec_queue = Vec::new();
             let mut plugin_reg_queue = Vec::new();
+            let mut plugin_unreg_queue = Vec::new();
+            let mut plugin_hotkey_reg_queue = Vec::new();
+            let mut plugin_hotkey_unreg_queue = Vec::new();
             if advance_idle {
                 expire_idle_atom_streams(&mut plugin.atom_streams);
             }
@@ -136,9 +139,9 @@ impl PluginHost {
                 &self.plugin_dirs,
                 &mut plugin_exec_queue,
                 &mut plugin_reg_queue,
-                &mut unreg_queue,
-                &mut hotkey_reg_queue,
-                &mut hotkey_unreg_queue,
+                &mut plugin_unreg_queue,
+                &mut plugin_hotkey_reg_queue,
+                &mut plugin_hotkey_unreg_queue,
                 &mut mutation_queue,
                 &mut host_query_queue,
                 &mut viewer_action_queue,
@@ -167,8 +170,23 @@ impl PluginHost {
             }
             for mut registration in plugin_reg_queue {
                 registration.executor = plugin.metadata.name.clone();
-                reg_queue.push(registration);
+                reg_queue.push((plugin.registration_owner, registration));
             }
+            unreg_queue.extend(
+                plugin_unreg_queue
+                    .into_iter()
+                    .map(|name| (plugin.registration_owner, name)),
+            );
+            hotkey_reg_queue.extend(
+                plugin_hotkey_reg_queue
+                    .into_iter()
+                    .map(|(key, action)| (plugin.registration_owner, key, action)),
+            );
+            hotkey_unreg_queue.extend(
+                plugin_hotkey_unreg_queue
+                    .into_iter()
+                    .map(|key| (plugin.registration_owner, key)),
+            );
             host_query_queue.retain(|query| {
                 if matches!(
                     query,
@@ -262,11 +280,14 @@ impl PluginHost {
 
     pub fn apply_dynamic_command_changes(&mut self, executor: &mut CommandExecutor) -> bool {
         let mut changed = false;
-        for name in std::mem::take(&mut self.pending_unregistrations) {
-            changed |= executor.registry_mut().unregister(&name);
+        for (owner, name) in std::mem::take(&mut self.pending_unregistrations) {
+            executor
+                .registry_mut()
+                .unregister_owned_command(owner, &name);
+            changed = true;
         }
 
-        for reg in std::mem::take(&mut self.pending_registrations) {
+        for (owner, reg) in std::mem::take(&mut self.pending_registrations) {
             let command = DynamicCommand::new(
                 reg.name,
                 reg.description,
@@ -275,7 +296,9 @@ impl PluginHost {
                 reg.executor,
                 reg.owner_tag,
             );
-            executor.registry_mut().register_boxed(Box::new(command));
+            executor
+                .registry_mut()
+                .register_owned(owner, Box::new(command));
             changed = true;
         }
         changed
@@ -285,16 +308,23 @@ impl PluginHost {
         let registrations = std::mem::take(&mut self.pending_hotkey_registrations);
         let unregistrations = std::mem::take(&mut self.pending_hotkey_unregistrations);
 
-        for key_str in &unregistrations {
-            if let Ok(key) = parse_key_string(key_str) {
-                for plugin in &mut self.plugins {
+        for (owner, key_str) in unregistrations {
+            if let Ok(key) = parse_key_string(&key_str) {
+                if let Some(plugin) = self
+                    .plugins
+                    .iter_mut()
+                    .find(|plugin| plugin.registration_owner == owner)
+                {
                     plugin.hotkeys.unbind(key);
                 }
             }
         }
-
-        if let Some(plugin) = self.plugins.last_mut() {
-            for (key_str, action) in registrations {
+        for (owner, key_str, action) in registrations {
+            if let Some(plugin) = self
+                .plugins
+                .iter_mut()
+                .find(|plugin| plugin.registration_owner == owner)
+            {
                 match parse_key_string(&key_str) {
                     Ok(key) => plugin.hotkeys.bind(key, action),
                     Err(e) => log::warn!("Invalid hotkey string '{}': {}", key_str, e),

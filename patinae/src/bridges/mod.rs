@@ -3,6 +3,7 @@ pub mod layout;
 pub mod movie;
 pub mod objects;
 pub mod platform;
+pub mod plugin_list;
 pub mod plugins;
 pub mod repl;
 pub mod sequence;

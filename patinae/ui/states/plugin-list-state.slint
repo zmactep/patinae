@@ -1,0 +1,24 @@
+export struct PluginListRow {
+    title: string,
+    description: string,
+    path: string,
+    missing: bool,
+}
+
+export global PluginListState {
+    in-out property <bool> visible: false;
+    in-out property <string> source;
+    in-out property <string> error;
+    in-out property <string> status;
+    in-out property <bool> damaged;
+    in-out property <bool> dirty;
+    in-out property <bool> picking: false;
+    in-out property <bool> applying: false;
+    in-out property <string> loading-status;
+    in-out property <[PluginListRow]> rows;
+    callback open();
+    callback remove(int);
+    callback add();
+    callback save();
+    public function close() { visible = false; }
+}

@@ -179,6 +179,7 @@ pub struct App {
     /// scripts and large loads do not block window creation.
     startup_actions: VecDeque<StartupAction>,
     plugin_startup: PluginStartup,
+    pub(crate) plugin_list: crate::bridges::plugin_list::PluginList,
     deferred_file_actions: VecDeque<(PathBuf, NativeFileSource)>,
     /// Save-file picker requests emitted while rendering plugin panel events.
     ///
@@ -249,6 +250,7 @@ impl App {
             perf_update_counter: Cell::new(0),
             startup_actions: VecDeque::new(),
             plugin_startup: PluginStartup::new(Instant::now()),
+            plugin_list: Default::default(),
             deferred_file_actions: VecDeque::new(),
             pending_save_file_requests: VecDeque::new(),
             pending_annotation_requests: VecDeque::new(),
@@ -441,6 +443,15 @@ impl App {
                 self.kernel.bus.print_warning(error);
             }
         }
+        if self.plugin_list.tick(&mut self.plugins, &mut self.kernel) {
+            self.refresh_command_names_cache();
+            self.repl.update_completions(
+                &self.kernel,
+                app,
+                app.global::<crate::ReplState>().get_input_text().as_str(),
+            );
+        }
+        self.sync_plugin_list(app);
         self.run_startup_actions(viewport_size);
         self.poll_plugins(viewport_size);
         self.drain_annotation_requests();
@@ -549,7 +560,8 @@ impl App {
         let vp = app.global::<ViewportState>();
         let sf = app.window().scale_factor();
         let (vw, vh) = Self::viewport_size(app);
-        let fetch_dialog_visible = app.global::<MenuState>().get_fetch_visible();
+        let fetch_dialog_visible = app.global::<MenuState>().get_fetch_visible()
+            || app.global::<crate::PluginListState>().get_visible();
         mark("setup", &mut t_section);
 
         // Resize + Input
@@ -959,6 +971,14 @@ impl App {
         }
 
         self.last_empty_mode = empty;
+    }
+
+    pub(crate) fn sync_plugin_list(&mut self, app: &AppWindow) {
+        if !app.global::<crate::PluginListState>().get_visible() {
+            return;
+        }
+        self.plugin_list
+            .sync(app, &self.plugins, self.plugin_startup.status());
     }
 
     pub(crate) fn sync_plugins(&mut self, app: &AppWindow) {
@@ -1860,10 +1880,23 @@ pub fn run(started: Instant) -> Result<(), Box<dyn std::error::Error>> {
         let press_known = app.borrow().raw_press_known.clone();
         let app_for_drop = app.clone();
         let app_for_keys = app.clone();
+        let modal_window = window.as_weak();
         window
             .window()
             .on_winit_window_event(move |slint_window, event| {
                 use slint::winit_030::winit::event::WindowEvent;
+                if modal_window
+                    .upgrade()
+                    .is_some_and(|window| window.global::<crate::PluginListState>().get_visible())
+                {
+                    match event {
+                        WindowEvent::KeyboardInput { .. } => return EventResult::Propagate,
+                        WindowEvent::DroppedFile(_) | WindowEvent::Ime(_) => {
+                            return EventResult::PreventDefault;
+                        }
+                        _ => {}
+                    }
+                }
                 match event {
                     #[cfg(target_os = "macos")]
                     WindowEvent::PinchGesture { delta, .. } => {
@@ -2024,6 +2057,7 @@ pub fn run(started: Instant) -> Result<(), Box<dyn std::error::Error>> {
     // Attach plugin panel bridge + wire callbacks
     app.borrow().plugin_bridge.attach(&window);
     crate::bridges::plugins::setup_callbacks(app.clone(), &window);
+    crate::bridges::plugin_list::setup_callbacks(app.clone(), &window);
 
     // Wire layout panel show/hide callbacks
     crate::bridges::layout::setup_callbacks(app.clone(), &window);

@@ -1,0 +1,185 @@
+import { ScrollView } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { Tokens } from "../tokens.slint";
+import { PluginListState } from "../states/plugin-list-state.slint";
+
+component DialogButton inherits Rectangle {
+    in property <string> label;
+    in property <bool> enabled: true;
+    in property <bool> primary: false;
+    callback clicked();
+    width: label == "×" ? 32px : 104px;
+    height: 32px;
+    border-radius: Tokens.radius-sm;
+    border-width: Tokens.hairline;
+    border-color: root.primary ? Theme.cyan-dim : Theme.line-strong;
+    background: touch.has-hover ? Theme.bg-inset : Theme.bg-raised;
+    accessible-role: button;
+    accessible-label: root.label == "×" ? "Close" : root.label;
+    accessible-action-default => { if root.enabled { root.clicked(); } }
+    Text {
+        text: root.label;
+        font-size: root.label == "×" ? 20px : 13px;
+        color: !root.enabled ? Theme.text-faint : (root.primary ? Theme.cyan : Theme.text);
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component PluginListDialog inherits Rectangle {
+    visible: PluginListState.visible;
+    background: Theme.bg.with-alpha(0.62);
+    // Preserve the underlying keyboard focus; AppWindow captures keys while open.
+    TouchArea {
+        scroll-event(event) => { return accept; }
+    }
+    panel := Rectangle {
+        width: min(600px, parent.width - 2 * Tokens.space-lg);
+        height: min(480px, parent.height - 2 * Tokens.space-lg);
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        background: Theme.bg-panel;
+        border-radius: Tokens.radius-md;
+        border-width: Tokens.hairline;
+        border-color: Theme.line-strong;
+        VerticalLayout {
+            padding: Tokens.space-lg;
+            spacing: Tokens.space-sm;
+            HorizontalLayout {
+                height: 34px;
+                Text {
+                    text: "Plugins";
+                    color: Theme.text;
+                    font-size: 22px;
+                    font-weight: 700;
+                    vertical-alignment: center;
+                }
+                Rectangle { horizontal-stretch: 1; }
+                DialogButton { label: "×"; clicked => { PluginListState.close(); } }
+            }
+            Text {
+                text: PluginListState.source;
+                color: Theme.text-muted;
+                font-family: "monospace";
+                font-size: 10px;
+                wrap: word-wrap;
+            }
+            if PluginListState.loading-status != "": Text {
+                text: PluginListState.loading-status;
+                color: Theme.text-muted;
+                font-size: 12px;
+            }
+            ScrollView {
+                horizontal-stretch: 1;
+                vertical-stretch: 1;
+                viewport-width: self.visible-width;
+                VerticalLayout {
+                    spacing: Tokens.space-sm;
+                    if PluginListState.rows.length == 0: Text {
+                        text: "No plugins";
+                        color: Theme.text-muted;
+                        font-size: 13px;
+                    }
+                    for row[index] in PluginListState.rows: Rectangle {
+                        min-height: row-layout.preferred-height;
+                        background: Theme.bg-inset;
+                        border-radius: Tokens.radius-sm;
+                        row-layout := HorizontalLayout {
+                            padding: Tokens.space-sm;
+                            spacing: Tokens.space-sm;
+                            VerticalLayout {
+                                spacing: 4px;
+                                Text {
+                                    text: row.title + (row.missing ? " — Not loaded" : "");
+                                    color: row.missing ? Theme.error : Theme.text;
+                                    font-size: 13px;
+                                    font-weight: 600;
+                                    wrap: word-wrap;
+                                }
+                                if row.description != "": Text {
+                                    text: row.description;
+                                    color: row.missing ? Theme.error : Theme.text-muted;
+                                    font-size: 12px;
+                                    wrap: word-wrap;
+                                }
+                                if row.description != "": Rectangle {
+                                    height: 4px;
+                                }
+                                Text {
+                                    text: row.path;
+                                    font-family: "monospace";
+                                    font-size: 11px;
+                                    color: row.missing ? Theme.error : Theme.text-muted;
+                                    wrap: word-wrap;
+                                }
+                            }
+                            Rectangle {
+                                width: 28px;
+                                height: 28px;
+                                border-radius: Tokens.radius-sm;
+                                background: trash-touch.has-hover ? Theme.error.with-alpha(0.12) : transparent;
+                                accessible-role: button;
+                                accessible-label: "Remove " + row.title;
+                                accessible-action-default => { PluginListState.remove(index); }
+                                Path {
+                                    x: 5px; y: 5px; width: 18px; height: 18px;
+                                    viewbox-width: 24; viewbox-height: 24;
+                                    stroke: trash-touch.has-hover ? Theme.error : Theme.text-muted;
+                                    stroke-width: 1.5px;
+                                    fill: transparent;
+                                    commands: "M 3 6 L 21 6 M 9 6 L 9 3 L 15 3 L 15 6 M 5 6 L 6 21 L 18 21 L 19 6 M 10 10 L 10 17 M 14 10 L 14 17";
+                                }
+                                trash-touch := TouchArea {
+                                    enabled: !PluginListState.applying;
+                                    mouse-cursor: pointer;
+                                    clicked => { PluginListState.remove(index); }
+                                }
+                            }
+                        }
+                    }
+                    Rectangle { vertical-stretch: 1; }
+                }
+            }
+            if PluginListState.status != "": Text {
+                text: PluginListState.status;
+                color: PluginListState.damaged ? Theme.error : Theme.text-muted;
+                font-size: 12px;
+                wrap: word-wrap;
+            }
+            if PluginListState.error != "": Text {
+                text: PluginListState.error;
+                color: Theme.error;
+                font-size: 12px;
+                wrap: word-wrap;
+            }
+            HorizontalLayout {
+                height: 32px;
+                spacing: Tokens.space-sm;
+                DialogButton {
+                    label: "Add";
+                    enabled: !PluginListState.picking && !PluginListState.applying;
+                    clicked => { PluginListState.add(); }
+                }
+                Text {
+                    text: PluginListState.dirty ? "Unsaved changes" : "";
+                    color: Theme.text-muted;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                }
+                Rectangle { horizontal-stretch: 1; }
+                DialogButton { label: "Close"; clicked => { PluginListState.close(); } }
+                DialogButton {
+                    label: "Save";
+                    primary: true;
+                    enabled: PluginListState.loading-status == "" && !PluginListState.picking && !PluginListState.applying;
+                    clicked => { PluginListState.save(); }
+                }
+            }
+        }
+    }
+}

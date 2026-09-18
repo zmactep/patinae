@@ -2,6 +2,7 @@ import { Theme } from "../theme.slint";
 import { Tokens } from "../tokens.slint";
 import { LayoutState } from "../states/layout-state.slint";
 import { PluginState } from "../states/plugin-state.slint";
+import { PluginListState } from "../states/plugin-list-state.slint";
 import { AtomPickIcon } from "icons.slint";
 
 // A single sidebar icon button (32×32, 7px radius).
@@ -266,7 +267,7 @@ export component Sidebar inherits Rectangle {
         }
     }
 
-    // ── Bottom cluster (theme toggle + plugin install) ──────────────
+    // ── Bottom cluster (theme toggle + plugin list) ─────────────────
 
     VerticalLayout {
         x: (parent.width - Tokens.icon-size) / 2;
@@ -304,8 +305,11 @@ export component Sidebar inherits Rectangle {
             }
         }
 
-        // Plugin install (dashed outline)
+        // Plugin list
         Rectangle {
+            accessible-role: button;
+            accessible-label: "Plugins";
+            accessible-action-default => { PluginListState.open(); }
             width: Tokens.icon-size;
             height: Tokens.icon-size;
             border-radius: Tokens.radius-md;
@@ -324,6 +328,7 @@ export component Sidebar inherits Rectangle {
 
             plugin-ta := TouchArea {
                 mouse-cursor: pointer;
+                clicked => { PluginListState.open(); }
             }
 
             states [

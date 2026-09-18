@@ -21,6 +21,9 @@ pub fn setup_callbacks(app: Rc<RefCell<crate::app::App>>, window: &AppWindow) {
             let Some(window) = weak.upgrade() else {
                 return;
             };
+            if window.global::<crate::PluginListState>().get_visible() {
+                return;
+            }
             dispatch_menu_action(app.clone(), &window, action.as_str());
         });
     }
@@ -32,6 +35,9 @@ pub fn setup_callbacks(app: Rc<RefCell<crate::app::App>>, window: &AppWindow) {
             let Some(window) = weak.upgrade() else {
                 return;
             };
+            if window.global::<crate::PluginListState>().get_visible() {
+                return;
+            }
             app.borrow_mut().open_recent_file(&window, path.as_str());
         });
     }

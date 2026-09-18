@@ -5,23 +5,81 @@ use patinae_settings::paths::PathResolver;
 /// Optional allowlist filename shared by every native plugin loader.
 const PLUGIN_MANIFEST_FILE: &str = "plugins.toml";
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 struct PluginManifest {
     #[serde(default)]
     plugin: Vec<PluginEntry>,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 struct PluginEntry {
     path: String,
 }
 
-/// Selects libraries from the first manifest, or scans all directories.
+/// A plugin configuration document, preserving entry order and duplicates.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PluginManifestDocument {
+    /// The selected configuration file.
+    pub path: PathBuf,
+    /// Entries as written in the document.
+    pub entries: Vec<PluginManifestEntry>,
+}
+
+/// A configured library path before and after relative path resolution.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PluginManifestEntry {
+    /// Original path text from TOML.
+    pub path: String,
+    /// Path resolved relative to the manifest directory.
+    pub resolved_path: PathBuf,
+}
+
+/// Reads the first plugin manifest in directory priority order.
 ///
-/// Errors reading or parsing a manifest never fall back to directory scanning.
-pub(crate) fn plugin_library_paths(directories: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
+/// Missing libraries and repeated entries are retained. No libraries are loaded.
+/// Returns `None` only when no manifest exists.
+///
+/// # Errors
+/// Returns an error if a manifest cannot be inspected, read, or parsed,
+/// or contains an empty path. Later directories are not tried on error.
+pub fn read_plugin_manifest(
+    directories: &[PathBuf],
+) -> Result<Option<PluginManifestDocument>, String> {
+    let Some(manifest_path) = plugin_manifest_path(directories)? else {
+        return Ok(None);
+    };
+    let directory = manifest_path.parent().unwrap_or_else(|| Path::new("."));
+    let content = std::fs::read_to_string(&manifest_path)
+        .map_err(|error| format!("Cannot read {}: {error}", manifest_path.display()))?;
+    let manifest: PluginManifest = toml::from_str(&content)
+        .map_err(|error| format!("Invalid {}: {error}", manifest_path.display()))?;
+    let mut entries = Vec::with_capacity(manifest.plugin.len());
+    for (index, entry) in manifest.plugin.into_iter().enumerate() {
+        if entry.path.trim().is_empty() {
+            return Err(format!(
+                "Invalid {}: plugin entry {} requires a nonempty path",
+                manifest_path.display(),
+                index + 1
+            ));
+        }
+        entries.push(PluginManifestEntry {
+            resolved_path: directory.join(&entry.path),
+            path: entry.path,
+        });
+    }
+    Ok(Some(PluginManifestDocument {
+        path: manifest_path,
+        entries,
+    }))
+}
+
+/// Finds the first manifest without parsing its contents.
+///
+/// # Errors
+/// Returns an error when a candidate cannot be inspected.
+pub fn plugin_manifest_path(directories: &[PathBuf]) -> Result<Option<PathBuf>, String> {
     for directory in directories {
         let manifest_path = directory.join(PLUGIN_MANIFEST_FILE);
         // Unlike exists(), this distinguishes absence from an inaccessible file
@@ -43,21 +101,67 @@ pub(crate) fn plugin_library_paths(directories: &[PathBuf]) -> Result<Vec<PathBu
                 ));
             }
         }
-        let content = std::fs::read_to_string(&manifest_path)
-            .map_err(|error| format!("Cannot read {}: {error}", manifest_path.display()))?;
-        let manifest: PluginManifest = toml::from_str(&content)
-            .map_err(|error| format!("Invalid {}: {error}", manifest_path.display()))?;
+        return Ok(Some(manifest_path));
+    }
+    Ok(None)
+}
+
+/// Atomically saves a plugin list using the native loader's TOML format.
+///
+/// Existing symlinks retain their targets. Serialization and temporary-file writes
+/// complete before the old document is replaced.
+///
+/// # Errors
+/// Returns an error for empty or non-Unicode paths, serialization, or filesystem failures.
+pub fn save_plugin_manifest(path: &Path, libraries: &[PathBuf]) -> Result<(), String> {
+    use std::io::Write;
+    let plugin = libraries
+        .iter()
+        .map(|library| {
+            library
+                .to_str()
+                .filter(|text| !text.trim().is_empty())
+                .map(|path| PluginEntry {
+                    path: path.to_owned(),
+                })
+                .ok_or_else(|| "Plugin paths must be nonempty Unicode strings".to_owned())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let content = toml::to_string_pretty(&PluginManifest { plugin })
+        .map_err(|error| format!("Cannot serialize plugin list: {error}"))?;
+    let target = if path.is_symlink() {
+        path.canonicalize()
+            .map_err(|error| format!("Cannot resolve {}: {error}", path.display()))?
+    } else {
+        path.to_path_buf()
+    };
+    let parent = target
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let save = || -> std::io::Result<()> {
+        std::fs::create_dir_all(parent)?;
+        let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+        if let Ok(metadata) = std::fs::metadata(&target) {
+            temporary
+                .as_file()
+                .set_permissions(metadata.permissions())?;
+        }
+        temporary.write_all(content.as_bytes())?;
+        temporary.as_file().sync_all()?;
+        temporary.persist(&target).map_err(|error| error.error)?;
+        Ok(())
+    };
+    save().map_err(|error| format!("Cannot save {}: {error}", path.display()))
+}
+
+/// Selects libraries from the first manifest, or scans all directories.
+pub(crate) fn plugin_library_paths(directories: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
+    if let Some(manifest) = read_plugin_manifest(directories)? {
         let mut paths = Vec::new();
         let mut seen = std::collections::HashSet::new();
-        for (index, entry) in manifest.plugin.into_iter().enumerate() {
-            if entry.path.trim().is_empty() {
-                return Err(format!(
-                    "Invalid {}: plugin entry {} requires a nonempty path",
-                    manifest_path.display(),
-                    index + 1
-                ));
-            }
-            let path = directory.join(entry.path);
+        for entry in manifest.entries {
+            let path = entry.resolved_path;
             // Keep unresolved paths for per-library errors; one missing library
             // must not prevent subsequent entries from loading.
             let identity = path.canonicalize().unwrap_or_else(|_| path.clone());
@@ -431,6 +535,74 @@ mod tests {
             fixture.0.join("app"),
         ];
         assert_eq!(plugin_library_paths(&directories).unwrap(), vec![library]);
+    }
+
+    #[test]
+    fn saved_manifest_round_trips_escaped_paths_and_empty_lists() {
+        let fixture = ManifestFixture::new();
+        let path = fixture.0.join("new/plugins.toml");
+        let entries = vec![
+            PathBuf::from("relative/quoted\"name"),
+            PathBuf::from("back\\slash"),
+            fixture.0.join("absolute"),
+        ];
+        save_plugin_manifest(&path, &entries).unwrap();
+        let document = read_plugin_manifest(&[fixture.0.join("new")])
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            document
+                .entries
+                .iter()
+                .map(|entry| PathBuf::from(&entry.path))
+                .collect::<Vec<_>>(),
+            entries
+        );
+        let bytes = std::fs::read(&path).unwrap();
+        assert!(save_plugin_manifest(&path, &[PathBuf::new()]).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        save_plugin_manifest(&path, &[]).unwrap();
+        assert!(plugin_library_paths(&[fixture.0.join("new")])
+            .unwrap()
+            .is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn save_preserves_manifest_symlink_and_updates_target() {
+        let fixture = ManifestFixture::new();
+        fixture.manifest("external", "[");
+        let link = fixture.0.join("user/plugins.toml");
+        std::os::unix::fs::symlink(fixture.0.join("external/plugins.toml"), &link).unwrap();
+        save_plugin_manifest(&link, &[]).unwrap();
+        assert!(link.is_symlink());
+        assert!(read_plugin_manifest(&fixture.dirs())
+            .unwrap()
+            .unwrap()
+            .entries
+            .is_empty());
+    }
+
+    #[test]
+    fn document_retains_original_paths_duplicates_and_missing_libraries() {
+        let fixture = ManifestFixture::new();
+        assert_eq!(read_plugin_manifest(&fixture.dirs()).unwrap(), None);
+        let absolute = fixture.0.join("external/missing");
+        fixture.manifest("user", &format!(
+            "[[plugin]]\npath = './missing'\n[[plugin]]\npath = './missing'\n[[plugin]]\npath = '{}'",
+            absolute.display()
+        ));
+        let document = read_plugin_manifest(&fixture.dirs()).unwrap().unwrap();
+        assert_eq!(document.path, fixture.0.join("user/plugins.toml"));
+        assert_eq!(document.entries.len(), 3);
+        assert_eq!(document.entries[0], document.entries[1]);
+        assert_eq!(document.entries[0].path, "./missing");
+        assert_eq!(
+            document.entries[0].resolved_path,
+            fixture.0.join("user/./missing")
+        );
+        assert_eq!(document.entries[2].resolved_path, absolute);
+        assert_eq!(plugin_library_paths(&fixture.dirs()).unwrap().len(), 2);
     }
 
     #[test]

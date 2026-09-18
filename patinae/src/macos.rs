@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use objc2_app_kit::{
     NSApplication, NSColor, NSModalResponseOK, NSOpenPanel, NSSavePanel, NSView, NSWindow,
 };
-use objc2_foundation::{MainThreadMarker, NSString};
+use objc2_foundation::{MainThreadMarker, NSArray, NSString};
 use patinae_framework::topics::SaveFileRequest;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
@@ -71,6 +71,15 @@ pub fn save_file_path(_slint_window: &slint::Window, request: &SaveFileRequest) 
 
 /// Opens a native macOS open-file picker.
 pub fn open_file_path(title: &str) -> Option<PathBuf> {
+    open_file_paths(title, false, &[])?.into_iter().next()
+}
+
+/// Selects multiple plugin libraries without opening or loading them.
+pub fn open_plugin_paths() -> Option<Vec<PathBuf>> {
+    open_file_paths("Add Plugins", true, &["dylib"])
+}
+
+fn open_file_paths(title: &str, multiple: bool, extensions: &[&str]) -> Option<Vec<PathBuf>> {
     let mtm = MainThreadMarker::new()?;
 
     let panel = unsafe {
@@ -86,7 +95,23 @@ pub fn open_file_path(title: &str) -> Option<PathBuf> {
         panel.setTitle(Some(&title));
         panel.setCanChooseFiles(true);
         panel.setCanChooseDirectories(false);
-        panel.setAllowsMultipleSelection(false);
+        panel.setAllowsMultipleSelection(multiple);
+        if !extensions.is_empty() {
+            let types = NSArray::from_vec(
+                extensions
+                    .iter()
+                    .map(|ext| NSString::from_str(ext))
+                    .collect(),
+            );
+            // The project's AppKit 0.2 bindings support extension-based filters
+            // without an additional UniformTypeIdentifiers dependency.
+            #[expect(
+                deprecated,
+                reason = "Use the extension filter available in existing AppKit bindings"
+            )]
+            panel.setAllowedFileTypes(Some(&types));
+            panel.setAllowsOtherFileTypes(false);
+        }
     }
 
     let response = unsafe {
@@ -98,12 +123,12 @@ pub fn open_file_path(title: &str) -> Option<PathBuf> {
         return None;
     }
 
-    let url = unsafe {
-        // SAFETY: The modal completed with OK, and AppKit returns either a
-        // retained URL or `None`; `objc2` models that ownership.
-        panel.URL()?
+    let urls = unsafe {
+        // SAFETY: The modal completed with OK; AppKit returns a retained array
+        // of selected file URLs, whose ownership is tracked by objc2.
+        panel.URLs()
     };
-    path_from_url(&url)
+    urls.iter().map(path_from_url).collect()
 }
 
 /// Opens a native macOS save-file picker with a default filename.

@@ -23,6 +23,9 @@ import {
 } from "states/plugin-state.slint";
 import { MenuState, RecentFileItem } from "states/menu-state.slint";
 import { FetchDialog } from "components/fetch-dialog.slint";
+import { PluginListDialog } from "components/plugin-list-dialog.slint";
+import { PluginListState, PluginListRow } from "states/plugin-list-state.slint";
+export { PluginListState, PluginListRow }
 import { Theme } from "theme.slint";
 import { Tokens } from "tokens.slint";
 import { Palette, Button } from "std-widgets.slint";
@@ -362,7 +365,22 @@ export component AppWindow inherits Window {
     }
 
     app-focus := FocusScope {
+        width: parent.width;
+        height: parent.height;
         focus-on-click: false;
+        capture-key-pressed(event) => {
+            if PluginListState.visible {
+                if event.text == Key.Escape || event.text == Key.Return {
+                    PluginListState.close();
+                }
+                return accept;
+            }
+            return reject;
+        }
+        capture-key-released(event) => {
+            if PluginListState.visible { return accept; }
+            return reject;
+        }
         key-pressed(event) => {
             if ObjectsState.popover-kind != "" && event.text == Key.Escape {
                 ObjectsState.popover-close();
@@ -370,16 +388,19 @@ export component AppWindow inherits Window {
             }
             return reject;
         }
-    }
+        main-layout := MainLayout {
+            width: parent.width;
+            height: parent.height;
+        }
 
-    main-layout := MainLayout {
-        width: parent.width;
-        height: parent.height;
-    }
-
-    FetchDialog {
-        width: parent.width;
-        height: parent.height;
+        FetchDialog {
+            width: parent.width;
+            height: parent.height;
+        }
+        PluginListDialog {
+            width: parent.width;
+            height: parent.height;
+        }
     }
 
     public function focus-repl() {

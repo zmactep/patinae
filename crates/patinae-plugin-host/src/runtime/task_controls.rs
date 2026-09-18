@@ -12,7 +12,7 @@ pub(super) fn checked_task_owner(
 }
 
 pub(crate) struct PendingTaskWait {
-    plugin_index: usize,
+    pub(crate) plugin_index: usize,
     id: u64,
     task_id: patinae_cmd::tasks::TaskId,
     deadline: Option<std::time::Instant>,
@@ -259,6 +259,7 @@ impl PluginHost {
 mod tasks {
     //! Task queries through static plugins and the production dynamic ABI adapters.
 
+    use super::PendingTaskWait;
     use crate::host::tests::{host_with_message_handlers, test_declaration, SharedFixture};
     use crate::loader::load_declaration_for_test;
     use crate::PluginHost;
@@ -542,6 +543,57 @@ mod tasks {
     }
 
     #[test]
+    fn unload_fails_owned_tasks_and_keeps_surviving_wait_routes() {
+        let mut host = PluginHost::new();
+        let mut kernel = patinae_framework::kernel::AppKernel::new();
+        for (register, path) in [
+            (register_first as PluginRegisterFn, "/fixture/first"),
+            (register_second, "/fixture/second"),
+        ] {
+            let mut declaration = test_declaration(Some(register));
+            declaration.capabilities |= CAPABILITY_MESSAGE_RUNTIME;
+            load_declaration_for_test(&mut host, &mut kernel.executor, declaration).unwrap();
+            host.plugins.last_mut().unwrap().path = Some(path.into());
+        }
+        let mut request = patinae_cmd::PluginTaskRequest::new("work", serde_json::Value::Null);
+        request.executor = "first".into();
+        let first = kernel.start_plugin_task(request.clone(), None).unwrap();
+        request.executor = "second".into();
+        let second = kernel.start_plugin_task(request, None).unwrap();
+        host.prepare_task_dispatch(&mut kernel);
+        host.pending_task_waits.push(PendingTaskWait {
+            plugin_index: 0,
+            id: 5,
+            task_id: first,
+            deadline: None,
+            waiter: None,
+            serial_owner: None,
+        });
+        host.pending_task_waits.push(PendingTaskWait {
+            plugin_index: 1,
+            id: 6,
+            task_id: second,
+            deadline: None,
+            waiter: None,
+            serial_owner: None,
+        });
+        assert!(host.unload_library(
+            std::path::Path::new("/fixture/first"),
+            &mut kernel.executor,
+            &kernel.tasks
+        ));
+        assert!(kernel.tasks.get(first).unwrap().state.is_terminal());
+        assert!(!kernel.tasks.get(second).unwrap().state.is_terminal());
+        assert!(!kernel.executor.task_executor_available("first"));
+        assert!(kernel.executor.task_executor_available("second"));
+        assert_eq!(host.pending_task_waits.len(), 1);
+        assert_eq!(host.pending_task_waits[0].plugin_index, 0);
+        assert_eq!(host.pending_task_waits[0].id, 6);
+        assert_eq!(host.task_invocations.len(), 1);
+        assert_eq!(host.task_invocations[0].request.executor, "second");
+    }
+
+    #[test]
     fn dynamic_task_png_preserves_renderer_viewport_errors_and_guards() {
         let mut host = host(true);
         let mut kernel = patinae_framework::kernel::AppKernel::new();
@@ -739,8 +791,8 @@ mod tasks {
         load_declaration_for_test(&mut host, &mut executor, declaration).unwrap();
         host.poll_all(&SharedFixture::new().shared(), &mut MessageBus::new());
         assert_eq!(host.pending_registrations.len(), 1);
-        assert_eq!(host.pending_registrations[0].executor, "owned");
-        assert_eq!(host.pending_registrations[0].owner_tag, Some(42));
+        assert_eq!(host.pending_registrations[0].1.executor, "owned");
+        assert_eq!(host.pending_registrations[0].1.owner_tag, Some(42));
     }
 
     #[test]

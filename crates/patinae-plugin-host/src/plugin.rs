@@ -37,6 +37,8 @@ pub(crate) enum LibraryHandle {
 }
 
 pub(crate) struct LoadedPlugin {
+    pub(crate) registration_owner: u64,
+    pub(crate) path: Option<std::path::PathBuf>,
     pub(crate) _library: Arc<LibraryHandle>,
     pub(crate) metadata: PluginMetadata,
     pub(crate) message_handler: Option<Box<dyn MessageHandler>>,

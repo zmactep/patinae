@@ -46,6 +46,7 @@ pub mod helpers;
 mod history;
 pub mod loading;
 mod parser;
+mod registration;
 pub mod script;
 mod setting_access;
 pub mod tasks;
