@@ -1127,6 +1127,9 @@ when startup is cancelled. Any plugin-owned threads must stop before their owner
 is destroyed, so their code cannot outlive the loaded library. Use runtime host
 callbacks after attachment for scene and UI work.
 
+On Linux, unloading and loading a plugin again does not reset its static state.
+Restart Patinae to use a rebuilt plugin binary.
+
 Without this option, initialization and registration still run on the host
 thread, one plugin per host tick. A slow legacy callback can therefore stall the
 window. The descriptor layout, ABI version, and runtime wire are unchanged. Older

@@ -31,9 +31,7 @@ impl PreparedPlugin {
     fn open(path: &Path) -> Result<(Self, bool), String> {
         #[cfg(target_os = "windows")]
         crate::paths::apply_deps_search_paths(path);
-        // SAFETY: Native plugins are the explicit extension point. The envelope
-        // retains this library until every accepted object has been destroyed.
-        let library = unsafe { Library::new(path) }
+        let library = open_plugin_library(path)
             .map_err(|error| format!("Failed to load library: {error}"))?;
         let declaration = load_declaration(&library)?;
         validate_declaration(&declaration)?;
@@ -64,6 +62,30 @@ impl PreparedPlugin {
         register_plugin(&declaration, &mut self.registration)?;
         self.registered = true;
         Ok(())
+    }
+}
+
+fn open_plugin_library(path: &Path) -> Result<Library, libloading::Error> {
+    #[cfg(target_os = "linux")]
+    {
+        // Rust's thread::current() registers a pthread TLS cleanup callback
+        // inside the plugin. That callback can run after the last plugin object
+        // is destroyed and dlclose has released the library. Keep its code and
+        // statics mapped until process exit, including on registration failure.
+        // SAFETY: Native plugins are the explicit extension point. NODELETE
+        // protects deferred TLS callbacks; normal owners still destroy handles.
+        unsafe {
+            libloading::os::unix::Library::open(
+                Some(path),
+                libc::RTLD_LAZY | libc::RTLD_LOCAL | libc::RTLD_NODELETE,
+            )
+            .map(Library::from)
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        // SAFETY: The envelope retains the library until its handles are destroyed.
+        unsafe { Library::new(path) }
     }
 }
 
@@ -357,6 +379,25 @@ pub static PATINAE_PLUGIN_DECLARATION: PluginDeclaration = PluginDeclaration {{
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.root);
         }
+    }
+
+    #[test]
+    fn unloaded_plugin_thread_cleanup_survives_thread_exit() {
+        let fixture = Fixture::new(true, false, false);
+        fixture.release();
+        let library = fixture.library.clone();
+        std::thread::spawn(move || {
+            let mut host = PluginHost::new();
+            let mut kernel = patinae_framework::kernel::AppKernel::new();
+            host.load_library(&library, &mut kernel.executor).unwrap();
+            assert!(host.unload_library(&library, &mut kernel.executor, &kernel.tasks));
+            assert!(!kernel.executor.registry().contains("slow_fixture"));
+            // The fixture calls thread::current() in register and destroy.
+            // Its TLS cleanup runs only after this closure has dropped all owners.
+        })
+        .join()
+        .unwrap();
+        fixture.wait_for("destroyed");
     }
 
     #[test]

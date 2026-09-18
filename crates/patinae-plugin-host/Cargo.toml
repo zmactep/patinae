@@ -27,6 +27,9 @@ toml = "1.1"
 tempfile = "3"
 wgpu = { workspace = true }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 serde_json = { workspace = true }
 
