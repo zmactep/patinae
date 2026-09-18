@@ -57,6 +57,43 @@ Patinae also searches application-relative plugin locations, including
 The Makefile installation destination is separate from these runtime environment
 variables; use `PLUGIN_INSTALL_DIR` when installing to a custom location.
 
+### Explicit plugin list
+
+To select exactly which libraries load, create `plugins.toml` in a plugin directory:
+
+```toml
+[[plugin]]
+path = "libhello_plugin.dylib"
+
+[[plugin]]
+path = "../custom/libcustom_plugin.dylib"
+
+[[plugin]]
+path = "/absolute/path/libother_plugin.dylib"
+```
+
+Use library filenames for your platform (`.dylib`, `.so`, or `.dll`). Relative
+paths are resolved from the directory containing `plugins.toml`; absolute paths
+can point outside the plugin directories. Paths are literal: no glob patterns,
+environment-variable or `~` expansion, or directory scanning is performed.
+On Windows, TOML literal strings such as `path = 'C:\plugins\custom.dll'` avoid
+backslash escaping.
+
+Patinae checks for the file in the user plugin directory first, then beside the
+executable in `plugins/`, then in macOS `Contents/PlugIns/`. The first file found
+defines the **entire** list: no other directory is scanned and later manifests
+are ignored. Libraries load in the listed order; repeated references to the same
+canonical path load only once. An empty file or `plugin = []` loads no plugins.
+If no manifest exists anywhere, automatic directory scanning works as before.
+
+Only `[[plugin]]` with a nonempty string `path` is supported. Unknown fields,
+including `[[plugins]]`, are errors. A manifest read or parse error is reported
+and disables plugin loading without falling back to scanning; Patinae still
+starts. A library load error is reported and subsequent entries are attempted.
+The existing search paths for plugin resources and configuration stay the same;
+external library directories are not added to resource lookup. Restart Patinae
+after editing the manifest; it is not reloaded while the application is running.
+
 Restart Patinae after installing or rebuilding a library. In the Patinae REPL:
 
 ```pml

@@ -72,6 +72,8 @@ pub enum PluginLoadEvent {
         directories: Vec<PathBuf>,
         total: usize,
     },
+    /// A manifest failed; no libraries will load, and Finished follows without acknowledgement.
+    DiscoveryError { error: String },
     /// One library is ready to attach, or failed preparation.
     Plugin {
         path: PathBuf,
@@ -106,27 +108,25 @@ impl BackgroundPluginLoader {
             .name("plugin-loader".into())
             .spawn(move || {
                 let directories = discovery.standard_plugin_dirs();
-                let mut paths = Vec::new();
-                for directory in &directories {
-                    match std::fs::read_dir(directory) {
-                        Ok(entries) => paths.extend(
-                            entries
-                                .flatten()
-                                .map(|entry| entry.path())
-                                .filter(|path| is_plugin_library_path(path)),
-                        ),
-                        Err(error) => log::debug!("Plugin directory {directory:?}: {error}"),
-                    }
-                }
+                let selection = plugin_library_paths(&directories);
                 if tx
                     .send(PluginLoadEvent::Discovered {
                         directories,
-                        total: paths.len(),
+                        total: selection.as_ref().map_or(0, Vec::len),
                     })
                     .is_err()
                 {
                     return;
                 }
+                let paths = match selection {
+                    Ok(paths) => paths,
+                    Err(error) => {
+                        if tx.send(PluginLoadEvent::DiscoveryError { error }).is_ok() {
+                            let _ = tx.send(PluginLoadEvent::Finished);
+                        }
+                        return;
+                    }
+                };
                 for path in paths {
                     if worker_cancelled.load(Ordering::Acquire) {
                         return;
@@ -348,6 +348,96 @@ pub static PATINAE_PLUGIN_DECLARATION: PluginDeclaration = PluginDeclaration {{
             assert!(Instant::now() < deadline, "loader event timeout");
             std::thread::sleep(Duration::from_millis(1));
         }
+    }
+
+    #[test]
+    fn manifest_selects_external_plugin_in_both_loaders_and_load_dir() {
+        let selected = Fixture::new(true, false, false);
+        let unlisted = Fixture::new(true, false, false);
+        selected.release();
+        unlisted.release();
+        let manifest = unlisted.root.join("plugins.toml");
+        std::fs::write(
+            &manifest,
+            format!(
+                "[[plugin]]\npath = 'missing-library'\n[[plugin]]\npath = '{}'\n",
+                selected.library.display()
+            ),
+        )
+        .unwrap();
+        let mut host = PluginHost::new();
+        let mut executor = CommandExecutor::new();
+        host.load_discovered_dirs(&unlisted.discovery(), &mut executor);
+        assert_eq!(host.plugin_count(), 1);
+        assert!(executor.registry().contains("slow_fixture"));
+        assert_eq!(host.plugin_dirs, vec![unlisted.root.clone()]);
+        assert!(!unlisted.root.join("entered").exists());
+        drop(host);
+        drop(executor);
+        // Prove each subsequent loader registers the library again.
+        std::fs::remove_file(selected.root.join("entered")).unwrap();
+
+        let loader = BackgroundPluginLoader::start(unlisted.discovery()).unwrap();
+        let PluginLoadEvent::Discovered { directories, total } = next(&loader) else {
+            panic!("expected discovery");
+        };
+        assert_eq!(total, 2);
+        assert_eq!(directories, vec![unlisted.root.clone()]);
+        let PluginLoadEvent::Plugin { result, path, .. } = next(&loader) else {
+            panic!("expected missing library error");
+        };
+        assert!(result.is_err());
+        assert_eq!(path, unlisted.root.join("missing-library"));
+        loader.acknowledge();
+        let PluginLoadEvent::Plugin { result, path, .. } = next(&loader) else {
+            panic!("expected selected library");
+        };
+        assert_eq!(path, selected.library);
+        let mut host = PluginHost::new();
+        let mut executor = CommandExecutor::new();
+        host.attach_prepared(*result.unwrap(), &mut executor)
+            .unwrap();
+        loader.acknowledge();
+        assert!(matches!(next(&loader), PluginLoadEvent::Finished));
+        assert_eq!(host.plugin_count(), 1);
+        assert!(executor.registry().contains("slow_fixture"));
+        assert!(selected.root.join("entered").exists());
+        assert!(!unlisted.root.join("entered").exists());
+        drop(host);
+        drop(executor);
+        std::fs::remove_file(selected.root.join("entered")).unwrap();
+
+        let mut host = PluginHost::new();
+        let mut executor = CommandExecutor::new();
+        host.load_dir(&unlisted.root, &mut executor);
+        assert_eq!(host.plugin_count(), 1);
+        assert!(executor.registry().contains("slow_fixture"));
+        assert!(selected.root.join("entered").exists());
+        assert!(!unlisted.root.join("entered").exists());
+    }
+
+    #[test]
+    fn invalid_manifest_loads_nothing_and_background_finishes_without_acknowledgement() {
+        let fixture = Fixture::new(true, false, false);
+        fixture.release();
+        let manifest = fixture.root.join("plugins.toml");
+        std::fs::write(&manifest, "[[plugins]]\npath = 'wrong'").unwrap();
+        let mut host = PluginHost::new();
+        let mut executor = CommandExecutor::new();
+        host.load_discovered_dirs(&fixture.discovery(), &mut executor);
+        host.load_dir(&fixture.root, &mut executor);
+        assert_eq!(host.plugin_count(), 0);
+        let loader = BackgroundPluginLoader::start(fixture.discovery()).unwrap();
+        assert!(matches!(
+            next(&loader),
+            PluginLoadEvent::Discovered { total: 0, .. }
+        ));
+        let PluginLoadEvent::DiscoveryError { error } = next(&loader) else {
+            panic!("expected manifest error");
+        };
+        assert!(error.contains(&manifest.display().to_string()));
+        assert!(matches!(next(&loader), PluginLoadEvent::Finished));
+        assert!(!fixture.root.join("entered").exists());
     }
 
     #[test]

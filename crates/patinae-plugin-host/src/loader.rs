@@ -85,7 +85,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use crate::actions::apply_atom_property_change_batch;
 use crate::host::PluginHost;
 use crate::panic::panic_payload_to_string;
-use crate::paths::{is_plugin_library_path, PluginDiscovery};
+use crate::paths::{plugin_library_paths, PluginDiscovery};
 use crate::plugin::{LibraryHandle, LoadedPanel, LoadedPlugin};
 
 mod startup;
@@ -354,32 +354,35 @@ impl PluginHost {
         self.load_discovered_dirs(&PluginDiscovery::from_process_env(), executor);
     }
 
+    /// Loads the first manifest's libraries, or scans all discovered directories.
+    ///
+    /// Manifest errors are logged without falling back to scanning. Individual
+    /// library errors are logged and do not prevent later libraries from loading.
     pub fn load_discovered_dirs(
         &mut self,
         discovery: &PluginDiscovery,
         executor: &mut CommandExecutor,
     ) {
-        for dir in discovery.standard_plugin_dirs() {
-            self.load_dir(&dir, executor);
-        }
+        self.load_dirs(&discovery.standard_plugin_dirs(), executor);
     }
 
+    /// Loads a directory's manifest, or scans that directory when no manifest exists.
     pub fn load_dir(&mut self, dir: &Path, executor: &mut CommandExecutor) {
-        self.add_plugin_dir(dir);
+        self.load_dirs(&[dir.to_path_buf()], executor);
+    }
 
-        let entries = match std::fs::read_dir(dir) {
-            Ok(entries) => entries,
-            Err(e) => {
-                log::debug!("Plugin directory {:?}: {}", dir, e);
+    fn load_dirs(&mut self, directories: &[PathBuf], executor: &mut CommandExecutor) {
+        for directory in directories {
+            self.add_plugin_dir(directory);
+        }
+        let paths = match plugin_library_paths(directories) {
+            Ok(paths) => paths,
+            Err(error) => {
+                log::warn!("Plugin discovery failed: {error}");
                 return;
             }
         };
-
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if !is_plugin_library_path(&path) {
-                continue;
-            }
+        for path in paths {
             match self.load_library(&path, executor) {
                 Ok(name) => log::info!("Loaded plugin: {}", name),
                 Err(e) => log::warn!("Failed to load plugin {:?}: {}", path, e),

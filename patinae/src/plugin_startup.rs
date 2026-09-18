@@ -117,6 +117,9 @@ impl PluginStartup {
                     Err(error) => Err(format!("Failed to load plugin {}: {error}", path.display())),
                 }
             }
+            Ok(Some(PluginLoadEvent::DiscoveryError { error })) => {
+                Err(format!("Plugin discovery failed: {error}"))
+            }
             Ok(Some(PluginLoadEvent::Finished)) => {
                 self.finish();
                 Ok(false)
@@ -197,5 +200,45 @@ mod tests {
             .unwrap();
         assert!(!startup.ready());
         assert!(startup.status().is_none());
+    }
+
+    #[test]
+    fn invalid_manifest_reports_error_and_completes_startup() {
+        let root = std::env::temp_dir().join(format!(
+            "patinae-startup-invalid-manifest-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let manifest = root.join("plugins.toml");
+        std::fs::write(&manifest, "[[plugins]]\npath = 'wrong'").unwrap();
+        let mut startup = PluginStartup::new(Instant::now());
+        let mut host = PluginHost::new();
+        let mut executor = CommandExecutor::new();
+        startup.after_frame();
+        startup
+            .tick_with_discovery(&mut host, &mut executor, || {
+                PluginDiscovery::new(PathResolver::new(PathResolverInput {
+                    plugin_dir: Some(root.clone()),
+                    ..Default::default()
+                }))
+            })
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut errors = Vec::new();
+        while !startup.ready() {
+            if let Err(error) = startup
+                .tick_with_discovery(&mut host, &mut executor, || panic!("repeated discovery"))
+            {
+                errors.push(error);
+            }
+            assert!(Instant::now() < deadline);
+            std::thread::yield_now();
+        }
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].contains(&manifest.display().to_string()));
+        assert_eq!(startup.total, Some(0));
+        assert_eq!(host.plugin_count(), 0);
+        assert!(startup.status().is_none());
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

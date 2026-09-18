@@ -23,6 +23,7 @@ patinae-select = { workspace = true }
 patinae-settings = { workspace = true }
 rmp-serde = { workspace = true }
 serde = { workspace = true }
+toml = "1.1"
 wgpu = { workspace = true }
 
 [dev-dependencies]
