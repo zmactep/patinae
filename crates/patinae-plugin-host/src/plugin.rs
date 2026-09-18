@@ -11,7 +11,6 @@ pub(crate) struct LoadedPanel {
     pub(crate) descriptor: PanelDescriptor,
     pub(crate) panel: Box<dyn PluginPanel>,
     pub(crate) visible: bool,
-    pub(crate) active: bool,
     pub(crate) cached_snapshot_generation: Option<u64>,
     pub(crate) cached_snapshot: PanelSnapshot,
 }
@@ -20,7 +19,6 @@ impl LoadedPanel {
     pub(crate) fn new(descriptor: PanelDescriptor, panel: Box<dyn PluginPanel>) -> Self {
         Self {
             visible: descriptor.default_visible,
-            active: descriptor.default_visible,
             cached_snapshot_generation: None,
             cached_snapshot: PanelSnapshot::default(),
             descriptor,
@@ -37,7 +35,7 @@ pub(crate) enum LibraryHandle {
 }
 
 pub(crate) struct LoadedPlugin {
-    pub(crate) registration_owner: u64,
+    pub(crate) registration_owner: patinae_cmd::PluginInstanceId,
     pub(crate) path: Option<std::path::PathBuf>,
     pub(crate) _library: Arc<LibraryHandle>,
     pub(crate) metadata: PluginMetadata,
@@ -46,6 +44,7 @@ pub(crate) struct LoadedPlugin {
     pub(crate) hotkeys: KeyBindings<PluginKeyAction>,
     pub(crate) atom_streams: AtomStreams,
     pub(crate) faulted: bool,
+    pub(crate) queues: PluginQueues,
 }
 
 #[derive(Default)]
@@ -59,4 +58,19 @@ pub(crate) struct AtomStreamState {
     pub(crate) position: usize,
     pub(crate) chunk_size: usize,
     pub(crate) idle_polls: u32,
+}
+
+/// Deliveries belong to an installation and disappear together with it.
+#[derive(Default)]
+pub(crate) struct PluginQueues {
+    pub(crate) registrations: Vec<patinae_plugin::registrar::DynCmdRegistration>,
+    pub(crate) unregistrations: Vec<String>,
+    pub(crate) hotkey_registrations: Vec<(String, PluginKeyAction)>,
+    pub(crate) hotkey_unregistrations: Vec<String>,
+    pub(crate) command_results: Vec<crate::CommandResult>,
+    pub(crate) host_query_results: Vec<patinae_plugin::wire::WireHostQueryResult>,
+    pub(crate) task_controls: Vec<patinae_plugin::wire::WireHostQuery>,
+    pub(crate) task_waits: Vec<crate::runtime::PendingTaskWait>,
+    pub(crate) triggered_hotkeys: Vec<patinae_plugin::registrar::KeyBinding>,
+    pub(crate) task_invocations: Vec<patinae_cmd::TaskInvocation>,
 }

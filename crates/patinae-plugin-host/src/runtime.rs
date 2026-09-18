@@ -15,7 +15,7 @@ use patinae_plugin::wire::{
 };
 use patinae_scene::{label_object_view, parse_key_string, KeyBinding, ViewportImage};
 
-use crate::host::{PluginHost, TriggeredHotkey};
+use crate::host::PluginHost;
 use crate::panic::panic_payload_to_string;
 use crate::plugin::{AtomStreamState, AtomStreams, LoadedPlugin};
 use crate::CommandResult;
@@ -44,13 +44,30 @@ impl PluginHost {
                 }
             }
         }
+        self.ensure_single_active_per_placement();
     }
 
     /// Queue admitted invocations before polling their executors.
     ///
     /// This transfers transport messages only; task state stays in the kernel.
     pub fn prepare_task_dispatch(&mut self, kernel: &mut patinae_framework::kernel::AppKernel) {
-        self.task_invocations.extend(kernel.take_task_invocations());
+        for invocation in kernel.take_task_invocations() {
+            // A removed installation's queued task must not reach a reloaded library.
+            if !kernel
+                .tasks
+                .get(invocation.task_id)
+                .is_ok_and(|task| !task.state.is_terminal())
+            {
+                continue;
+            }
+            if let Some(plugin) = self
+                .plugins
+                .iter_mut()
+                .find(|plugin| plugin.metadata.name == invocation.request.executor)
+            {
+                plugin.queues.task_invocations.push(invocation);
+            }
+        }
     }
 
     /// Whether ready task deliveries can unblock an executor or waiting client.
@@ -58,17 +75,23 @@ impl PluginHost {
     /// Snapshot and list replies deliberately do not request another pass:
     /// observers may ask for them on every poll, including while idle.
     pub fn has_ready_task_delivery(&self) -> bool {
-        !self.task_invocations.is_empty()
-            || self.host_query_results.iter().flatten().any(|reply| {
-                matches!(
-                    &reply.result,
-                    Ok(WireHostQueryValue::TaskStarted(_)
-                        | WireHostQueryValue::TaskAcknowledged(_)
-                        | WireHostQueryValue::TaskCommand(_)
-                        | WireHostQueryValue::TaskWait(_)
-                        | WireHostQueryValue::TaskCancel(_))
-                )
-            })
+        self.plugins
+            .iter()
+            .any(|plugin| !plugin.queues.task_invocations.is_empty())
+            || self
+                .plugins
+                .iter()
+                .flat_map(|plugin| &plugin.queues.host_query_results)
+                .any(|reply| {
+                    matches!(
+                        &reply.result,
+                        Ok(WireHostQueryValue::TaskStarted(_)
+                            | WireHostQueryValue::TaskAcknowledged(_)
+                            | WireHostQueryValue::TaskCommand(_)
+                            | WireHostQueryValue::TaskWait(_)
+                            | WireHostQueryValue::TaskCancel(_))
+                    )
+                })
     }
 
     pub fn poll_all(&mut self, shared: &SharedContext<'_>, bus: &mut MessageBus) {
@@ -90,24 +113,14 @@ impl PluginHost {
     ) {
         self.process_panel_events(shared, bus);
 
-        let invocations = std::mem::take(&mut self.task_invocations);
-        let results = std::mem::take(&mut self.command_results);
-        let previous_query_results = std::mem::take(&mut self.host_query_results);
-        let triggered = std::mem::take(&mut self.triggered_hotkeys);
         let poll_shared = poll_shared_input_from_context(shared);
-        let triggered_by_plugin = triggered_hotkeys_by_plugin(triggered, self.plugins.len());
 
         let mut exec_queue = Vec::new();
-        let mut reg_queue = Vec::new();
-        let mut unreg_queue = Vec::new();
-        let mut hotkey_reg_queue = Vec::new();
-        let mut hotkey_unreg_queue = Vec::new();
         let mut mutation_queue = Vec::new();
         let mut viewer_action_queue = Vec::new();
         let mut panel_update_requested = false;
-        let mut next_query_results = Vec::with_capacity(self.plugins.len());
 
-        for (plugin_index, plugin) in self.plugins.iter_mut().enumerate() {
+        for plugin in &mut self.plugins {
             let mut plugin_exec_queue = Vec::new();
             let mut plugin_reg_queue = Vec::new();
             let mut plugin_unreg_queue = Vec::new();
@@ -116,26 +129,19 @@ impl PluginHost {
             if advance_idle {
                 expire_idle_atom_streams(&mut plugin.atom_streams);
             }
-            let query_results = previous_query_results
-                .get(plugin_index)
-                .map_or(&[][..], Vec::as_slice);
-            let triggered = triggered_by_plugin
-                .get(plugin_index)
-                .map_or(&[][..], Vec::as_slice);
+            let results = std::mem::take(&mut plugin.queues.command_results);
+            let query_results = std::mem::take(&mut plugin.queues.host_query_results);
+            let triggered = std::mem::take(&mut plugin.queues.triggered_hotkeys);
+            let plugin_invocations = std::mem::take(&mut plugin.queues.task_invocations);
             let mut host_query_queue = Vec::new();
-            let plugin_invocations: Vec<_> = invocations
-                .iter()
-                .filter(|invocation| invocation.request.executor == plugin.metadata.name)
-                .cloned()
-                .collect();
             let mut ctx = PollContext::new(
                 shared,
                 &poll_shared,
                 bus,
-                results.get(plugin_index).map_or(&[][..], Vec::as_slice),
-                query_results,
+                &results,
+                &query_results,
                 &plugin_invocations,
-                triggered,
+                &triggered,
                 &self.plugin_dirs,
                 &mut plugin_exec_queue,
                 &mut plugin_reg_queue,
@@ -162,7 +168,7 @@ impl PluginHost {
                         .collect()
                 })
                 .unwrap_or_default();
-            run_triggered_hotkeys(plugin, triggered, &mut ctx);
+            run_triggered_hotkeys(plugin, &triggered, &mut ctx);
 
             poll_handler(plugin, &mut ctx);
             if ctx.executor_failure.is_some() {
@@ -170,23 +176,17 @@ impl PluginHost {
             }
             for mut registration in plugin_reg_queue {
                 registration.executor = plugin.metadata.name.clone();
-                reg_queue.push((plugin.registration_owner, registration));
+                plugin.queues.registrations.push(registration);
             }
-            unreg_queue.extend(
-                plugin_unreg_queue
-                    .into_iter()
-                    .map(|name| (plugin.registration_owner, name)),
-            );
-            hotkey_reg_queue.extend(
-                plugin_hotkey_reg_queue
-                    .into_iter()
-                    .map(|(key, action)| (plugin.registration_owner, key, action)),
-            );
-            hotkey_unreg_queue.extend(
-                plugin_hotkey_unreg_queue
-                    .into_iter()
-                    .map(|key| (plugin.registration_owner, key)),
-            );
+            plugin.queues.unregistrations.extend(plugin_unreg_queue);
+            plugin
+                .queues
+                .hotkey_registrations
+                .extend(plugin_hotkey_reg_queue);
+            plugin
+                .queues
+                .hotkey_unregistrations
+                .extend(plugin_hotkey_unreg_queue);
             host_query_queue.retain(|query| {
                 if matches!(
                     query,
@@ -199,18 +199,14 @@ impl PluginHost {
                         | WireHostQuery::TaskCommand { .. }
                         | WireHostQuery::WaitTask { .. }
                 ) {
-                    self.pending_task_controls
-                        .push((plugin_index, query.clone()));
+                    plugin.queues.task_controls.push(query.clone());
                     false
                 } else {
                     true
                 }
             });
-            next_query_results.push(resolve_host_queries(
-                &host_query_queue,
-                shared,
-                &mut plugin.atom_streams,
-            ));
+            plugin.queues.host_query_results =
+                resolve_host_queries(&host_query_queue, shared, &mut plugin.atom_streams);
             for mut request in plugin_exec_queue {
                 // Frontends see a host token; plugins retain their own ID namespace.
                 while self.command_owners.contains_key(&self.next_command_id) {
@@ -219,7 +215,7 @@ impl PluginHost {
                 let token = self.next_command_id;
                 self.next_command_id = self.next_command_id.wrapping_add(1);
                 self.command_owners
-                    .insert(token, (plugin_index, request.id));
+                    .insert(token, (plugin.registration_owner, request.id));
                 request.id = token;
                 exec_queue.push(request);
             }
@@ -230,19 +226,15 @@ impl PluginHost {
         }
 
         self.pending_executions.extend(exec_queue);
-        self.pending_registrations = reg_queue;
-        self.pending_unregistrations = unreg_queue;
-        self.pending_hotkey_registrations = hotkey_reg_queue;
-        self.pending_hotkey_unregistrations = hotkey_unreg_queue;
         self.pending_mutations = mutation_queue;
-        self.host_query_results = next_query_results;
         if panel_update_requested {
             self.bump_panel_ui_generation();
         }
+        self.ensure_single_active_per_placement();
     }
 
     pub fn handle_hotkey(&mut self, binding: KeyBinding, bus: &mut MessageBus) -> bool {
-        for (plugin_index, plugin) in self.plugins.iter_mut().enumerate() {
+        for plugin in &mut self.plugins {
             if plugin.faulted {
                 continue;
             }
@@ -266,10 +258,7 @@ impl PluginHost {
                         });
                     }
                     PluginKeyAction::Callback(_) => {
-                        self.triggered_hotkeys.push(TriggeredHotkey {
-                            plugin_index,
-                            binding,
-                        });
+                        plugin.queues.triggered_hotkeys.push(binding);
                     }
                 }
                 return true;
@@ -280,54 +269,45 @@ impl PluginHost {
 
     pub fn apply_dynamic_command_changes(&mut self, executor: &mut CommandExecutor) -> bool {
         let mut changed = false;
-        for (owner, name) in std::mem::take(&mut self.pending_unregistrations) {
-            executor
-                .registry_mut()
-                .unregister_owned_command(owner, &name);
-            changed = true;
+        // Preserve the existing batch order: all removals, then ordered additions.
+        for plugin in &mut self.plugins {
+            for name in plugin.queues.unregistrations.drain(..) {
+                executor
+                    .registry_mut()
+                    .unregister_owned_command(plugin.registration_owner, &name);
+                changed = true;
+            }
         }
-
-        for (owner, reg) in std::mem::take(&mut self.pending_registrations) {
-            let command = DynamicCommand::new(
-                reg.name,
-                reg.description,
-                reg.usage,
-                reg.arguments,
-                reg.executor,
-                reg.owner_tag,
-            );
-            executor
-                .registry_mut()
-                .register_owned(owner, Box::new(command));
-            changed = true;
+        for plugin in &mut self.plugins {
+            for reg in plugin.queues.registrations.drain(..) {
+                let command = DynamicCommand::new(
+                    reg.name,
+                    reg.description,
+                    reg.usage,
+                    reg.arguments,
+                    reg.executor,
+                    reg.owner_tag,
+                );
+                executor
+                    .registry_mut()
+                    .register_owned(plugin.registration_owner, Box::new(command));
+                changed = true;
+            }
         }
         changed
     }
 
     pub fn apply_hotkey_changes(&mut self) {
-        let registrations = std::mem::take(&mut self.pending_hotkey_registrations);
-        let unregistrations = std::mem::take(&mut self.pending_hotkey_unregistrations);
-
-        for (owner, key_str) in unregistrations {
-            if let Ok(key) = parse_key_string(&key_str) {
-                if let Some(plugin) = self
-                    .plugins
-                    .iter_mut()
-                    .find(|plugin| plugin.registration_owner == owner)
-                {
+        for plugin in &mut self.plugins {
+            for key_str in plugin.queues.hotkey_unregistrations.drain(..) {
+                if let Ok(key) = parse_key_string(&key_str) {
                     plugin.hotkeys.unbind(key);
                 }
             }
-        }
-        for (owner, key_str, action) in registrations {
-            if let Some(plugin) = self
-                .plugins
-                .iter_mut()
-                .find(|plugin| plugin.registration_owner == owner)
-            {
+            for (key_str, action) in plugin.queues.hotkey_registrations.drain(..) {
                 match parse_key_string(&key_str) {
                     Ok(key) => plugin.hotkeys.bind(key, action),
-                    Err(e) => log::warn!("Invalid hotkey string '{}': {}", key_str, e),
+                    Err(error) => log::warn!("Invalid hotkey string '{}': {}", key_str, error),
                 }
             }
         }
@@ -341,12 +321,16 @@ impl PluginHost {
     }
 
     pub fn store_command_results(&mut self, results: Vec<CommandResult>) {
-        self.command_results
-            .resize_with(self.plugins.len(), Vec::new);
         for mut result in results {
-            if let Some((plugin_index, original_id)) = self.command_owners.remove(&result.id) {
+            if let Some((owner, original_id)) = self.command_owners.remove(&result.id) {
                 result.id = original_id;
-                self.command_results[plugin_index].push(result);
+                if let Some(plugin) = self
+                    .plugins
+                    .iter_mut()
+                    .find(|plugin| plugin.registration_owner == owner)
+                {
+                    plugin.queues.command_results.push(result);
+                }
             } else {
                 log::warn!(
                     "Ignoring command result with unknown host token {}",
@@ -650,19 +634,6 @@ fn close_atom_stream(atom_streams: &mut AtomStreams, stream_id: u64) -> Result<(
         .ok_or_else(|| format!("atom stream {stream_id} is not open"))
 }
 
-fn triggered_hotkeys_by_plugin(
-    triggered: Vec<TriggeredHotkey>,
-    plugin_count: usize,
-) -> Vec<Vec<KeyBinding>> {
-    let mut by_plugin = vec![Vec::new(); plugin_count];
-    for hotkey in triggered {
-        if let Some(bindings) = by_plugin.get_mut(hotkey.plugin_index) {
-            bindings.push(hotkey.binding);
-        }
-    }
-    by_plugin
-}
-
 fn run_triggered_hotkeys(
     plugin: &mut LoadedPlugin,
     triggered: &[KeyBinding],
@@ -845,6 +816,14 @@ mod command_results {
     ) -> AbiStatus {
         // SAFETY: Inputs are provided by PluginHost for this call.
         unsafe { register_requester(handle, callbacks, "second") }
+    }
+
+    unsafe extern "C" fn register_third(
+        handle: HostRegistrarHandle,
+        callbacks: *const HostCallbacks,
+    ) -> AbiStatus {
+        // SAFETY: Inputs are provided by PluginHost for this call.
+        unsafe { register_requester(handle, callbacks, "third") }
     }
 
     struct Harness {
@@ -1131,6 +1110,45 @@ mod command_results {
         assert!(responses[0].1.messages[0].text.contains("Capabilities:"));
         h.poll();
         assert!(h.responses().is_empty());
+    }
+
+    #[test]
+    fn middle_unload_and_reload_preserve_survivors_and_discard_late_replies() {
+        let mut h = Harness::new(true);
+        let mut declaration = test_declaration(Some(register_third));
+        declaration.capabilities |= CAPABILITY_MESSAGE_RUNTIME;
+        load_declaration_for_test(&mut h.host, &mut h.kernel.executor, declaration).unwrap();
+        h.host.plugins[1].path = Some("/fixture/second".into());
+        let old_owner = h.host.plugins[1].registration_owner;
+        let third_owner = h.host.plugins[2].registration_owner;
+        h.request("second", &[(7, "third_party_report", true)]);
+        h.request("third", &[(7, "third_party_report", true)]);
+        h.poll();
+        let late_results = h.execute();
+        assert!(h.host.unload_library(
+            std::path::Path::new("/fixture/second"),
+            &mut h.kernel.executor,
+            &h.kernel.tasks
+        ));
+        assert_eq!(h.host.plugins[1].registration_owner, third_owner);
+        let mut declaration = test_declaration(Some(register_second));
+        declaration.capabilities |= CAPABILITY_MESSAGE_RUNTIME;
+        load_declaration_for_test(&mut h.host, &mut h.kernel.executor, declaration).unwrap();
+        assert_ne!(h.host.plugins[2].registration_owner, old_owner);
+        h.host.store_command_results(late_results);
+        h.poll();
+        let replies = h.responses();
+        assert_eq!(replies.len(), 1);
+        assert_eq!(replies[0].0, "third:response");
+        h.request("second", &[(7, "third_party_report", true)]);
+        h.poll();
+        let results = h.execute();
+        h.host.store_command_results(results);
+        h.poll();
+        let replies = h.responses();
+        assert_eq!(replies.len(), 1);
+        assert_eq!(replies[0].0, "second:response");
+        assert_eq!(replies[0].1.id, 7);
     }
 
     #[test]

@@ -40,10 +40,7 @@ impl PreparedPlugin {
         let background = declaration.capabilities & CAPABILITY_BACKGROUND_REGISTRATION != 0;
         Ok((
             Self {
-                path: path
-                    .canonicalize()
-                    .or_else(|_| std::path::absolute(path))
-                    .map_err(|error| format!("Cannot resolve plugin path: {error}"))?,
+                path: crate::library_identity(path),
                 registration: RegistrationSink::new(),
                 library,
                 registered: false,

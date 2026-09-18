@@ -12,7 +12,6 @@ pub(super) fn checked_task_owner(
 }
 
 pub(crate) struct PendingTaskWait {
-    pub(crate) plugin_index: usize,
     id: u64,
     task_id: patinae_cmd::tasks::TaskId,
     deadline: Option<std::time::Instant>,
@@ -31,8 +30,6 @@ impl PluginHost {
         mut render_context: Option<&'a mut (dyn patinae_scene::CaptureRenderer + 'a)>,
         viewport_size: (u32, u32),
     ) {
-        self.host_query_results
-            .resize_with(self.plugins.len(), Vec::new);
         for plugin in &self.plugins {
             if plugin.faulted {
                 let owners: std::collections::HashSet<_> = kernel
@@ -48,209 +45,223 @@ impl PluginHost {
                 }
             }
         }
-        for (plugin_index, query) in std::mem::take(&mut self.pending_task_controls) {
-            let Some(plugin) = self.plugins.get(plugin_index) else {
-                continue;
-            };
-            let owner = plugin.metadata.name.clone();
-            let (id, value) = match query {
-                WireHostQuery::ForgetTaskWait { id } => {
-                    self.pending_task_waits
-                        .retain(|wait| wait.plugin_index != plugin_index || wait.id != id);
-                    continue;
-                }
-                WireHostQuery::FailTaskOwner { id, owner_tag } => {
-                    let count = kernel.tasks.fail_owner(&format!("{owner}/{owner_tag}"));
-                    (id, WireHostQueryValue::TaskAcknowledged(Ok(count > 0)))
-                }
+        let mut panel_changed = false;
+        let mut wait_count: usize = self
+            .plugins
+            .iter()
+            .map(|plugin| plugin.queues.task_waits.len())
+            .sum();
+        for plugin in &mut self.plugins {
+            for query in std::mem::take(&mut plugin.queues.task_controls) {
+                let owner = plugin.metadata.name.clone();
+                let (id, value) = match query {
+                    WireHostQuery::ForgetTaskWait { id } => {
+                        let before = plugin.queues.task_waits.len();
+                        plugin.queues.task_waits.retain(|wait| wait.id != id);
+                        wait_count -= before - plugin.queues.task_waits.len();
 
-                WireHostQuery::CancelTask { id, task_id } => (
-                    id,
-                    WireHostQueryValue::TaskCancel(kernel.tasks.cancel(task_id)),
-                ),
-                WireHostQuery::StartTask {
-                    id,
-                    mut request,
-                    parent_id,
-                } => {
-                    request.executor = owner.clone();
-                    let valid_parent = parent_id.is_none_or(|parent| {
-                        checked_task_owner(&kernel.tasks, parent, &owner).is_some()
-                    });
-                    let result = if plugin.faulted {
-                        Err(patinae_cmd::tasks::TaskStartError::ExecutorUnavailable)
-                    } else if !valid_parent {
-                        Err(patinae_cmd::tasks::TaskStartError::InvalidParent)
-                    } else {
-                        kernel.start_plugin_task(request, parent_id)
-                    };
-                    (id, WireHostQueryValue::TaskStarted(result))
-                }
-                WireHostQuery::TaskEvent { id, task_id, event } => {
-                    let owner = checked_task_owner(&kernel.tasks, task_id, &owner).unwrap_or(owner);
-                    use patinae_cmd::tasks::TaskEvent;
-                    let result = match event {
-                        TaskEvent::Started => kernel.tasks.started(task_id, &owner),
-                        TaskEvent::Progress(progress) => {
-                            log::info!(
-                                "Plugin task [plugin={}, task={}]: {}",
-                                owner,
-                                task_id,
-                                progress.message
-                            );
-                            kernel.tasks.progress(task_id, &owner, progress)
-                        }
-                        TaskEvent::Output(output) => {
-                            let accepted = kernel.tasks.output(task_id, &owner, output.clone());
-                            if matches!(accepted, Ok(true)) {
-                                kernel.present_task_output(task_id, &output);
-                            }
-                            accepted
-                        }
-                        TaskEvent::Finished(outcome) => {
-                            kernel.tasks.finish_owned(task_id, &owner, outcome)
-                        }
-                    };
-                    (id, WireHostQueryValue::TaskAcknowledged(result))
-                }
-                WireHostQuery::TaskCommand {
-                    id,
-                    task_id,
-                    command,
-                    silent,
-                } => {
-                    let owner = checked_task_owner(&kernel.tasks, task_id, &owner).unwrap_or(owner);
-                    log::info!(
-                        "Plugin command [plugin={}, task={}, request={}]: {:?}",
-                        owner,
-                        task_id,
+                        continue;
+                    }
+                    WireHostQuery::FailTaskOwner { id, owner_tag } => {
+                        let count = kernel.tasks.fail_owner(&format!("{owner}/{owner_tag}"));
+                        (id, WireHostQueryValue::TaskAcknowledged(Ok(count > 0)))
+                    }
+
+                    WireHostQuery::CancelTask { id, task_id } => (
                         id,
-                        command
-                    );
-                    let result = kernel
-                        .execute_task_command(
-                            task_id,
-                            &owner,
-                            &command,
-                            silent,
-                            match &mut render_context {
-                                Some(renderer) => Some(&mut **renderer),
-                                None => None,
-                            },
-                            viewport_size,
-                        )
-                        .map(patinae_cmd::CommandReply::from);
-                    (id, WireHostQueryValue::TaskCommand(result))
-                }
-                WireHostQuery::TaskAction {
-                    id,
-                    task_id,
-                    action,
-                } => {
-                    let owner = checked_task_owner(&kernel.tasks, task_id, &owner).unwrap_or(owner);
-                    let result = kernel
-                        .tasks
-                        .can_apply_effect(task_id, &owner, kernel.session.task_epoch())
-                        .and_then(|()| {
-                            let effects = crate::actions::apply_task_action(kernel, action)?;
-                            if effects.panel_update {
-                                self.bump_panel_ui_generation();
-                            }
-                            kernel.tasks.record_effects(task_id, &owner, effects.scene)
+                        WireHostQueryValue::TaskCancel(kernel.tasks.cancel(task_id)),
+                    ),
+                    WireHostQuery::StartTask {
+                        id,
+                        mut request,
+                        parent_id,
+                    } => {
+                        request.executor = owner.clone();
+                        let valid_parent = parent_id.is_none_or(|parent| {
+                            checked_task_owner(&kernel.tasks, parent, &owner).is_some()
                         });
-                    (id, WireHostQueryValue::TaskAcknowledged(result))
-                }
-                WireHostQuery::WaitTask {
-                    id,
-                    task_id,
-                    waiter,
-                    timeout_ms,
-                } => {
-                    let check = if waiter.is_some_and(|waiter| {
-                        checked_task_owner(&kernel.tasks, waiter, &owner).is_none()
-                    }) {
-                        Err(patinae_cmd::tasks::TaskError::new(
-                            "wrong_executor",
-                            "waiter belongs to another executor",
-                        ))
-                    } else {
-                        kernel.tasks.validate_wait(
-                            waiter,
-                            task_id,
-                            waiter
-                                .and_then(|id| checked_task_owner(&kernel.tasks, id, &owner))
-                                .as_deref(),
-                        )
-                    };
-                    if let Err(error) = check {
-                        (id, WireHostQueryValue::TaskWait(Err(error)))
-                    } else {
-                        if self.pending_task_waits.len() >= MAX_PENDING_TASK_WAITS {
-                            (
-                                id,
-                                WireHostQueryValue::TaskWait(Err(
-                                    patinae_cmd::tasks::TaskError::new(
-                                        "busy",
-                                        "too many pending waits",
-                                    ),
-                                )),
-                            )
+                        let result = if plugin.faulted {
+                            Err(patinae_cmd::tasks::TaskStartError::ExecutorUnavailable)
+                        } else if !valid_parent {
+                            Err(patinae_cmd::tasks::TaskStartError::InvalidParent)
                         } else {
-                            self.pending_task_waits.push(PendingTaskWait {
-                                plugin_index,
-                                id,
+                            kernel.start_plugin_task(request, parent_id)
+                        };
+                        (id, WireHostQueryValue::TaskStarted(result))
+                    }
+                    WireHostQuery::TaskEvent { id, task_id, event } => {
+                        let owner =
+                            checked_task_owner(&kernel.tasks, task_id, &owner).unwrap_or(owner);
+                        use patinae_cmd::tasks::TaskEvent;
+                        let result = match event {
+                            TaskEvent::Started => kernel.tasks.started(task_id, &owner),
+                            TaskEvent::Progress(progress) => {
+                                log::info!(
+                                    "Plugin task [plugin={}, task={}]: {}",
+                                    owner,
+                                    task_id,
+                                    progress.message
+                                );
+                                kernel.tasks.progress(task_id, &owner, progress)
+                            }
+                            TaskEvent::Output(output) => {
+                                let accepted = kernel.tasks.output(task_id, &owner, output.clone());
+                                if matches!(accepted, Ok(true)) {
+                                    kernel.present_task_output(task_id, &output);
+                                }
+                                accepted
+                            }
+                            TaskEvent::Finished(outcome) => {
+                                kernel.tasks.finish_owned(task_id, &owner, outcome)
+                            }
+                        };
+                        (id, WireHostQueryValue::TaskAcknowledged(result))
+                    }
+                    WireHostQuery::TaskCommand {
+                        id,
+                        task_id,
+                        command,
+                        silent,
+                    } => {
+                        let owner =
+                            checked_task_owner(&kernel.tasks, task_id, &owner).unwrap_or(owner);
+                        log::info!(
+                            "Plugin command [plugin={}, task={}, request={}]: {:?}",
+                            owner,
+                            task_id,
+                            id,
+                            command
+                        );
+                        let result = kernel
+                            .execute_task_command(
                                 task_id,
-                                waiter,
-                                serial_owner: waiter
-                                    .and_then(|id| checked_task_owner(&kernel.tasks, id, &owner)),
-                                deadline: timeout_ms.and_then(|ms| {
-                                    std::time::Instant::now()
-                                        .checked_add(std::time::Duration::from_millis(ms))
-                                }),
+                                &owner,
+                                &command,
+                                silent,
+                                match &mut render_context {
+                                    Some(renderer) => Some(&mut **renderer),
+                                    None => None,
+                                },
+                                viewport_size,
+                            )
+                            .map(patinae_cmd::CommandReply::from);
+                        (id, WireHostQueryValue::TaskCommand(result))
+                    }
+                    WireHostQuery::TaskAction {
+                        id,
+                        task_id,
+                        action,
+                    } => {
+                        let owner =
+                            checked_task_owner(&kernel.tasks, task_id, &owner).unwrap_or(owner);
+                        let result = kernel
+                            .tasks
+                            .can_apply_effect(task_id, &owner, kernel.session.task_epoch())
+                            .and_then(|()| {
+                                let effects = crate::actions::apply_task_action(kernel, action)?;
+                                if effects.panel_update {
+                                    panel_changed = true;
+                                }
+                                kernel.tasks.record_effects(task_id, &owner, effects.scene)
                             });
-                            continue;
+                        (id, WireHostQueryValue::TaskAcknowledged(result))
+                    }
+                    WireHostQuery::WaitTask {
+                        id,
+                        task_id,
+                        waiter,
+                        timeout_ms,
+                    } => {
+                        let check = if waiter.is_some_and(|waiter| {
+                            checked_task_owner(&kernel.tasks, waiter, &owner).is_none()
+                        }) {
+                            Err(patinae_cmd::tasks::TaskError::new(
+                                "wrong_executor",
+                                "waiter belongs to another executor",
+                            ))
+                        } else {
+                            kernel.tasks.validate_wait(
+                                waiter,
+                                task_id,
+                                waiter
+                                    .and_then(|id| checked_task_owner(&kernel.tasks, id, &owner))
+                                    .as_deref(),
+                            )
+                        };
+                        if let Err(error) = check {
+                            (id, WireHostQueryValue::TaskWait(Err(error)))
+                        } else {
+                            if wait_count >= MAX_PENDING_TASK_WAITS {
+                                (
+                                    id,
+                                    WireHostQueryValue::TaskWait(Err(
+                                        patinae_cmd::tasks::TaskError::new(
+                                            "busy",
+                                            "too many pending waits",
+                                        ),
+                                    )),
+                                )
+                            } else {
+                                wait_count += 1;
+                                plugin.queues.task_waits.push(PendingTaskWait {
+                                    id,
+                                    task_id,
+                                    waiter,
+                                    serial_owner: waiter.and_then(|id| {
+                                        checked_task_owner(&kernel.tasks, id, &owner)
+                                    }),
+                                    deadline: timeout_ms.and_then(|ms| {
+                                        std::time::Instant::now()
+                                            .checked_add(std::time::Duration::from_millis(ms))
+                                    }),
+                                });
+                                continue;
+                            }
                         }
                     }
-                }
-                _ => continue,
-            };
-            self.host_query_results[plugin_index].push(WireHostQueryResult {
-                id,
-                result: Ok(value),
-            });
+                    _ => continue,
+                };
+                plugin.queues.host_query_results.push(WireHostQueryResult {
+                    id,
+                    result: Ok(value),
+                });
+            }
         }
         let now = std::time::Instant::now();
-        self.pending_task_waits.retain(|wait| {
-            let result = match kernel.tasks.validate_wait(
-                wait.waiter,
-                wait.task_id,
-                wait.serial_owner.as_deref(),
-            ) {
-                Err(error) => Some(Err(error)),
-                Ok(()) => match kernel.tasks.get(wait.task_id) {
-                    Ok(snapshot) if snapshot.state.is_terminal() => Some(Ok(snapshot)),
-                    Err(error) => Some(Err(patinae_cmd::tasks::TaskError::new(
-                        error.to_string(),
-                        error.to_string(),
-                    ))),
-                    _ if wait.deadline.is_some_and(|deadline| now >= deadline) => Some(Err(
-                        patinae_cmd::tasks::TaskError::new("timeout", "task wait timed out"),
-                    )),
-                    _ => None,
-                },
-            };
-            if let Some(result) = result {
-                if let Some(replies) = self.host_query_results.get_mut(wait.plugin_index) {
-                    replies.push(WireHostQueryResult {
+        for plugin in &mut self.plugins {
+            plugin.queues.task_waits.retain(|wait| {
+                let result = match kernel.tasks.validate_wait(
+                    wait.waiter,
+                    wait.task_id,
+                    wait.serial_owner.as_deref(),
+                ) {
+                    Err(error) => Some(Err(error)),
+                    Ok(()) => match kernel.tasks.get(wait.task_id) {
+                        Ok(snapshot) if snapshot.state.is_terminal() => Some(Ok(snapshot)),
+                        Err(error) => Some(Err(patinae_cmd::tasks::TaskError::new(
+                            error.to_string(),
+                            error.to_string(),
+                        ))),
+                        _ if wait.deadline.is_some_and(|deadline| now >= deadline) => Some(Err(
+                            patinae_cmd::tasks::TaskError::new("timeout", "task wait timed out"),
+                        )),
+                        _ => None,
+                    },
+                };
+                if let Some(result) = result {
+                    plugin.queues.host_query_results.push(WireHostQueryResult {
                         id: wait.id,
                         result: Ok(WireHostQueryValue::TaskWait(result)),
                     });
+                    false
+                } else {
+                    true
                 }
-                false
-            } else {
-                true
-            }
-        });
+            });
+        }
+        if panel_changed {
+            self.bump_panel_ui_generation();
+        }
         self.prepare_task_dispatch(kernel);
     }
 }
@@ -561,16 +572,14 @@ mod tasks {
         request.executor = "second".into();
         let second = kernel.start_plugin_task(request, None).unwrap();
         host.prepare_task_dispatch(&mut kernel);
-        host.pending_task_waits.push(PendingTaskWait {
-            plugin_index: 0,
+        host.plugins[0].queues.task_waits.push(PendingTaskWait {
             id: 5,
             task_id: first,
             deadline: None,
             waiter: None,
             serial_owner: None,
         });
-        host.pending_task_waits.push(PendingTaskWait {
-            plugin_index: 1,
+        host.plugins[1].queues.task_waits.push(PendingTaskWait {
             id: 6,
             task_id: second,
             deadline: None,
@@ -586,11 +595,50 @@ mod tasks {
         assert!(!kernel.tasks.get(second).unwrap().state.is_terminal());
         assert!(!kernel.executor.task_executor_available("first"));
         assert!(kernel.executor.task_executor_available("second"));
-        assert_eq!(host.pending_task_waits.len(), 1);
-        assert_eq!(host.pending_task_waits[0].plugin_index, 0);
-        assert_eq!(host.pending_task_waits[0].id, 6);
-        assert_eq!(host.task_invocations.len(), 1);
-        assert_eq!(host.task_invocations[0].request.executor, "second");
+        assert_eq!(host.plugins[0].queues.task_waits.len(), 1);
+        assert_eq!(host.plugins[0].metadata.name, "second");
+        assert_eq!(host.plugins[0].queues.task_waits[0].id, 6);
+        assert_eq!(host.plugins[0].queues.task_invocations.len(), 1);
+        assert_eq!(
+            host.plugins[0].queues.task_invocations[0].request.executor,
+            "second"
+        );
+    }
+
+    #[test]
+    fn reload_does_not_receive_old_kernel_invocations_or_waits() {
+        let mut host = PluginHost::new();
+        let mut kernel = patinae_framework::kernel::AppKernel::new();
+        let declaration = || {
+            let mut declaration = test_declaration(Some(register_first));
+            declaration.capabilities |= CAPABILITY_MESSAGE_RUNTIME;
+            declaration
+        };
+        load_declaration_for_test(&mut host, &mut kernel.executor, declaration()).unwrap();
+        host.plugins[0].path = Some("/fixture/first".into());
+        let mut request = patinae_cmd::PluginTaskRequest::new("work", serde_json::Value::Null);
+        request.executor = "first".into();
+        let old = kernel.start_plugin_task(request.clone(), None).unwrap();
+        host.plugins[0].queues.task_waits.push(PendingTaskWait {
+            id: 7,
+            task_id: old,
+            deadline: None,
+            waiter: None,
+            serial_owner: None,
+        });
+        // The invocation is still in the kernel when its installation disappears.
+        assert!(host.unload_library(
+            std::path::Path::new("/fixture/first"),
+            &mut kernel.executor,
+            &kernel.tasks
+        ));
+        load_declaration_for_test(&mut host, &mut kernel.executor, declaration()).unwrap();
+        let current = kernel.start_plugin_task(request, None).unwrap();
+        host.prepare_task_dispatch(&mut kernel);
+        assert!(kernel.tasks.get(old).unwrap().state.is_terminal());
+        assert!(host.plugins[0].queues.task_waits.is_empty());
+        assert_eq!(host.plugins[0].queues.task_invocations.len(), 1);
+        assert_eq!(host.plugins[0].queues.task_invocations[0].task_id, current);
     }
 
     #[test]
@@ -790,9 +838,9 @@ mod tasks {
         declaration.capabilities |= CAPABILITY_MESSAGE_RUNTIME;
         load_declaration_for_test(&mut host, &mut executor, declaration).unwrap();
         host.poll_all(&SharedFixture::new().shared(), &mut MessageBus::new());
-        assert_eq!(host.pending_registrations.len(), 1);
-        assert_eq!(host.pending_registrations[0].1.executor, "owned");
-        assert_eq!(host.pending_registrations[0].1.owner_tag, Some(42));
+        assert_eq!(host.plugins[0].queues.registrations.len(), 1);
+        assert_eq!(host.plugins[0].queues.registrations[0].executor, "owned");
+        assert_eq!(host.plugins[0].queues.registrations[0].owner_tag, Some(42));
     }
 
     #[test]
@@ -896,13 +944,13 @@ mod tasks {
                 true,
             ),
         ] {
-            host.host_query_results = vec![vec![WireHostQueryResult {
+            host.plugins[0].queues.host_query_results = vec![WireHostQueryResult {
                 id: 1,
                 result: Ok(value),
-            }]];
+            }];
             assert_eq!(host.has_ready_task_delivery(), expected);
         }
-        host.host_query_results.clear();
+        host.plugins[0].queues.host_query_results.clear();
         assert!(!host.has_ready_task_delivery());
     }
 
@@ -967,43 +1015,43 @@ mod tasks {
         shared.tasks = Some(&kernel.tasks);
         host.poll_all(&shared, &mut kernel.bus);
         host.apply_task_controls(&mut kernel, None, (1, 1));
-        let task_id = match &host.host_query_results[0][0].result {
+        let task_id = match &host.plugins[0].queues.host_query_results[0].result {
             Ok(WireHostQueryValue::TaskStarted(Ok(id))) => *id,
             _ => panic!("expected admission receipt"),
         };
         assert!(kernel.tasks.is_owned_by(task_id, "first"));
         assert_eq!(kernel.tasks.get(task_id).unwrap().state, TaskState::Queued);
-        host.pending_task_controls.push((
-            1,
-            WireHostQuery::TaskEvent {
+        host.plugins[1]
+            .queues
+            .task_controls
+            .push(WireHostQuery::TaskEvent {
                 id: 72,
                 task_id,
                 event: TaskEvent::Finished(TaskOutcome::success(None, TaskEffects::None)),
-            },
-        ));
-        host.pending_task_controls.push((
-            0,
-            WireHostQuery::TaskCommand {
+            });
+        host.plugins[0]
+            .queues
+            .task_controls
+            .push(WireHostQuery::TaskCommand {
                 id: 73,
                 task_id,
                 command: "group acknowledged".into(),
                 silent: true,
-            },
-        ));
+            });
         host.apply_task_controls(&mut kernel, None, (1, 1));
         assert!(
-            matches!(&host.host_query_results[1][0].result, Ok(WireHostQueryValue::TaskAcknowledged(Err(error))) if error.code == "wrong_executor")
+            matches!(&host.plugins[1].queues.host_query_results[0].result, Ok(WireHostQueryValue::TaskAcknowledged(Err(error))) if error.code == "wrong_executor")
         );
         assert!(kernel.session.registry.contains("acknowledged"));
         assert!(!kernel.tasks.get(task_id).unwrap().state.is_terminal());
-        host.pending_task_controls.push((
-            0,
-            WireHostQuery::TaskEvent {
+        host.plugins[0]
+            .queues
+            .task_controls
+            .push(WireHostQuery::TaskEvent {
                 id: 74,
                 task_id,
                 event: TaskEvent::Finished(TaskOutcome::success(None, TaskEffects::None)),
-            },
-        ));
+            });
         host.apply_task_controls(&mut kernel, None, (1, 1));
         assert_eq!(
             kernel.tasks.get(task_id).unwrap().state,
@@ -1029,13 +1077,13 @@ mod tasks {
         let old = kernel.start_plugin_task(request.clone(), None).unwrap();
         request.owner_tag = Some(2);
         let current = kernel.start_plugin_task(request, None).unwrap();
-        host.pending_task_controls.push((
-            0,
-            WireHostQuery::FailTaskOwner {
+        host.plugins[0]
+            .queues
+            .task_controls
+            .push(WireHostQuery::FailTaskOwner {
                 id: 1,
                 owner_tag: 1,
-            },
-        ));
+            });
         host.apply_task_controls(&mut kernel, None, (1, 1));
         assert_eq!(
             kernel.tasks.get(old).unwrap().state,

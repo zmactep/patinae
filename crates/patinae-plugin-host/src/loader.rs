@@ -451,6 +451,13 @@ fn finish_registration(
         .metadata
         .take()
         .ok_or("Plugin did not set metadata")?;
+    if host
+        .plugins
+        .iter()
+        .any(|plugin| plugin.metadata.name == metadata.name)
+    {
+        return Err(format!("Plugin '{}' is already loaded", metadata.name));
+    }
     let plugin_name = format!("{} v{}", metadata.name, metadata.version);
     let plugin_id = format!("{}@{}", metadata.name, metadata.version);
     let gpu_cache = Arc::new(Mutex::new(GpuPluginCache::new(plugin_id)));
@@ -519,6 +526,7 @@ fn finish_registration(
         hotkeys,
         atom_streams: Default::default(),
         faulted: false,
+        queues: Default::default(),
     });
     let retained_metadata = &host
         .plugins
@@ -601,7 +609,7 @@ fn install_registration_assets(
     library: Arc<LibraryHandle>,
     gpu_cache: SharedGpuPluginCache,
     task_owner: &str,
-    registration_owner: u64,
+    registration_owner: patinae_cmd::PluginInstanceId,
 ) {
     for command in std::mem::take(&mut registration.commands) {
         executor.registry_mut().register_owned(

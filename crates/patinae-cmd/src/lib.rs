@@ -74,6 +74,7 @@ pub use error::{CmdError, CmdResult, ParseError};
 pub use executor::{CommandExecution, CommandExecutor, CommandOutput, CommandReply};
 pub use history::CommandHistory;
 pub use parser::{join_continued_lines, parse_command, parse_commands};
+pub use registration::PluginInstanceId;
 pub use script::script_steps;
 pub use setting_access::{ResolvedSetting, SettingSource};
 

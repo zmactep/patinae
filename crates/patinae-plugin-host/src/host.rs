@@ -1,41 +1,22 @@
 use std::path::PathBuf;
 
-use patinae_cmd::TaskInvocation;
+use patinae_cmd::PluginInstanceId;
 use patinae_framework::plugin_ui::PanelEvent;
-use patinae_plugin::registrar::{
-    CommandExecRequest, DynCmdRegistration, KeyBinding, PluginKeyAction, ViewerMutation,
-};
-use patinae_plugin::wire::WireHostQueryResult;
+use patinae_plugin::registrar::{CommandExecRequest, ViewerMutation};
 
 use crate::plugin::LoadedPlugin;
-use crate::CommandResult;
 
 /// Dynamic plugin loader and runtime coordinator.
 pub struct PluginHost {
     pub(crate) plugins: Vec<LoadedPlugin>,
     pub(crate) plugin_dirs: Vec<PathBuf>,
     pub(crate) panel_ui_generation: u64,
+    pub(crate) panel_selection: crate::panels::PanelSelection,
     pub(crate) pending_executions: Vec<CommandExecRequest>,
-    pub(crate) command_results: Vec<Vec<CommandResult>>,
-    pub(crate) command_owners: ahash::AHashMap<u64, (usize, u64)>,
+    pub(crate) command_owners: ahash::AHashMap<u64, (PluginInstanceId, u64)>,
     pub(crate) next_command_id: u64,
-    pub(crate) host_query_results: Vec<Vec<WireHostQueryResult>>,
-    pub(crate) pending_task_controls: Vec<(usize, patinae_plugin::wire::WireHostQuery)>,
-    pub(crate) pending_task_waits: Vec<super::runtime::PendingTaskWait>,
-    pub(crate) task_invocations: Vec<TaskInvocation>,
-    pub(crate) pending_registrations: Vec<(u64, DynCmdRegistration)>,
-    pub(crate) pending_unregistrations: Vec<(u64, String)>,
-    pub(crate) triggered_hotkeys: Vec<TriggeredHotkey>,
-    pub(crate) pending_hotkey_registrations: Vec<(u64, String, PluginKeyAction)>,
-    pub(crate) pending_hotkey_unregistrations: Vec<(u64, String)>,
     pub(crate) pending_mutations: Vec<ViewerMutation>,
     pub(crate) pending_panel_events: Vec<PanelEvent>,
-}
-
-#[derive(Clone)]
-pub(crate) struct TriggeredHotkey {
-    pub(crate) plugin_index: usize,
-    pub(crate) binding: KeyBinding,
 }
 
 impl PluginHost {
@@ -44,19 +25,10 @@ impl PluginHost {
             plugins: Vec::new(),
             plugin_dirs: Vec::new(),
             panel_ui_generation: 0,
+            panel_selection: Default::default(),
             pending_executions: Vec::new(),
-            command_results: Vec::new(),
             command_owners: ahash::AHashMap::new(),
             next_command_id: 0,
-            host_query_results: Vec::new(),
-            pending_task_controls: Vec::new(),
-            pending_task_waits: Vec::new(),
-            task_invocations: Vec::new(),
-            pending_registrations: Vec::new(),
-            pending_unregistrations: Vec::new(),
-            triggered_hotkeys: Vec::new(),
-            pending_hotkey_registrations: Vec::new(),
-            pending_hotkey_unregistrations: Vec::new(),
             pending_mutations: Vec::new(),
             pending_panel_events: Vec::new(),
         }
@@ -76,7 +48,7 @@ impl PluginHost {
         executor: &mut patinae_cmd::CommandExecutor,
         tasks: &patinae_cmd::tasks::TaskRunner,
     ) -> bool {
-        let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        let path = crate::library_identity(path);
         let Some(index) = self
             .plugins
             .iter()
@@ -87,46 +59,20 @@ impl PluginHost {
         let plugin = self.plugins.remove(index);
         let owner = plugin.registration_owner;
         executor.unregister_plugin(owner);
-        if !self
-            .plugins
+        let prefix = format!("{}/", plugin.metadata.name);
+        let owners: std::collections::HashSet<_> = tasks
+            .active_snapshots()
             .iter()
-            .any(|other| other.metadata.name == plugin.metadata.name)
-        {
-            let prefix = format!("{}/", plugin.metadata.name);
-            let owners: std::collections::HashSet<_> = tasks
-                .active_snapshots()
-                .iter()
-                .filter_map(|task| tasks.owner(task.id).ok())
-                .filter(|name| name == &plugin.metadata.name || name.starts_with(&prefix))
-                .collect();
-            for name in owners {
-                tasks.fail_owner(&name);
-            }
-            self.task_invocations
-                .retain(|invocation| invocation.request.executor != plugin.metadata.name);
+            .filter_map(|task| tasks.owner(task.id).ok())
+            .filter(|name| name == &plugin.metadata.name || name.starts_with(&prefix))
+            .collect();
+        for name in owners {
+            tasks.fail_owner(&name);
         }
         self.command_owners
-            .retain(|_, (target, _)| remap_plugin_index(target, index));
+            .retain(|_, (target, _)| *target != owner);
         self.pending_executions
             .retain(|request| self.command_owners.contains_key(&request.id));
-        if index < self.command_results.len() {
-            self.command_results.remove(index);
-        }
-        if index < self.host_query_results.len() {
-            self.host_query_results.remove(index);
-        }
-        self.pending_task_controls
-            .retain_mut(|(target, _)| remap_plugin_index(target, index));
-        self.pending_task_waits
-            .retain_mut(|wait| remap_plugin_index(&mut wait.plugin_index, index));
-        self.triggered_hotkeys
-            .retain_mut(|hotkey| remap_plugin_index(&mut hotkey.plugin_index, index));
-        self.pending_registrations.retain(|(id, _)| *id != owner);
-        self.pending_unregistrations.retain(|(id, _)| *id != owner);
-        self.pending_hotkey_registrations
-            .retain(|(id, _, _)| *id != owner);
-        self.pending_hotkey_unregistrations
-            .retain(|(id, _)| *id != owner);
         self.pending_panel_events.retain(|event| {
             !plugin
                 .panels
@@ -147,16 +93,6 @@ impl PluginHost {
             .iter()
             .filter_map(|plugin| plugin.path.as_deref().map(|path| (path, &plugin.metadata)))
     }
-}
-
-fn remap_plugin_index(target: &mut usize, removed: usize) -> bool {
-    if *target == removed {
-        return false;
-    }
-    if *target > removed {
-        *target -= 1;
-    }
-    true
 }
 
 impl Default for PluginHost {
@@ -249,8 +185,8 @@ pub(crate) mod tests {
         PANEL_PLACEMENT_RIGHT, SDK_VERSION, SETTING_TYPE_BOOL, SETTING_VALUE_BOOL,
     };
     use patinae_plugin::registrar::{
-        DynCmdRegistration, FormatHandler, MessageHandler, PluginMetadata, PluginReaderFn,
-        PluginRegistrar, PluginWriterFn, PollContext,
+        FormatHandler, MessageHandler, PluginMetadata, PluginReaderFn, PluginRegistrar,
+        PluginWriterFn, PollContext,
     };
     use patinae_plugin::wire::{
         self, WireCommandInput, WireCommandOutput, WireHostQuery, WireHostQueryValue,
@@ -628,8 +564,9 @@ pub(crate) mod tests {
 
     fn host_with_panels(panels: Vec<LoadedPanel>) -> PluginHost {
         let mut host = PluginHost::new();
+        let mut executor = CommandExecutor::new();
         host.plugins.push(LoadedPlugin {
-            registration_owner: 0,
+            registration_owner: executor.allocate_plugin_owner(),
             path: None,
             _library: Arc::new(LibraryHandle::Static),
             metadata: PluginMetadata::new("test-plugin", "0.0.0", "test"),
@@ -638,6 +575,7 @@ pub(crate) mod tests {
             hotkeys: KeyBindings::new(),
             atom_streams: Default::default(),
             faulted: false,
+            queues: Default::default(),
         });
         host.ensure_single_active_per_placement();
         host
@@ -649,9 +587,10 @@ pub(crate) mod tests {
 
     pub(crate) fn host_with_message_handlers(handlers: Vec<Box<dyn MessageHandler>>) -> PluginHost {
         let mut host = PluginHost::new();
+        let mut executor = CommandExecutor::new();
         for (index, handler) in handlers.into_iter().enumerate() {
             host.plugins.push(LoadedPlugin {
-                registration_owner: 0,
+                registration_owner: executor.allocate_plugin_owner(),
                 path: None,
                 _library: Arc::new(LibraryHandle::Static),
                 metadata: PluginMetadata::new(format!("test-plugin-{index}"), "0.0.0", "test"),
@@ -660,6 +599,7 @@ pub(crate) mod tests {
                 hotkeys: KeyBindings::new(),
                 atom_streams: Default::default(),
                 faulted: false,
+                queues: Default::default(),
             });
         }
         host
@@ -914,7 +854,6 @@ pub(crate) mod tests {
     fn loaded_panel(descriptor: PanelDescriptor) -> LoadedPanel {
         let visible = descriptor.default_visible;
         LoadedPanel {
-            active: visible,
             visible,
             cached_snapshot_generation: None,
             cached_snapshot: PanelSnapshot::default(),
@@ -1440,10 +1379,10 @@ pub(crate) mod tests {
             host.plugins.last_mut().unwrap().path = Some(path.into());
         }
         let reader = kernel.executor.format_handlers()["reader_only"].clone();
-        host.command_owners.insert(10, (0, 100));
-        host.command_owners.insert(20, (1, 200));
-        host.command_results.resize_with(2, Vec::new);
-        host.host_query_results.resize_with(2, Vec::new);
+        let first_owner = host.plugins[0].registration_owner;
+        let second_owner = host.plugins[1].registration_owner;
+        host.command_owners.insert(10, (first_owner, 100));
+        host.command_owners.insert(20, (second_owner, 200));
         let generation = host.panel_ui_generation();
         assert!(host.unload_library(
             Path::new("/fixture/one"),
@@ -1466,9 +1405,7 @@ pub(crate) mod tests {
             &kernel.executor.format_handlers()["reader_only"]
         ));
         assert!(!host.command_owners.contains_key(&10));
-        assert_eq!(host.command_owners[&20], (0, 200));
-        assert_eq!(host.command_results.len(), 1);
-        assert_eq!(host.host_query_results.len(), 1);
+        assert_eq!(host.command_owners[&20], (second_owner, 200));
         assert!(!host.unload_library(
             Path::new("/fixture/one"),
             &mut kernel.executor,
@@ -1561,23 +1498,30 @@ pub(crate) mod tests {
             "Loaded plugins:\n(none)"
         );
 
-        for _ in 0..2 {
-            load_declaration_for_test(
-                &mut host,
-                &mut executor,
-                test_declaration(Some(register_fixture)),
-            )
-            .unwrap();
-        }
-
-        assert_eq!(host.plugin_count(), 2);
+        load_declaration_for_test(
+            &mut host,
+            &mut executor,
+            test_declaration(Some(register_fixture)),
+        )
+        .unwrap();
+        let command = executor.registry().get("abi_fixture").unwrap();
+        let owner = host.plugins[0].registration_owner;
+        let error = load_declaration_for_test(
+            &mut host,
+            &mut executor,
+            test_declaration(Some(register_fixture)),
+        )
+        .unwrap_err();
+        assert!(error.contains("already loaded"));
+        assert_eq!(host.plugin_count(), 1);
+        assert_eq!(host.plugins[0].registration_owner, owner);
+        assert!(Arc::ptr_eq(
+            &command,
+            &executor.registry().get("abi_fixture").unwrap()
+        ));
         assert_eq!(
             execute_text(&mut executor, "capabilities plugins"),
-            concat!(
-                "Loaded plugins:\n",
-                "abi-fixture\t1.2.3\tABI fixture plugin\n",
-                "abi-fixture\t1.2.3\tABI fixture plugin"
-            )
+            "Loaded plugins:\nabi-fixture\t1.2.3\tABI fixture plugin"
         );
     }
 
@@ -1682,6 +1626,41 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn panel_selection_falls_back_on_unload_and_fault_without_selecting_hidden_panels() {
+        let mut host = host_with_panels(vec![loaded_panel(
+            PanelDescriptor::right("first", "First").default_visible(true),
+        )]);
+        let mut other = host_with_panels(vec![
+            loaded_panel(PanelDescriptor::right("hidden", "Hidden").default_visible(false)),
+            loaded_panel(PanelDescriptor::right("second", "Second").default_visible(true)),
+            loaded_panel(PanelDescriptor::bottom("bottom", "Bottom").default_visible(true)),
+        ]);
+        host.plugins[0].path = Some("/fixture/first".into());
+        host.plugins.append(&mut other.plugins);
+        host.ensure_single_active_per_placement();
+        assert_panel(&host, "first", true, true);
+        assert_panel(&host, "second", true, false);
+        let mut kernel = patinae_framework::kernel::AppKernel::new();
+        assert!(host.unload_library(
+            Path::new("/fixture/first"),
+            &mut kernel.executor,
+            &kernel.tasks
+        ));
+        assert_panel(&host, "hidden", false, false);
+        assert_panel(&host, "second", true, true);
+        assert_panel(&host, "bottom", true, true);
+        let mut third = host_with_panels(vec![loaded_panel(
+            PanelDescriptor::right("third", "Third").default_visible(true),
+        )]);
+        host.plugins.append(&mut third.plugins);
+        host.plugins[0].faulted = true;
+        let fixture = SharedFixture::new();
+        host.poll_all(&fixture.shared(), &mut kernel.bus);
+        assert_panel(&host, "third", true, true);
+        assert_eq!(host.panel_statuses().len(), 1);
+    }
+
+    #[test]
     fn panel_generation_increments_only_on_real_visibility_changes() {
         let right = PanelDescriptor::right("right", "Right").default_visible(false);
         let mut host = host_with_panels(vec![loaded_panel(right)]);
@@ -1746,7 +1725,6 @@ pub(crate) mod tests {
         let count = Arc::new(AtomicUsize::new(0));
         let descriptor = PanelDescriptor::right("right", "Right").default_visible(true);
         let mut host = host_with_panels(vec![LoadedPanel {
-            active: true,
             visible: true,
             cached_snapshot_generation: None,
             cached_snapshot: PanelSnapshot::default(),
@@ -1792,7 +1770,6 @@ pub(crate) mod tests {
             },
         ];
         let mut host = host_with_panels(vec![LoadedPanel {
-            active: true,
             visible: true,
             cached_snapshot_generation: None,
             cached_snapshot: PanelSnapshot::default(),
@@ -1824,25 +1801,28 @@ pub(crate) mod tests {
 
     #[test]
     fn dynamic_command_registration_and_unregistration_drain_into_executor() {
-        let mut host = PluginHost::new();
+        let mut host = host_with_message_handler(Box::new(IdleHandler));
         let mut executor = CommandExecutor::new();
 
-        host.pending_registrations.push((
-            0,
-            DynCmdRegistration {
+        host.plugins[0].registration_owner = executor.allocate_plugin_owner();
+        host.plugins[0]
+            .queues
+            .registrations
+            .push(patinae_plugin::registrar::DynCmdRegistration {
                 executor: "fixture".into(),
                 owner_tag: None,
                 name: "dynamic_test".into(),
                 description: "Dynamic test".into(),
                 usage: "dynamic_test".into(),
                 arguments: String::new(),
-            },
-        ));
+            });
         host.apply_dynamic_command_changes(&mut executor);
         assert!(executor.registry().contains("dynamic_test"));
 
-        host.pending_unregistrations
-            .push((0, "dynamic_test".into()));
+        host.plugins[0]
+            .queues
+            .unregistrations
+            .push("dynamic_test".into());
         host.apply_dynamic_command_changes(&mut executor);
         assert!(!executor.registry().contains("dynamic_test"));
     }

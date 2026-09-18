@@ -21,24 +21,58 @@ pub struct PanelFrame {
     pub snapshot: PanelSnapshot,
 }
 
+/// Selection is stored once per placement, never on individual panels.
+#[derive(Default)]
+pub(crate) struct PanelSelection {
+    right: Option<String>,
+    bottom: Option<String>,
+}
+
+impl PanelSelection {
+    fn get(&self, placement: PanelPlacement) -> Option<&str> {
+        match placement {
+            PanelPlacement::Right => self.right.as_deref(),
+            PanelPlacement::Bottom => self.bottom.as_deref(),
+        }
+    }
+
+    fn set(&mut self, placement: PanelPlacement, id: Option<String>) -> bool {
+        let selected = match placement {
+            PanelPlacement::Right => &mut self.right,
+            PanelPlacement::Bottom => &mut self.bottom,
+        };
+        if *selected == id {
+            return false;
+        }
+        *selected = id;
+        true
+    }
+
+    fn is_active(&self, panel: &LoadedPanel) -> bool {
+        panel.visible && self.get(panel.descriptor.placement) == Some(panel.descriptor.id.as_str())
+    }
+}
+
 impl PluginHost {
     pub fn panel_frames(
         &mut self,
         shared: &SharedContext<'_>,
         snapshot_generation: u64,
     ) -> Vec<PanelFrame> {
+        self.ensure_single_active_per_placement();
         let mut frames = Vec::new();
         for plugin in &mut self.plugins {
             if plugin.faulted {
                 continue;
             }
+            let frame_start = frames.len();
             for panel in &mut plugin.panels {
                 let status = PanelStatus {
                     descriptor: panel.descriptor.clone(),
                     visible: panel.visible,
-                    active: panel.active,
+                    active: self.panel_selection.is_active(panel),
                 };
-                let snapshot = if panel.visible && panel.active {
+                let snapshot = if status.active {
                     if panel.cached_snapshot_generation != Some(snapshot_generation) {
                         let result =
                             catch_unwind(AssertUnwindSafe(|| panel.panel.snapshot(shared)));
@@ -57,6 +91,7 @@ impl PluginHost {
                                 plugin.faulted = true;
                                 panel.cached_snapshot = PanelSnapshot::default();
                                 panel.cached_snapshot_generation = Some(snapshot_generation);
+                                break;
                             }
                         }
                     };
@@ -66,7 +101,11 @@ impl PluginHost {
                 };
                 frames.push(PanelFrame { status, snapshot });
             }
+            if plugin.faulted {
+                frames.truncate(frame_start);
+            }
         }
+        self.ensure_single_active_per_placement();
         frames
     }
 
@@ -78,7 +117,7 @@ impl PluginHost {
                 plugin.panels.iter().map(|panel| PanelStatus {
                     descriptor: panel.descriptor.clone(),
                     visible: panel.visible,
-                    active: panel.active,
+                    active: self.panel_selection.is_active(panel),
                 })
             })
             .collect()
@@ -101,25 +140,11 @@ impl PluginHost {
     }
 
     pub fn toggle_panel(&mut self, id: &str) -> bool {
-        let before = self.panel_state_signature();
-        let Some((placement, visible)) = self
-            .find_panel(id)
-            .map(|p| (p.descriptor.placement, p.visible))
-        else {
-            return false;
-        };
-
-        if visible {
-            if let Some(panel) = self.find_panel_mut(id) {
-                panel.visible = false;
-                panel.active = false;
-            }
-            self.activate_first_visible(placement);
-        } else {
-            self.activate_panel_raw(id, placement);
+        match self.find_panel(id).map(|panel| panel.visible) {
+            Some(true) => self.hide_panel(id),
+            Some(false) => self.activate_panel(id),
+            None => false,
         }
-
-        self.bump_panel_ui_generation_if_changed(before)
     }
 
     pub fn show_panel(&mut self, id: &str) -> bool {
@@ -127,43 +152,36 @@ impl PluginHost {
     }
 
     pub fn hide_panel(&mut self, id: &str) -> bool {
-        let before = self.panel_state_signature();
-        let Some(placement) = self.find_panel(id).map(|p| p.descriptor.placement) else {
+        let Some(panel) = self.find_panel_mut(id) else {
             return false;
         };
-        if let Some(panel) = self.find_panel_mut(id) {
-            panel.visible = false;
-            panel.active = false;
-        }
-        self.activate_first_visible(placement);
-        self.bump_panel_ui_generation_if_changed(before)
+        let placement = panel.descriptor.placement;
+        let changed = std::mem::replace(&mut panel.visible, false);
+        let selected = self.first_visible(placement);
+        let changed = self.panel_selection.set(placement, selected) || changed;
+        self.panel_change(changed)
     }
 
     pub fn deactivate_placement(&mut self, placement: PanelPlacement) -> bool {
-        let before = self.panel_state_signature();
+        let mut changed = self.panel_selection.set(placement, None);
         for plugin in &mut self.plugins {
             for panel in &mut plugin.panels {
                 if panel.descriptor.placement == placement {
-                    panel.visible = false;
-                    panel.active = false;
+                    changed |= std::mem::replace(&mut panel.visible, false);
                 }
             }
         }
-        self.bump_panel_ui_generation_if_changed(before)
+        self.panel_change(changed)
     }
 
     pub fn activate_panel(&mut self, id: &str) -> bool {
-        let before = self.panel_state_signature();
-        if id.is_empty() {
-            return false;
-        }
-
-        let Some(placement) = self.find_panel(id).map(|p| p.descriptor.placement) else {
+        let Some(panel) = self.find_panel_mut(id) else {
             return false;
         };
-
-        self.activate_panel_raw(id, placement);
-        self.bump_panel_ui_generation_if_changed(before)
+        let placement = panel.descriptor.placement;
+        let changed = !std::mem::replace(&mut panel.visible, true);
+        let changed = self.panel_selection.set(placement, Some(id.to_owned())) || changed;
+        self.panel_change(changed)
     }
 
     /// Retains a discovered directory for plugin resource lookup.
@@ -196,83 +214,50 @@ impl PluginHost {
     }
 
     pub(crate) fn ensure_single_active_per_placement(&mut self) {
+        let mut changed = false;
         for placement in [PanelPlacement::Right, PanelPlacement::Bottom] {
-            let mut seen_active = false;
-            for plugin in &mut self.plugins {
-                for panel in &mut plugin.panels {
-                    if panel.descriptor.placement != placement {
-                        continue;
-                    }
-                    if panel.visible && panel.active && !seen_active {
-                        seen_active = true;
-                    } else if panel.descriptor.placement == placement {
-                        panel.active = false;
-                    }
-                }
-            }
-            if !seen_active {
-                self.activate_first_visible(placement);
+            let valid = self
+                .panel_selection
+                .get(placement)
+                .and_then(|id| self.find_panel(id))
+                .is_some_and(|panel| panel.visible);
+            if !valid {
+                let selected = self.first_visible(placement);
+                changed |= self.panel_selection.set(placement, selected);
             }
         }
+        self.panel_change(changed);
     }
 
-    fn bump_panel_ui_generation_if_changed(&mut self, before: Vec<(String, bool, bool)>) -> bool {
-        if self.panel_state_signature() == before {
-            return false;
+    fn panel_change(&mut self, changed: bool) -> bool {
+        if changed {
+            self.bump_panel_ui_generation();
         }
-        self.bump_panel_ui_generation();
-        true
+        changed
     }
 
-    fn panel_state_signature(&self) -> Vec<(String, bool, bool)> {
+    fn first_visible(&self, placement: PanelPlacement) -> Option<String> {
         self.plugins
             .iter()
-            .filter(|p| !p.faulted)
-            .flat_map(|plugin| {
-                plugin
-                    .panels
-                    .iter()
-                    .map(|panel| (panel.descriptor.id.clone(), panel.visible, panel.active))
-            })
-            .collect()
+            .filter(|plugin| !plugin.faulted)
+            .flat_map(|plugin| &plugin.panels)
+            .find(|panel| panel.visible && panel.descriptor.placement == placement)
+            .map(|panel| panel.descriptor.id.clone())
     }
 
     fn find_panel(&self, id: &str) -> Option<&LoadedPanel> {
         self.plugins
             .iter()
-            .flat_map(|p| &p.panels)
-            .find(|p| p.descriptor.id == id)
+            .filter(|plugin| !plugin.faulted)
+            .flat_map(|plugin| &plugin.panels)
+            .find(|panel| panel.descriptor.id == id)
     }
 
     fn find_panel_mut(&mut self, id: &str) -> Option<&mut LoadedPanel> {
         self.plugins
             .iter_mut()
-            .flat_map(|p| &mut p.panels)
-            .find(|p| p.descriptor.id == id)
-    }
-
-    fn activate_panel_raw(&mut self, id: &str, placement: PanelPlacement) {
-        for plugin in &mut self.plugins {
-            for panel in &mut plugin.panels {
-                if panel.descriptor.placement == placement {
-                    panel.active = panel.descriptor.id == id;
-                    if panel.active {
-                        panel.visible = true;
-                    }
-                }
-            }
-        }
-    }
-
-    fn activate_first_visible(&mut self, placement: PanelPlacement) {
-        let mut activated = false;
-        for plugin in &mut self.plugins {
-            for panel in &mut plugin.panels {
-                if panel.descriptor.placement == placement {
-                    panel.active = !activated && panel.visible;
-                    activated |= panel.active;
-                }
-            }
-        }
+            .filter(|plugin| !plugin.faulted)
+            .flat_map(|plugin| &mut plugin.panels)
+            .find(|panel| panel.descriptor.id == id)
     }
 }

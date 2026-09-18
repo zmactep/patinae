@@ -3,12 +3,12 @@
 use std::time::Instant;
 
 use patinae_cmd::CommandExecutor;
-use patinae_plugin_host::{BackgroundPluginLoader, PluginDiscovery, PluginHost, PluginLoadEvent};
+use patinae_plugin_host::{PluginDiscovery, PluginHost, PluginLoadSession};
 
 enum Stage {
     WaitingForFrame,
     Scheduled,
-    Loading(BackgroundPluginLoader),
+    Loading(PluginLoadSession),
     Ready,
     Cancelled,
 }
@@ -74,7 +74,7 @@ impl PluginStartup {
         discovery: impl FnOnce() -> PluginDiscovery,
     ) -> Result<bool, String> {
         if matches!(self.stage, Stage::Scheduled) {
-            match BackgroundPluginLoader::start(discovery()) {
+            match PluginLoadSession::discover(discovery()) {
                 Ok(loader) => self.stage = Stage::Loading(loader),
                 Err(error) => {
                     self.finish();
@@ -83,51 +83,18 @@ impl PluginStartup {
             }
             return Ok(false);
         }
-        let Stage::Loading(loader) = &self.stage else {
+        let Stage::Loading(session) = &mut self.stage else {
             return Ok(false);
         };
-        match loader.try_next() {
-            Ok(None) => Ok(false),
-            Ok(Some(PluginLoadEvent::Discovered { directories, total })) => {
-                for directory in directories {
-                    host.add_plugin_dir(&directory);
-                }
-                self.total = Some(total);
-                Ok(false)
-            }
-            Ok(Some(PluginLoadEvent::Plugin {
-                path,
-                result,
-                preparation_time,
-            })) => {
-                let start = Instant::now();
-                let attached =
-                    result.and_then(|prepared| host.attach_prepared(*prepared, executor));
-                loader.acknowledge();
-                self.processed += 1;
-                let load_time = preparation_time + start.elapsed();
-                match attached {
-                    Ok(name) => {
-                        log::info!(
-                            "Loaded plugin: {name} ({:.3} ms)",
-                            load_time.as_secs_f64() * 1000.0
-                        );
-                        Ok(true)
-                    }
-                    Err(error) => Err(format!("Failed to load plugin {}: {error}", path.display())),
-                }
-            }
-            Ok(Some(PluginLoadEvent::DiscoveryError { error })) => {
-                Err(format!("Plugin discovery failed: {error}"))
-            }
-            Ok(Some(PluginLoadEvent::Finished)) => {
-                self.finish();
-                Ok(false)
-            }
-            Err(error) => {
-                self.finish();
-                Err(error)
-            }
+        let update = session.tick(host, executor);
+        self.processed = session.processed();
+        self.total = session.total();
+        if session.finished() {
+            self.finish();
+        }
+        match update.error {
+            Some(error) => Err(error),
+            None => Ok(update.changed),
         }
     }
 

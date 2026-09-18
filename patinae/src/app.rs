@@ -425,25 +425,19 @@ impl App {
         self.poll_renderer_startup(app);
         let mut window_visibility = None;
         let viewport_size = Self::viewport_size(app);
-        match self
+        let startup_changed = match self
             .plugin_startup
             .tick(&mut self.plugins, &mut self.kernel.executor)
         {
-            Ok(true) => {
-                self.refresh_command_names_cache();
-                self.repl.update_completions(
-                    &self.kernel,
-                    app,
-                    app.global::<crate::ReplState>().get_input_text().as_str(),
-                );
-            }
-            Ok(false) => {}
+            Ok(changed) => changed,
             Err(error) => {
                 log::warn!("{error}");
                 self.kernel.bus.print_warning(error);
+                false
             }
-        }
-        if self.plugin_list.tick(&mut self.plugins, &mut self.kernel) {
+        };
+        let list_changed = self.plugin_list.tick(&mut self.plugins, &mut self.kernel);
+        if startup_changed || list_changed {
             self.refresh_command_names_cache();
             self.repl.update_completions(
                 &self.kernel,

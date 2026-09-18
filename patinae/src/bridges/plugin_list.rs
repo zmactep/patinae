@@ -1,110 +1,114 @@
 //! Editable plugin allowlist backed by live library identities.
 
-use std::{
-    cell::RefCell,
-    collections::HashSet,
-    path::{Path, PathBuf},
-    rc::Rc,
-};
+#[cfg(test)]
+use std::path::Path;
+use std::{cell::RefCell, collections::HashSet, path::PathBuf, rc::Rc};
 
 use crate::{AppWindow, PluginListRow, PluginListState};
 use patinae_cmd::LoadedPluginCapability;
 use patinae_plugin_host::{
-    plugin_manifest_path, read_plugin_manifest, save_plugin_manifest, BackgroundPluginLoader,
-    PluginHost, PluginLoadEvent,
+    library_identity as identity, plugin_manifest_path, read_plugin_manifest, save_plugin_manifest,
+    PluginApplication, PluginHost,
 };
 use slint::{ComponentHandle, ModelRc, VecModel};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Entry {
     path: PathBuf,
-    metadata: Option<LoadedPluginCapability>,
-}
-
-fn identity(path: &Path) -> PathBuf {
-    path.canonicalize()
-        .or_else(|_| std::path::absolute(path))
-        .unwrap_or_else(|_| path.to_path_buf())
+    metadata: LoadedPluginCapability,
 }
 
 fn loaded_entries(host: &PluginHost) -> Vec<Entry> {
     host.loaded_libraries()
         .map(|(path, metadata)| Entry {
-            path: path.to_path_buf(),
-            metadata: Some(LoadedPluginCapability {
+            path: identity(path),
+            metadata: LoadedPluginCapability {
                 name: metadata.name.clone(),
                 version: metadata.version.clone(),
                 description: metadata.description.clone(),
-            }),
+            },
         })
         .collect()
 }
 
 #[derive(Default)]
-pub(crate) struct PluginList {
-    publish_pending: bool,
-    pending_apply: Option<Vec<PathBuf>>,
-    loader: Option<BackgroundPluginLoader>,
+enum DocumentState {
+    #[default]
+    Ready,
+    Missing,
+    Damaged(String),
+}
+
+#[derive(Default)]
+struct PluginListDraft {
     target: PathBuf,
-    entries: Vec<Entry>,
+    entries: Vec<PathBuf>,
     removed: HashSet<PathBuf>,
-    loaded: Vec<Entry>,
-    damaged: bool,
-    status: String,
-    save_error: String,
+    document: DocumentState,
     dirty: bool,
+}
+
+#[derive(Default)]
+pub(crate) struct PluginList {
+    draft: PluginListDraft,
+    loaded: Vec<Entry>,
+    application: PluginApplication,
+    publish_pending: bool,
+    save_error: String,
 }
 
 impl PluginList {
     fn read(directories: &[PathBuf], loaded: &[Entry]) -> Self {
-        let fallback = directories
-            .first()
-            .cloned()
-            .unwrap_or_default()
-            .join("plugins.toml");
         let mut list = Self {
-            target: fallback,
+            draft: PluginListDraft {
+                target: directories
+                    .first()
+                    .cloned()
+                    .unwrap_or_default()
+                    .join("plugins.toml"),
+                ..Default::default()
+            },
             loaded: loaded.to_vec(),
-            ..Self::default()
+            ..Default::default()
         };
         match plugin_manifest_path(directories) {
-            Ok(Some(path)) => list.target = path,
+            Ok(Some(path)) => list.draft.target = path,
             Ok(None) => {
-                list.entries = loaded.to_vec();
-                list.status = "TOML file does not exist.".into();
+                list.draft.entries = loaded.iter().map(|entry| identity(&entry.path)).collect();
+                list.draft.document = DocumentState::Missing;
                 return list;
             }
             Err(error) => {
-                list.damaged = true;
-                list.status = format!("Cannot read TOML file: {error}");
+                list.draft.document =
+                    DocumentState::Damaged(format!("Cannot read TOML file: {error}"));
                 return list;
             }
         }
         match read_plugin_manifest(directories) {
-            Ok(Some(document)) => {
-                list.entries = loaded.to_vec();
-                let loaded_paths: HashSet<_> =
-                    loaded.iter().map(|entry| identity(&entry.path)).collect();
-                for entry in document.entries {
-                    let path = identity(&entry.resolved_path);
-                    if !loaded_paths.contains(&path) {
-                        list.entries.push(Entry {
-                            path,
-                            metadata: None,
-                        });
+            Ok(document) => {
+                list.draft.entries = loaded.iter().map(|entry| identity(&entry.path)).collect();
+                if let Some(document) = document {
+                    let loaded_paths: HashSet<_> = list.draft.entries.iter().cloned().collect();
+                    for entry in document.entries {
+                        let path = identity(&entry.resolved_path);
+                        if !loaded_paths.contains(&path) {
+                            list.draft.entries.push(path);
+                        }
                     }
+                } else {
+                    list.draft.document = DocumentState::Missing;
                 }
             }
-            Ok(None) => {
-                list.entries = loaded.to_vec();
-                list.status = "TOML file does not exist.".into();
-            }
             Err(_) => {
-                list.damaged = true;
-                list.status = "TOML file is damaged or cannot be read.".into();
+                list.draft.document =
+                    DocumentState::Damaged("TOML file is damaged or cannot be read.".into())
             }
         }
         list
+    }
+
+    fn damaged(&self) -> bool {
+        matches!(self.draft.document, DocumentState::Damaged(_))
     }
 
     fn refresh_loaded(&mut self, loaded: &[Entry]) -> bool {
@@ -112,48 +116,28 @@ impl PluginList {
             return false;
         }
         self.loaded = loaded.to_vec();
-        if self.damaged {
+        if self.damaged() {
             return false;
         }
-        for entry in &mut self.entries {
-            entry.metadata = None;
-        }
         for plugin in loaded {
-            let key = identity(&plugin.path);
-            if self.removed.contains(&key) {
-                continue;
-            }
-            let mut found = false;
-            for entry in &mut self.entries {
-                if identity(&entry.path) == key {
-                    entry.metadata = plugin.metadata.clone();
-                    found = true;
-                }
-            }
-            if !found {
-                self.entries.push(plugin.clone());
+            let path = identity(&plugin.path);
+            if !self.draft.removed.contains(&path) && !self.draft.entries.contains(&path) {
+                self.draft.entries.push(path);
             }
         }
         true
     }
 
     fn remove(&mut self, index: usize) {
-        if index >= self.entries.len() {
+        if index >= self.draft.entries.len() {
             return;
         }
-        let entry = self.entries.remove(index);
-        if !self
-            .entries
-            .iter()
-            .any(|other| identity(&other.path) == identity(&entry.path))
-        {
-            self.removed.insert(identity(&entry.path));
+        let path = self.draft.entries.remove(index);
+        if !self.draft.entries.contains(&path) {
+            self.draft.removed.insert(path);
         }
-        self.dirty = true;
+        self.draft.dirty = true;
         self.save_error.clear();
-        if self.status.starts_with("Saved.") {
-            self.status.clear();
-        }
     }
 
     fn add(&mut self, paths: Vec<PathBuf>) {
@@ -174,51 +158,52 @@ impl PluginList {
                 continue;
             }
             let path = identity(&path);
-            if self
-                .entries
-                .iter()
-                .any(|entry| identity(&entry.path) == path)
-            {
+            if self.draft.entries.contains(&path) {
                 continue;
             }
-            self.removed.remove(&path);
-            let metadata = self
-                .loaded
-                .iter()
-                .find(|entry| identity(&entry.path) == path)
-                .and_then(|entry| entry.metadata.clone());
-            self.entries.push(Entry { path, metadata });
-            self.dirty = true;
-            if self.status.starts_with("Saved.") {
-                self.status.clear();
-            }
+            self.draft.removed.remove(&path);
+            self.draft.entries.push(path);
+            self.draft.dirty = true;
         }
         self.save_error = errors.join("\n");
     }
 
     fn save(&mut self) {
-        let paths: Vec<_> = self
-            .entries
-            .iter()
-            .map(|entry| entry.path.clone())
-            .collect();
-        match save_plugin_manifest(&self.target, &paths) {
+        match save_plugin_manifest(&self.draft.target, &self.draft.entries) {
             Ok(()) => {
-                self.damaged = false;
-                self.dirty = false;
+                self.draft.document = DocumentState::Ready;
+                self.draft.dirty = false;
                 self.save_error.clear();
-                self.status = "Saved. Applying changes…".into();
-                self.pending_apply = Some(paths);
+                self.application.queue(self.draft.entries.clone());
             }
             Err(error) => self.save_error = error,
         }
     }
 
     fn applying(&self) -> bool {
-        self.pending_apply.is_some() || self.loader.is_some()
+        self.application.applying()
     }
 
-    /// Apply a saved snapshot between host callbacks, even after the dialog closes.
+    fn status(&self) -> String {
+        if self.applying() {
+            return "Saved. Applying changes…".into();
+        }
+        if self.application.finished() && !self.draft.dirty {
+            return if self.application.errors().is_empty() {
+                "Saved. Changes applied."
+            } else {
+                "Saved. Some plugins could not be loaded."
+            }
+            .into();
+        }
+        match &self.draft.document {
+            DocumentState::Ready => String::new(),
+            DocumentState::Missing => "TOML file does not exist.".into(),
+            DocumentState::Damaged(error) => error.clone(),
+        }
+    }
+
+    /// Services the frontend-independent application and refreshes its view.
     pub(crate) fn tick(
         &mut self,
         host: &mut PluginHost,
@@ -227,107 +212,65 @@ impl PluginList {
         if !self.applying() {
             return false;
         }
-        let mut changed = false;
-        if let Some(paths) = self.pending_apply.take() {
-            self.publish_pending = true;
-            let desired: HashSet<_> = paths.iter().map(|path| identity(path)).collect();
-            let current: Vec<_> = host
-                .loaded_libraries()
-                .map(|(path, _)| path.to_path_buf())
-                .collect();
-            for path in &current {
-                if !desired.contains(&identity(path)) {
-                    changed |= host.unload_library(path, &mut kernel.executor, &kernel.tasks);
-                }
-            }
-            let mut seen: HashSet<_> = current.into_iter().map(|path| identity(&path)).collect();
-            let additions: Vec<_> = paths
-                .into_iter()
-                .filter(|path| seen.insert(identity(path)))
-                .collect();
-            if !additions.is_empty() {
-                match BackgroundPluginLoader::start_paths(additions) {
-                    Ok(loader) => self.loader = Some(loader),
-                    Err(error) => self.save_error = format!("Cannot start plugin loader: {error}"),
-                }
-            }
-        }
-        if let Some(loader) = &self.loader {
-            match loader.try_next() {
-                Ok(Some(PluginLoadEvent::Plugin { path, result, .. })) => {
-                    self.publish_pending = true;
-                    match result
-                        .and_then(|prepared| host.attach_prepared(*prepared, &mut kernel.executor))
-                    {
-                        Ok(_) => changed = true,
-                        Err(error) => {
-                            if !self.save_error.is_empty() {
-                                self.save_error.push('\n');
-                            }
-                            self.save_error
-                                .push_str(&format!("{}: {error}", path.display()));
-                        }
-                    }
-                    loader.acknowledge();
-                }
-                Ok(Some(PluginLoadEvent::Finished)) => self.loader = None,
-                Err(error) | Ok(Some(PluginLoadEvent::DiscoveryError { error })) => {
-                    self.save_error = error;
-                    self.loader = None;
-                }
-                Ok(None | Some(PluginLoadEvent::Discovered { .. })) => {}
-            }
-        }
-        self.publish_pending |= self.refresh_loaded(&loaded_entries(host));
-        if !self.applying() && self.status == "Saved. Applying changes…" {
-            self.publish_pending = true;
-            self.status = if self.save_error.is_empty() {
-                "Saved. Changes applied.".into()
-            } else {
-                "Saved. Some plugins could not be loaded.".into()
-            };
-        }
+        let errors_before = self.application.errors().len();
+        let changed = self
+            .application
+            .tick(host, &mut kernel.executor, &kernel.tasks);
+        self.publish_pending |= self.refresh_loaded(&loaded_entries(host))
+            || self.application.finished()
+            || errors_before != self.application.errors().len();
         changed
     }
 
     fn rows(&self) -> Vec<PluginListRow> {
-        self.entries
+        self.draft
+            .entries
             .iter()
-            .map(|entry| {
-                let (title, description) = if let Some(metadata) = &entry.metadata {
-                    (
+            .map(|path| {
+                let metadata = self
+                    .loaded
+                    .iter()
+                    .find(|entry| identity(&entry.path) == *path)
+                    .map(|entry| &entry.metadata);
+                let (title, description) = match metadata {
+                    Some(metadata) => (
                         format!("{} v{}", metadata.name, metadata.version),
                         metadata.description.clone(),
-                    )
-                } else {
-                    (
-                        entry
-                            .path
-                            .file_name()
+                    ),
+                    None => (
+                        path.file_name()
                             .unwrap_or_default()
                             .to_string_lossy()
                             .into_owned(),
                         String::new(),
-                    )
+                    ),
                 };
                 PluginListRow {
                     title: title.into(),
                     description: description.into(),
-                    path: entry.path.display().to_string().into(),
-                    missing: entry.metadata.is_none(),
+                    path: path.display().to_string().into(),
+                    missing: metadata.is_none(),
                 }
             })
             .collect()
     }
 
+    fn error(&self) -> String {
+        std::iter::once(self.save_error.as_str())
+            .chain(self.application.errors().iter().map(String::as_str))
+            .filter(|error| !error.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
     fn publish(&self, window: &AppWindow) {
         let state = window.global::<PluginListState>();
         state.set_applying(self.applying());
-        state.set_source(self.target.display().to_string().into());
-        state.set_status(self.status.clone().into());
-        state.set_error(self.save_error.clone().into());
-        state.set_damaged(self.damaged);
-        state.set_dirty(self.dirty);
+        state.set_source(self.draft.target.display().to_string().into());
+        state.set_status(self.status().into());
+        state.set_error(self.error().into());
+        state.set_damaged(self.damaged());
+        state.set_dirty(self.draft.dirty);
         state.set_rows(ModelRc::new(VecModel::from(self.rows())));
     }
 
@@ -539,18 +482,18 @@ pub static PATINAE_PLUGIN_DECLARATION: PluginDeclaration = PluginDeclaration {{
         assert_eq!(list.rows()[0].description, "No UI panels");
         assert_eq!(
             list.rows()[0].path,
-            list.entries[0].path.display().to_string()
+            list.draft.entries[0].display().to_string()
         );
-        assert!(list.entries[0].path.is_absolute());
+        assert!(list.draft.entries[0].is_absolute());
         list.save();
         assert!(list.save_error.is_empty());
         let document = read_plugin_manifest(std::slice::from_ref(&fixture.0))
             .unwrap()
             .unwrap();
-        assert_eq!(document.entries[0].resolved_path, list.entries[0].path);
+        assert_eq!(document.entries[0].resolved_path, list.draft.entries[0]);
         apply_saved(&mut list, &mut host, &mut kernel);
         assert_eq!(host.plugin_count(), 1);
-        let active = list.entries[0].path.clone();
+        let active = list.draft.entries[0].clone();
         list.remove(0);
         list.save();
         assert_eq!(host.plugin_count(), 1, "saving only queues application");
@@ -573,7 +516,7 @@ pub static PATINAE_PLUGIN_DECLARATION: PluginDeclaration = PluginDeclaration {{
         assert_eq!(host.plugin_count(), 1);
         assert!(list.rows()[0].missing);
         assert!(!list.rows()[1].missing);
-        assert!(list.save_error.contains("register failed"));
+        assert!(list.error().contains("register failed"));
         assert_eq!(kernel.executor.loaded_plugin_capabilities().len(), 1);
         // Reapplying retries failures without reattaching successful libraries.
         list.save();
@@ -583,16 +526,16 @@ pub static PATINAE_PLUGIN_DECLARATION: PluginDeclaration = PluginDeclaration {{
         list.save();
         apply_saved(&mut list, &mut host, &mut kernel);
         assert!(list.save_error.is_empty());
-        assert_eq!(list.status, "Saved. Changes applied.");
-        let old_target = list.target.clone();
-        list.target = fixture.0.clone(); // A directory cannot be replaced by a manifest.
+        assert_eq!(list.status(), "Saved. Changes applied.");
+        let old_target = list.draft.target.clone();
+        list.draft.target = fixture.0.clone(); // A directory cannot be replaced by a manifest.
         list.remove(0);
         list.save();
         assert!(!list.save_error.is_empty());
         assert!(!list.applying());
         assert!(!list.tick(&mut host, &mut kernel));
         assert_eq!(host.plugin_count(), 1, "failed persistence must not unload");
-        list.target = old_target;
+        list.draft.target = old_target;
         list.save();
         apply_saved(&mut list, &mut host, &mut kernel);
         assert_eq!(host.plugin_count(), 0);
@@ -617,11 +560,11 @@ pub static PATINAE_PLUGIN_DECLARATION: PluginDeclaration = PluginDeclaration {{
     fn loaded(path: PathBuf) -> Entry {
         Entry {
             path,
-            metadata: Some(LoadedPluginCapability {
+            metadata: LoadedPluginCapability {
                 name: "plugin".into(),
                 version: "1".into(),
                 description: "Loaded library".into(),
-            }),
+            },
         }
     }
 
@@ -639,10 +582,10 @@ pub static PATINAE_PLUGIN_DECLARATION: PluginDeclaration = PluginDeclaration {{
         }
         let mut list = fixture.read(&[]);
         list.add(vec![first.clone(), second.clone(), first.clone()]);
-        assert_eq!(list.entries.len(), 2);
+        assert_eq!(list.draft.entries.len(), 2);
         assert!(list.rows().iter().all(|row| row.missing));
-        assert!(list.dirty);
-        assert!(!list.target.exists());
+        assert!(list.draft.dirty);
+        assert!(!list.draft.target.exists());
         list.save();
         assert!(list.save_error.is_empty());
         let document = read_plugin_manifest(std::slice::from_ref(&fixture.0))
@@ -657,8 +600,8 @@ pub static PATINAE_PLUGIN_DECLARATION: PluginDeclaration = PluginDeclaration {{
             vec![&identity(&first), &identity(&second)]
         );
         list.add(vec![first]);
-        assert!(!list.dirty);
-        assert_eq!(list.entries.len(), 2);
+        assert!(!list.draft.dirty);
+        assert_eq!(list.draft.entries.len(), 2);
     }
 
     #[test]
@@ -672,14 +615,14 @@ pub static PATINAE_PLUGIN_DECLARATION: PluginDeclaration = PluginDeclaration {{
         list.remove(0);
         list.add(vec![path.clone()]);
         assert!(!list.rows()[0].missing);
-        assert!(!list.removed.contains(&identity(&path)));
+        assert!(!list.draft.removed.contains(&identity(&path)));
         list.save_error = "Existing error".into();
-        let before = list.entries.clone();
+        let before = list.draft.entries.clone();
         list.add(Vec::new());
-        assert_eq!(list.entries, before);
+        assert_eq!(list.draft.entries, before);
         assert_eq!(list.save_error, "Existing error");
-        assert!(list.dirty);
-        assert!(!list.target.exists());
+        assert!(list.draft.dirty);
+        assert!(!list.draft.target.exists());
     }
 
     #[test]
@@ -699,10 +642,10 @@ pub static PATINAE_PLUGIN_DECLARATION: PluginDeclaration = PluginDeclaration {{
                 .0
                 .join(format!("missing.{}", std::env::consts::DLL_EXTENSION)),
         ]);
-        assert!(list.entries.is_empty());
-        assert!(!list.dirty);
+        assert!(list.draft.entries.is_empty());
+        assert!(!list.draft.dirty);
         assert_eq!(list.save_error.lines().count(), 3);
-        assert!(!list.target.exists());
+        assert!(!list.draft.target.exists());
     }
 
     #[cfg(unix)]
@@ -719,7 +662,7 @@ pub static PATINAE_PLUGIN_DECLARATION: PluginDeclaration = PluginDeclaration {{
         std::os::unix::fs::symlink(&path, &alias).unwrap();
         let mut list = fixture.read(&[]);
         list.add(vec![path, alias]);
-        assert_eq!(list.entries.len(), 1);
+        assert_eq!(list.draft.entries.len(), 1);
     }
 
     #[test]
@@ -757,18 +700,18 @@ pub static PATINAE_PLUGIN_DECLARATION: PluginDeclaration = PluginDeclaration {{
         let active = loaded(fixture.0.join("active.dylib"));
         let list = fixture.read(std::slice::from_ref(&active));
         assert_eq!(list.rows().len(), 1);
-        assert!(list.status.contains("does not exist"));
+        assert!(list.status().contains("does not exist"));
         fixture.write("");
         assert_eq!(fixture.read(std::slice::from_ref(&active)).rows().len(), 1);
         fixture.write("[");
         let mut list = fixture.read(&[]);
-        assert!(list.damaged);
-        assert!(list.status.contains("damaged"));
+        assert!(list.damaged());
+        assert!(list.status().contains("damaged"));
         assert!(!list.refresh_loaded(std::slice::from_ref(&active)));
         assert!(list.rows().is_empty());
         list.save();
         assert!(list.save_error.is_empty());
-        assert!(!list.damaged);
+        assert!(!list.damaged());
         assert!(read_plugin_manifest(std::slice::from_ref(&fixture.0))
             .unwrap()
             .unwrap()
@@ -783,7 +726,7 @@ pub static PATINAE_PLUGIN_DECLARATION: PluginDeclaration = PluginDeclaration {{
         let original = std::fs::read(fixture.0.join("plugins.toml")).unwrap();
         let mut list = fixture.read(&[]);
         list.remove(0);
-        assert!(list.dirty);
+        assert!(list.draft.dirty);
         assert_eq!(
             std::fs::read(fixture.0.join("plugins.toml")).unwrap(),
             original
@@ -798,7 +741,7 @@ pub static PATINAE_PLUGIN_DECLARATION: PluginDeclaration = PluginDeclaration {{
         assert!(!list.rows()[1].missing);
         list.save();
         assert!(list.save_error.is_empty());
-        assert!(!list.dirty);
+        assert!(!list.draft.dirty);
         let saved = read_plugin_manifest(std::slice::from_ref(&fixture.0))
             .unwrap()
             .unwrap();
@@ -821,12 +764,12 @@ pub static PATINAE_PLUGIN_DECLARATION: PluginDeclaration = PluginDeclaration {{
         assert_eq!(list.rows().len(), 1);
         assert!(!list.rows()[0].missing);
         list.remove(0);
-        std::fs::remove_file(&list.target).unwrap();
-        std::fs::create_dir(&list.target).unwrap();
+        std::fs::remove_file(&list.draft.target).unwrap();
+        std::fs::create_dir(&list.draft.target).unwrap();
         list.save();
         assert!(!list.save_error.is_empty());
-        assert!(list.dirty);
-        assert!(list.entries.is_empty());
-        assert!(list.target.is_dir());
+        assert!(list.draft.dirty);
+        assert!(list.draft.entries.is_empty());
+        assert!(list.draft.target.is_dir());
     }
 }

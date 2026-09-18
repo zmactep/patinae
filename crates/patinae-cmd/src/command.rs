@@ -1170,167 +1170,106 @@ pub enum CommandSource {
     Plugin,
 }
 
-/// Registry mapping command names to implementations
+#[derive(Clone)]
+struct CommandEntry {
+    command: Arc<dyn Command>,
+    source: CommandSource,
+}
+
+/// Registry mapping command names and aliases to reversible registrations.
+#[derive(Clone, Default)]
 pub struct CommandRegistry {
-    command_layers: crate::registration::RegistrationLayers<Arc<dyn Command>>,
-    alias_layers: crate::registration::RegistrationLayers<String>,
-    source_layers: crate::registration::RegistrationLayers<CommandSource>,
-    /// Commands indexed by name
-    commands: AHashMap<String, Arc<dyn Command>>,
-    /// Aliases mapping alias -> command name
-    aliases: AHashMap<String, String>,
-    /// Source tracking for each command (built-in vs plugin)
-    sources: AHashMap<String, CommandSource>,
-}
-
-impl Clone for CommandRegistry {
-    fn clone(&self) -> Self {
-        Self {
-            command_layers: self.command_layers.clone(),
-            alias_layers: self.alias_layers.clone(),
-            source_layers: self.source_layers.clone(),
-            commands: self.commands.clone(),
-            aliases: self.aliases.clone(),
-            sources: self.sources.clone(),
-        }
-    }
-}
-
-impl Default for CommandRegistry {
-    fn default() -> Self {
-        Self::new()
-    }
+    commands: crate::registration::RegistrationLayers<CommandEntry>,
+    aliases: crate::registration::RegistrationLayers<String>,
 }
 
 impl CommandRegistry {
-    /// Create a new empty registry
+    /// Create an empty registry.
     pub fn new() -> Self {
-        Self {
-            command_layers: Default::default(),
-            alias_layers: Default::default(),
-            source_layers: Default::default(),
-            commands: AHashMap::new(),
-            aliases: AHashMap::new(),
-            sources: AHashMap::new(),
-        }
+        Self::default()
     }
 
-    /// Create a registry with all built-in commands registered
+    /// Create a registry with all built-in commands registered.
     pub fn with_builtins() -> Self {
         let mut registry = Self::new();
         crate::commands::register_all(&mut registry);
         registry
     }
 
-    /// Register a command
-    ///
-    /// Also registers any aliases defined by the command.
+    /// Register a built-in command and its aliases.
     pub fn register<C: Command + 'static>(&mut self, cmd: C) {
-        let name = cmd.name().to_string();
-        let aliases: Vec<String> = cmd.aliases().iter().map(|s| s.to_string()).collect();
-        let cmd = Arc::new(cmd);
-        self.command_layers.forget(&name);
-        self.source_layers.forget(&name);
-        for alias in &aliases {
-            self.alias_layers.forget(alias);
-        }
-
-        // Register aliases
-        for alias in aliases {
-            self.aliases.insert(alias, name.clone());
-        }
-
-        self.sources.insert(name.clone(), CommandSource::BuiltIn);
-        self.commands.insert(name, cmd);
+        self.install(Arc::new(cmd), CommandSource::BuiltIn, None);
     }
 
-    /// Register a boxed command (for plugin system).
-    ///
-    /// Like [`register`](Self::register) but accepts a `Box<dyn Command>`.
+    /// Register a plugin command without reversible ownership.
     pub fn register_boxed(&mut self, cmd: Box<dyn Command>) {
-        let name = cmd.name().to_string();
-        let aliases: Vec<String> = cmd.aliases().iter().map(|s| s.to_string()).collect();
-        let cmd: Arc<dyn Command> = cmd.into();
-        self.command_layers.forget(&name);
-        self.source_layers.forget(&name);
-        for alias in &aliases {
-            self.alias_layers.forget(alias);
+        self.install(Arc::from(cmd), CommandSource::Plugin, None);
+    }
+
+    /// Register a command whose overrides are reversed on plugin removal.
+    pub fn register_owned(&mut self, owner: crate::PluginInstanceId, cmd: Box<dyn Command>) {
+        self.install(Arc::from(cmd), CommandSource::Plugin, Some(owner));
+    }
+
+    fn install(
+        &mut self,
+        command: Arc<dyn Command>,
+        source: CommandSource,
+        owner: Option<crate::PluginInstanceId>,
+    ) {
+        let name = command.name().to_owned();
+        // Re-registering a command must also withdraw aliases it no longer declares.
+        if let Some(owner) = owner {
+            self.aliases
+                .remove_where(|_, id, target| id == Some(owner) && target == &name);
         }
-
-        for alias in aliases {
-            self.aliases.insert(alias, name.clone());
-        }
-
-        self.sources.insert(name.clone(), CommandSource::Plugin);
-        self.commands.insert(name, cmd);
-    }
-
-    /// Register a command whose overrides are reversed when its plugin is removed.
-    pub fn register_owned(&mut self, owner: u64, cmd: Box<dyn Command>) {
-        let name = cmd.name().to_string();
-        for alias in cmd.aliases() {
-            self.alias_layers
-                .insert(&mut self.aliases, alias.to_string(), owner, name.clone());
-        }
-        self.source_layers.insert(
-            &mut self.sources,
-            name.clone(),
-            owner,
-            CommandSource::Plugin,
-        );
-        self.command_layers
-            .insert(&mut self.commands, name, owner, Arc::from(cmd));
-    }
-
-    /// Remove one command registered by a plugin, including its aliases.
-    pub fn unregister_owned_command(&mut self, owner: u64, name: &str) {
-        self.command_layers
-            .remove_where(&mut self.commands, |key, id, _| {
-                key == name && id == Some(owner)
-            });
-        self.source_layers
-            .remove_where(&mut self.sources, |key, id, _| {
-                key == name && id == Some(owner)
-            });
-        self.alias_layers
-            .remove_where(&mut self.aliases, |_, id, target| {
-                target == name && id == Some(owner)
-            });
-    }
-
-    /// Remove a plugin's commands and restore any shadowed registrations.
-    pub fn unregister_owner(&mut self, owner: u64) {
-        self.command_layers.remove_owner(&mut self.commands, owner);
-        self.alias_layers.remove_owner(&mut self.aliases, owner);
-        self.source_layers.remove_owner(&mut self.sources, owner);
-    }
-
-    /// Unregister a command by name.
-    ///
-    /// Removes the command and any aliases that point to it.
-    /// Returns `true` if the command was found and removed.
-    pub fn unregister(&mut self, name: &str) -> bool {
-        self.command_layers.forget(name);
-        self.source_layers.forget(name);
-        for (alias, target) in &self.aliases {
-            if target == name {
-                self.alias_layers.forget(alias);
+        for alias in command.aliases() {
+            if let Some(owner) = owner {
+                self.aliases.insert(alias.to_string(), owner, name.clone());
+            } else {
+                self.aliases.replace(alias.to_string(), name.clone());
             }
         }
-        if self.commands.remove(name).is_some() {
-            self.aliases.retain(|_, target| target != name);
-            self.sources.remove(name);
-            true
+        let entry = CommandEntry { command, source };
+        if let Some(owner) = owner {
+            self.commands.insert(name, owner, entry);
         } else {
-            false
+            self.commands.replace(name, entry);
         }
     }
 
-    /// Add an alias for an existing command
+    /// Remove one owned command and its aliases, restoring previous registrations.
+    pub fn unregister_owned_command(&mut self, owner: crate::PluginInstanceId, name: &str) {
+        self.commands
+            .remove_where(|key, id, _| key == name && id == Some(owner));
+        self.aliases
+            .remove_where(|_, id, target| target == name && id == Some(owner));
+    }
+
+    /// Remove a plugin's commands and restore shadowed registrations.
+    pub fn unregister_owner(&mut self, owner: crate::PluginInstanceId) {
+        self.commands.remove_owner(owner);
+        self.aliases.remove_owner(owner);
+    }
+
+    /// Remove a command and the active aliases pointing to it outright.
+    pub fn unregister(&mut self, name: &str) -> bool {
+        let aliases: Vec<_> = self
+            .aliases
+            .active()
+            .iter()
+            .filter(|(_, target)| target.as_str() == name)
+            .map(|(alias, _)| alias.clone())
+            .collect();
+        for alias in aliases {
+            self.aliases.remove(&alias);
+        }
+        self.commands.remove(name).is_some()
+    }
+
+    /// Add an alias for an existing command.
     pub fn add_alias(&mut self, alias: impl Into<String>, command: impl Into<String>) {
-        let alias = alias.into();
-        self.alias_layers.forget(&alias);
-        self.aliases.insert(alias, command.into());
+        self.aliases.replace(alias.into(), command.into());
     }
 
     /// Resolve syntax from the registered command, including aliases.
@@ -1360,13 +1299,17 @@ impl CommandRegistry {
     /// Look up a command by name or alias
     pub fn get(&self, name: &str) -> Option<Arc<dyn Command>> {
         // Try direct lookup first
-        if let Some(cmd) = self.commands.get(name) {
-            return Some(cmd.clone());
+        if let Some(cmd) = self.commands.active().get(name) {
+            return Some(cmd.command.clone());
         }
 
         // Try alias lookup
-        if let Some(real_name) = self.aliases.get(name) {
-            return self.commands.get(real_name).cloned();
+        if let Some(real_name) = self.aliases.active().get(name) {
+            return self
+                .commands
+                .active()
+                .get(real_name)
+                .map(|entry| entry.command.clone());
         }
 
         None
@@ -1374,36 +1317,47 @@ impl CommandRegistry {
 
     /// Check if a command exists
     pub fn contains(&self, name: &str) -> bool {
-        self.commands.contains_key(name) || self.aliases.contains_key(name)
+        self.commands.active().contains_key(name) || self.aliases.active().contains_key(name)
     }
 
     /// Get all command names (not including aliases)
     pub fn names(&self) -> impl Iterator<Item = &str> {
-        self.commands.keys().map(|s| s.as_str())
+        self.commands.active().keys().map(|s| s.as_str())
     }
 
     /// Get all command names and aliases
     pub fn all_names(&self) -> impl Iterator<Item = &str> {
         self.commands
+            .active()
             .keys()
             .map(|s| s.as_str())
-            .chain(self.aliases.keys().map(|s| s.as_str()))
+            .chain(self.aliases.active().keys().map(|s| s.as_str()))
     }
 
     /// Get the number of registered commands
     pub fn len(&self) -> usize {
-        self.commands.len()
+        self.commands.active().len()
     }
 
     /// Check if the registry is empty
     pub fn is_empty(&self) -> bool {
-        self.commands.is_empty()
+        self.commands.active().is_empty()
     }
 
     /// Get the source (built-in vs plugin) of a command, resolving aliases.
     pub fn source(&self, name: &str) -> CommandSource {
-        let canonical = self.aliases.get(name).map(|s| s.as_str()).unwrap_or(name);
-        self.sources.get(canonical).copied().unwrap_or_default()
+        let canonical = self
+            .aliases
+            .active()
+            .get(name)
+            .map(|s| s.as_str())
+            .unwrap_or(name);
+        self.commands
+            .active()
+            .get(name)
+            .or_else(|| self.commands.active().get(canonical))
+            .map(|entry| entry.source)
+            .unwrap_or_default()
     }
 
     /// Get all command names (including aliases) that expect a specific argument hint
@@ -1414,12 +1368,12 @@ impl CommandRegistry {
     pub fn commands_with_hint(&self, hint: ArgHint, position: usize) -> Vec<&str> {
         let mut result = Vec::new();
 
-        for (name, cmd) in &self.commands {
-            let hints = cmd.arg_hints();
+        for (name, cmd) in self.commands.active() {
+            let hints = cmd.command.arg_hints();
             if hints.get(position) == Some(&hint) {
                 result.push(name.as_str());
                 // Also include aliases for this command
-                for (alias, target) in &self.aliases {
+                for (alias, target) in self.aliases.active() {
                     if target == name {
                         result.push(alias.as_str());
                     }
@@ -1515,20 +1469,20 @@ mod tests {
             });
             let builtin = registry.get("test").unwrap();
             registry.register_owned(
-                1,
+                crate::PluginInstanceId(1),
                 Box::new(TestCommand {
                     name: "test".into(),
                 }),
             );
             let first = registry.get("test").unwrap();
             registry.register_owned(
-                2,
+                crate::PluginInstanceId(2),
                 Box::new(TestCommand {
                     name: "test".into(),
                 }),
             );
             let second = registry.get("test").unwrap();
-            let order = if remove_first { [1, 2] } else { [2, 1] };
+            let order = if remove_first { [1, 2] } else { [2, 1] }.map(crate::PluginInstanceId);
             registry.unregister_owner(order[0]);
             let expected = if remove_first { &second } else { &first };
             assert!(Arc::ptr_eq(&registry.get("test").unwrap(), expected));

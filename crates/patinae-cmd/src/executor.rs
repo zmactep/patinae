@@ -81,29 +81,30 @@ impl From<CommandExecution> for CommandReply {
     }
 }
 
-/// Command executor
-///
-/// Manages command execution and history.
+#[derive(Default)]
+struct PluginRegistration {
+    capability: Option<LoadedPluginCapability>,
+    has_executor: bool,
+    settings: Vec<String>,
+}
+
+/// Executes commands and owns their registrations and history.
 pub struct CommandExecutor {
     next_plugin_owner: u64,
-    script_layers: crate::registration::RegistrationLayers<ScriptHandler>,
-    format_layers: crate::registration::RegistrationLayers<Arc<FormatHandler>>,
-    plugin_settings: AHashMap<u64, Vec<String>>,
-    plugin_executors: AHashMap<u64, String>,
-    plugin_capabilities: AHashMap<u64, LoadedPluginCapability>,
+    plugins: Vec<(crate::PluginInstanceId, PluginRegistration)>,
+    // Read-only projection for command contexts borrowing the executor.
+    capabilities: Vec<LoadedPluginCapability>,
     /// Command registry
     registry: CommandRegistry,
     /// Command history
     history: CommandHistory,
     /// Script handlers registered by plugins (extension -> handler for `run` command)
-    script_handlers: AHashMap<String, ScriptHandler>,
+    script_handlers: crate::registration::RegistrationLayers<ScriptHandler>,
     /// Format handlers registered by plugins (extension -> handler for `load`/`save`)
-    format_handlers: AHashMap<String, Arc<FormatHandler>>,
+    format_handlers: crate::registration::RegistrationLayers<Arc<FormatHandler>>,
     /// Dynamic settings registered by plugins
     dynamic_settings: DynamicSettingRegistry,
-    /// Metadata for plugins loaded into this executor.
-    loaded_plugin_capabilities: Vec<LoadedPluginCapability>,
-    task_executors: std::collections::HashSet<String>,
+    host_task_executors: std::collections::HashSet<String>,
 }
 
 impl Default for CommandExecutor {
@@ -117,106 +118,124 @@ impl CommandExecutor {
     pub fn new() -> Self {
         Self {
             next_plugin_owner: 0,
-            script_layers: Default::default(),
-            format_layers: Default::default(),
-            plugin_settings: Default::default(),
-            plugin_executors: Default::default(),
-            plugin_capabilities: Default::default(),
+            plugins: Vec::new(),
+            capabilities: Vec::new(),
             registry: CommandRegistry::with_builtins(),
             history: CommandHistory::new(),
-            script_handlers: AHashMap::new(),
-            format_handlers: AHashMap::new(),
+            script_handlers: Default::default(),
+            format_handlers: Default::default(),
             dynamic_settings: DynamicSettingRegistry::new(),
-            loaded_plugin_capabilities: Vec::new(),
-            task_executors: std::collections::HashSet::new(),
+            host_task_executors: std::collections::HashSet::new(),
         }
     }
 
-    /// Allocate an identity for reversible plugin registrations.
-    pub fn allocate_plugin_owner(&mut self) -> u64 {
-        self.next_plugin_owner += 1;
-        self.next_plugin_owner
+    /// Allocate a stable identity for one installation in this executor.
+    pub fn allocate_plugin_owner(&mut self) -> crate::PluginInstanceId {
+        self.next_plugin_owner = self
+            .next_plugin_owner
+            .checked_add(1)
+            .expect("plugin identity exhausted");
+        let id = crate::PluginInstanceId(self.next_plugin_owner);
+        self.plugins.push((id, PluginRegistration::default()));
+        id
+    }
+
+    fn plugin_registration_mut(
+        &mut self,
+        owner: crate::PluginInstanceId,
+    ) -> &mut PluginRegistration {
+        &mut self
+            .plugins
+            .iter_mut()
+            .find(|(id, _)| *id == owner)
+            .expect("plugin identity belongs to this executor")
+            .1
     }
 
     /// Install a plugin script handler with reversible extension overrides.
-    pub fn register_owned_script(&mut self, owner: u64, extension: String, handler: ScriptHandler) {
-        self.script_layers
-            .insert(&mut self.script_handlers, extension, owner, handler);
+    pub fn register_owned_script(
+        &mut self,
+        owner: crate::PluginInstanceId,
+        extension: String,
+        handler: ScriptHandler,
+    ) {
+        self.script_handlers.insert(extension, owner, handler);
     }
 
     /// Install a plugin format handler with reversible extension overrides.
-    pub fn register_owned_format(&mut self, owner: u64, handler: FormatHandler) {
+    pub fn register_owned_format(
+        &mut self,
+        owner: crate::PluginInstanceId,
+        handler: FormatHandler,
+    ) {
         let handler = Arc::new(handler);
         for extension in &handler.extensions {
-            self.format_layers.insert(
-                &mut self.format_handlers,
-                extension.clone(),
-                owner,
-                handler.clone(),
-            );
+            self.format_handlers
+                .insert(extension.clone(), owner, handler.clone());
         }
     }
 
     /// Track a successfully registered setting for removal with its plugin.
-    pub fn record_plugin_setting(&mut self, owner: u64, name: String) {
-        self.plugin_settings.entry(owner).or_default().push(name);
+    pub fn record_plugin_setting(&mut self, owner: crate::PluginInstanceId, name: String) {
+        self.plugin_registration_mut(owner).settings.push(name);
     }
 
     /// Record a loaded plugin and its optional task executor.
     pub fn record_owned_plugin(
         &mut self,
-        owner: u64,
+        owner: crate::PluginInstanceId,
         capability: LoadedPluginCapability,
         has_executor: bool,
     ) {
-        if has_executor {
-            self.register_task_executor(&capability.name);
-            self.plugin_executors.insert(owner, capability.name.clone());
-        }
-        self.record_loaded_plugin_capability(capability.clone());
-        self.plugin_capabilities.insert(owner, capability);
+        let registration = self.plugin_registration_mut(owner);
+        registration.capability = Some(capability);
+        registration.has_executor = has_executor;
+        self.refresh_capabilities();
     }
 
     /// Remove all registrations owned by one plugin, preserving other owners.
-    pub fn unregister_plugin(&mut self, owner: u64) {
+    pub fn unregister_plugin(&mut self, owner: crate::PluginInstanceId) {
         self.registry.unregister_owner(owner);
-        self.script_layers
-            .remove_owner(&mut self.script_handlers, owner);
-        self.format_layers
-            .remove_owner(&mut self.format_handlers, owner);
-        if let Some(names) = self.plugin_settings.remove(&owner) {
+        self.script_handlers.remove_owner(owner);
+        self.format_handlers.remove_owner(owner);
+        if let Some(index) = self.plugins.iter().position(|(id, _)| *id == owner) {
+            let (_, registration) = self.plugins.remove(index);
             self.dynamic_settings
-                .unregister_where(|name| names.iter().any(|entry| entry == name));
-        }
-        if let Some(name) = self.plugin_executors.remove(&owner) {
-            if !self.plugin_executors.values().any(|other| other == &name) {
-                self.task_executors.remove(&name);
-            }
-        }
-        if let Some(capability) = self.plugin_capabilities.remove(&owner) {
-            if let Some(index) = self
-                .loaded_plugin_capabilities
-                .iter()
-                .position(|entry| entry == &capability)
-            {
-                self.loaded_plugin_capabilities.remove(index);
-            }
+                .unregister_where(|name| registration.settings.iter().any(|entry| entry == name));
+            self.refresh_capabilities();
         }
     }
 
-    /// Register a host-verified plugin executor during plugin installation.
+    /// Register an executor provided directly by a host rather than a library.
     pub fn register_task_executor(&mut self, name: impl Into<String>) {
-        self.task_executors.insert(name.into());
+        self.host_task_executors.insert(name.into());
     }
 
-    /// Whether the host installed an executor for this plugin.
+    /// Whether a host or loaded library provides this executor.
     pub fn task_executor_available(&self, name: &str) -> bool {
-        self.task_executors.contains(name)
+        self.host_task_executors.contains(name)
+            || self.plugins.iter().any(|(_, registration)| {
+                registration.has_executor
+                    && registration
+                        .capability
+                        .as_ref()
+                        .is_some_and(|capability| capability.name == name)
+            })
     }
 
-    /// Registered task executor names, for host admission routing.
-    pub fn task_executors(&self) -> &std::collections::HashSet<String> {
-        &self.task_executors
+    /// Returns the current executor names for host admission routing.
+    pub fn task_executors(&self) -> std::collections::HashSet<String> {
+        self.host_task_executors
+            .iter()
+            .cloned()
+            .chain(self.plugins.iter().filter_map(|(_, registration)| {
+                registration
+                    .capability
+                    .as_ref()
+                    .filter(|_| registration.has_executor)
+                    .map(|capability| capability.name.clone())
+            }))
+            .collect()
     }
 
     /// Get a reference to the command registry
@@ -248,13 +267,12 @@ impl CommandExecutor {
         handler: ScriptHandler,
     ) {
         let extension = extension.into();
-        self.script_layers.forget(&extension);
-        self.script_handlers.insert(extension, handler);
+        self.script_handlers.replace(extension, handler);
     }
 
     /// Get a reference to the script handlers map
     pub fn script_handlers(&self) -> &AHashMap<String, ScriptHandler> {
-        &self.script_handlers
+        self.script_handlers.active()
     }
 
     /// Register a format handler for `load`/`save`.
@@ -264,14 +282,13 @@ impl CommandExecutor {
     pub fn register_format_handler(&mut self, handler: FormatHandler) {
         let handler = Arc::new(handler);
         for ext in &handler.extensions {
-            self.format_layers.forget(ext);
-            self.format_handlers.insert(ext.clone(), handler.clone());
+            self.format_handlers.replace(ext.clone(), handler.clone());
         }
     }
 
     /// Get a reference to the format handlers map
     pub fn format_handlers(&self) -> &AHashMap<String, Arc<FormatHandler>> {
-        &self.format_handlers
+        self.format_handlers.active()
     }
 
     /// Get the dynamic settings registry for registration and host plumbing.
@@ -289,12 +306,21 @@ impl CommandExecutor {
 
     /// Records metadata for one successfully loaded plugin.
     pub fn record_loaded_plugin_capability(&mut self, capability: LoadedPluginCapability) {
-        self.loaded_plugin_capabilities.push(capability);
+        let owner = self.allocate_plugin_owner();
+        self.record_owned_plugin(owner, capability, false);
     }
 
     /// Returns metadata for plugins loaded into this executor.
     pub fn loaded_plugin_capabilities(&self) -> &[LoadedPluginCapability] {
-        &self.loaded_plugin_capabilities
+        &self.capabilities
+    }
+
+    fn refresh_capabilities(&mut self) {
+        self.capabilities = self
+            .plugins
+            .iter()
+            .filter_map(|(_, registration)| registration.capability.clone())
+            .collect();
     }
 
     /// Execute a single command string
@@ -392,11 +418,11 @@ impl CommandExecutor {
         let mut ctx = CommandContext::new(viewer)
             .with_quiet(quiet)
             .with_registry(&self.registry)
-            .with_script_handlers(&self.script_handlers)
-            .with_format_handlers(&self.format_handlers)
+            .with_script_handlers(self.script_handlers.active())
+            .with_format_handlers(self.format_handlers.active())
             .with_history(&self.history)
             .with_dynamic_settings(&self.dynamic_settings)
-            .with_loaded_plugin_capabilities(&self.loaded_plugin_capabilities)
+            .with_loaded_plugin_capabilities(&self.capabilities)
             .with_async_command_sink(async_command_sink);
         let start = command_timer_start();
         let mut result = command.execute(&mut ctx, &parsed);
@@ -487,11 +513,11 @@ mod tests {
         let first: ScriptHandler = Arc::new(|_| Err("first".into()));
         let second: ScriptHandler = Arc::new(|_| Err("second".into()));
         executor.register_script_handler("script", base.clone());
-        executor.register_owned_script(1, "script".into(), first);
-        executor.register_owned_script(2, "script".into(), second.clone());
-        executor.unregister_plugin(1);
+        executor.register_owned_script(crate::PluginInstanceId(1), "script".into(), first);
+        executor.register_owned_script(crate::PluginInstanceId(2), "script".into(), second.clone());
+        executor.unregister_plugin(crate::PluginInstanceId(1));
         assert!(Arc::ptr_eq(&executor.script_handlers()["script"], &second));
-        executor.unregister_plugin(2);
+        executor.unregister_plugin(crate::PluginInstanceId(2));
         assert!(Arc::ptr_eq(&executor.script_handlers()["script"], &base));
     }
 

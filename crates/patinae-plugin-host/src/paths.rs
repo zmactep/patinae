@@ -164,7 +164,7 @@ pub(crate) fn plugin_library_paths(directories: &[PathBuf]) -> Result<Vec<PathBu
             let path = entry.resolved_path;
             // Keep unresolved paths for per-library errors; one missing library
             // must not prevent subsequent entries from loading.
-            let identity = path.canonicalize().unwrap_or_else(|_| path.clone());
+            let identity = library_identity(&path);
             if seen.insert(identity) {
                 paths.push(path);
             }
@@ -463,6 +463,13 @@ fn parse_shell_words(line: &str) -> Vec<String> {
         args.push(current);
     }
     args
+}
+
+/// Resolves a library identity, retaining absolute paths for missing files.
+pub fn library_identity(path: &Path) -> PathBuf {
+    path.canonicalize()
+        .or_else(|_| std::path::absolute(path))
+        .unwrap_or_else(|_| path.to_path_buf())
 }
 
 #[cfg(test)]
