@@ -5,12 +5,21 @@ root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$root"
 uv_bin=${UV:-uv}
 cargo_bin=${CARGO:-cargo}
+# Default workspace members contain the core and application, without plugins.
+if [[ "${1:-}" == core ]]; then
+    exec "$cargo_bin" test --locked
+fi
 python_version=${PATINAE_TEST_PYTHON_VERSION:-3.13}
 export PYO3_PYTHON
 PYO3_PYTHON=$("$uv_bin" python find --system --python-preference only-managed "$python_version")
 # Embedded PyO3 binaries do not get uv's interpreter startup path discovery.
 export PYTHONHOME
 PYTHONHOME=$("$uv_bin" run --no-project --python "$PYO3_PYTHON" --no-sync python -I -c 'import sys; print(sys.base_prefix)')
+# Linux must locate libpython before an embedded interpreter can use PYTHONHOME.
+if [[ "$(uname -s)" == Linux ]]; then
+    python_lib_dir=$("$uv_bin" run --no-project --python "$PYO3_PYTHON" --no-sync python -I -c 'import sysconfig; print(sysconfig.get_config_var("LIBDIR"))')
+    export LD_LIBRARY_PATH="$python_lib_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+fi
 work="$root/target/test-runtime"
 mkdir -p "$work"
 
@@ -55,22 +64,14 @@ case "${1:-}" in
             MINGW*|MSYS*|CYGWIN*) suffix=dll; prefix= ;;
             *) suffix=so; prefix=lib ;;
         esac
-        names=(hello raytracer ai python)
-        if [[ "$suffix" != dll ]]; then names+=(ipc); fi
-        packages=()
-        for plugin in "${names[@]}"; do packages+=(-p "${plugin}-plugin"); done
-        "$cargo_bin" build --locked "${packages[@]}"
+        "$cargo_bin" build --locked -p ai-plugin
         build_dir=${CARGO_TARGET_DIR:-"$root/target"}
-        for plugin in "${names[@]}"; do
-            cp "$build_dir/debug/${prefix}${plugin}_plugin.$suffix" "$plugins/"
-        done
-        export PATINAE_PLUGIN_TEST_DIR="$plugins"
+        cp "$build_dir/debug/${prefix}ai_plugin.$suffix" "$plugins/"
         export PATINAE_AI_TEST_LIBRARY="$plugins/${prefix}ai_plugin.$suffix"
-        "$cargo_bin" test --locked -p patinae-plugin-host loads_built_reference_plugins -- --ignored --test-threads=1
         "$cargo_bin" test --locked -p ai-plugin dynamic_plugin_round_trips_commands_images_and_cancellation -- --ignored --test-threads=1
         ;;
     gpu)
         "$cargo_bin" test --locked -p patinae-render -p raytracer-plugin -p patinae-plugin-host gpu_ -- --ignored --test-threads=1 --nocapture
         ;;
-    *) echo 'Usage: scripts/test.sh {workspace|bindings|abi|gpu}' >&2; exit 2 ;;
+    *) echo 'Usage: scripts/test.sh {core|workspace|bindings|abi|gpu}' >&2; exit 2 ;;
 esac

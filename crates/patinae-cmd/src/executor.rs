@@ -526,17 +526,17 @@ mod tests {
         let mut executor = CommandExecutor::new();
         assert!(executor.loaded_plugin_capabilities().is_empty());
         executor.record_loaded_plugin_capability(LoadedPluginCapability {
-            name: "python".to_string(),
+            name: "fixture".to_string(),
             version: "1.2.3".to_string(),
-            description: "Python integration".to_string(),
+            description: "Fixture integration".to_string(),
         });
 
         assert_eq!(
             executor.loaded_plugin_capabilities(),
             &[LoadedPluginCapability {
-                name: "python".to_string(),
+                name: "fixture".to_string(),
                 version: "1.2.3".to_string(),
-                description: "Python integration".to_string(),
+                description: "Fixture integration".to_string(),
             }]
         );
     }

@@ -54,7 +54,7 @@ pub(crate) fn enqueue_file_action(kernel: &mut AppKernel, path: &Path, source: N
 /// Unknown formats must be resolved again after all plugins have registered.
 pub(crate) fn needs_plugin_startup(executor: &CommandExecutor, path: &Path) -> bool {
     let extension = path_extension_lower(path);
-    if matches!(extension.as_deref(), Some("pml" | "py"))
+    if matches!(extension.as_deref(), Some("pml"))
         || registered_script_extension(executor, extension.as_deref())
     {
         return true;
@@ -195,7 +195,7 @@ mod tests {
     #[test]
     fn startup_defers_scripts_and_unknown_formats_but_not_builtin_files() {
         let executor = CommandExecutor::new();
-        for path in ["commands.pml", "script.py", "unknown.custom"] {
+        for path in ["commands.pml", "script.fixture", "unknown.custom"] {
             assert!(needs_plugin_startup(&executor, Path::new(path)), "{path}");
         }
         for path in [
@@ -263,11 +263,11 @@ mod tests {
     fn scripts_route_to_run() {
         let mut executor = CommandExecutor::new();
         executor.register_script_handler(
-            "py",
+            "fixture",
             Arc::new(|path| {
                 Ok(patinae_cmd::AsyncCommandRequest::Plugin(
                     patinae_cmd::PluginTaskRequest::new(
-                        "python",
+                        "fixture",
                         serde_json::json!({"path": path}),
                     ),
                 ))
@@ -275,7 +275,14 @@ mod tests {
         );
 
         assert_eq!(command_for("setup.pml", &executor), "run setup.pml");
-        assert_eq!(command_for("analysis.py", &executor), "run analysis.py");
+        assert_eq!(
+            command_for("analysis.fixture", &executor),
+            "run analysis.fixture"
+        );
+        assert!(needs_plugin_startup(
+            &executor,
+            Path::new("analysis.fixture")
+        ));
     }
 
     #[test]

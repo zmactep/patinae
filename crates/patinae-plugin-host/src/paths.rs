@@ -794,7 +794,7 @@ mod tests {
     fn deps_search_path_updates_parse_commands_and_deduplicate() {
         let content = "\
 # comment
-python -c \"print('C:\\\\Dep A')\"
+runtime-tool -c \"print('C:\\\\Dep A')\"
 tool --dir
 tool --dir
 existing
@@ -808,7 +808,7 @@ existing
             |_, args| {
                 calls.push(args.to_vec());
                 match args.first().map(String::as_str) {
-                    Some("python") => Some("C:\\Dep A".to_string()),
+                    Some("runtime-tool") => Some("C:\\Dep A".to_string()),
                     Some("tool") => Some("C:\\Dep B".to_string()),
                     Some("existing") => Some("c:\\existing".to_string()),
                     _ => None,
@@ -820,7 +820,7 @@ existing
             calls,
             vec![
                 vec![
-                    "python".to_string(),
+                    "runtime-tool".to_string(),
                     "-c".to_string(),
                     "print('C:\\\\Dep A')".to_string(),
                 ],
@@ -839,14 +839,14 @@ existing
     #[test]
     fn deps_search_path_updates_resolve_relative_path_and_env_directives() {
         let content = "\
-path ../python
-path ../python-venv/Scripts
-env VIRTUAL_ENV ../python-venv
+path ../runtime
+path ../runtime-env/Scripts
+env FIXTURE_RUNTIME_HOME ../runtime-env
 ";
         let existing = [
-            PathBuf::from("/bundle/python"),
-            PathBuf::from("/bundle/python-venv"),
-            PathBuf::from("/bundle/python-venv/Scripts"),
+            PathBuf::from("/bundle/runtime"),
+            PathBuf::from("/bundle/runtime-env"),
+            PathBuf::from("/bundle/runtime-env/Scripts"),
         ];
 
         let updates = deps_search_path_updates(
@@ -860,21 +860,24 @@ env VIRTUAL_ENV ../python-venv
         assert_eq!(
             updates.path_prepend,
             vec![
-                "/bundle/python".to_string(),
-                "/bundle/python-venv/Scripts".to_string(),
+                "/bundle/runtime".to_string(),
+                "/bundle/runtime-env/Scripts".to_string(),
             ]
         );
         assert_eq!(
             updates.env_updates,
-            vec![("VIRTUAL_ENV".to_string(), "/bundle/python-venv".to_string())]
+            vec![(
+                "FIXTURE_RUNTIME_HOME".to_string(),
+                "/bundle/runtime-env".to_string()
+            )]
         );
     }
 
     #[test]
     fn deps_search_path_updates_skip_missing_declarative_paths() {
         let content = "\
-path ../missing-python
-env VIRTUAL_ENV ../missing-venv
+path ../missing-runtime
+env FIXTURE_RUNTIME_HOME ../missing-venv
 ";
         let updates = deps_search_path_updates(
             content,
@@ -891,14 +894,14 @@ env VIRTUAL_ENV ../missing-venv
     #[test]
     fn deps_search_path_updates_deduplicate_declarative_paths_against_current_path() {
         let content = "\
-path ../python
-path ../python
+path ../runtime
+path ../runtime
 ";
         let updates = deps_search_path_updates(
             content,
             Path::new("/bundle/plugins"),
-            "/bundle/python;/other",
-            |path| path == Path::new("/bundle/python"),
+            "/bundle/runtime;/other",
+            |path| path == Path::new("/bundle/runtime"),
             |_, _| None,
         );
 

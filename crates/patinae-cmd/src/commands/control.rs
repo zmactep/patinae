@@ -386,7 +386,7 @@ impl Command for RunCommand {
         CMD "run"
         DESCRIPTION [
             "executes a script file. Supports .pml (PyMOL script) and any",
-            "file type registered by a plugin (e.g., .py via the Python plugin).",
+            "file type registered by a plugin.",
         ]
         REQUIRED [
             { "filename", "string", "path to script file" },
@@ -395,7 +395,6 @@ impl Command for RunCommand {
         EXAMPLES [
             "run setup.pml",
             "run ~/scripts/analysis.pml",
-            "run script.py",
             "@ script.pml",
         ]
     }

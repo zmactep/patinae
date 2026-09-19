@@ -964,23 +964,26 @@ mod tests {
     #[test]
     fn parent_rejection_and_executor_ownership_preserve_state() {
         let (runner, _) = runner(TaskConfig::default());
-        let mut spec = TaskSpec::new("script", "python");
+        let mut spec = TaskSpec::new("script", "worker-a");
         spec.parent_id = Some(TaskId::new(7, 500));
         assert_eq!(runner.admit(spec), Err(TaskStartError::InvalidParent));
-        let id = runner.admit(TaskSpec::new("script", "python")).unwrap();
+        let id = runner.admit(TaskSpec::new("script", "worker-a")).unwrap();
         assert_eq!(id.sequence(), 1);
         let before = runner.get(id).unwrap();
         assert_eq!(
-            runner.started(id, "ipc").unwrap_err().code,
+            runner.started(id, "worker-b").unwrap_err().code,
             "wrong_executor"
         );
         assert_eq!(
-            runner.finish_owned(id, "ipc", success()).unwrap_err().code,
+            runner
+                .finish_owned(id, "worker-b", success())
+                .unwrap_err()
+                .code,
             "wrong_executor"
         );
         assert_eq!(runner.get(id).unwrap(), before);
         runner.finish(id, success());
-        let mut spec = TaskSpec::new("child", "python");
+        let mut spec = TaskSpec::new("child", "worker-a");
         spec.parent_id = Some(id);
         assert_eq!(runner.admit(spec), Err(TaskStartError::InvalidParent));
     }
@@ -1021,19 +1024,19 @@ mod tests {
     #[test]
     fn cancellation_waits_for_worker_acknowledgement_and_retains_effects() {
         let (runner, _) = runner(TaskConfig::default());
-        let id = runner.admit(TaskSpec::new("script", "python")).unwrap();
-        runner.started(id, "python").unwrap();
+        let id = runner.admit(TaskSpec::new("script", "worker-a")).unwrap();
+        runner.started(id, "worker-a").unwrap();
         runner
-            .record_effects(id, "python", TaskEffects::Applied)
+            .record_effects(id, "worker-a", TaskEffects::Applied)
             .unwrap();
         assert_eq!(runner.cancel(id), Ok(TaskCancelReply::Requested));
         assert_eq!(runner.cancel(id), Ok(TaskCancelReply::AlreadyRequested));
         assert_eq!(runner.get(id).unwrap().state, TaskState::Running);
         assert_eq!(
-            runner.can_apply_effect(id, "python", 0).unwrap_err().code,
+            runner.can_apply_effect(id, "worker-a", 0).unwrap_err().code,
             "cancelled"
         );
-        assert_eq!(runner.cancellation_targets(), vec![(id, "python".into())]);
+        assert_eq!(runner.cancellation_targets(), vec![(id, "worker-a".into())]);
         assert!(!runner.begin_apply(id, 0));
         let cancelled = runner.get(id).unwrap();
         assert_eq!(cancelled.state, TaskState::Cancelled);
@@ -1067,7 +1070,7 @@ mod tests {
             terminal_ttl_ms: 10,
             ..TaskConfig::default()
         });
-        let parent = runner.admit(TaskSpec::new("script", "python")).unwrap();
+        let parent = runner.admit(TaskSpec::new("script", "worker-a")).unwrap();
         let failed = child(&runner, parent, "native");
         let pending = child(&runner, parent, "native");
         runner.finish(failed, TaskOutcome::failure("parse_error", "bad structure"));
@@ -1149,12 +1152,12 @@ mod tests {
         let mut spec = TaskSpec::new("agent", "plugin");
         spec.silent = true;
         let parent = runner.admit(spec).unwrap();
-        let child = child(&runner, parent, "python");
+        let child = child(&runner, parent, "worker-a");
         assert_eq!(runner.is_silent(child), Ok(true));
         runner
             .output(
                 child,
-                "python",
+                "worker-a",
                 TaskDiagnostic {
                     level: "info".into(),
                     message: "retained stdout".into(),
@@ -1166,7 +1169,7 @@ mod tests {
             runner.get(child).unwrap().outcome.unwrap().diagnostics[0].message,
             "retained stdout"
         );
-        let visible = runner.admit(TaskSpec::new("python", "python")).unwrap();
+        let visible = runner.admit(TaskSpec::new("worker-a", "worker-a")).unwrap();
         assert_eq!(runner.is_silent(visible), Ok(false));
     }
 
@@ -1176,7 +1179,7 @@ mod tests {
             terminal_ttl_ms: 10,
             ..TaskConfig::default()
         });
-        let parent = runner.admit(TaskSpec::new("script", "python")).unwrap();
+        let parent = runner.admit(TaskSpec::new("script", "worker-a")).unwrap();
         let failed = child(&runner, parent, "native");
         runner.finish(failed, TaskOutcome::failure("parse_error", "bad structure"));
         clock.store(111, Ordering::Relaxed);
@@ -1195,7 +1198,7 @@ mod tests {
     #[test]
     fn cancelling_tree_waits_for_uncancellable_children_and_blocks_new_work() {
         let (runner, _) = runner(TaskConfig::default());
-        let parent = runner.admit(TaskSpec::new("script", "python")).unwrap();
+        let parent = runner.admit(TaskSpec::new("script", "worker-a")).unwrap();
         let child_id = child(&runner, parent, "native");
         let mut spec = TaskSpec::new("uncancellable", "native");
         spec.cancellable = false;
@@ -1226,11 +1229,11 @@ mod tests {
     #[test]
     fn nested_children_complete_upward_and_lost_owners_cannot_leave_orphans() {
         let (runner, _) = runner(TaskConfig::default());
-        let parent = runner.admit(TaskSpec::new("script", "python")).unwrap();
-        let middle = child(&runner, parent, "python");
+        let parent = runner.admit(TaskSpec::new("script", "worker-a")).unwrap();
+        let middle = child(&runner, parent, "worker-a");
         let leaf = child(&runner, middle, "native");
         runner.finish(parent, success());
-        assert_eq!(runner.fail_owner("python"), 1);
+        assert_eq!(runner.fail_owner("worker-a"), 1);
         assert!(runner.get(leaf).unwrap().cancel_requested);
         assert!(!runner.get(parent).unwrap().state.is_terminal());
         runner.finish(leaf, TaskOutcome::cancelled("requested"));
@@ -1239,18 +1242,18 @@ mod tests {
         assert_eq!(middle.state, TaskState::Failed);
         assert_eq!(runner.get(parent).unwrap().state, TaskState::Failed);
         assert_eq!(runner.pending_count(), 0);
-        assert_eq!(runner.fail_owner("python"), 0);
+        assert_eq!(runner.fail_owner("worker-a"), 0);
     }
 
     #[test]
     fn waits_reject_ancestors_and_work_blocked_by_sequential_executor() {
         let (runner, _) = runner(TaskConfig::default());
-        let parent = runner.admit(TaskSpec::new("script", "python")).unwrap();
+        let parent = runner.admit(TaskSpec::new("script", "worker-a")).unwrap();
         let network = child(&runner, parent, "native");
-        let queued_python = child(&runner, network, "python");
+        let queued_worker = child(&runner, network, "worker-a");
         assert_eq!(
             runner
-                .validate_wait(Some(parent), parent, Some("python"))
+                .validate_wait(Some(parent), parent, Some("worker-a"))
                 .unwrap_err()
                 .code,
             "would_deadlock"
@@ -1264,18 +1267,18 @@ mod tests {
         );
         assert_eq!(
             runner
-                .validate_wait(Some(parent), network, Some("python"))
+                .validate_wait(Some(parent), network, Some("worker-a"))
                 .unwrap_err()
                 .code,
             "would_deadlock"
         );
-        assert!(runner.validate_wait(None, queued_python, None).is_ok());
-        runner.finish(queued_python, success());
+        assert!(runner.validate_wait(None, queued_worker, None).is_ok());
+        runner.finish(queued_worker, success());
         assert!(runner
-            .validate_wait(Some(parent), network, Some("python"))
+            .validate_wait(Some(parent), network, Some("worker-a"))
             .is_ok());
         assert!(runner
-            .validate_wait(Some(parent), queued_python, Some("python"))
+            .validate_wait(Some(parent), queued_worker, Some("worker-a"))
             .is_ok());
     }
 

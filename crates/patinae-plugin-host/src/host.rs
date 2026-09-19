@@ -129,12 +129,21 @@ pub(crate) mod tests {
         );
         let metadata: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
         let mut checked = 0;
+        let mut checked_application = false;
         for package in metadata["packages"].as_array().unwrap() {
             let manifest = std::path::Path::new(package["manifest_path"].as_str().unwrap());
-            if !manifest.starts_with(root.join("crates")) {
+            let is_application = manifest == root.join("patinae/Cargo.toml");
+            let is_default_member = metadata["workspace_default_members"]
+                .as_array()
+                .unwrap()
+                .contains(&package["id"]);
+            if !manifest.starts_with(root.join("crates")) && !is_default_member {
                 continue;
             }
             checked += 1;
+            checked_application |= is_application;
+            // Cargo metadata includes normal, build, dev, and target-specific
+            // dependencies. Local dependencies must remain inside the core.
             for dependency in package["dependencies"].as_array().unwrap() {
                 let name = dependency["name"].as_str().unwrap();
                 assert!(
@@ -143,17 +152,35 @@ pub(crate) mod tests {
                     manifest.display()
                 );
                 if let Some(path) = dependency["path"].as_str() {
-                    for boundary in ["plugins", "python", "web"] {
-                        assert!(
-                            !std::path::Path::new(path).starts_with(root.join(boundary)),
-                            "{} depends on external adapter {path}",
-                            manifest.display()
-                        );
-                    }
+                    assert!(
+                        std::path::Path::new(path).starts_with(root.join("crates")),
+                        "{} depends on a package outside the core: {path}",
+                        manifest.display()
+                    );
                 }
             }
         }
         assert!(checked > 0, "metadata did not include any core crates");
+        assert!(
+            checked_application,
+            "metadata did not include the application"
+        );
+        for id in metadata["workspace_default_members"].as_array().unwrap() {
+            let package = metadata["packages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|package| package["id"] == *id)
+                .expect("default member must be a workspace package");
+            let manifest = std::path::Path::new(package["manifest_path"].as_str().unwrap());
+            assert!(
+                manifest.starts_with(root.join("crates"))
+                    || manifest == root.join("patinae/Cargo.toml")
+                    || manifest == root.join("tools/prs-upgrade/Cargo.toml"),
+                "core test lane includes an external adapter: {}",
+                manifest.display()
+            );
+        }
     }
 
     use std::ffi::c_void;
@@ -312,7 +339,7 @@ pub(crate) mod tests {
             needs_redraw: &mut needs_redraw,
         };
         let mut ctx = CommandContext::new(&mut adapter);
-        let parsed = parse_command("python print('ok')").unwrap();
+        let parsed = parse_command("fixture value").unwrap();
 
         command_input_from_context(&mut ctx, &parsed, runtime_requirements).unwrap()
     }
@@ -1286,18 +1313,18 @@ pub(crate) mod tests {
     #[test]
     fn plugin_extension_filter_matches_platform() {
         assert_eq!(
-            is_plugin_library_path(Path::new("libhello_plugin.dylib")),
+            is_plugin_library_path(Path::new("libfixture_plugin.dylib")),
             cfg!(target_os = "macos")
         );
         assert_eq!(
-            is_plugin_library_path(Path::new("libhello_plugin.so")),
+            is_plugin_library_path(Path::new("libfixture_plugin.so")),
             cfg!(target_os = "linux")
         );
         assert_eq!(
-            is_plugin_library_path(Path::new("hello_plugin.dll")),
+            is_plugin_library_path(Path::new("fixture_plugin.dll")),
             cfg!(target_os = "windows")
         );
-        assert!(!is_plugin_library_path(Path::new("hello_plugin.deps")));
+        assert!(!is_plugin_library_path(Path::new("fixture_plugin.deps")));
     }
 
     #[test]
@@ -1976,51 +2003,5 @@ pub(crate) mod tests {
             .unwrap_or_else(|| panic!("missing panel {id}"));
         assert_eq!(status.visible, visible, "visibility for panel {id}");
         assert_eq!(status.active, active, "active state for panel {id}");
-    }
-
-    #[test]
-    #[ignore = "requires PATINAE_PLUGIN_TEST_DIR pointing at built plugin libraries"]
-    fn loads_built_reference_plugins() {
-        let dir = std::env::var("PATINAE_PLUGIN_TEST_DIR")
-            .expect("set PATINAE_PLUGIN_TEST_DIR to target/release/plugins");
-        let mut executor = CommandExecutor::new();
-        let mut host = PluginHost::new();
-        let mut errors = Vec::new();
-        for entry in std::fs::read_dir(&dir).expect("plugin test dir exists") {
-            let path = entry.expect("plugin dir entry").path();
-            if !is_plugin_library_path(&path) {
-                continue;
-            }
-            if let Err(e) = host.load_library(&path, &mut executor) {
-                errors.push(format!("{}: {e}", path.display()));
-            }
-        }
-
-        assert!(
-            errors.is_empty(),
-            "plugin load errors:\n{}",
-            errors.join("\n")
-        );
-        let actual: std::collections::BTreeSet<_> = host
-            .plugins
-            .iter()
-            .map(|plugin| plugin.metadata.name.as_str())
-            .collect();
-        let mut expected = std::collections::BTreeSet::from(["hello", "raytracer", "ai", "python"]);
-        if cfg!(unix) {
-            expected.insert("ipc");
-        }
-        assert_eq!(actual, expected, "every built reference plugin must load");
-        for command in ["hello", "ray", "ai", "python"] {
-            assert!(executor.registry().contains(command), "missing {command}");
-        }
-        assert!(host.panel_statuses().iter().any(|panel| {
-            panel.descriptor.id == "rt_toolbar"
-                && panel.descriptor.placement == PanelPlacement::Right
-        }));
-        assert!(host.toggle_panel("rt_toolbar"));
-        assert_panel(&host, "rt_toolbar", true, true);
-        assert!(host.toggle_panel("rt_toolbar"));
-        assert_panel(&host, "rt_toolbar", false, false);
     }
 }

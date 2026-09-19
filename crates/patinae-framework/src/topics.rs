@@ -100,10 +100,10 @@ mod tests {
     #[test]
     fn custom_action_roundtrips_save_file_request() {
         let request = SaveFileRequest {
-            panel_id: "rt_toolbar".into(),
+            panel_id: "fixture-panel".into(),
             reply_control_id: "save_file_selected".into(),
-            title: "Save ray-traced image".into(),
-            default_file_name: "raytrace.png".into(),
+            title: "Save image".into(),
+            default_file_name: "image.png".into(),
             allowed_extensions: vec!["png".into()],
         };
 

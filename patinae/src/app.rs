@@ -3019,16 +3019,16 @@ mod tests {
     #[test]
     fn save_file_response_targets_originating_panel() {
         let request = SaveFileRequest {
-            panel_id: "rt_toolbar".into(),
+            panel_id: "fixture-panel".into(),
             reply_control_id: "save_file_selected".into(),
-            title: "Save ray-traced image".into(),
-            default_file_name: "raytrace.png".into(),
+            title: "Save image".into(),
+            default_file_name: "image.png".into(),
             allowed_extensions: vec!["png".into()],
         };
 
         let event = save_file_response_event(&request, "/tmp/render.png".into());
 
-        assert_eq!(event.panel_id, "rt_toolbar");
+        assert_eq!(event.panel_id, "fixture-panel");
         assert_eq!(event.control_id, "save_file_selected");
         assert_eq!(event.kind, PanelEventKind::TextCommit);
         assert!(matches!(event.value, PanelValue::Text(path) if path == "/tmp/render.png"));
@@ -3037,10 +3037,10 @@ mod tests {
     #[test]
     fn save_file_requests_are_deferred_out_of_render_path() {
         let request = SaveFileRequest {
-            panel_id: "rt_toolbar".into(),
+            panel_id: "fixture-panel".into(),
             reply_control_id: "save_file_selected".into(),
-            title: "Save ray-traced image".into(),
-            default_file_name: "raytrace.png".into(),
+            title: "Save image".into(),
+            default_file_name: "image.png".into(),
             allowed_extensions: vec!["png".into()],
         };
         let mut bus = patinae_framework::message::MessageBus::new();
@@ -3060,7 +3060,7 @@ mod tests {
         let rc = write_startup_file("plugin-startup-rc");
         std::fs::write(&rc, "set sphere_scale, 2\n").unwrap();
         let argv = PathBuf::from("/tmp/startup molecule.pdb");
-        let deferred = PathBuf::from("/tmp/user script.py");
+        let deferred = PathBuf::from("/tmp/user script.fixture");
         app.startup_actions = VecDeque::from([
             StartupAction::RunPatinaerc(rc.clone()),
             StartupAction::RouteArgvFile(argv.clone()),
@@ -3091,13 +3091,13 @@ mod tests {
                 _ => None,
             })
             .collect();
-        // Python is still unsupported in this empty host: the queued file is
+        // The custom format is unsupported in this empty host: the queued file is
         // resolved after readiness, then reports a warning rather than vanishing.
         assert_eq!(
             commands.last().copied(),
             Some("load \"/tmp/startup molecule.pdb\"")
         );
-        assert!(messages.iter().any(|message| matches!(message, AppMessage::PrintWarning(text) if text.contains("user script.py"))));
+        assert!(messages.iter().any(|message| matches!(message, AppMessage::PrintWarning(text) if text.contains("user script.fixture"))));
         app.run_startup_actions((800, 600));
         assert!(app.kernel.bus.drain_outbox().is_empty());
         std::fs::remove_file(rc).unwrap();

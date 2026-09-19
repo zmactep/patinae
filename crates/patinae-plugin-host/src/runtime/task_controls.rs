@@ -850,7 +850,7 @@ mod tasks {
         let mut kernel = patinae_framework::kernel::AppKernel::new();
         let waiter = kernel
             .tasks
-            .admit(TaskSpec::new("python", "first"))
+            .admit(TaskSpec::new("fixture", "first"))
             .unwrap();
         kernel.tasks.started(waiter, "first").unwrap();
         let target = kernel.tasks.admit(TaskSpec::new("pml", "native")).unwrap();
@@ -870,7 +870,7 @@ mod tasks {
         host.apply_task_controls(&mut kernel, None, (1, 1));
         host.poll_all(&fixture.shared(), &mut kernel.bus);
         assert!(replies(&mut kernel.bus).is_empty());
-        let mut child = TaskSpec::new("python", "first");
+        let mut child = TaskSpec::new("fixture", "first");
         child.parent_id = Some(target);
         kernel.tasks.admit(child).unwrap();
         host.apply_task_controls(&mut kernel, None, (1, 1));

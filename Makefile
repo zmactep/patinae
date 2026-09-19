@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help clean check check-release-metadata test test-bindings test-abi test-gpu test-ci \
+.PHONY: help clean check check-release-metadata test test-core test-bindings test-abi test-gpu test-ci \
        patinae patinae-dev patinae-fast patinae-fast-plugins \
        plugins plugins-install \
        python-release python-dev \
@@ -105,6 +105,9 @@ check-release-metadata:
 test:
 	bash scripts/test.sh workspace
 
+test-core:
+	bash scripts/test.sh core
+
 test-bindings: widget-assets
 	bash scripts/test.sh bindings
 
@@ -115,6 +118,7 @@ test-gpu:
 	bash scripts/test.sh gpu
 
 test-ci:
+	$(MAKE) test-core
 	$(MAKE) test
 	$(MAKE) test-bindings
 	$(MAKE) test-abi
@@ -382,10 +386,11 @@ help:
 	@echo "  check            Check the Rust workspace"
 	@echo "  check-release-metadata  Check release versions and Cargo lockfiles"
 	@echo "  test             Run all workspace CPU tests"
+	@echo "  test-core        Test core and application without plugin runtimes"
 	@echo "  test-bindings    Test Rust bindings and an installed Python wheel"
-	@echo "  test-abi         Build and exercise dynamic reference plugins"
+	@echo "  test-abi         Build and test the dynamic AI plugin ABI"
 	@echo "  test-gpu         Run explicit GPU contracts (adapter required)"
-	@echo "  test-ci          Run workspace, bindings, and ABI checks"
+	@echo "  test-ci          Run core, workspace, bindings, and ABI checks"
 	@echo "  clean            Clean all build artifacts"
 	@echo ""
 	@echo "Patinae (Slint GUI):"

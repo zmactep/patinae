@@ -45,8 +45,7 @@ impl GpuViewportImage {
 
 /// Convert a tightly packed RGBA8 storage buffer into a viewport texture.
 ///
-/// The source buffer is interpreted as little-endian packed `u32` RGBA pixels,
-/// matching the raytracer viewport output contract.
+/// The source buffer is interpreted as little-endian packed `u32` RGBA pixels.
 ///
 /// # Errors
 ///

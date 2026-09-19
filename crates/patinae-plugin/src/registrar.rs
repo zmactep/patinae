@@ -703,7 +703,7 @@ impl<'a> PluginRegistrar<'a> {
     /// Register a script handler for a specific extension.
     ///
     /// Used by the builtin `run` command to dispatch non-.pml files
-    /// to the appropriate plugin (e.g., `.py` → Python plugin).
+    /// to the plugin that registered the extension.
     pub fn register_script_handler(
         &mut self,
         extension: &str,

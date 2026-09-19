@@ -41,6 +41,9 @@ jobs:
       - name: Check release metadata
         run: make check-release-metadata
 
+      - name: Test core without plugin runtimes
+        run: make test-core
+
       - name: Setup uv
         uses: astral-sh/setup-uv@v7
 

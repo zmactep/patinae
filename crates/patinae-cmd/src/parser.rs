@@ -656,7 +656,7 @@ mod tests {
     }
 
     #[test]
-    fn test_raw_args_preserve_python_expressions() {
+    fn test_raw_args_preserve_expressions() {
         let cmd = parse_command("alter name CA, b=random.random()").unwrap();
         assert_eq!(cmd.name, "alter");
         assert_eq!(cmd.raw_args(), Some("name CA, b=random.random()"));
@@ -889,14 +889,14 @@ set_view (\ 0.381124,    -0.381788,    -0.842011,\
             0.000000,     0.000000,   639.042053,\
            -1.574999,   -16.596998,     9.544001,\
             561.162231,   794.801453,   14.000000 )
-ray 1920, 1080, filename=test.png"#;
+fixture 1920, 1080, filename=test.png"#;
 
         let cmds = parse_commands(input).unwrap();
         assert_eq!(cmds.len(), 4, "Expected 4 commands");
         assert_eq!(cmds[0].name, "load");
         assert_eq!(cmds[1].name, "as");
         assert_eq!(cmds[2].name, "set_view");
-        assert_eq!(cmds[3].name, "ray");
+        assert_eq!(cmds[3].name, "fixture");
     }
 
     // ========================================================================
@@ -951,17 +951,17 @@ set_view (\ 0.381124,    -0.381788,    -0.842011,\
             0.000000,     0.000000,   639.042053,\
            -1.574999,   -16.596998,     9.544001,\
             561.162231,   794.801453,   14.000000 )
-ray 1920, 1080, filename=test.png"#;
+fixture 1920, 1080, filename=test.png"#;
 
         let result = join_continued_lines(input);
         let lines: Vec<&str> = result.lines().collect();
 
-        // Should have 4 lines: load, as, set_view (joined), ray
+        // Should have 4 lines: load, as, set_view (joined), fixture
         assert_eq!(lines.len(), 4, "Expected 4 lines, got {}", lines.len());
         assert!(lines[0].starts_with("load"));
         assert!(lines[1].starts_with("as"));
         assert!(lines[2].starts_with("set_view"));
-        assert!(lines[3].starts_with("ray"));
+        assert!(lines[3].starts_with("fixture"));
 
         // The set_view line should contain all values
         assert!(lines[2].contains("0.381124"));
@@ -995,7 +995,7 @@ ray 1920, 1080, filename=test.png"#;
 
     #[test]
     fn test_slash_as_command_name() {
-        // / is a command alias for python (like @ is for run)
+        // A punctuation command name is preserved without resolving its registration.
         let cmd = parse_command("/print('hello')").unwrap();
         assert_eq!(cmd.name, "/");
         assert_eq!(cmd.get_str(0), Some("print('hello')"));

@@ -1697,7 +1697,6 @@ impl Command for PngCommand {
         ]
         NOTES("NOTES") [
             "If only width or height is specified, the aspect ratio is preserved.",
-            "Use the \"ray\" command (from the raytracer plugin) for ray-traced images.",
         ]
         EXAMPLES [
             "png ~/Desktop/screenshot.png",
