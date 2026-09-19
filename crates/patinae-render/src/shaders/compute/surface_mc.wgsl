@@ -8,10 +8,10 @@
 // against `iso` per `params.invert_inside`:
 //   - `invert_inside == 0`: inside ⇔ value >= iso  (SAS density: bigger = inside)
 //   - `invert_inside == 1`: inside ⇔ value <= iso  (SES SDF: smaller = inside)
-// Bourke's TRI_TABLE assumes inside ⇔ value < iso, so for the first case we
-// emit the per-triangle edge slots in reverse to flip winding back to CCW;
-// for the second case we emit them in their natural order. Either way the
-// resulting triangles face outward from the surface.
+// Both modes set a case bit for an interior corner. With our corner layout,
+// TRI_TABLE emits inward-facing triangles for that mask, so reverse the
+// edge slots in both modes to face outward. The scalar field's sign changes
+// the classification and gradient, not the winding of an identical mask.
 //
 // Vertex normal is the gradient of the scalar field, computed by central
 // differences on the rgba16float .w channel. Sign is flipped under
@@ -216,7 +216,7 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
         var tri_owner_count = 0u;
         for (var pair_slot: u32 = 0u; pair_slot < 3u; pair_slot = pair_slot + 1u) {
             var pair_local: u32 = pair_slot;
-            if (params.emit_lines == 0u && params.invert_inside == 0u) {
+            if (params.emit_lines == 0u) {
                 pair_local = 2u - pair_slot;
             }
             let pair_edge_signed = i32(mc_tables[TRI_TABLE_OFFSET + case_idx * 16u + t * 3u + pair_local]);
@@ -269,12 +269,11 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
             if (params.emit_lines == 1u) {
                 tri_slot = line_permute[slot];
             }
-            // Reverse triangle slot order under the `>=` convention to flip
-            // Bourke's CW emission to CCW. Under `<= iso` (SES SDF) keep
-            // natural order. Apply only in TriangleList mode — LineList
-            // edges are direction-agnostic.
+            // Both field modes classify interior corners into the same mask.
+            // Reverse triangle winding in either mode; LineList edges are
+            // direction-agnostic.
             var local: u32 = tri_slot;
-            if (params.emit_lines == 0u && params.invert_inside == 0u) {
+            if (params.emit_lines == 0u) {
                 local = 2u - tri_slot;
             }
             let edge_id_signed = i32(mc_tables[TRI_TABLE_OFFSET + case_idx * 16u + t * 3u + local]);
