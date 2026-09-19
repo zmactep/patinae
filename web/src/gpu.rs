@@ -51,7 +51,7 @@ impl GpuState {
         #[cfg(not(target_arch = "wasm32"))]
         {
             let _ = (canvas, width, height, memory_profile_override);
-            return Err("WebViewer only runs on wasm32".into());
+            Err("WebViewer only runs on wasm32".into())
         }
 
         #[cfg(target_arch = "wasm32")]
