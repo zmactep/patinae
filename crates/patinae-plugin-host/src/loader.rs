@@ -6616,11 +6616,20 @@ mod loader_tests {
     }
 
     struct TraceFixtureViewer {
+        gpu: Option<(wgpu::Device, wgpu::Queue)>,
         session: Session,
         chunks: Vec<patinae_render::TraceGeometryChunk>,
     }
 
     impl ViewerLike for TraceFixtureViewer {
+        fn gpu_device(&self) -> Option<&wgpu::Device> {
+            self.gpu.as_ref().map(|gpu| &gpu.0)
+        }
+
+        fn gpu_queue(&self) -> Option<&wgpu::Queue> {
+            self.gpu.as_ref().map(|gpu| &gpu.1)
+        }
+
         fn objects(&self) -> &patinae_scene::ObjectRegistry {
             &self.session.registry
         }
@@ -6787,6 +6796,7 @@ mod loader_tests {
             .recent_atoms
             .insert(path, patinae_settings::groups::RecentPickLimit::Unlimited);
         let mut viewer = TraceFixtureViewer {
+            gpu: None,
             session,
             chunks: Vec::new(),
         };
@@ -6977,6 +6987,7 @@ mod loader_tests {
     #[test]
     fn trace_geometry_stream_reads_multiple_chunks() {
         let mut viewer = TraceFixtureViewer {
+            gpu: None,
             session: Session::new(),
             chunks: vec![trace_chunk(1, 2, 3), trace_chunk(4, 5, 6)],
         };
@@ -7031,8 +7042,185 @@ mod loader_tests {
     }
 
     #[test]
+    #[ignore = "requires a real GPU; exercises the host command batch runtime"]
+    fn gpu_host_batch_writes_dispatches_reads_and_rejects_invalid_resources() {
+        fn handle(value: WireCommandRuntimeValue) -> GpuHandle {
+            match value {
+                WireCommandRuntimeValue::GpuHandle(handle) => handle,
+                _ => panic!("expected GPU handle"),
+            }
+        }
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let adapter = pollster::block_on(instance.request_adapter(&Default::default()))
+            .expect("GPU adapter required; do not silently skip");
+        eprintln!("Host GPU batch adapter: {:?}", adapter.get_info());
+        let gpu = pollster::block_on(adapter.request_device(&Default::default())).unwrap();
+        let mut viewer = TraceFixtureViewer {
+            gpu: Some(gpu),
+            session: Session::new(),
+            chunks: Vec::new(),
+        };
+        let mut state =
+            HostCommandRuntimeState::new(&mut viewer, CommandRuntimeRequirements::GPU_COMMANDS);
+        let buffer = handle(
+            state
+                .gpu_create_buffer(
+                    GpuBufferDescriptor {
+                        label: None,
+                        size: 16,
+                        usage: GpuBufferUsage::STORAGE
+                            .union(GpuBufferUsage::COPY_SRC)
+                            .union(GpuBufferUsage::COPY_DST),
+                    },
+                    None,
+                )
+                .unwrap(),
+        );
+        let shader = handle(state.gpu_create_shader_module(GpuShaderModuleDescriptor {
+            label: None,
+            wgsl: "@group(0) @binding(0) var<storage, read_write> values: array<u32>; @compute @workgroup_size(1) fn main(@builtin(global_invocation_id) id: vec3<u32>) { values[id.x] = values[id.x] * 3u + 1u; }".into(),
+        }).unwrap());
+        let layout = handle(
+            state
+                .gpu_create_bind_group_layout(GpuBindGroupLayoutDescriptor {
+                    label: None,
+                    entries: vec![GpuBindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: GpuShaderStages::COMPUTE,
+                        ty: GpuBindingType::Buffer {
+                            ty: GpuBufferBindingType::StorageReadWrite,
+                            has_dynamic_offset: false,
+                            min_binding_size: Some(16),
+                        },
+                    }],
+                })
+                .unwrap(),
+        );
+        let pipeline_layout = handle(
+            state
+                .gpu_create_pipeline_layout(GpuPipelineLayoutDescriptor {
+                    label: None,
+                    bind_group_layouts: vec![layout],
+                })
+                .unwrap(),
+        );
+        let pipeline = handle(
+            state
+                .gpu_create_compute_pipeline(GpuComputePipelineDescriptor {
+                    label: None,
+                    layout: pipeline_layout,
+                    module: shader,
+                    entry_point: "main".into(),
+                })
+                .unwrap(),
+        );
+        let group = handle(
+            state
+                .gpu_create_bind_group(GpuBindGroupDescriptor {
+                    label: None,
+                    layout,
+                    entries: vec![GpuBindGroupEntry {
+                        binding: 0,
+                        resource: GpuBindingResource::Buffer(patinae_scene::GpuBufferBinding {
+                            buffer,
+                            offset: 0,
+                            size: Some(16),
+                        }),
+                    }],
+                })
+                .unwrap(),
+        );
+        let input: Vec<u8> = [2_u32, 5, 11, 19]
+            .into_iter()
+            .flat_map(u32::to_le_bytes)
+            .collect();
+        let response = state.handle_request(WireCommandRuntimeRequest::GpuSubmitBatch {
+            id: 42,
+            batch: GpuSubmitBatch {
+                label: None,
+                wait_for_completion: true,
+                commands: vec![
+                    GpuBatchCommand::WriteBuffer {
+                        buffer,
+                        offset: 0,
+                        data: input.clone(),
+                    },
+                    GpuBatchCommand::ReadBuffer {
+                        buffer,
+                        offset: 0,
+                        size: 16,
+                    },
+                    GpuBatchCommand::DispatchCompute {
+                        pipeline,
+                        bind_groups: vec![group],
+                        workgroups: [4, 1, 1],
+                    },
+                    GpuBatchCommand::ReadBuffer {
+                        buffer,
+                        offset: 0,
+                        size: 16,
+                    },
+                ],
+            },
+        });
+        assert_eq!(response.id, 42);
+        let WireCommandRuntimeValue::GpuBatchResult(result) = response.result.unwrap() else {
+            panic!("expected batch readbacks");
+        };
+        let expected: Vec<u8> = [7_u32, 16, 34, 58]
+            .into_iter()
+            .flat_map(u32::to_le_bytes)
+            .collect();
+        assert_eq!(result.readbacks, vec![input, expected]);
+        for (name, command) in [
+            (
+                "unknown handle",
+                GpuBatchCommand::ReadBuffer {
+                    buffer: GpuHandle {
+                        id: u64::MAX,
+                        ..buffer
+                    },
+                    offset: 0,
+                    size: 4,
+                },
+            ),
+            (
+                "read out of bounds",
+                GpuBatchCommand::ReadBuffer {
+                    buffer,
+                    offset: 12,
+                    size: 8,
+                },
+            ),
+            (
+                "write out of bounds",
+                GpuBatchCommand::WriteBuffer {
+                    buffer,
+                    offset: 16,
+                    data: vec![0; 4],
+                },
+            ),
+        ] {
+            let response = state.handle_request(WireCommandRuntimeRequest::GpuSubmitBatch {
+                id: 43,
+                batch: GpuSubmitBatch {
+                    label: None,
+                    wait_for_completion: true,
+                    commands: vec![command],
+                },
+            });
+            assert_eq!(response.id, 43, "{name}");
+            assert!(
+                response.result.is_err(),
+                "{name} must be rejected by the host"
+            );
+        }
+    }
+
+    #[test]
     fn gpu_runtime_request_requires_declared_requirement() {
         let mut viewer = TraceFixtureViewer {
+            gpu: None,
             session: Session::new(),
             chunks: Vec::new(),
         };
@@ -7047,6 +7235,7 @@ mod loader_tests {
     #[test]
     fn gpu_batch_request_requires_declared_requirement() {
         let mut viewer = TraceFixtureViewer {
+            gpu: None,
             session: Session::new(),
             chunks: Vec::new(),
         };
@@ -7173,6 +7362,7 @@ mod loader_tests {
     #[test]
     fn gpu_cache_stats_and_drop_require_gpu_runtime() {
         let mut viewer = TraceFixtureViewer {
+            gpu: None,
             session: Session::new(),
             chunks: Vec::new(),
         };
@@ -7190,6 +7380,7 @@ mod loader_tests {
     #[test]
     fn gpu_cache_stats_and_drop_roundtrip_without_device() {
         let mut viewer = TraceFixtureViewer {
+            gpu: None,
             session: Session::new(),
             chunks: Vec::new(),
         };

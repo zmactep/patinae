@@ -5,8 +5,6 @@
 
 use patinae_color::NamedPalette;
 use patinae_plugin::prelude::*;
-#[cfg(test)]
-use patinae_render::{DisplayedGeometry, TraceGeometryChunk};
 use patinae_scene::normalize_matrix;
 
 /// Reflect-scale adjustment for classic shading so multiple positional lights
@@ -32,16 +30,8 @@ fn compute_reflect_scale(light_count: i32, light_dirs: &[[f32; 3]]) -> f32 {
 }
 
 use crate::gpu::RaytraceParams;
-#[cfg(test)]
-use crate::primitive::{GpuCylinder, GpuSphere};
-#[cfg(test)]
-use crate::primitive::{GpuTriangle, PrimitiveCollector, Primitives};
 use crate::settings::{RaytraceSettings, ResolvedRaySettings};
 
-#[cfg(test)]
-const RAY_LINE_RADIUS: f32 = 0.035;
-#[cfg(test)]
-const RAY_POINT_RADIUS: f32 = 0.035;
 // ---------------------------------------------------------------------------
 // Error
 // ---------------------------------------------------------------------------
@@ -70,86 +60,6 @@ pub(crate) enum RaytraceSceneOutput {
         height: u32,
         profile_lines: Vec<String>,
     },
-}
-
-// ---------------------------------------------------------------------------
-// Test/support helpers
-// ---------------------------------------------------------------------------
-
-#[cfg(test)]
-fn primitives_from_displayed_geometry(displayed: &DisplayedGeometry) -> Primitives {
-    let mut collector = PrimitiveCollector::new();
-    add_trace_geometry_primitives(
-        &TraceGeometryChunk::from_displayed(displayed),
-        &mut collector,
-    );
-    collector.build()
-}
-
-#[cfg(test)]
-fn add_trace_geometry_primitives(chunk: &TraceGeometryChunk, collector: &mut PrimitiveCollector) {
-    for sphere in &chunk.spheres {
-        collector.add_sphere(GpuSphere::new(
-            sphere.center,
-            sphere.radius,
-            sphere.material.rgba,
-            sphere.material.transparency,
-        ));
-    }
-
-    for cylinder in &chunk.cylinders {
-        collector.add_cylinder(GpuCylinder::new(
-            cylinder.start,
-            cylinder.end,
-            cylinder.radius,
-            cylinder.material_start.rgba,
-            cylinder.material_end.rgba,
-            cylinder
-                .material_start
-                .transparency
-                .max(cylinder.material_end.transparency),
-        ));
-    }
-
-    for triangle in &chunk.triangles {
-        collector.add_triangle(GpuTriangle::new(
-            triangle.positions[0],
-            triangle.positions[1],
-            triangle.positions[2],
-            triangle.normals[0],
-            triangle.normals[1],
-            triangle.normals[2],
-            triangle.material.rgba,
-            triangle.material.transparency,
-        ));
-    }
-
-    for line in &chunk.line_segments {
-        // Screen-space lines have no physical radius. The ray adapter renders
-        // them as a thin world-space cylinder so line/mesh displays remain
-        // visible in the ray image.
-        collector.add_cylinder(GpuCylinder::new(
-            line.start,
-            line.end,
-            RAY_LINE_RADIUS,
-            line.material_start.rgba,
-            line.material_end.rgba,
-            line.material_start
-                .transparency
-                .max(line.material_end.transparency),
-        ));
-    }
-
-    for point in &chunk.point_samples {
-        // Screen-space points are semantic samples; ray uses a small physical
-        // sphere approximation.
-        collector.add_sphere(GpuSphere::new(
-            point.position,
-            RAY_POINT_RADIUS,
-            point.material.rgba,
-            point.material.transparency,
-        ));
-    }
 }
 
 /// Resolve all raytracing settings from the app settings and plugin settings.
@@ -378,138 +288,4 @@ pub(crate) fn raytrace_scene(
 #[inline]
 fn matrix_to_array(m: lin_alg::f32::Mat4) -> [[f32; 4]; 4] {
     <[[f32; 4]; 4]>::from(m)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use patinae_render::{
-        DisplayedMaterial, DisplayedMesh, DisplayedMeshVertex, DisplayedObjectGeometry,
-        DisplayedPrimitive, ObjectId, RepKind, TraceLineSegment, TraceMaterial, TracePointSample,
-    };
-
-    fn primitives_from_trace_geometry_chunk(chunk: &TraceGeometryChunk) -> Primitives {
-        let mut collector = PrimitiveCollector::new();
-        add_trace_geometry_primitives(chunk, &mut collector);
-        collector.build()
-    }
-
-    #[test]
-    fn displayed_cartoon_mesh_converts_to_ray_triangle() {
-        let material = DisplayedMaterial::from_rgba([0.8, 0.1, 0.2, 1.0]);
-        let displayed = DisplayedGeometry {
-            objects: vec![DisplayedObjectGeometry {
-                object_id: ObjectId(1),
-                primitives: vec![DisplayedPrimitive::Mesh {
-                    rep: RepKind::Cartoon,
-                    mesh: DisplayedMesh {
-                        vertices: vec![
-                            DisplayedMeshVertex {
-                                position: [0.0, 0.0, 0.0],
-                                normal: [0.0, 0.0, 1.0],
-                                owner_atom_id: 0,
-                                material,
-                                flags: 0,
-                            },
-                            DisplayedMeshVertex {
-                                position: [1.0, 0.0, 0.0],
-                                normal: [0.0, 0.0, 1.0],
-                                owner_atom_id: 0,
-                                material,
-                                flags: 0,
-                            },
-                            DisplayedMeshVertex {
-                                position: [0.0, 1.0, 0.0],
-                                normal: [0.0, 0.0, 1.0],
-                                owner_atom_id: 0,
-                                material,
-                                flags: 0,
-                            },
-                        ],
-                    },
-                }],
-            }],
-        };
-
-        let primitives = primitives_from_displayed_geometry(&displayed);
-
-        assert_eq!(primitives.total_count(), 1);
-        assert_eq!(primitives.triangles.len(), 1);
-    }
-
-    #[test]
-    fn trace_triangle_matches_displayed_triangle_count() {
-        let material = DisplayedMaterial::from_rgba([0.8, 0.1, 0.2, 1.0]);
-        let displayed = DisplayedGeometry {
-            objects: vec![DisplayedObjectGeometry {
-                object_id: ObjectId(1),
-                primitives: vec![DisplayedPrimitive::Mesh {
-                    rep: RepKind::Cartoon,
-                    mesh: DisplayedMesh {
-                        vertices: vec![
-                            DisplayedMeshVertex {
-                                position: [0.0, 0.0, 0.0],
-                                normal: [0.0, 0.0, 1.0],
-                                owner_atom_id: 0,
-                                material,
-                                flags: 0,
-                            },
-                            DisplayedMeshVertex {
-                                position: [1.0, 0.0, 0.0],
-                                normal: [0.0, 0.0, 1.0],
-                                owner_atom_id: 0,
-                                material,
-                                flags: 0,
-                            },
-                            DisplayedMeshVertex {
-                                position: [0.0, 1.0, 0.0],
-                                normal: [0.0, 0.0, 1.0],
-                                owner_atom_id: 0,
-                                material,
-                                flags: 0,
-                            },
-                        ],
-                    },
-                }],
-            }],
-        };
-        let displayed_primitives = primitives_from_displayed_geometry(&displayed);
-        let trace = TraceGeometryChunk::from_displayed(&displayed);
-        let trace_primitives = primitives_from_trace_geometry_chunk(&trace);
-
-        assert_eq!(
-            trace_primitives.total_count(),
-            displayed_primitives.total_count()
-        );
-        assert_eq!(trace_primitives.triangles.len(), 1);
-    }
-
-    #[test]
-    fn trace_line_and_point_samples_map_to_cylinder_and_sphere() {
-        let material = TraceMaterial {
-            rgba: [0.2, 0.8, 0.4, 1.0],
-            transparency: 0.0,
-        };
-        let trace = TraceGeometryChunk {
-            line_segments: vec![TraceLineSegment {
-                start: [0.0, 0.0, 0.0],
-                end: [1.0, 0.0, 0.0],
-                width_px: 1.0,
-                material_start: material,
-                material_end: material,
-            }],
-            point_samples: vec![TracePointSample {
-                position: [0.0, 1.0, 0.0],
-                radius_px: 1.0,
-                material,
-            }],
-            ..TraceGeometryChunk::default()
-        };
-
-        let primitives = primitives_from_trace_geometry_chunk(&trace);
-
-        assert_eq!(primitives.cylinders.len(), 1);
-        assert_eq!(primitives.spheres.len(), 1);
-        assert_eq!(primitives.total_count(), 2);
-    }
 }

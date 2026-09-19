@@ -3399,26 +3399,7 @@ mod tests {
 
     #[test]
     fn same_chain_polymer_and_organic() {
-        let subs = vec![
-            key("1abc", "A", "", "biopolymer", "chain A and polymer"),
-            key(
-                "1abc",
-                "A",
-                "HEM",
-                "organic",
-                "chain A and organic and resi 200",
-            ),
-        ];
-        assert_eq!(
-            build_subchains_expr(&subs).unwrap(),
-            "1abc and (chain A and polymer or chain A and organic and resi 200)"
-        );
-    }
-
-    #[test]
-    fn bio_and_het_same_chain() {
-        // The old "bio subsumes het" optimisation is gone — both rows
-        // produce a clean OR of typed clauses.
+        // Neither row subsumes the other: preserve both typed clauses.
         let subs = vec![
             key("1abc", "A", "", "biopolymer", "chain A and polymer"),
             key(

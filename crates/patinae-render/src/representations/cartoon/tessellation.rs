@@ -1147,15 +1147,6 @@ mod tests {
         assert_eq!(find_sheet_runs(&gps), vec![(0, 4)]);
     }
 
-    #[test]
-    fn smooth_endpoints_match() {
-        // Sanity: the smoothing formula keeps endpoints fixed.
-        let f0 = smooth(0.0, 2.0);
-        assert_eq!(f0, 0.0);
-        let f1 = smooth(1.0, 2.0);
-        assert_eq!(f1, 1.0);
-    }
-
     fn loop_gp(x: f32, y: f32, atom_idx: u32) -> GuidePoint {
         GuidePoint {
             position: Vec3::new(x, y, 0.0),

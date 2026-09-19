@@ -292,6 +292,13 @@ mod tests {
         let result = global_align(&seq, &seq, &identity_scoring());
         assert_eq!(result.n_matched, 6);
         assert!((result.identity - 1.0).abs() < 1e-5);
+        assert_eq!(result.pairs.len(), seq.len());
+        for (i, pair) in result.pairs.iter().enumerate() {
+            assert!(
+                matches!(pair, AlignedPair::Match { source, target } if *source == i && *target == i),
+                "pair {i}: {pair:?}"
+            );
+        }
     }
 
     #[test]
@@ -350,23 +357,6 @@ mod tests {
     }
 
     #[test]
-    fn test_alignment_preserves_order() {
-        let source: Vec<char> = "ACDEFK".chars().collect();
-        let target: Vec<char> = "ACDEFK".chars().collect();
-        let result = global_align(&source, &target, &identity_scoring());
-
-        for pair in &result.pairs {
-            if let AlignedPair::Match {
-                source: s,
-                target: t,
-            } = pair
-            {
-                assert_eq!(s, t, "Identical sequences should have 1:1 mapping");
-            }
-        }
-    }
-
-    #[test]
     fn test_affine_gap_preference() {
         // Affine gaps: one long gap should be preferred over multiple short gaps
         let source: Vec<char> = "ACDEFGH".chars().collect();
@@ -375,6 +365,16 @@ mod tests {
 
         // Should have 5 matches (A,C,F,G,H) and 2 gaps (D,E)
         assert_eq!(result.n_matched, 5);
+        assert_eq!(result.pairs.len(), 7);
+        for (i, pair) in result.pairs.iter().enumerate() {
+            let valid = match (i, pair) {
+                (0 | 1, AlignedPair::Match { source, target }) => *source == i && *target == i,
+                (2 | 3, AlignedPair::GapTarget { source }) => *source == i,
+                (4..=6, AlignedPair::Match { source, target }) => *source == i && *target == i - 2,
+                _ => false,
+            };
+            assert!(valid, "traceback pair {i}: {pair:?}");
+        }
     }
 
     #[test]

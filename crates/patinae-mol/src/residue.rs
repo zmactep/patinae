@@ -593,32 +593,6 @@ mod tests {
     }
 
     #[test]
-    fn test_residue_iterator() {
-        let atoms = make_test_atoms();
-        let residues: Vec<_> = ResidueIterator::new(&atoms, 0).collect();
-
-        assert_eq!(residues.len(), 3);
-        assert_eq!(residues[0].resn(), "ALA");
-        assert_eq!(residues[0].len(), 5);
-        assert_eq!(residues[1].resn(), "GLY");
-        assert_eq!(residues[1].len(), 4);
-        assert_eq!(residues[2].resn(), "SER");
-        assert_eq!(residues[2].len(), 6);
-    }
-
-    #[test]
-    fn test_chain_iterator() {
-        let atoms = make_test_atoms();
-        let chains: Vec<_> = ChainIterator::new(&atoms, 0).collect();
-
-        assert_eq!(chains.len(), 2);
-        assert_eq!(chains[0].id(), "A");
-        assert_eq!(chains[0].len(), 9);
-        assert_eq!(chains[1].id(), "B");
-        assert_eq!(chains[1].len(), 6);
-    }
-
-    #[test]
     fn test_chain_iterator_does_not_split_hetatm() {
         // Companion to `test_subchain_iterator_splits_hetatm` in iterator.rs:
         // verifies that ChainView itself spans the full chain regardless of

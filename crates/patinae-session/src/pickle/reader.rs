@@ -540,11 +540,15 @@ mod tests {
     }
 
     #[test]
-    fn test_simple_int() {
-        // Protocol 0: I42\n.
-        let data = b"I42\n.";
-        let val = read(data).unwrap();
-        assert_eq!(val, PickleValue::Int(42));
+    fn integer_opcodes_preserve_values_and_signedness() {
+        for (name, bytes, expected) in [
+            ("INT", b"I42\n.".as_slice(), 42),
+            ("BININT1", b"\x4b\xff.", 255),
+            ("LONG1 positive", b"\x8a\x02\x00\x01.", 256),
+            ("LONG1 negative", b"\x8a\x01\xff.", -1),
+        ] {
+            assert_eq!(read(bytes).unwrap(), PickleValue::Int(expected), "{name}");
+        }
     }
 
     #[test]
@@ -556,14 +560,6 @@ mod tests {
         let data = b"I01\n.";
         let val = read(data).unwrap();
         assert_eq!(val, PickleValue::Bool(true));
-    }
-
-    #[test]
-    fn test_binint1() {
-        // BININT1(0x4B) 0xFF STOP
-        let data = [0x4B, 0xFF, 0x2E];
-        let val = read(&data).unwrap();
-        assert_eq!(val, PickleValue::Int(255));
     }
 
     #[test]
@@ -604,14 +600,19 @@ mod tests {
     }
 
     #[test]
-    fn test_tuple2() {
-        // BININT1(1), BININT1(2), TUPLE2, STOP
-        let data = [0x4B, 0x01, 0x4B, 0x02, 0x86, 0x2E];
-        let val = read(&data).unwrap();
-        assert_eq!(
-            val,
-            PickleValue::Tuple(vec![PickleValue::Int(1), PickleValue::Int(2)])
-        );
+    fn tuple_opcodes_preserve_arity_and_order() {
+        for (name, bytes, expected) in [
+            ("EMPTY_TUPLE", b").".as_slice(), vec![]),
+            ("TUPLE1", b"K\x05\x85.", vec![5]),
+            ("TUPLE2", b"K\x01K\x02\x86.", vec![1, 2]),
+            ("TUPLE3", b"K\x01K\x02K\x03\x87.", vec![1, 2, 3]),
+        ] {
+            assert_eq!(
+                read(bytes).unwrap(),
+                PickleValue::Tuple(expected.into_iter().map(PickleValue::Int).collect()),
+                "{name}"
+            );
+        }
     }
 
     #[test]
@@ -661,22 +662,6 @@ mod tests {
     }
 
     #[test]
-    fn test_long1() {
-        // LONG1, 2 bytes, [0x00, 0x01] = 256
-        let data = [0x8A, 0x02, 0x00, 0x01, 0x2E];
-        let val = read(&data).unwrap();
-        assert_eq!(val, PickleValue::Int(256));
-    }
-
-    #[test]
-    fn test_long1_negative() {
-        // LONG1, 1 byte, [0xFF] = -1
-        let data = [0x8A, 0x01, 0xFF, 0x2E];
-        let val = read(&data).unwrap();
-        assert_eq!(val, PickleValue::Int(-1));
-    }
-
-    #[test]
     fn test_pickle_value_accessors() {
         let v = PickleValue::Int(42);
         assert_eq!(v.as_int(), Some(42));
@@ -708,33 +693,5 @@ mod tests {
         let data = [0x43, 0x03, 0xDE, 0xAD, 0xBE, 0x2E];
         let val = read(&data).unwrap();
         assert_eq!(val, PickleValue::Bytes(vec![0xDE, 0xAD, 0xBE]));
-    }
-
-    #[test]
-    fn test_empty_tuple() {
-        let data = [0x29, 0x2E]; // EMPTY_TUPLE, STOP
-        let val = read(&data).unwrap();
-        assert_eq!(val, PickleValue::Tuple(vec![]));
-    }
-
-    #[test]
-    fn test_tuple1() {
-        let data = [0x4B, 0x05, 0x85, 0x2E]; // BININT1(5), TUPLE1, STOP
-        let val = read(&data).unwrap();
-        assert_eq!(val, PickleValue::Tuple(vec![PickleValue::Int(5)]));
-    }
-
-    #[test]
-    fn test_tuple3() {
-        let data = [0x4B, 0x01, 0x4B, 0x02, 0x4B, 0x03, 0x87, 0x2E];
-        let val = read(&data).unwrap();
-        assert_eq!(
-            val,
-            PickleValue::Tuple(vec![
-                PickleValue::Int(1),
-                PickleValue::Int(2),
-                PickleValue::Int(3),
-            ])
-        );
     }
 }

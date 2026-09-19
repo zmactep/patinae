@@ -1555,18 +1555,19 @@ mod tests {
     }
 
     #[test]
-    fn bg_color_without_args_resets_to_theme_background() {
-        let mut session = Session::new();
-        session.palette = ThemedPalette::light();
-        let theme_bg = session.palette.viewport_bg.to_array();
-        run_display_command(&mut session, "bg_color white");
-        assert!(session.clear_color_set);
-
-        let needs_redraw = run_display_command(&mut session, "bg_color");
-
-        assert!(needs_redraw);
-        assert_eq!(session.clear_color, theme_bg);
-        assert!(!session.clear_color_set);
+    fn background_reset_aliases_restore_the_selected_theme() {
+        for command in ["bg_color", "background"] {
+            for palette in [ThemedPalette::light(), ThemedPalette::dark()] {
+                let mut session = Session::new();
+                session.palette = palette;
+                let theme_bg = session.palette.viewport_bg.to_array();
+                run_display_command(&mut session, "bg_color white");
+                assert!(session.clear_color_set);
+                assert!(run_display_command(&mut session, command), "{command}");
+                assert_eq!(session.clear_color, theme_bg, "{command}");
+                assert!(!session.clear_color_set, "{command}");
+            }
+        }
     }
 
     #[test]
@@ -1646,20 +1647,6 @@ mod tests {
         );
         assert!(labels.revisions().material > before.material);
         assert!(labels.revisions().labels > before.labels);
-    }
-
-    #[test]
-    fn bg_color_background_alias_without_args_resets_to_theme_background() {
-        let mut session = Session::new();
-        let theme_bg = session.palette.viewport_bg.to_array();
-        run_display_command(&mut session, "bg_color white");
-        assert!(session.clear_color_set);
-
-        let needs_redraw = run_display_command(&mut session, "background");
-
-        assert!(needs_redraw);
-        assert_eq!(session.clear_color, theme_bg);
-        assert!(!session.clear_color_set);
     }
 
     #[test]

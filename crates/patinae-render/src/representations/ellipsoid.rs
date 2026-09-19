@@ -629,11 +629,22 @@ mod tests {
     }
 
     #[test]
-    fn eigen_general_evecs_are_orthogonal() {
+    fn eigen_general_vectors_satisfy_eigen_equation_and_are_orthonormal() {
         let u = [0.10, 0.20, 0.30, 0.05, 0.02, 0.04];
-        let (_, evecs) = eigen_symmetric_3x3(u);
+        let (evals, evecs) = eigen_symmetric_3x3(u);
         let col = |i: usize| [evecs[0][i], evecs[1][i], evecs[2][i]];
         let dot = |a: [f32; 3], b: [f32; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+        let matrix = [[u[0], u[3], u[4]], [u[3], u[1], u[5]], [u[4], u[5], u[2]]];
+        for (index, eigenvalue) in evals.iter().enumerate() {
+            let vector = col(index);
+            for row in 0..3 {
+                let projected = dot(matrix[row], vector);
+                assert!(
+                    (projected - eigenvalue * vector[row]).abs() < 1e-4,
+                    "Av differs from lambda*v"
+                );
+            }
+        }
         let c0 = col(0);
         let c1 = col(1);
         let c2 = col(2);

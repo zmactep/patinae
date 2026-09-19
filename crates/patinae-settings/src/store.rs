@@ -584,32 +584,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_global_settings_default() {
+    fn default_values_match_every_legacy_definition() {
         let settings = GlobalSettings::new();
-        let value = settings.get(crate::definitions::id::sphere_quality);
-        assert!(value.is_some());
+        for definition in SETTINGS.iter() {
+            assert_eq!(
+                settings.get(definition.id),
+                Some(definition.default.clone()),
+                "{}",
+                definition.name
+            );
+            assert!(!settings.is_defined(definition.id), "{}", definition.name);
+        }
     }
 
     #[test]
-    fn test_global_settings_set_get() {
+    fn resetting_explicit_value_restores_default_and_clears_override() {
         let mut settings = GlobalSettings::new();
-        settings
-            .set(crate::definitions::id::ambient, SettingValue::Float(0.5))
-            .unwrap();
-        let value = settings.get(crate::definitions::id::ambient).unwrap();
-        assert_eq!(value.as_float(), Some(0.5));
-    }
-
-    #[test]
-    fn test_global_settings_reset() {
-        let mut settings = GlobalSettings::new();
-        settings
-            .set(crate::definitions::id::ambient, SettingValue::Float(0.5))
-            .unwrap();
-        settings.reset(crate::definitions::id::ambient).unwrap();
-        let value = settings.get(crate::definitions::id::ambient).unwrap();
-        // Should be back to default (0.14)
-        assert_eq!(value.as_float(), Some(0.14));
+        let id = crate::definitions::id::ambient;
+        settings.set(id, SettingValue::Float(0.5)).unwrap();
+        assert_eq!(settings.get(id), Some(SettingValue::Float(0.5)));
+        assert!(settings.is_defined(id));
+        settings.reset(id).unwrap();
+        assert_eq!(settings.get(id), Some(SettingValue::Float(0.14)));
+        assert!(!settings.is_defined(id));
     }
 
     #[test]

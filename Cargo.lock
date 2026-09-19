@@ -4305,6 +4305,7 @@ dependencies = [
  "patinae-scene",
  "patinae-select",
  "patinae-settings",
+ "pollster",
  "rmp-serde",
  "serde",
  "serde_json",

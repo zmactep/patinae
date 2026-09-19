@@ -2001,9 +2001,19 @@ pub(crate) mod tests {
             "plugin load errors:\n{}",
             errors.join("\n")
         );
-        assert!(host.plugin_count() >= 3);
-        assert!(executor.registry().contains("hello"));
-        assert!(executor.registry().contains("ray"));
+        let actual: std::collections::BTreeSet<_> = host
+            .plugins
+            .iter()
+            .map(|plugin| plugin.metadata.name.as_str())
+            .collect();
+        let mut expected = std::collections::BTreeSet::from(["hello", "raytracer", "ai", "python"]);
+        if cfg!(unix) {
+            expected.insert("ipc");
+        }
+        assert_eq!(actual, expected, "every built reference plugin must load");
+        for command in ["hello", "ray", "ai", "python"] {
+            assert!(executor.registry().contains(command), "missing {command}");
+        }
         assert!(host.panel_statuses().iter().any(|panel| {
             panel.descriptor.id == "rt_toolbar"
                 && panel.descriptor.placement == PanelPlacement::Right

@@ -895,31 +895,33 @@ mod tests {
     }
 
     #[test]
-    fn test_bend_detection() {
-        // Build 5 CA atoms forming a sharp bend (>70 degrees) at residue 2 (index 2).
-        // CA positions: linear except for a sharp turn at the middle.
-        let residues: Vec<BackboneResidue> = (0..5)
-            .map(|i| {
-                let x = i as f32 * 3.8;
-                let y = if i >= 2 { (i as f32 - 1.5) * 4.0 } else { 0.0 };
-                make_residue(
-                    [x - 0.5, y, 0.0],
-                    [x, y, 0.0],
-                    [x + 0.5, y, 0.0],
-                    [x + 0.5, y + 1.2, 0.0],
-                    "A",
-                    i + 1,
-                    if i > 0 { Some([0.0, -1.0, 0.0]) } else { None },
-                    i > 0,
-                )
-            })
-            .collect();
+    fn bend_detection_obeys_angle_threshold_and_state_priority() {
+        for (degrees, initial, expected) in [
+            (69.0_f32, DsspState::Empty, DsspState::Empty),
+            (71.0, DsspState::Empty, DsspState::Bend),
+            (90.0, DsspState::Turn, DsspState::Turn),
+        ] {
+            let angle = degrees.to_radians();
+            let mut residues = vec![DsspResidue::default(); 5];
+            for residue in &mut residues {
+                residue.real = true;
+            }
+            residues[0].ca = Some(Vec3::new(-2.0, 0.0, 0.0));
+            residues[2].ca = Some(Vec3::new(0.0, 0.0, 0.0));
+            residues[4].ca = Some(Vec3::new(2.0 * angle.cos(), 2.0 * angle.sin(), 0.0));
+            residues[2].ss = initial;
 
-        let dssp = Dssp::default();
-        let result = dssp.assign(&residues);
-        // All should be Loop (bend is lower priority than turn/helix/sheet,
-        // and quantizes to Loop)
-        assert!(result.iter().all(|&s| s == SsType::Loop));
+            detect_bends(&mut residues);
+
+            assert_eq!(
+                residues[2].ss, expected,
+                "angle={degrees}, initial={initial:?}"
+            );
+            assert!(residues[..2]
+                .iter()
+                .chain(&residues[3..])
+                .all(|r| r.ss == DsspState::Empty));
+        }
     }
 
     /// Build an idealized alpha-helix backbone.

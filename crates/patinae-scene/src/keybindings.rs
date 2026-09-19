@@ -539,15 +539,10 @@ mod tests {
     }
 
     #[test]
-    fn test_key_bindings_new() {
-        let bindings: KeyBindings<i32> = KeyBindings::new();
-        assert!(bindings.is_empty());
-        assert_eq!(bindings.len(), 0);
-    }
-
-    #[test]
     fn test_key_bindings_bind_and_get() {
         let mut bindings: KeyBindings<&str> = KeyBindings::new();
+        assert!(bindings.is_empty());
+        assert_eq!(bindings.len(), 0);
         bindings.bind(KeyCode::KeyR, "reset");
         bindings.bind(KeyBinding::new(KeyCode::KeyS).ctrl(), "save");
 
@@ -561,6 +556,8 @@ mod tests {
             Some(&"save")
         );
         assert_eq!(bindings.get(&KeyBinding::new(KeyCode::KeyA)), None);
+        assert!(bindings.is_bound(KeyCode::KeyR));
+        assert!(!bindings.is_bound(KeyCode::KeyS));
     }
 
     #[test]
@@ -572,15 +569,6 @@ mod tests {
         assert!(bindings.unbind(KeyCode::KeyR));
         assert!(!bindings.unbind(KeyCode::KeyR)); // Already removed
         assert_eq!(bindings.len(), 1);
-    }
-
-    #[test]
-    fn test_key_bindings_is_bound() {
-        let mut bindings: KeyBindings<i32> = KeyBindings::new();
-        bindings.bind(KeyCode::KeyR, 1);
-
-        assert!(bindings.is_bound(KeyCode::KeyR));
-        assert!(!bindings.is_bound(KeyCode::KeyS));
     }
 
     #[test]

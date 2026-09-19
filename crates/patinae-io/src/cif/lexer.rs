@@ -207,27 +207,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_data_block() {
-        let tokens = tokenize("data_1ABC");
-        assert_eq!(tokens[0], Token::DataBlock("1ABC"));
-        assert_eq!(tokens[1], Token::Eof);
-    }
-
-    #[test]
-    fn test_loop() {
-        let tokens = tokenize("loop_");
-        assert_eq!(tokens[0], Token::Loop);
-        assert_eq!(tokens[1], Token::Eof);
-    }
-
-    #[test]
-    fn test_data_name() {
-        let tokens = tokenize("_atom_site.id");
-        assert_eq!(tokens[0], Token::DataName("_atom_site.id"));
-        assert_eq!(tokens[1], Token::Eof);
-    }
-
-    #[test]
     fn test_quoted() {
         let tokens = tokenize("'hello world' \"foo bar\"");
         assert_eq!(tokens[0], Token::SingleQuoted("hello world"));

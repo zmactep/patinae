@@ -242,18 +242,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_simple() {
-        let expr = parse("all").unwrap();
-        assert!(matches!(expr, SelectionExpr::All));
-    }
-
-    #[test]
-    fn test_parse_name() {
-        let expr = parse("name CA").unwrap();
-        assert!(matches!(expr, SelectionExpr::Name(_)));
-    }
-
-    #[test]
     fn format_exact_selector_value_leaves_simple_values_unquoted() {
         assert_eq!(format_exact_selector_value("A").as_ref(), "A");
         assert_eq!(format_exact_selector_value("1abc").as_ref(), "1abc");

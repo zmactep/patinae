@@ -383,7 +383,11 @@ mod tests {
             .spheres
             .push(GpuSphere::new([0.0; 3], 1.0, [1.0; 4], 0.0));
         let bvh = Bvh::build(&prims).unwrap();
-        assert!(!bvh.nodes.is_empty());
+        assert_eq!(bvh.nodes.len(), 1);
+        assert_eq!(bvh.nodes[0].min, [-1.0; 3]);
+        assert_eq!(bvh.nodes[0].max, [1.0; 3]);
+        assert_eq!(bvh.nodes[0].count, 1);
+        assert_eq!(bvh.primitive_indices, [0]);
         assert!(bvh.nodes[0].is_leaf());
     }
 
@@ -397,7 +401,26 @@ mod tests {
         }
         let bvh = Bvh::build(&prims).unwrap();
         assert!(bvh.nodes.len() > 1);
-        assert_eq!(bvh.primitive_indices.len(), 100);
+        assert_eq!(bvh.nodes[0].min, [-0.5; 3]);
+        assert_eq!(bvh.nodes[0].max, [99.5, 0.5, 0.5]);
+        let mut indices = bvh.primitive_indices.clone();
+        indices.sort_unstable();
+        assert_eq!(indices, (0..100).collect::<Vec<_>>());
+        for node in &bvh.nodes {
+            if node.is_leaf() {
+                for encoded in &bvh.primitive_indices
+                    [node.left_or_first as usize..(node.left_or_first + node.count) as usize]
+                {
+                    let (kind, index) = Bvh::decode_index(*encoded);
+                    assert_eq!(kind, 0);
+                    let (min, max) = prims.spheres[index as usize].aabb();
+                    for axis in 0..3 {
+                        assert!(node.min[axis] <= min[axis]);
+                        assert!(node.max[axis] >= max[axis]);
+                    }
+                }
+            }
+        }
     }
 
     #[test]

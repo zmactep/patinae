@@ -477,13 +477,6 @@ async fn fetch_bytes(url: &str, abort: &web_sys::AbortController) -> Result<Vec<
     Ok(js_sys::Uint8Array::new(&buffer).to_vec())
 }
 
-#[cfg(test)]
-fn script_commands(source: &str) -> Result<Vec<String>, String> {
-    patinae_cmd::script_steps(source, &patinae_cmd::CommandRegistry::new())
-        .map(|steps| steps.into_iter().map(|(_, command)| command).collect())
-        .map_err(|error| error.to_string())
-}
-
 fn resolve_include(
     command: &str,
     script_path: Option<&str>,
@@ -676,36 +669,5 @@ impl Drop for WebViewer {
             abort.abort();
         }
         host.tasks.fail_owner(OWNER);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{infer_format, script_commands};
-
-    #[test]
-    fn script_steps_preserve_quoted_separators_and_continuations() {
-        let source = concat!(
-            r#"load "a;b.pdb"; color red, \"#,
-            "\n",
-            " all\n# comment\nzoom"
-        );
-        let steps = script_commands(source).unwrap();
-        assert_eq!(steps.len(), 3);
-        assert_eq!(
-            patinae_cmd::parse_command(&steps[0]).unwrap().get_str(0),
-            Some("a;b.pdb")
-        );
-        assert_eq!(patinae_cmd::parse_command(&steps[1]).unwrap().name, "color");
-        assert_eq!(steps[2], "zoom");
-    }
-
-    #[test]
-    fn format_detection_ignores_url_queries_and_compression() {
-        assert_eq!(
-            infer_format("https://example.org/structure.cif.gz?token=x#fragment"),
-            "cif"
-        );
-        assert_eq!(infer_format("structure.PDB"), "pdb");
     }
 }

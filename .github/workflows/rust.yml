@@ -41,33 +41,28 @@ jobs:
       - name: Check release metadata
         run: make check-release-metadata
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install test Python
+        run: |
+          uv python install 3.13
+          echo "PYO3_PYTHON=$(uv python find --system --python-preference only-managed 3.13)" >> "$GITHUB_ENV"
 
       - name: Check formatting
         run: cargo fmt --all -- --check
 
       - name: Run clippy
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
-        env:
-          PYO3_PYTHON: python3
 
       - name: Check workspace
         run: cargo check --locked --workspace
-        env:
-          PYO3_PYTHON: python3
 
       - name: Run workspace tests
-        run: cargo test --locked --workspace --verbose
-        env:
-          PYO3_PYTHON: python3
+        run: make test
 
       - name: Check Python crate
         run: cargo check --locked --manifest-path python/Cargo.toml
-        env:
-          PYO3_PYTHON: python3
 
       - name: Install Rust wasm32 target
         run: rustup target add wasm32-unknown-unknown
@@ -87,9 +82,8 @@ jobs:
           cd web && npm ci && npm run build && cd ..
           make widget-assets
 
-      - name: Build wheels
-        uses: PyO3/maturin-action@v1
-        with:
-          args: --release --locked --out dist --find-interpreter
-          manylinux: auto
-          working-directory: python
+      - name: Test bindings and installed wheel
+        run: make test-bindings
+
+      - name: Test dynamic plugin ABI
+        run: make test-abi

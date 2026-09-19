@@ -219,21 +219,16 @@ mod tests {
     }
 
     #[test]
-    fn test_get_symops_p212121() {
-        let ops = get_symops("P 21 21 21").unwrap();
-        assert_eq!(ops.len(), 4);
-    }
-
-    #[test]
-    fn test_get_symops_alias() {
-        let ops = get_symops("P212121").unwrap();
-        assert_eq!(ops.len(), 4);
-    }
-
-    #[test]
-    fn test_get_symops_case_insensitive() {
-        let ops = get_symops("p 21 21 21").unwrap();
-        assert_eq!(ops.len(), 4);
+    fn space_group_aliases_preserve_all_operators() {
+        let canonical = get_symops("P 21 21 21").unwrap();
+        assert_eq!(canonical.len(), 4);
+        for name in ["P212121", "p 21 21 21"] {
+            let actual = get_symops(name).unwrap();
+            assert_eq!(actual.len(), canonical.len(), "{name}");
+            for (actual, expected) in actual.iter().zip(&canonical) {
+                assert_eq!(actual.data, expected.data, "{name}");
+            }
+        }
     }
 
     #[test]

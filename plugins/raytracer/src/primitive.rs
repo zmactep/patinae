@@ -545,5 +545,11 @@ mod tests {
         ));
         let prims = collector.build();
         assert_eq!(prims.total_count(), 3);
+        assert_eq!(prims.spheres[0].center, [0.0; 3]);
+        assert_eq!(prims.spheres[0].radius, 1.0);
+        assert_eq!(prims.cylinders[0].start, [0.0; 3]);
+        assert_eq!(prims.cylinders[0].end, [1.0; 3]);
+        assert_eq!(prims.capsules[0].start, [0.0; 3]);
+        assert_eq!(prims.capsules[0].end, [1.0; 3]);
     }
 }

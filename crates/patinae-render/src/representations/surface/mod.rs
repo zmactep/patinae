@@ -1632,6 +1632,600 @@ fn surface_scratch_estimate(dims: [u32; 3]) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn weld_vertices(vertices: &[[f32; 3]], tolerance: f32) -> Vec<usize> {
+        use std::collections::BTreeMap;
+        let mut buckets: BTreeMap<[i64; 3], Vec<usize>> = BTreeMap::new();
+        let mut unique: Vec<[f32; 3]> = Vec::new();
+        vertices
+            .iter()
+            .map(|&p| {
+                let key = p.map(|v| (v / tolerance).floor() as i64);
+                for dz in -1..=1 {
+                    for dy in -1..=1 {
+                        for dx in -1..=1 {
+                            if let Some(indices) =
+                                buckets.get(&[key[0] + dx, key[1] + dy, key[2] + dz])
+                            {
+                                for &index in indices {
+                                    if (0..3).all(|axis| {
+                                        (p[axis] - unique[index][axis]).abs() <= tolerance
+                                    }) {
+                                        return index;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                let index = unique.len();
+                unique.push(p);
+                buckets.entry(key).or_default().push(index);
+                index
+            })
+            .collect()
+    }
+
+    /// Weld flat MC output and require two incident faces for every edge.
+    pub(super) fn assert_closed_mesh(vertices: &[[f32; 3]], tolerance: f32) {
+        use std::collections::BTreeMap;
+        assert!(!vertices.is_empty());
+        assert_eq!(vertices.len() % 3, 0);
+        let ids = weld_vertices(vertices, tolerance);
+        let mut edges = BTreeMap::new();
+        for points in ids.as_chunks::<3>().0 {
+            for (a, b) in [(0, 1), (1, 2), (2, 0)] {
+                assert_ne!(points[a], points[b], "degenerate triangle");
+                let edge = if points[a] < points[b] {
+                    (points[a], points[b])
+                } else {
+                    (points[b], points[a])
+                };
+                *edges.entry(edge).or_insert(0) += 1;
+            }
+        }
+        assert!(
+            edges.values().all(|&count| count == 2),
+            "open or non-manifold mesh"
+        );
+    }
+
+    fn map_gpu_buffer(device: &wgpu::Device, buffer: &wgpu::Buffer) -> Vec<u8> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        buffer
+            .slice(..)
+            .map_async(wgpu::MapMode::Read, move |r| tx.send(r).unwrap());
+        device
+            .poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: Some(std::time::Duration::from_secs(30)),
+            })
+            .unwrap();
+        rx.recv().unwrap().unwrap();
+        let data = buffer.slice(..).get_mapped_range().to_vec();
+        buffer.unmap();
+        data
+    }
+
+    fn read_gpu_buffer(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        source: &wgpu::Buffer,
+        size: u64,
+    ) -> Vec<u8> {
+        let staging = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size,
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let mut encoder = device.create_command_encoder(&Default::default());
+        encoder.copy_buffer_to_buffer(source, 0, &staging, 0, size);
+        queue.submit([encoder.finish()]);
+        map_gpu_buffer(device, &staging)
+    }
+
+    fn read_gpu_texture(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        source: &wgpu::Texture,
+        bytes_per_pixel: u32,
+    ) -> Vec<u8> {
+        let dims = source.size();
+        let row_bytes = dims.width * bytes_per_pixel;
+        let padded = row_bytes.div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
+            * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let staging = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: u64::from(padded)
+                * u64::from(dims.height)
+                * u64::from(dims.depth_or_array_layers),
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let mut encoder = device.create_command_encoder(&Default::default());
+        encoder.copy_texture_to_buffer(
+            source.as_image_copy(),
+            wgpu::TexelCopyBufferInfo {
+                buffer: &staging,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded),
+                    rows_per_image: Some(dims.height),
+                },
+            },
+            dims,
+        );
+        queue.submit([encoder.finish()]);
+        map_gpu_buffer(device, &staging)
+            .chunks(padded as usize)
+            .flat_map(|r| r[..row_bytes as usize].iter().copied())
+            .collect()
+    }
+
+    fn close_field(actual: f32, expected: f32, half_precision: bool) {
+        let tolerance = if half_precision {
+            1e-3 + 2e-3 * expected.abs()
+        } else {
+            1e-5 + 1e-5 * expected.abs()
+        };
+        assert!(
+            actual.is_finite() && (actual - expected).abs() <= tolerance,
+            "field {actual} != {expected}, tolerance {tolerance}"
+        );
+    }
+
+    #[test]
+    #[ignore = "requires a real GPU; compares production surface passes with scalar references"]
+    fn gpu_surface_fields_and_marching_cubes_match_oracles() {
+        use crate::compute::surface_mc::SurfaceMcCompute;
+        use crate::scene_store::{AtomGpu, ObjectEntry, SceneStoreLayout};
+        use oracle::{Grid3D, OracleAtom};
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let adapter = pollster::block_on(instance.request_adapter(&Default::default()))
+            .expect("GPU adapter required; do not silently skip");
+        eprintln!("Surface oracle adapter: {:?}", adapter.get_info());
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            required_limits: crate::required_limits_for_memory_policy(
+                &adapter.limits(),
+                crate::RenderMemoryPolicy::performance(),
+            ),
+            ..Default::default()
+        }))
+        .unwrap();
+        let layout = SceneStoreLayout::new(&device);
+        let density = SurfaceDensityCompute::new(&device, &layout);
+        let sdf_compute = SurfaceVdwSdfCompute::new(&device, &layout);
+        let morph = SurfaceSesMorphCompute::new(&device);
+        let mc = SurfaceMcCompute::new(&device);
+        let a = |pos, radius, index| OracleAtom { pos, radius, index };
+        let cases = [
+            vec![a([0.13, 0.27, -0.19], 1.73, 0)],
+            vec![
+                a([-3.13, 0.27, -0.19], 1.73, 0),
+                a([3.17, -0.11, 0.23], 1.57, 1),
+            ],
+            vec![
+                a([-0.83, 0.27, -0.19], 1.73, 0),
+                a([0.91, -0.11, 0.23], 1.57, 1),
+            ],
+        ];
+        let dims = [33, 25, 25];
+        let origin = [-8.0, -6.0, -6.0];
+        let voxel = 0.5;
+        let probe = 1.0;
+        for atoms in cases {
+            let object = ObjectEntry {
+                atom_count: atoms.len() as u32,
+                ..ObjectEntry::zeroed()
+            };
+            let object_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: None,
+                contents: bytemuck::bytes_of(&object),
+                usage: wgpu::BufferUsages::UNIFORM,
+            });
+            let atom_data: Vec<_> = atoms
+                .iter()
+                .map(|a| AtomGpu {
+                    vdw: a.radius,
+                    ..AtomGpu::zeroed()
+                })
+                .collect();
+            let coords: Vec<_> = atoms
+                .iter()
+                .map(|a| [a.pos[0], a.pos[1], a.pos[2], 1.0])
+                .collect();
+            let atom_buf = make_storage_buffer(&device, "oracle.atoms", &atom_data);
+            let coord_buf = make_storage_buffer(&device, "oracle.coords", &coords);
+            let dummy = make_storage_buffer(&device, "oracle.unused", &[0u32; 16]);
+            let mut entries = vec![
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: object_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: atom_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: coord_buf.as_entire_binding(),
+                },
+            ];
+            for binding in 3..=8 {
+                entries.push(wgpu::BindGroupEntry {
+                    binding,
+                    resource: dummy.as_entire_binding(),
+                });
+            }
+            let scene = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: None,
+                layout: &layout.bind_group_layout,
+                entries: &entries,
+            });
+            let offsets =
+                make_storage_buffer(&device, "oracle.offsets", &[0u32, atoms.len() as u32]);
+            let indices = make_storage_buffer(
+                &device,
+                "oracle.indices",
+                &(0..atoms.len() as u32).collect::<Vec<_>>(),
+            );
+            let accel = SurfaceAccelParams {
+                origin,
+                cell_size: 32.0,
+                dims: [1; 3],
+                _pad: 0,
+            };
+            let field = make_storage_3d(
+                &device,
+                "oracle.field",
+                wgpu::TextureFormat::Rgba16Float,
+                dims,
+                wgpu::TextureUsages::empty(),
+            );
+            let owner = make_storage_3d(
+                &device,
+                "oracle.owner",
+                wgpu::TextureFormat::R32Uint,
+                dims,
+                wgpu::TextureUsages::empty(),
+            );
+            let sdf = make_storage_3d(
+                &device,
+                "oracle.sdf",
+                wgpu::TextureFormat::R32Float,
+                dims,
+                wgpu::TextureUsages::TEXTURE_BINDING,
+            );
+            let field_view = field.create_view(&Default::default());
+            let owner_view = owner.create_view(&Default::default());
+            let sdf_view = sdf.create_view(&Default::default());
+            for is_ses in [false, true] {
+                let (density_inputs, sdf_inputs, morph_inputs) = build_producer_inputs(
+                    &device,
+                    is_ses,
+                    origin,
+                    voxel,
+                    dims,
+                    probe,
+                    &field_view,
+                    &owner_view,
+                    Some(&sdf_view),
+                    &offsets,
+                    &indices,
+                    accel,
+                    &density,
+                    &sdf_compute,
+                    &morph,
+                );
+                let mut encoder = device.create_command_encoder(&Default::default());
+                if let Some(inputs) = density_inputs {
+                    density.dispatch(&mut encoder, &scene, 0, &inputs);
+                }
+                if let Some(inputs) = sdf_inputs {
+                    sdf_compute.dispatch(&mut encoder, &scene, 0, &inputs);
+                }
+                if let Some(inputs) = morph_inputs {
+                    morph.dispatch(&mut encoder, &inputs);
+                }
+                queue.submit([encoder.finish()]);
+                let field_bytes = read_gpu_texture(&device, &queue, &field, 8);
+                let components: Vec<[f32; 4]> = field_bytes
+                    .as_chunks::<8>()
+                    .0
+                    .iter()
+                    .map(|p| {
+                        std::array::from_fn(|i| {
+                            half::f16::from_bits(u16::from_le_bytes([p[2 * i], p[2 * i + 1]]))
+                                .to_f32()
+                        })
+                    })
+                    .collect();
+                let owner_bytes = read_gpu_texture(&device, &queue, &owner, 4);
+                let owners: Vec<_> = owner_bytes
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|p| u32::from_le_bytes(*p))
+                    .collect();
+                let sdf_bytes = if is_ses {
+                    read_gpu_texture(&device, &queue, &sdf, 4)
+                } else {
+                    Vec::new()
+                };
+                let sdf_values: Vec<_> = sdf_bytes
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|p| f32::from_le_bytes(*p))
+                    .collect();
+                let mut grid = Grid3D {
+                    bbox_min: origin,
+                    voxel_size: voxel,
+                    dims,
+                    values: components.iter().map(|c| c[3]).collect(),
+                };
+                for k in 0..dims[2] {
+                    for j in 0..dims[1] {
+                        for i in 0..dims[0] {
+                            let index = (i + j * dims[0] + k * dims[0] * dims[1]) as usize;
+                            let p = grid.position(i, j, k);
+                            assert_eq!(owners[index], oracle::owner_atom(p, &atoms).unwrap());
+                            if is_ses {
+                                close_field(sdf_values[index], oracle::vdw_sdf(p, &atoms), false);
+                                let mut expected = f32::NEG_INFINITY;
+                                for dz in -2_i32..=2 {
+                                    for dy in -2_i32..=2 {
+                                        for dx in -2_i32..=2 {
+                                            if dx * dx + dy * dy + dz * dz <= 4 {
+                                                let q = [
+                                                    (i as i32 + dx).clamp(0, dims[0] as i32 - 1)
+                                                        as u32,
+                                                    (j as i32 + dy).clamp(0, dims[1] as i32 - 1)
+                                                        as u32,
+                                                    (k as i32 + dz).clamp(0, dims[2] as i32 - 1)
+                                                        as u32,
+                                                ];
+                                                expected = expected.max(oracle::vdw_sdf(
+                                                    grid.position(q[0], q[1], q[2]),
+                                                    &atoms,
+                                                ));
+                                            }
+                                        }
+                                    }
+                                }
+                                close_field(components[index][3], expected - probe, true);
+                                if i >= 2
+                                    && j >= 2
+                                    && k >= 2
+                                    && i + 2 < dims[0]
+                                    && j + 2 < dims[1]
+                                    && k + 2 < dims[2]
+                                {
+                                    close_field(
+                                        components[index][3],
+                                        oracle::connolly_ses_field(p, &atoms, probe, 2, voxel),
+                                        true,
+                                    );
+                                }
+                            } else {
+                                close_field(
+                                    components[index][3],
+                                    oracle::sas_density(p, &atoms, probe, SAS_ALPHA),
+                                    true,
+                                );
+                                for axis in 0..3 {
+                                    let expected: f32 = atoms
+                                        .iter()
+                                        .map(|a| {
+                                            let r2 = (a.radius + probe).powi(2);
+                                            let delta =
+                                                std::array::from_fn::<_, 3, _>(|n| p[n] - a.pos[n]);
+                                            let d2: f32 = delta.iter().map(|x| x * x).sum();
+                                            -2.0 * SAS_ALPHA / r2
+                                                * delta[axis]
+                                                * (-SAS_ALPHA * d2 / r2).exp()
+                                        })
+                                        .sum();
+                                    close_field(components[index][axis], expected, true);
+                                }
+                            }
+                        }
+                    }
+                }
+                let max_vertices = dims.iter().product::<u32>() * 15;
+                let vertices = create_vertex_buffer(&device, max_vertices);
+                let counter = create_counter_buffer(&device);
+                let iso = if is_ses { 0.0 } else { SAS_ISO };
+                let inputs = mc.build_inputs(
+                    &device,
+                    McParams {
+                        bbox_min: origin,
+                        voxel_size: voxel,
+                        dims,
+                        iso,
+                        max_vertices,
+                        invert_inside: u32::from(is_ses),
+                        emit_lines: 0,
+                        _pad1: 0,
+                        emit_core_min: origin,
+                        _pad2: 0.0,
+                        emit_core_max: grid_domain_max(origin, dims, voxel),
+                        _pad3: 0.0,
+                    },
+                    &field_view,
+                    &owner_view,
+                    &vertices,
+                    &counter,
+                );
+                mc.reset_counter(&queue, &counter);
+                let mut encoder = device.create_command_encoder(&Default::default());
+                mc.dispatch(&mut encoder, &inputs);
+                queue.submit([encoder.finish()]);
+                let count = u32::from_le_bytes(
+                    read_gpu_buffer(&device, &queue, &counter, 4)
+                        .try_into()
+                        .unwrap(),
+                );
+                assert!(count > 0 && count <= max_vertices);
+                let bytes = read_gpu_buffer(
+                    &device,
+                    &queue,
+                    &vertices,
+                    u64::from(count) * SurfaceVertex::SIZE,
+                );
+                let gpu: Vec<SurfaceVertex> = bytes
+                    .as_chunks::<24>()
+                    .0
+                    .iter()
+                    .map(|b| bytemuck::pod_read_unaligned(b))
+                    .collect();
+                assert!(gpu
+                    .iter()
+                    .all(|v| v.position.iter().all(|p| p.is_finite())
+                        && v.group_id < atoms.len() as u32));
+                let gpu_positions: Vec<_> = gpu.iter().map(|v| v.position).collect();
+                assert_closed_mesh(&gpu_positions, voxel * 1e-4);
+                if atoms.len() == 1 {
+                    let point = |[x, y, z]: [f32; 3]| lin_alg::f32::Vec3::new(x, y, z);
+                    for triangle in gpu_positions.as_chunks::<3>().0 {
+                        let [a, b, c] = triangle.map(point);
+                        let normal = (b - a).cross(c - a);
+                        let outward = (a + b + c) / 3.0 - point(atoms[0].pos);
+                        assert!(
+                            normal.dot(outward) > 0.0,
+                            "single-atom triangle faces inward (SES={is_ses})"
+                        );
+                    }
+                }
+                if is_ses {
+                    for value in &mut grid.values {
+                        *value = -*value;
+                    }
+                }
+                let (cpu, _) = oracle::cpu_marching_cubes(&grid, iso);
+                assert_eq!(cpu.len(), gpu_positions.len());
+                let joined: Vec<_> = cpu.iter().chain(&gpu_positions).copied().collect();
+                let ids = weld_vertices(&joined, voxel * 1e-4);
+                let triangles = |ids: &[usize]| {
+                    let mut triangles: Vec<_> = ids
+                        .as_chunks::<3>()
+                        .0
+                        .iter()
+                        .map(|tri| {
+                            let mut tri = *tri;
+                            // Cyclic rotations preserve winding; sorting all three
+                            // vertices would hide an inside-out GPU triangle.
+                            let first = tri.iter().enumerate().min_by_key(|(_, id)| *id).unwrap().0;
+                            tri.rotate_left(first);
+                            tri
+                        })
+                        .collect();
+                    triangles.sort();
+                    triangles
+                };
+                assert_eq!(
+                    triangles(&ids[..cpu.len()]),
+                    triangles(&ids[cpu.len()..]),
+                    "MC triangle geometry or winding differs (SES={is_ses})"
+                );
+            }
+            // Exercise real bin construction and neighboring-cell lookup independently
+            // of the untruncated one-cell mathematical reference above.
+            let prep = SurfaceBuildPrep {
+                bbox_min: origin,
+                dims,
+                voxel_size: voxel,
+                emit_core_min: origin,
+                emit_core_max: grid_domain_max(origin, dims, voxel),
+                n_kept: atoms.len(),
+                coord_hash: 0,
+                max_radius: atoms.iter().map(|a| a.radius).fold(0.0, f32::max),
+                atoms: atoms
+                    .iter()
+                    .map(|a| SurfaceAccelAtom {
+                        local_id: a.index,
+                        pos: a.pos,
+                    })
+                    .collect(),
+            };
+            let accel = build_surface_accel(&prep, probe);
+            assert!(accel.params.dims.iter().any(|&d| d > 1));
+            let offsets = make_storage_buffer(&device, "oracle.real_offsets", &accel.offsets);
+            let indices = make_storage_buffer(&device, "oracle.real_indices", &accel.indices);
+            let (inputs, _, _) = build_producer_inputs(
+                &device,
+                false,
+                origin,
+                voxel,
+                dims,
+                probe,
+                &field_view,
+                &owner_view,
+                Some(&sdf_view),
+                &offsets,
+                &indices,
+                accel.params,
+                &density,
+                &sdf_compute,
+                &morph,
+            );
+            let mut encoder = device.create_command_encoder(&Default::default());
+            density.dispatch(&mut encoder, &scene, 0, &inputs.unwrap());
+            queue.submit([encoder.finish()]);
+            let bytes = read_gpu_texture(&device, &queue, &field, 8);
+            let owner_bytes = read_gpu_texture(&device, &queue, &owner, 4);
+            let mut covered_cells = std::collections::BTreeSet::new();
+            for k in 0..dims[2] {
+                for j in 0..dims[1] {
+                    for i in 0..dims[0] {
+                        let p = [
+                            origin[0] + i as f32 * voxel,
+                            origin[1] + j as f32 * voxel,
+                            origin[2] + k as f32 * voxel,
+                        ];
+                        let cell = accel_cell_for_point(
+                            origin,
+                            accel.params.cell_size,
+                            accel.params.dims,
+                            p,
+                        );
+                        if !atoms.iter().all(|a| {
+                            let atom_cell = accel_cell_for_point(
+                                origin,
+                                accel.params.cell_size,
+                                accel.params.dims,
+                                a.pos,
+                            );
+                            (0..3).all(|axis| cell[axis].abs_diff(atom_cell[axis]) <= 1)
+                        }) {
+                            continue;
+                        }
+                        let index = (i + j * dims[0] + k * dims[0] * dims[1]) as usize;
+                        let actual = half::f16::from_bits(u16::from_le_bytes(
+                            bytes[index * 8 + 6..index * 8 + 8].try_into().unwrap(),
+                        ))
+                        .to_f32();
+                        close_field(
+                            actual,
+                            oracle::sas_density(p, &atoms, probe, SAS_ALPHA),
+                            true,
+                        );
+                        assert_eq!(
+                            u32::from_le_bytes(
+                                owner_bytes[index * 4..index * 4 + 4].try_into().unwrap()
+                            ),
+                            oracle::owner_atom(p, &atoms).unwrap()
+                        );
+                        covered_cells.insert(cell);
+                    }
+                }
+            }
+            assert!(
+                covered_cells.len() > 1,
+                "acceleration parity must cross cell boundaries"
+            );
+        }
+    }
 
     #[test]
     fn voxel_size_quality_curve() {

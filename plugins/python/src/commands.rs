@@ -361,53 +361,45 @@ mod tests {
     }
 
     #[test]
-    fn atom_command_code_preserves_raw_python_expression() {
-        let args = ParsedCommand::new("alter")
-            .with_arg("name CA")
-            .with_named_arg("b", "random.random()")
-            .with_raw_args("name CA, b=random.random()");
-
-        let code = build_atom_command_code(&args, "alter").unwrap();
-
-        assert_eq!(code, "cmd.alter('name CA', 'b=random.random()')");
-    }
-
-    #[test]
-    fn atom_command_code_preserves_raw_string_assignment() {
-        let args = ParsedCommand::new("alter")
-            .with_arg("chain A")
-            .with_named_arg("chain", "B")
-            .with_raw_args("chain A, chain='B'");
-
-        let code = build_atom_command_code(&args, "alter").unwrap();
-
-        assert_eq!(code, r#"cmd.alter('chain A', 'chain=\'B\'')"#);
-    }
-
-    #[test]
-    fn atom_command_code_preserves_raw_stored_expression() {
-        let args = ParsedCommand::new("alter")
-            .with_arg("name CA")
-            .with_named_arg("b", "stored.b.pop()")
-            .with_raw_args("name CA, b=stored.b.pop()");
-
-        let code = build_atom_command_code(&args, "alter").unwrap();
-
-        assert_eq!(code, "cmd.alter('name CA', 'b=stored.b.pop()')");
-    }
-
-    #[test]
-    fn atom_command_code_preserves_expression_commas() {
-        let args = ParsedCommand::new("iterate")
-            .with_arg("all")
-            .with_arg("print(name")
-            .with_arg("resn")
-            .with_arg("b)")
-            .with_raw_args("all, print(name, resn, b)");
-
-        let code = build_atom_command_code(&args, "iterate").unwrap();
-
-        assert_eq!(code, "cmd.iterate('all', 'print(name, resn, b)')");
+    fn atom_command_code_preserves_raw_expressions() {
+        for (command, args, expected) in [
+            (
+                "alter",
+                ParsedCommand::new("alter")
+                    .with_arg("name CA")
+                    .with_named_arg("b", "random.random()")
+                    .with_raw_args("name CA, b=random.random()"),
+                "cmd.alter('name CA', 'b=random.random()')",
+            ),
+            (
+                "alter",
+                ParsedCommand::new("alter")
+                    .with_arg("chain A")
+                    .with_named_arg("chain", "B")
+                    .with_raw_args("chain A, chain='B'"),
+                r#"cmd.alter('chain A', 'chain=\'B\'')"#,
+            ),
+            (
+                "alter",
+                ParsedCommand::new("alter")
+                    .with_arg("name CA")
+                    .with_named_arg("b", "stored.b.pop()")
+                    .with_raw_args("name CA, b=stored.b.pop()"),
+                "cmd.alter('name CA', 'b=stored.b.pop()')",
+            ),
+            (
+                "iterate",
+                ParsedCommand::new("iterate")
+                    .with_arg("all")
+                    .with_arg("print(name")
+                    .with_arg("resn")
+                    .with_arg("b)")
+                    .with_raw_args("all, print(name, resn, b)"),
+                "cmd.iterate('all', 'print(name, resn, b)')",
+            ),
+        ] {
+            assert_eq!(build_atom_command_code(&args, command).unwrap(), expected);
+        }
     }
 
     #[test]

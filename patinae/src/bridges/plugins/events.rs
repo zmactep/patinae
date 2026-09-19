@@ -48,21 +48,26 @@ mod tests {
     }
 
     #[test]
-    fn parses_all_known_panel_event_kinds() {
-        for event in [
-            "click",
-            "toggle",
-            "number",
-            "select",
-            "text-edit",
-            "text-area-edit",
-            "text-commit",
-            "text",
+    fn panel_events_preserve_kind_and_payload() {
+        for (event, expected) in [
+            ("click", PanelEventKind::Click),
+            ("toggle", PanelEventKind::Toggle),
+            ("number", PanelEventKind::NumberChange),
+            ("select", PanelEventKind::Select),
+            ("text-edit", PanelEventKind::TextEdit),
+            ("text-area-edit", PanelEventKind::TextAreaEdit),
+            ("text-commit", PanelEventKind::TextCommit),
+            ("text", PanelEventKind::TextCommit),
         ] {
-            assert!(
-                panel_event_payload(event, "", 0.0, false).is_some(),
-                "{event} should parse"
-            );
+            let (kind, value) = panel_event_payload(event, "payload", 3.25, true).unwrap();
+            assert_eq!(kind, expected, "{event}");
+            let matches = match event {
+                "click" => matches!(value, PanelValue::None),
+                "toggle" => matches!(value, PanelValue::Bool(true)),
+                "number" => matches!(value, PanelValue::Number(n) if n == 3.25),
+                _ => matches!(value, PanelValue::Text(text) if text == "payload"),
+            };
+            assert!(matches, "{event} payload");
         }
     }
 

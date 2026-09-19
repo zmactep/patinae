@@ -1390,10 +1390,13 @@ mod tests {
         movie.set_rock(true);
         let amplitude = 45.0_f32.to_radians();
         let mut accumulated = 0.0;
+        let mut moved = false;
 
         for _ in 0..240 {
             accumulated += movie.update_rock(1.0 / 60.0, amplitude, 5.0);
             assert!(accumulated.abs() <= amplitude + 1.0e-5);
+            moved |= accumulated.abs() > 1.0e-5;
         }
+        assert!(moved, "enabled rocking must move the camera");
     }
 }

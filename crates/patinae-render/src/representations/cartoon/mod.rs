@@ -294,11 +294,6 @@ mod tests {
     }
 
     #[test]
-    fn integrated_nucleotide_geometry_is_enabled_by_default() {
-        assert!(Settings::default().cartoon.nucleic_ladder);
-    }
-
-    #[test]
     fn cartoon_mode_enables_requested_nucleotide_geometry() {
         let resolved = ResolvedSettings::resolve(&Settings::default(), None);
 

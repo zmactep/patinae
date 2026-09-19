@@ -543,25 +543,6 @@ mod tests {
     use lin_alg::f32::Vec3;
     use patinae_mol::{Atom, BondOrder, CoordSet, Element};
 
-    fn create_test_molecule() -> ObjectMolecule {
-        let mut mol = ObjectMolecule::new("test");
-
-        let mut atom1 = Atom::new("N", Element::Nitrogen);
-        atom1.set_residue("ALA", 1, "A");
-        atom1.id = 1;
-        mol.add_atom(atom1);
-
-        let mut atom2 = Atom::new("CA", Element::Carbon);
-        atom2.set_residue("ALA", 1, "A");
-        atom2.id = 2;
-        mol.add_atom(atom2);
-
-        let coords = CoordSet::from_vec3(&[Vec3::new(0.0, 0.0, 0.0), Vec3::new(1.5, 0.0, 0.0)]);
-        mol.add_coord_set(coords);
-
-        mol
-    }
-
     fn molecule_with_chains(
         atoms: &[(&str, i32, SecondaryStructure, bool)],
         state_count: usize,
@@ -615,22 +596,6 @@ mod tests {
         assert_eq!(format_charge(2), "2+");
         assert_eq!(format_charge(-1), "1-");
         assert_eq!(format_charge(-2), "2-");
-    }
-
-    #[test]
-    fn test_write_pdb() {
-        let mol = create_test_molecule();
-        let mut output = Vec::new();
-
-        {
-            let mut writer = PdbWriter::new(&mut output);
-            writer.write(&mol).unwrap();
-        }
-
-        let pdb_string = String::from_utf8(output).unwrap();
-        assert!(pdb_string.contains("ATOM"));
-        assert!(pdb_string.contains("ALA"));
-        assert!(pdb_string.contains("END"));
     }
 
     #[test]
@@ -693,7 +658,9 @@ mod tests {
         );
 
         let pdb = write_to_string(&mol);
+        assert_eq!(pdb.lines().last(), Some("END"));
         let reparsed = read_pdb_str(&pdb).unwrap();
+        assert!(reparsed.atoms().all(|atom| atom.residue.resn == "ALA"));
 
         assert_eq!(chains(&reparsed), ["A", "A2", "A3"]);
         assert_eq!(reparsed.state_count(), 2);

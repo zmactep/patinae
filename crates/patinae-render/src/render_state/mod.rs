@@ -131,7 +131,7 @@ mod memory_render_parity {
 
     #[test]
     #[ignore = "requires a real GPU; run explicitly for renderer changes"]
-    fn scene_layout_preserves_rendering_picking_and_updates() {
+    fn gpu_scene_layout_preserves_rendering_picking_and_updates() {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
         let adapter =
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))

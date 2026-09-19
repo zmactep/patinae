@@ -710,21 +710,17 @@ mod tests {
     }
 
     #[test]
-    fn prepare_socket_path_accepts_removed_socket() {
-        prepare_socket_path(
-            Path::new("/tmp/patinae.sock"),
-            &FakeSocketCleanup::success(),
-        )
-        .expect("removed socket should be accepted");
-    }
-
-    #[test]
-    fn prepare_socket_path_accepts_missing_socket() {
-        prepare_socket_path(
-            Path::new("/tmp/patinae.sock"),
-            &FakeSocketCleanup::error(std::io::ErrorKind::NotFound),
-        )
-        .expect("missing stale socket should be accepted");
+    fn prepare_socket_path_accepts_removed_or_missing_socket() {
+        for (name, cleanup) in [
+            ("removed", FakeSocketCleanup::success()),
+            (
+                "missing",
+                FakeSocketCleanup::error(std::io::ErrorKind::NotFound),
+            ),
+        ] {
+            prepare_socket_path(Path::new("/tmp/patinae.sock"), &cleanup)
+                .unwrap_or_else(|error| panic!("{name} socket: {error}"));
+        }
     }
 
     #[test]

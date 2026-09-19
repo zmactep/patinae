@@ -522,15 +522,9 @@ mod tests {
     }
 
     #[test]
-    fn test_executor_creation() {
-        let executor = CommandExecutor::new();
-        assert!(!executor.registry().is_empty() || executor.registry().is_empty());
-        assert!(executor.loaded_plugin_capabilities().is_empty());
-    }
-
-    #[test]
     fn loaded_plugin_capabilities_are_executor_state() {
         let mut executor = CommandExecutor::new();
+        assert!(executor.loaded_plugin_capabilities().is_empty());
         executor.record_loaded_plugin_capability(LoadedPluginCapability {
             name: "python".to_string(),
             version: "1.2.3".to_string(),

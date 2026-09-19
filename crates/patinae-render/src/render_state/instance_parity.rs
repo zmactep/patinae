@@ -89,7 +89,7 @@ fn object<'a>(
 
 #[test]
 #[ignore = "requires a real GPU; verifies cached representation and map transparency transitions"]
-fn representation_transparency_updates_cached_draw_phase() {
+fn gpu_representation_transparency_updates_cached_draw_phase() {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter = pollster::block_on(instance.request_adapter(&Default::default())).unwrap();
     let memory = RenderMemoryPolicy::performance();
@@ -215,7 +215,7 @@ fn representation_transparency_updates_cached_draw_phase() {
 
 #[test]
 #[ignore = "requires a real GPU; verifies copy-specific recent marker pixels"]
-fn recent_atom_markers_render_only_on_picked_copies() {
+fn gpu_recent_atom_markers_render_only_on_picked_copies() {
     use crate::RecentAtomMarker;
 
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
@@ -349,7 +349,7 @@ fn recent_atom_markers_render_only_on_picked_copies() {
 
 #[test]
 #[ignore = "requires a real GPU; explicit compact/materialized parity acceptance"]
-fn compact_copies_match_materialized_all_representations() {
+fn gpu_compact_copies_match_materialized_all_representations() {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter =
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))

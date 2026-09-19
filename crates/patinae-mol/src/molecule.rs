@@ -1222,13 +1222,6 @@ mod tests {
     }
 
     #[test]
-    fn test_coordinate_access() {
-        let mol = create_water();
-        let coord = mol.get_coord(AtomIndex(0), 0).unwrap();
-        assert_eq!(coord, Vec3::new(0.0, 0.0, 0.0));
-    }
-
-    #[test]
     fn test_duplicate_bond() {
         let mut mol = ObjectMolecule::new("test");
         let a1 = mol.add_atom(Atom::new("A", Element::Carbon));
@@ -1252,6 +1245,11 @@ mod tests {
         assert_eq!(mol.bond_count(), 1);
         assert_eq!(mol.state_count(), 1);
         assert_eq!(mol.title, "Test molecule");
+        assert!(mol.has_coords());
+        assert_eq!(
+            mol.get_coord(AtomIndex(1), 0),
+            Some(Vec3::new(1.5, 0.0, 0.0))
+        );
     }
 
     #[test]
@@ -1265,9 +1263,19 @@ mod tests {
 
     #[test]
     fn test_validation() {
-        let mol = create_water();
-        let issues = mol.validate();
-        assert!(issues.is_empty());
+        assert!(create_water().validate().is_empty());
+        let mut invalid = create_water();
+        invalid.bonds[0].atom1 = AtomIndex(3);
+        invalid.bonds[1].atom2 = AtomIndex(4);
+        let issues = invalid.validate();
+        assert_eq!(issues.len(), 2);
+        assert!(issues[0].contains("invalid atom1: 3"));
+        assert!(issues[1].contains("invalid atom2: 4"));
+
+        let mut inconsistent = create_water();
+        inconsistent.atom_bonds.pop();
+        assert_eq!(inconsistent.validate().len(), 1);
+        assert!(inconsistent.validate()[0].contains("atom_bonds length"));
     }
 
     #[test]

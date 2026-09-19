@@ -162,61 +162,116 @@ mod tests {
     use super::*;
     use crate::traits::MoleculeReader;
     use lin_alg::f32::Vec3;
-    use patinae_mol::{Atom, CoordSet, Element};
+    use patinae_mol::{Atom, AtomIndex, BondOrder, CoordSet, Element};
 
-    fn create_water() -> ObjectMolecule {
-        let mut mol = ObjectMolecule::new("water");
-
-        let o = mol.add_atom(Atom::new("O", Element::Oxygen));
-        let h1 = mol.add_atom(Atom::new("H1", Element::Hydrogen));
-        let h2 = mol.add_atom(Atom::new("H2", Element::Hydrogen));
-
-        mol.add_bond(o, h1, BondOrder::Single).unwrap();
-        mol.add_bond(o, h2, BondOrder::Single).unwrap();
-
-        let coords = CoordSet::from_vec3(&[
-            Vec3::new(0.0, 0.0, 0.0),
-            Vec3::new(0.96, 0.0, 0.0),
-            Vec3::new(-0.24, 0.93, 0.0),
-        ]);
-        mol.add_coord_set(coords);
-
+    fn asymmetric_molecule() -> ObjectMolecule {
+        let mut mol = ObjectMolecule::new("asymmetric");
+        for (name, element) in [
+            ("C1", Element::Carbon),
+            ("O2", Element::Oxygen),
+            ("N3", Element::Nitrogen),
+            ("S4", Element::Sulfur),
+        ] {
+            mol.add_atom(Atom::new(name, element));
+        }
+        for (a, b, order) in [
+            (0, 2, BondOrder::Single),
+            (0, 1, BondOrder::Double),
+            (2, 3, BondOrder::Triple),
+        ] {
+            mol.add_bond(AtomIndex(a), AtomIndex(b), order).unwrap();
+        }
+        mol.add_coord_set(CoordSet::from_vec3(&[
+            Vec3::new(1.234567, -2.345678, 3.456789),
+            Vec3::new(-4.567891, 5.678912, -6.789123),
+            Vec3::new(7.891234, -8.912345, 9.123456),
+            Vec3::new(-0.123456, 2.987654, -3.876543),
+        ]));
+        mol.add_coord_set(CoordSet::from_vec3(&[
+            Vec3::new(9.5, 1.25, -2.75),
+            Vec3::new(-3.25, 8.5, 1.125),
+            Vec3::new(2.625, -4.75, 6.5),
+            Vec3::new(-7.5, 3.125, -0.625),
+        ]));
         mol
     }
 
     #[test]
-    fn test_write_mol2() {
-        let mol = create_water();
-        let mut output = Vec::new();
-
-        {
-            let mut writer = Mol2Writer::new(&mut output);
+    fn golden_records_and_roundtrip_preserve_atom_identity_coordinates_and_states() {
+        let mol = asymmetric_molecule();
+        for selected in [None, Some(1)] {
+            let mut output = Vec::new();
+            let mut writer = match selected {
+                None => Mol2Writer::new(&mut output),
+                Some(state) => Mol2Writer::with_state(&mut output, state),
+            };
             writer.write(&mol).unwrap();
+            let text = String::from_utf8(output).unwrap();
+            let lines: Vec<String> = text
+                .lines()
+                .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))
+                .collect();
+            assert_eq!(
+                &lines[..7],
+                [
+                    "@<TRIPOS>MOLECULE",
+                    "asymmetric",
+                    "4 3 1 0 0",
+                    "SMALL",
+                    "NO_CHARGES",
+                    "",
+                    "@<TRIPOS>ATOM"
+                ]
+            );
+            assert_eq!(
+                lines[7],
+                if selected.is_none() {
+                    "1 C1 1.2346 -2.3457 3.4568 C.3 1 UNK1 0.0000"
+                } else {
+                    "1 C1 9.5000 1.2500 -2.7500 C.3 1 UNK1 0.0000"
+                }
+            );
+            assert_eq!(
+                &lines[11..],
+                ["@<TRIPOS>BOND", "1 1 3 1", "2 1 2 2", "3 3 4 3"]
+            );
+            let parsed = crate::mol2::Mol2Reader::new(text.as_bytes())
+                .read()
+                .unwrap();
+            assert_eq!(parsed.atom_count(), mol.atom_count());
+            assert_eq!(
+                parsed.atoms().map(|a| a.element).collect::<Vec<_>>(),
+                mol.atoms().map(|a| a.element).collect::<Vec<_>>()
+            );
+            let states: &[usize] = if selected.is_none() { &[0] } else { &[1] };
+            assert_eq!(parsed.state_count(), states.len());
+            // Half the decimal output unit, plus one f32 rounding unit at this coordinate scale.
+            const COORD_TOLERANCE: f32 = 0.5e-4 + f32::EPSILON * 10.0;
+            for (parsed_state, &source_state) in states.iter().enumerate() {
+                for (index, _) in mol.atoms_indexed() {
+                    let actual = parsed.get_coord(index, parsed_state).unwrap();
+                    let expected = mol.get_coord(index, source_state).unwrap();
+                    for (axis, (a, e)) in [actual.x, actual.y, actual.z]
+                        .into_iter()
+                        .zip([expected.x, expected.y, expected.z])
+                        .enumerate()
+                    {
+                        assert!(
+                            (a - e).abs() <= COORD_TOLERANCE,
+                            "state={source_state}, atom={index:?}, axis={axis}: {a} != {e}"
+                        );
+                    }
+                }
+            }
+            assert_eq!(
+                parsed
+                    .bonds()
+                    .map(|b| (b.atom1, b.atom2, b.order))
+                    .collect::<Vec<_>>(),
+                mol.bonds()
+                    .map(|b| (b.atom1, b.atom2, b.order))
+                    .collect::<Vec<_>>()
+            );
         }
-
-        let mol2_string = String::from_utf8(output).unwrap();
-
-        assert!(mol2_string.contains("@<TRIPOS>MOLECULE"));
-        assert!(mol2_string.contains("water"));
-        assert!(mol2_string.contains("@<TRIPOS>ATOM"));
-        assert!(mol2_string.contains("@<TRIPOS>BOND"));
-    }
-
-    #[test]
-    fn test_roundtrip() {
-        let mol = create_water();
-        let mut output = Vec::new();
-
-        {
-            let mut writer = Mol2Writer::new(&mut output);
-            writer.write(&mol).unwrap();
-        }
-
-        // Parse it back
-        let mut reader = crate::mol2::Mol2Reader::new(output.as_slice());
-        let parsed = reader.read().unwrap();
-
-        assert_eq!(parsed.atom_count(), mol.atom_count());
-        assert_eq!(parsed.bond_count(), mol.bond_count());
     }
 }

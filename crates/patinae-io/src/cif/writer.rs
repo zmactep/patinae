@@ -187,6 +187,7 @@ impl<W: Write> MoleculeWriter for CifWriter<W> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::traits::MoleculeReader;
     use lin_alg::f32::Vec3;
     use patinae_mol::{Atom, CoordSet, Element};
 
@@ -222,6 +223,18 @@ mod tests {
         assert!(cif_string.contains("data_alanine"));
         assert!(cif_string.contains("_atom_site.id"));
         assert!(cif_string.contains("ALA"));
+        let parsed = crate::cif::CifReader::new(cif_string.as_bytes())
+            .read()
+            .unwrap();
+        assert_eq!(parsed.atom_count(), mol.atom_count());
+        for ((index, expected), actual) in mol.atoms_indexed().zip(parsed.atoms()) {
+            assert_eq!(actual.element, expected.element);
+            assert_eq!(actual.name, expected.name);
+            assert_eq!(actual.residue.resn, expected.residue.resn);
+            assert_eq!(actual.residue.chain, expected.residue.chain);
+            assert_eq!(actual.residue.resv, expected.residue.resv);
+            assert_eq!(parsed.get_coord(index, 0), mol.get_coord(index, 0));
+        }
     }
 
     #[test]

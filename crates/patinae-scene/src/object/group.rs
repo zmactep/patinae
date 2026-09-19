@@ -162,6 +162,8 @@ mod tests {
         assert!(group.is_empty());
         assert!(group.is_open());
         assert!(group.is_enabled());
+        assert_eq!(group.object_type(), ObjectType::Group);
+        assert!(group.extent().is_none());
     }
 
     #[test]
@@ -203,17 +205,5 @@ mod tests {
 
         group.toggle_open();
         assert!(group.is_open());
-    }
-
-    #[test]
-    fn test_group_object_type() {
-        let group = GroupObject::new("my_group");
-        assert_eq!(group.object_type(), ObjectType::Group);
-    }
-
-    #[test]
-    fn test_group_extent_is_none() {
-        let group = GroupObject::new("my_group");
-        assert!(group.extent().is_none());
     }
 }

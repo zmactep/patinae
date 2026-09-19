@@ -223,16 +223,70 @@ impl CartoonExtrudeCompute {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wgpu::util::DeviceExt;
 
     #[test]
-    fn rounded_dispatch_is_guarded_by_exact_backbone_prefix() {
-        let backbone_vertex_count = WORKGROUP + 1;
-        let dispatched_lanes = backbone_vertex_count.div_ceil(WORKGROUP) * WORKGROUP;
-
-        assert!(dispatched_lanes > backbone_vertex_count);
-        assert!(shader_source::CARTOON_EXTRUDE_WGSL
-            .contains("if (out_idx >= params.backbone_vertex_count)"));
-        assert!(!shader_source::CARTOON_EXTRUDE_WGSL
-            .contains("let total_verts = arrayLength(&vertices);"));
+    #[ignore = "requires a real GPU; verifies extrusion cannot overwrite nucleotide suffix vertices"]
+    fn gpu_rounded_dispatch_preserves_vertices_after_backbone_prefix() {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let adapter = pollster::block_on(instance.request_adapter(&Default::default()))
+            .expect("GPU adapter required; do not silently skip");
+        let (device, queue) =
+            pollster::block_on(adapter.request_device(&Default::default())).unwrap();
+        let pipeline = CartoonExtrudeCompute::new(&device);
+        let prefix = WORKGROUP + 1;
+        let params = ExtrudeParams {
+            backbone_vertex_count: prefix,
+            ..ExtrudeParams::zeroed()
+        };
+        let uniform = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: bytemuck::bytes_of(&params),
+            usage: wgpu::BufferUsages::UNIFORM,
+        });
+        let input = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: &[0; 32],
+            usage: wgpu::BufferUsages::STORAGE,
+        });
+        // With no runs, every valid prefix invocation writes a degenerate vertex.
+        // Rounded lanes must leave the synthetic CPU-owned suffix untouched.
+        let sentinel = vec![0x55u8; WORKGROUP as usize * 2 * 24];
+        let output = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: &sentinel,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+        });
+        let bind_group = pipeline.make_bind_group(&device, &uniform, &input, &input, &output);
+        let staging = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: sentinel.len() as u64,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut encoder = device.create_command_encoder(&Default::default());
+        pipeline.dispatch(&mut encoder, &bind_group, prefix);
+        encoder.copy_buffer_to_buffer(&output, 0, &staging, 0, sentinel.len() as u64);
+        queue.submit([encoder.finish()]);
+        let (tx, rx) = std::sync::mpsc::channel();
+        staging
+            .slice(..)
+            .map_async(wgpu::MapMode::Read, move |r| tx.send(r).unwrap());
+        device
+            .poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: Some(std::time::Duration::from_secs(30)),
+            })
+            .unwrap();
+        rx.recv().unwrap().unwrap();
+        let mapped = staging.slice(..).get_mapped_range();
+        for vertex in mapped[..prefix as usize * 24].as_chunks::<24>().0 {
+            assert_ne!(vertex, &[0x55; 24], "prefix lane did not execute");
+        }
+        assert_eq!(
+            &mapped[prefix as usize * 24..],
+            &sentinel[prefix as usize * 24..],
+            "rounded dispatch corrupted CPU-authored suffix"
+        );
     }
 }

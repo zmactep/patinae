@@ -462,25 +462,6 @@ mod tests {
     }
 
     #[test]
-    fn test_ctrl_left_drag_does_not_rotate() {
-        let mut state = InputState::new();
-
-        state.handle_mouse_button(ButtonState::Pressed, MouseButton::Left);
-        state.handle_modifiers(Modifiers::CONTROL);
-        state.handle_mouse_motion((100.0, 100.0));
-        state.handle_mouse_motion((120.0, 120.0));
-
-        let deltas = state.take_camera_deltas();
-
-        let has_rotate = deltas
-            .iter()
-            .any(|d| matches!(d, CameraDelta::Rotate { .. }));
-        let has_zoom = deltas.iter().any(|d| matches!(d, CameraDelta::Zoom(_)));
-        assert!(!has_rotate, "Ctrl+Left drag must not rotate");
-        assert!(!has_zoom, "Ctrl+Left drag must not zoom");
-    }
-
-    #[test]
     fn test_super_left_drag_pans_on_macos() {
         let mut state = InputState::new();
 

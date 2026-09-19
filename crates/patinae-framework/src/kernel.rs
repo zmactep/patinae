@@ -1481,26 +1481,15 @@ mod tests {
     }
 
     #[test]
-    fn kernel_creates_with_defaults() {
-        let kernel = AppKernel::new();
-        assert!(kernel.needs_redraw());
-    }
-
-    #[test]
-    fn execute_command_headless() {
-        let mut kernel = AppKernel::new();
-        // Unknown command should error gracefully
-        let result = kernel.execute_command("nonexistent_cmd", true, None, (800, 600));
-        assert!(result.is_err());
-    }
-
-    #[test]
     fn execute_command_error_appears_in_output() {
         use crate::model::output::OutputKind;
 
         let mut kernel = AppKernel::new();
+        assert!(kernel.needs_redraw());
         let initial_len = kernel.output.buffer.len();
-        let _ = kernel.execute_command("nonexistent_cmd", false, None, (800, 600));
+        assert!(kernel
+            .execute_command("nonexistent_cmd", false, None, (800, 600))
+            .is_err());
         // Should have at least the command echo + the error
         assert!(kernel.output.buffer.len() >= initial_len + 2);
         assert_eq!(
@@ -1536,31 +1525,20 @@ mod tests {
     }
 
     #[test]
-    fn execute_command_quiet_skips_echo() {
+    fn quiet_commands_suppress_echo_and_timing_on_success_and_failure() {
         use crate::model::output::OutputKind;
-        let mut kernel = AppKernel::new();
-        let _ = kernel.execute_command("nonexistent_cmd", true, None, (800, 600));
-        // No Command-kind entry (quiet suppresses the echo)
-        let has_echo = kernel
-            .output
-            .buffer
-            .iter()
-            .any(|m| m.kind == OutputKind::Command);
-        assert!(!has_echo);
-    }
-
-    #[test]
-    fn execute_command_quiet_skips_timing() {
-        use crate::model::output::OutputKind;
-        let mut kernel = AppKernel::new();
-        let _ = kernel.execute_command("set sphere_scale, 0.5", true, None, (800, 600));
-
-        let has_timing = kernel
-            .output
-            .buffer
-            .iter()
-            .any(|m| m.kind == OutputKind::Timing);
-        assert!(!has_timing);
+        for (command, succeeds) in [("nonexistent_cmd", false), ("set sphere_scale, 0.5", true)] {
+            let mut kernel = AppKernel::new();
+            let result = kernel.execute_command(command, true, None, (800, 600));
+            assert_eq!(result.is_ok(), succeeds, "{command}");
+            assert!(
+                !kernel.output.buffer.iter().any(|message| matches!(
+                    message.kind,
+                    OutputKind::Command | OutputKind::Timing
+                )),
+                "{command}"
+            );
+        }
     }
 
     #[test]
@@ -1726,7 +1704,9 @@ mod tests {
         kernel.bus.send(AppMessage::TogglePanel("objects".into()));
 
         let unhandled = kernel.process_messages(None, (800, 600));
-        assert_eq!(unhandled.len(), 2);
+        assert!(
+            matches!(unhandled.as_slice(), [AppMessage::Quit, AppMessage::TogglePanel(name)] if name == "objects")
+        );
     }
 
     #[test]

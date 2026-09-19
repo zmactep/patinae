@@ -280,15 +280,23 @@ mod tests {
     }
 
     #[test]
-    fn test_global_only_not_in_overrides() {
-        // ambient (id=7) is global-only, should be skipped in override import
-        let list = vec![SerializedSetting {
-            id: 7,
-            value: SettingValue::Float(0.5),
-        }];
-        let overrides = import_object_overrides(&list);
-        // No way to check directly, but it should not panic
-        let _ = overrides;
+    fn object_import_retains_object_values_and_skips_global_values() {
+        let stick_radius_id = id_for_name("stick_radius").unwrap();
+        let overrides = import_object_overrides(&[
+            SerializedSetting {
+                id: 7,
+                value: SettingValue::Float(0.5),
+            },
+            SerializedSetting {
+                id: stick_radius_id,
+                value: SettingValue::Float(0.8),
+            },
+        ]);
+        assert_eq!(overrides.stick.radius, Some(0.8));
+        let exported = export_object_overrides(&overrides);
+        assert_eq!(exported.len(), 1);
+        assert_eq!(exported[0].id, stick_radius_id);
+        assert_eq!(exported[0].value, SettingValue::Float(0.8));
     }
 
     #[test]

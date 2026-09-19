@@ -211,8 +211,7 @@ mod tests {
     }
 
     #[test]
-    fn test_not_loaded_by_default() {
-        // Cache is not loaded until explicitly requested
+    fn unknown_residue_has_no_template() {
         assert!(get_template("ZZZZZ").is_none());
     }
 

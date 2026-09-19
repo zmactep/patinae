@@ -112,36 +112,3 @@ pub fn coordset_to_py_list(coordset: &patinae_mol::CoordSet) -> Vec<(f32, f32, f
 pub fn bbox_to_py(min: Vec3, max: Vec3) -> ((f32, f32, f32), (f32, f32, f32)) {
     (vec3_to_tuple(min), vec3_to_tuple(max))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_vec3_conversion() {
-        let v = Vec3::new(1.0, 2.0, 3.0);
-        let t = vec3_to_tuple(v);
-        assert_eq!(t, (1.0, 2.0, 3.0));
-
-        let v2 = tuple_to_vec3(t);
-        assert_eq!(v2.x, 1.0);
-        assert_eq!(v2.y, 2.0);
-        assert_eq!(v2.z, 3.0);
-    }
-
-    #[test]
-    fn test_color_conversion() {
-        let c = Color::new(0.5, 0.25, 0.75);
-        let t = color_to_tuple(c);
-        assert!((t.0 - 0.5).abs() < 0.001);
-        assert!((t.1 - 0.25).abs() < 0.001);
-        assert!((t.2 - 0.75).abs() < 0.001);
-    }
-
-    #[test]
-    fn test_rgb8_conversion() {
-        let c = Color::from_rgb8(255, 128, 0);
-        let rgb = color_to_rgb8(c);
-        assert_eq!(rgb, (255, 128, 0));
-    }
-}

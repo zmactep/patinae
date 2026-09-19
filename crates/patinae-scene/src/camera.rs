@@ -854,7 +854,12 @@ mod tests {
     #[test]
     fn test_scene_view_roundtrip() {
         let view = SceneView {
-            rotation: Mat4::new_identity(),
+            rotation: Mat4::from([
+                [0.0, 0.0, -1.0, 0.0],
+                [0.0, 1.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ]),
             position: Vec3::new(1.0, 2.0, 30.0),
             origin: Vec3::new(10.0, 20.0, 30.0),
             clip_front: 0.5,
@@ -863,11 +868,20 @@ mod tests {
         };
 
         let arr = view.to_pymol_array();
-        let view2 = SceneView::from_pymol_array(&arr);
-
-        assert!((view.position.x - view2.position.x).abs() < 0.001);
-        assert!((view.origin.z - view2.origin.z).abs() < 0.001);
-        assert!((view.fov - view2.fov).abs() < 0.001);
+        assert_eq!(
+            arr,
+            [
+                0.0, 0.0, -1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+                1.0, 2.0, 30.0, 10.0, 20.0, 30.0, 0.5, 500.0, 20.0
+            ]
+        );
+        let restored = SceneView::from_pymol_array(&arr);
+        assert_eq!(restored.rotation.data, view.rotation.data);
+        assert_eq!(restored.position, view.position);
+        assert_eq!(restored.origin, view.origin);
+        assert_eq!(restored.clip_front, view.clip_front);
+        assert_eq!(restored.clip_back, view.clip_back);
+        assert_eq!(restored.fov, view.fov);
     }
 
     #[test]
@@ -905,35 +919,6 @@ mod tests {
         camera.update(0.6);
         assert!(!camera.is_animating());
         assert!((camera.view.position.z - target.position.z).abs() < 0.001);
-    }
-
-    #[test]
-    fn test_projection_matrices() {
-        // Test perspective matrix
-        let persp = perspective_matrix(60.0, 1.5, 0.1, 100.0);
-        // Matrix should not be identity
-        assert!(
-            (persp.data[0] - 1.0).abs() > 0.001,
-            "Perspective should differ from identity"
-        );
-        // Should have non-zero values (not all zeros)
-        let non_zero_count = persp.data.iter().filter(|&&v| v.abs() > 0.0001).count();
-        assert!(
-            non_zero_count >= 4,
-            "Perspective matrix should have several non-zero values"
-        );
-
-        // Test orthographic matrix
-        let ortho = orthographic_matrix(-10.0, 10.0, -10.0, 10.0, 0.1, 100.0);
-        // Should have non-zero values
-        let non_zero_count = ortho.data.iter().filter(|&&v| v.abs() > 0.0001).count();
-        assert!(
-            non_zero_count >= 4,
-            "Orthographic matrix should have several non-zero values"
-        );
-        // Should have 1.0 somewhere (the w=1 term)
-        let has_one = ortho.data.iter().any(|&v| (v - 1.0).abs() < 0.001);
-        assert!(has_one, "Orthographic matrix should contain 1.0");
     }
 
     #[test]

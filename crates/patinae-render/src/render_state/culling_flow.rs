@@ -145,6 +145,108 @@ fn should_dispatch_cull(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[ignore = "requires a real GPU; exercises marker-only and coordinate changes through sync"]
+    fn gpu_sync_markers_reuse_culling_and_coordinates_invalidate_it() {
+        use crate::{
+            RenderAtomColors, RenderInput, RenderObjectInput, SceneLod, IDENTITY_TRANSFORM,
+        };
+        use lin_alg::f32::Vec3;
+        use patinae_mol::{Atom, AtomIndex, DirtyFlags, Element, MoleculeBuilder, RepMask};
+        use patinae_settings::{ResolvedSettings, Settings};
+        use std::sync::Arc;
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let adapter = pollster::block_on(instance.request_adapter(&Default::default()))
+            .expect("GPU adapter required; do not silently skip");
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            required_limits: crate::required_limits_for_memory_policy(
+                &adapter.limits(),
+                crate::RenderMemoryPolicy::performance(),
+            ),
+            ..Default::default()
+        }))
+        .unwrap();
+        let mut renderer = RenderState::with_config(
+            Arc::new(device),
+            Arc::new(queue),
+            wgpu::TextureFormat::Rgba8Unorm,
+            (32, 32),
+            Default::default(),
+        );
+        let mut molecule = MoleculeBuilder::new("cull-markers")
+            .add_atom(Atom::new("CA", Element::Carbon), Vec3::new(0.0, 0.0, 0.0))
+            .build();
+        let settings = ResolvedSettings::resolve(&Settings::default(), None);
+        let colors = [[1.0; 4]];
+        for (dirty, marker, expect_dirty) in [
+            (DirtyFlags::ALL, 0, true),
+            (
+                DirtyFlags::SELECTION,
+                crate::scene_store::marker::MARKER_SELECTED,
+                false,
+            ),
+            (
+                DirtyFlags::HOVER,
+                crate::scene_store::marker::MARKER_HOVER,
+                false,
+            ),
+            (DirtyFlags::COORDS, 0, true),
+        ] {
+            if dirty == DirtyFlags::COORDS {
+                assert!(molecule.set_coord(AtomIndex(0), 0, Vec3::new(2.0, 0.0, 0.0)));
+            }
+            let markers = [marker];
+            let object = RenderObjectInput {
+                object_id: ObjectId(1),
+                instances: None,
+                molecule: &molecule,
+                coord_set: molecule.get_coord_set(0).unwrap(),
+                transform: IDENTITY_TRANSFORM,
+                visible_reps: RepMask::SPHERES,
+                draw_reps: RepMask::SPHERES,
+                object_settings: None,
+                colors: RenderAtomColors::Separate {
+                    base: &colors,
+                    reps: &[],
+                },
+                atom_markers: &markers,
+                recent_atom_markers: None,
+                marker_updates: &[],
+                has_markers: marker != 0,
+                lod: SceneLod::Auto,
+                dirty,
+            };
+            renderer.sync(&RenderInput {
+                objects: &[object],
+                maps: &[],
+                strokes: &[],
+                settings: &settings,
+                lod: SceneLod::Auto,
+            });
+            assert_eq!(renderer.scene.scene_dirty, expect_dirty, "{dirty:?}");
+            assert_eq!(
+                should_dispatch_cull(
+                    renderer.scene.cull_pass_initialized,
+                    renderer.scene.scene_dirty,
+                    false,
+                    renderer.scene.last_cull_view_proj_hash,
+                    7
+                ),
+                expect_dirty,
+                "{dirty:?}"
+            );
+            let mut encoder = renderer
+                .ctx
+                .device
+                .create_command_encoder(&Default::default());
+            renderer.dispatch_cull(&mut encoder, 7, false);
+            renderer.ctx.queue.submit([encoder.finish()]);
+            assert!(renderer.scene.cull_pass_initialized);
+            assert_eq!(renderer.scene.last_cull_view_proj_hash, 7);
+            // A completed frame consumes the scene dirty bit.
+            renderer.scene.scene_dirty = false;
+        }
+    }
 
     #[test]
     fn frustum_plane_extraction_returns_normalized_planes() {
@@ -184,10 +286,5 @@ mod tests {
     #[test]
     fn cull_cache_dispatches_when_compute_rebuilt() {
         assert!(should_dispatch_cull(true, false, true, 7, 7));
-    }
-
-    #[test]
-    fn cull_cache_reuses_marker_only_dirty() {
-        assert!(!should_dispatch_cull(true, false, false, 7, 7));
     }
 }

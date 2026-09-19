@@ -1253,104 +1253,48 @@ impl Command for MaddCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::args::ParsedCommand;
     use crate::parser::parse_command;
     use crate::CommandExecutor;
     use patinae_scene::{Session, SessionAdapter};
 
     #[test]
-    fn test_mset_simple_count() {
-        let cmd = ParsedCommand::new("mset").with_arg(ArgValue::Int(60));
-        let states = parse_mset_spec(&cmd).unwrap();
-        assert_eq!(states.len(), 60);
-        assert!(states.iter().all(|&s| s == 1));
+    fn mset_syntax_preserves_the_complete_state_sequence() {
+        for (command, expected) in [
+            ("mset 60", vec![1; 60]),
+            ("mset 1 x60", vec![1; 60]),
+            ("mset 1 -30", (1..=30).collect()),
+            ("mset 1 x10 2 x10", [vec![1; 10], vec![2; 10]].concat()),
+            (
+                "mset 1 x30 1 -60",
+                [vec![1; 30], (1..=60).collect()].concat(),
+            ),
+        ] {
+            let parsed = parse_command(command).unwrap();
+            assert_eq!(parse_mset_spec(&parsed).unwrap(), expected, "{command}");
+        }
     }
 
     #[test]
-    fn test_mset_1_x60() {
-        // "mset 1 x60" → parser produces Int(1), String("x60")
-        let cmd = ParsedCommand::new("mset")
-            .with_arg(ArgValue::Int(1))
-            .with_arg(ArgValue::String("x60".to_string()));
-        let states = parse_mset_spec(&cmd).unwrap();
-        assert_eq!(states.len(), 60);
-        assert!(states.iter().all(|&s| s == 1));
-    }
-
-    #[test]
-    fn test_mset_range() {
-        // "mset 1 -30" → parser may produce Int(1), Int(-30) or Int(1), String("-30")
-        let cmd = ParsedCommand::new("mset")
-            .with_arg(ArgValue::Int(1))
-            .with_arg(ArgValue::Int(-30));
-        let states = parse_mset_spec(&cmd).unwrap();
-        assert_eq!(states.len(), 30);
-        assert_eq!(states[0], 1);
-        assert_eq!(states[29], 30);
-    }
-
-    #[test]
-    fn test_mset_combined() {
-        // "mset 1 x10 2 x10" → 10 of state 1, then 10 of state 2
-        let cmd = ParsedCommand::new("mset")
-            .with_arg(ArgValue::Int(1))
-            .with_arg(ArgValue::String("x10".to_string()))
-            .with_arg(ArgValue::Int(2))
-            .with_arg(ArgValue::String("x10".to_string()));
-        let states = parse_mset_spec(&cmd).unwrap();
-        assert_eq!(states.len(), 20);
-        assert!(states[..10].iter().all(|&s| s == 1));
-        assert!(states[10..].iter().all(|&s| s == 2));
-    }
-
-    #[test]
-    fn test_mset_mixed() {
-        // "mset 1 x30 1 -60" → 30 of state 1, then states 1..60
-        let cmd = ParsedCommand::new("mset")
-            .with_arg(ArgValue::Int(1))
-            .with_arg(ArgValue::String("x30".to_string()))
-            .with_arg(ArgValue::Int(1))
-            .with_arg(ArgValue::Int(-60));
-        let states = parse_mset_spec(&cmd).unwrap();
-        assert_eq!(states.len(), 90); // 30 + 60
-        assert!(states[..30].iter().all(|&s| s == 1));
-        assert_eq!(states[30], 1);
-        assert_eq!(states[89], 60);
-    }
-
-    #[test]
-    fn test_parse_mset_1_x60_from_parser() {
-        let cmd = parse_command("mset 1 x60").unwrap();
-        assert_eq!(cmd.name, "mset");
-        let states = parse_mset_spec(&cmd).unwrap();
-        assert_eq!(states.len(), 60);
-        assert!(states.iter().all(|&s| s == 1));
-    }
-
-    #[test]
-    fn test_parse_mview_store() {
-        let cmd = parse_command("mview store").unwrap();
-        assert_eq!(cmd.name, "mview");
-        assert_eq!(cmd.get_str(0), Some("store"));
-    }
-
-    #[test]
-    fn test_parse_mview_store_frame() {
-        let cmd = parse_command("mview store, 30").unwrap();
-        assert_eq!(cmd.name, "mview");
-        assert_eq!(cmd.get_str(0), Some("store"));
-        assert_eq!(cmd.get_int(1), Some(30));
-    }
-
-    #[test]
-    fn test_parse_mview_store_scene() {
-        let cmd = parse_command("mview store, 1, scene=001").unwrap();
-        assert_eq!(cmd.name, "mview");
-        assert_eq!(cmd.get_str(0), Some("store"));
-        assert_eq!(cmd.get_int(1), Some(1));
-        // scene=001 may parse as Int(1) or String("001") depending on parser
-        let scene = cmd.get_named("scene").and_then(|v| v.to_string_repr());
-        assert_eq!(scene.as_deref(), Some("1"));
+    fn mview_store_arguments_preserve_optional_frame_and_numeric_scene() {
+        for (command, frame, scene) in [
+            ("mview store", None, None),
+            ("mview store, 30", Some(30), None),
+            ("mview store, 1, scene=001", Some(1), Some("1")),
+            ("mview store, 30, scene=002", Some(30), Some("2")),
+        ] {
+            let parsed = parse_command(command).unwrap();
+            assert_eq!(parsed.name, "mview", "{command}");
+            assert_eq!(parsed.get_str(0), Some("store"), "{command}");
+            assert_eq!(parsed.get_int(1), frame, "{command}");
+            assert_eq!(
+                parsed
+                    .get_named("scene")
+                    .and_then(|v| v.to_string_repr())
+                    .as_deref(),
+                scene,
+                "{command}"
+            );
+        }
     }
 
     #[test]
@@ -1404,15 +1348,5 @@ mod tests {
     fn test_rock_invalid_mode_errors() {
         let err = execute_rock("rock sideways", false).unwrap_err();
         assert!(err.to_string().contains("Invalid mode"));
-    }
-
-    #[test]
-    fn test_parse_mview_store_scene_002() {
-        let cmd = parse_command("mview store, 30, scene=002").unwrap();
-        assert_eq!(cmd.name, "mview");
-        assert_eq!(cmd.get_str(0), Some("store"));
-        assert_eq!(cmd.get_int(1), Some(30));
-        let scene = cmd.get_named("scene").and_then(|v| v.to_string_repr());
-        assert_eq!(scene.as_deref(), Some("2"));
     }
 }

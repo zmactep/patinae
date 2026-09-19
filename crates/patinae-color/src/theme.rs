@@ -72,31 +72,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_by_name_dark() {
-        let p = ThemedPalette::by_name("dark");
-        let dark = ThemedPalette::dark();
-        assert_eq!(p.viewport_bg, dark.viewport_bg);
-    }
-
-    #[test]
-    fn test_by_name_light() {
-        let p = ThemedPalette::by_name("light");
-        let light = ThemedPalette::light();
-        assert_eq!(p.viewport_bg, light.viewport_bg);
-    }
-
-    #[test]
-    fn test_by_name_case_insensitive() {
-        let p = ThemedPalette::by_name("Light");
-        let light = ThemedPalette::light();
-        assert_eq!(p.viewport_bg, light.viewport_bg);
-    }
-
-    #[test]
-    fn test_by_name_unknown_falls_back_to_dark() {
-        let p = ThemedPalette::by_name("solarized");
-        let dark = ThemedPalette::dark();
-        assert_eq!(p.viewport_bg, dark.viewport_bg);
+    fn theme_lookup_preserves_names_case_and_unknown_fallback() {
+        for (name, expected) in [
+            ("dark", ThemedPalette::dark()),
+            ("light", ThemedPalette::light()),
+            ("Light", ThemedPalette::light()),
+            ("solarized", ThemedPalette::dark()),
+        ] {
+            let actual = ThemedPalette::by_name(name);
+            assert_eq!(actual.viewport_bg, expected.viewport_bg, "{name}");
+            assert_eq!(actual.chains.colors(), expected.chains.colors(), "{name}");
+        }
     }
 
     #[test]

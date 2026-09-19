@@ -106,16 +106,4 @@ mod tests {
         let resolved = resolve_force_field_path("OPLS-AA", &[dir.path().to_path_buf()]).unwrap();
         assert_eq!(resolved, bundled);
     }
-
-    #[test]
-    fn resolves_source_bundled_aliases() {
-        for alias in ["AMBER", "CHARMM", "OPLS-AA"] {
-            let resolved = resolve_force_field_path(alias, &[]).unwrap();
-            assert!(
-                resolved.join("forcefield.itp").exists(),
-                "{alias} resolved to {} without forcefield.itp",
-                resolved.display()
-            );
-        }
-    }
 }

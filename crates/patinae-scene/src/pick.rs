@@ -406,7 +406,7 @@ fn format_resi(resv: i32, inscode: char) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use patinae_mol::{Atom, AtomBuilder, Element, MoleculeBuilder, RepMask};
+    use patinae_mol::{Atom, AtomBuilder, Element, MoleculeBuilder};
 
     #[test]
     fn test_pick_hit() {
@@ -793,59 +793,29 @@ mod tests {
     // ========================================================================
 
     #[test]
-    fn test_pick_expr_atom_mode() {
+    fn pick_expression_modes_preserve_the_selected_atom_scope() {
         let mol = test_molecule();
-        let hit = make_hit(2); // atom 2 = N in GLY 2, chain A
-        let expr = pick_expression_for_hit(&hit, 0, &mol).unwrap();
-        assert_eq!(expr, "model test and index 2");
-    }
-
-    #[test]
-    fn test_pick_expr_residue_mode() {
-        let mol = test_molecule();
-        let hit = make_hit(0); // atom 0 = N in ALA 1, chain A
-        let expr = pick_expression_for_hit(&hit, 1, &mol).unwrap();
-        assert_eq!(expr, "model test and chain A and resi 1");
-    }
-
-    #[test]
-    fn test_pick_expr_chain_mode() {
-        let mol = test_molecule();
-        let hit = make_hit(3); // atom 3 = CA in ALA 1, chain B
-        let expr = pick_expression_for_hit(&hit, 2, &mol).unwrap();
-        assert_eq!(expr, "model test and chain B");
-    }
-
-    #[test]
-    fn test_pick_expr_segment_mode() {
-        let mol = test_molecule();
-        let hit = make_hit(3); // atom 3 has segi "S2"
-        let expr = pick_expression_for_hit(&hit, 3, &mol).unwrap();
-        assert_eq!(expr, "model test and segi S2");
-    }
-
-    #[test]
-    fn test_pick_expr_object_mode() {
-        let mol = test_molecule();
-        let hit = make_hit(0);
-        let expr = pick_expression_for_hit(&hit, 4, &mol).unwrap();
-        assert_eq!(expr, "model test");
-    }
-
-    #[test]
-    fn test_pick_expr_molecule_mode() {
-        let mol = test_molecule();
-        let hit = make_hit(1); // atom 1
-        let expr = pick_expression_for_hit(&hit, 5, &mol).unwrap();
-        assert_eq!(expr, "bymolecule (model test and index 1)");
-    }
-
-    #[test]
-    fn test_pick_expr_calpha_mode() {
-        let mol = test_molecule();
-        let hit = make_hit(0); // atom 0 = N in ALA 1, chain A
-        let expr = pick_expression_for_hit(&hit, 6, &mol).unwrap();
-        assert_eq!(expr, "model test and chain A and resi 1 and name CA");
+        for (name, atom, mode, expected) in [
+            ("atom", 2, 0, "model test and index 2"),
+            ("residue", 0, 1, "model test and chain A and resi 1"),
+            ("chain", 3, 2, "model test and chain B"),
+            ("segment", 3, 3, "model test and segi S2"),
+            ("object", 0, 4, "model test"),
+            ("molecule", 1, 5, "bymolecule (model test and index 1)"),
+            (
+                "C-alpha",
+                0,
+                6,
+                "model test and chain A and resi 1 and name CA",
+            ),
+        ] {
+            let hit = make_hit(atom);
+            assert_eq!(
+                pick_expression_for_hit(&hit, mode, &mol).unwrap(),
+                expected,
+                "{name}"
+            );
+        }
     }
 
     #[test]
@@ -909,22 +879,5 @@ mod tests {
             pick_expression_for_hit(&hit, 4, &mol).unwrap(),
             "model test"
         );
-    }
-
-    #[test]
-    fn test_invisible_atom_not_pickable() {
-        let obj_reps = RepMask::CARTOON.union(RepMask::STICKS);
-
-        // Atom with cartoon visible — pickable
-        assert!(RepMask::CARTOON.intersection(obj_reps) != RepMask::NONE);
-
-        // Atom with only lines — not pickable (lines not enabled at object level)
-        assert!(RepMask::LINES.intersection(obj_reps) == RepMask::NONE);
-
-        // Atom with no reps — not pickable
-        assert!(RepMask::NONE.intersection(obj_reps) == RepMask::NONE);
-
-        // Object with no reps — nothing pickable
-        assert!(RepMask::CARTOON.intersection(RepMask::NONE) == RepMask::NONE);
     }
 }

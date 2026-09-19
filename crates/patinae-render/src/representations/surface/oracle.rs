@@ -1,25 +1,10 @@
 //! CPU reference oracles for the surface compute pipeline.
 //!
-//! These are intentionally slow, allocation-friendly implementations whose
-//! only job is to validate the GPU passes (`surface_density.wgsl`,
-//! `surface_ses.wgsl`, `surface_mc_*.wgsl` — landing in 4.3..4.5) under
-//! `cargo test` without a GPU adapter. Production rendering goes through the
-//! compute pipeline; nothing in `SurfaceRep::build` calls these helpers.
-//!
-//! ## Definitions
-//!
-//! - **SAS density (`surface_solvent = true`)**:
-//!   `ρ(x) = Σ_a exp(-α · |x - c_a|² / r_a_eff²)` with
-//!   `r_a_eff = r_a + probe_radius` and `α = SAS_ALPHA`. Iso level is
-//!   [`SAS_ISO`] — at this iso, an isolated atom's surface lies exactly at
-//!   distance `r_a_eff` from its centre (since `exp(-α) = SAS_ISO`).
-//! - **SES distance (default, `surface_solvent = false`)**:
-//!   `f(x) = min_a(|x - c_a| - r_a)` — signed distance to the union of
-//!   van-der-Waals spheres. The probe-rolled SES surface is approximated by
-//!   the iso-set `f(x) = -probe_radius` (analytical morphological closing
-//!   diverges in deep concave pockets, but for the smoke tests here this is
-//!   sufficient — the GPU pass will do the real Connolly via SDF + morph
-//!   dilate/erode in 4.4).
+//! Scalar references are checked against analytical fixtures on the CPU and
+//! against production compute passes by explicit GPU tests in the parent module.
+//! SAS sums Gaussian densities; SES takes the maximum vdW signed distance
+//! over a spherical voxel stencil and subtracts the probe radius. GPU texture
+//! boundaries clamp that stencil; the analytical helper has no grid boundary.
 //!
 //! ## Marching cubes convention
 //!
@@ -30,11 +15,6 @@
 
 use super::constants::{SAS_ALPHA, SAS_ISO};
 use super::mc_tables::{CORNER_OFFSETS, EDGE_TABLE, EDGE_VERTICES, TRI_COUNT, TRI_TABLE};
-
-/// Iso level for SES distance — the surface is the offset of the vdW SDF by
-/// the probe radius. Caller passes `-probe_radius` directly; this constant
-/// just documents the sign.
-pub const SES_ISO_OFFSET_SIGN: f32 = -1.0;
 
 /// A single atom contribution. Mirrors what the GPU `SurfaceAtom` SSBO entry
 /// will look like; staying parallel keeps the oracle a drop-in reference.
@@ -473,44 +453,6 @@ mod tests {
     }
 
     #[test]
-    fn ses_no_neck_when_gap_exceeds_two_probes() {
-        // Two atoms separated by more than 2·probe of free space between their
-        // vdW surfaces ⇒ probe rolls through, no SES neck. The midpoint must
-        // be classified as outside (vdw_sdf > -probe).
-        let r = 1.5;
-        let probe = 1.4;
-        // Centre-to-centre distance > 2(r) + 2(probe).
-        let d_centre = 2.0 * r + 2.0 * probe + 0.5; // 0.5 Å of slack
-        let atoms = vec![
-            atom([-d_centre / 2.0, 0.0, 0.0], r, 0),
-            atom([d_centre / 2.0, 0.0, 0.0], r, 1),
-        ];
-        let f_mid = vdw_sdf([0.0, 0.0, 0.0], &atoms);
-        // Outside SES iff vdw_sdf > -probe.
-        assert!(
-            f_mid > -probe,
-            "expected probe-pass midpoint outside SES; vdw_sdf = {f_mid}, probe = {probe}"
-        );
-    }
-
-    #[test]
-    fn ses_has_neck_when_atoms_overlap_deeply() {
-        // Atoms overlapping enough that the midpoint is at least `probe` deep
-        // inside their vdW spheres ⇒ no probe can fit through ⇒ SES neck.
-        // Centre-to-centre `d` ⇒ midpoint depth = r - d/2; inside SES iff
-        // depth >= probe, i.e. d <= 2(r - probe).
-        let r = 2.5;
-        let probe = 1.0;
-        let half = (r - probe) - 0.1; // 0.1 Å of slack so depth comfortably > probe
-        let atoms = vec![atom([-half, 0.0, 0.0], r, 0), atom([half, 0.0, 0.0], r, 1)];
-        let f_mid = vdw_sdf([0.0, 0.0, 0.0], &atoms);
-        assert!(
-            f_mid <= -probe,
-            "expected midpoint inside SES; vdw_sdf = {f_mid}, probe = {probe}"
-        );
-    }
-
-    #[test]
     fn owner_picks_nearest_atom() {
         let atoms = vec![
             atom([-3.0, 0.0, 0.0], 1.5, 7),
@@ -569,6 +511,7 @@ mod tests {
         let (verts, idx) = cpu_marching_cubes(&grid, SAS_ISO);
 
         assert!(!verts.is_empty(), "expected non-empty mesh for single atom");
+        super::super::tests::assert_closed_mesh(&verts, grid.voxel_size * 1e-4);
         assert_eq!(idx.len() % 3, 0, "indices not a multiple of 3");
         assert_eq!(
             verts.len(),

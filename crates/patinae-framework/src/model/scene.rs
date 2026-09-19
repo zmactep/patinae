@@ -895,7 +895,7 @@ mod tests {
     }
 
     #[test]
-    fn subchain_kind_as_str_roundtrip() {
+    fn subchain_kind_has_stable_display_names() {
         assert_eq!(SubchainKind::Biopolymer.as_str(), "biopolymer");
         assert_eq!(SubchainKind::Solvent.as_str(), "solvent");
         assert_eq!(SubchainKind::Organic.as_str(), "organic");
@@ -932,14 +932,9 @@ mod tests {
     }
 
     #[test]
-    fn scene_model_starts_empty() {
-        let model = SceneModel::new();
-        assert!(model.entries.is_empty());
-    }
-
-    #[test]
     fn scene_model_no_change_returns_false() {
         let mut model = SceneModel::new();
+        assert!(model.entries.is_empty());
         let registry = ObjectRegistry::default();
         let palette = ThemedPalette::dark();
         let named = NamedPalette::default();
@@ -976,15 +971,6 @@ mod tests {
         model.sync(&registry, &ctx);
         model.invalidate();
         assert!(model.sync(&registry, &ctx));
-    }
-
-    #[test]
-    fn sidebar_color_variants() {
-        assert_eq!(SidebarColor::Solvent, SidebarColor::Solvent);
-        assert_eq!(SidebarColor::Multicolor, SidebarColor::Multicolor);
-        assert_eq!(SidebarColor::Other, SidebarColor::Other);
-        let c = SidebarColor::Color(Color::WHITE);
-        assert!(matches!(c, SidebarColor::Color(_)));
     }
 
     #[test]
@@ -1345,7 +1331,7 @@ mod tests {
     }
 
     #[test]
-    fn selector_clause_solvent_uses_solvent_qualifier() {
+    fn selector_clause_solvent_only_chain_uses_chain_qualifier() {
         // Multi-chain: polymer chain A + waters in chain S.
         // Solvent in its own chain (single subchain there) → just `chain S`.
         let mut b = MoleculeBuilder::new("m");
