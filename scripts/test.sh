@@ -31,15 +31,17 @@ case "${1:-}" in
         "$cargo_bin" test --locked --manifest-path python/Cargo.toml --lib
         "$cargo_bin" test --locked --manifest-path web/Cargo.toml --lib
         unset PYTHONHOME
-        env_dir="$work/python-$python_version"
-        if [[ ! -f "$env_dir/pyvenv.cfg" ]]; then
-            "$uv_bin" venv --python "$PYO3_PYTHON" "$env_dir"
-        fi
+        # Rust cache cleanup strips non-Cargo files from target directories.
+        # Keep the wheel environment outside that cache and fresh for each run.
+        runtime=$(mktemp -d "${TMPDIR:-/tmp}/patinae-test-bindings.XXXXXX")
+        trap 'rm -rf "$runtime"' EXIT
+        env_dir="$runtime/python"
+        "$uv_bin" venv --python "$PYO3_PYTHON" "$env_dir"
         test_python="$env_dir/bin/python"
         if [[ ! -x "$test_python" ]]; then test_python="$env_dir/Scripts/python.exe"; fi
         "$uv_bin" pip install --python "$test_python" 'maturin>=1,<2' 'pytest>=7' 'numpy>=1.20'
-        wheels=$(mktemp -d "$work/wheels.XXXXXX")
-        trap 'rm -rf "$wheels"' EXIT
+        wheels="$runtime/wheels"
+        mkdir -p "$wheels"
         # maturin needs clang to interpret its Darwin linker arguments.
         if [[ "$(uname -s)" == Darwin ]]; then
             export CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER=clang
