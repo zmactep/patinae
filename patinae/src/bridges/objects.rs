@@ -2537,22 +2537,20 @@ pub fn setup_callbacks(app: Rc<RefCell<crate::app::App>>, window: &AppWindow) {
             let short = ObjectsBridge::truncate_name(&target, 28);
 
             match action.as_str() {
-                "materialize" => {
+                "materialize"
                     if a.objects.selection_level == SelectionLevel::Objects
-                        && a.objects.selected_objects.len() == 1
+                        && a.objects.selected_objects.len() == 1 =>
+                {
+                    let name = a.objects.selected_objects[0].clone();
+                    if a.kernel
+                        .scene
+                        .get(&name)
+                        .is_some_and(|object| object.can_materialize)
                     {
-                        let name = a.objects.selected_objects[0].clone();
-                        if a.kernel
-                            .scene
-                            .get(&name)
-                            .is_some_and(|object| object.can_materialize)
-                        {
-                            a.kernel.bus.execute_command(format!(
-                                "materialize {}",
-                                quote_command_arg(&name)
-                            ));
-                            os.set_popover_kind("".into());
-                        }
+                        a.kernel
+                            .bus
+                            .execute_command(format!("materialize {}", quote_command_arg(&name)));
+                        os.set_popover_kind("".into());
                     }
                 }
                 "rename" if capabilities.rename => open_name_popup(&os, "rename", &target, &short),
