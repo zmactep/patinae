@@ -10,7 +10,7 @@ use patinae_mol::{Element, ObjectMolecule};
 
 use crate::assembly::{AssemblyRow, AssemblyRows, CATEGORIES};
 use crate::error::{IoError, IoResult};
-use crate::logical_models::{build_molecules, ParsedAtom, ParsedModel};
+use crate::logical_models::{build_molecules, ParsedAtom, ParsedLabels, ParsedModel};
 use crate::traits::MoleculeReader;
 
 use super::common::{
@@ -30,6 +30,7 @@ struct AtomSiteColumns {
     auth_asym_id: Option<usize>,
     label_seq_id: Option<usize>,
     auth_seq_id: Option<usize>,
+    label_entity_id: Option<usize>,
     pdbx_pdb_ins_code: Option<usize>,
     label_alt_id: Option<usize>,
     b_iso_or_equiv: Option<usize>,
@@ -126,6 +127,7 @@ impl AtomSiteColumns {
                 "_atom_site.auth_asym_id" => cols.auth_asym_id = Some(i),
                 "_atom_site.label_seq_id" => cols.label_seq_id = Some(i),
                 "_atom_site.auth_seq_id" => cols.auth_seq_id = Some(i),
+                "_atom_site.label_entity_id" => cols.label_entity_id = Some(i),
                 "_atom_site.pdbx_PDB_ins_code" => cols.pdbx_pdb_ins_code = Some(i),
                 "_atom_site.label_alt_id" => cols.label_alt_id = Some(i),
                 "_atom_site.B_iso_or_equiv" => cols.b_iso_or_equiv = Some(i),
@@ -512,6 +514,11 @@ fn parse_atom_site_loop(
             .and_then(|s| s.chars().next())
             .unwrap_or(' ');
 
+        // mmCIF label residue ids, kept alongside the auth ids above
+        let label_seq_id = col!(cols.label_seq_id)
+            .and_then(|s| s.parse().ok())
+            .filter(|&seq_id| seq_id > 0);
+
         let alt = col!(cols.label_alt_id)
             .and_then(|s| s.chars().next())
             .unwrap_or(' ');
@@ -551,6 +558,12 @@ fn parse_atom_site_loop(
         model
             .source_chains
             .push(col!(cols.label_asym_id).unwrap_or(""));
+        let labels = ParsedLabels::new(
+            col!(cols.label_asym_id),
+            col!(cols.label_entity_id),
+            label_seq_id,
+            model.atoms.last(),
+        );
         model.atoms.push(ParsedAtom {
             name: atom_name.to_string(),
             element,
@@ -565,6 +578,7 @@ fn parse_atom_site_loop(
             occupancy,
             b_factor,
             segi: String::new(),
+            labels,
         });
         model.coords.push(Vec3::new(x, y, z));
     }
@@ -798,6 +812,7 @@ fn parse_ss_single(
 mod tests {
     use super::*;
     use patinae_mol::SecondaryStructure;
+    use std::sync::Arc;
 
     #[test]
     fn test_read_simple_cif() {
@@ -1171,5 +1186,74 @@ _atom_site.pdbx_PDB_model_num
         assert_eq!(molecule.atom_count(), 2);
         assert_eq!(molecule.state_count(), 1);
         assert_eq!(molecule.atoms_slice()[0].residue.chain, "A");
+    }
+
+    #[test]
+    fn label_fields_are_kept_per_atom_when_they_differ_from_auth() {
+        let cif_data = r#"data_AF3
+loop_
+_atom_site.group_PDB
+_atom_site.id
+_atom_site.type_symbol
+_atom_site.label_atom_id
+_atom_site.label_comp_id
+_atom_site.label_asym_id
+_atom_site.label_entity_id
+_atom_site.label_seq_id
+_atom_site.auth_atom_id
+_atom_site.auth_comp_id
+_atom_site.auth_asym_id
+_atom_site.auth_seq_id
+_atom_site.Cartn_x
+_atom_site.Cartn_y
+_atom_site.Cartn_z
+ATOM 1 N N MSE B 2 1 N MET H 101 0.0 0.0 0.0
+ATOM 2 SE SE MSE B 2 1 SE MET H 101 1.5 0.0 0.0
+ATOM 3 N N GLY B 2 2 N GLY H 102 3.0 0.0 0.0
+HETATM 4 O O HOH D 4 . O HOH H 201 6.0 0.0 0.0
+"#;
+
+        let mol = CifReader::new(cif_data.as_bytes()).read().unwrap();
+        let atoms = mol.atoms_slice();
+
+        let first = &atoms[0].residue;
+        assert_eq!((first.chain.as_str(), first.resv), ("H", 101));
+        assert_eq!(first.resn, "MET");
+        assert_eq!(first.label_asym_id.as_deref(), Some("B"));
+        assert_eq!(first.label_entity_id.as_deref(), Some("2"));
+        assert_eq!(first.label_seq_id, Some(1));
+        assert!(Arc::ptr_eq(&atoms[0].residue, &atoms[1].residue));
+
+        assert_eq!(atoms[2].residue.label_seq_id, Some(2));
+        assert!(!Arc::ptr_eq(&atoms[1].residue, &atoms[2].residue));
+
+        let water = &atoms[3].residue;
+        assert_eq!(water.label_asym_id.as_deref(), Some("D"));
+        assert_eq!(water.label_entity_id.as_deref(), Some("4"));
+        assert_eq!(water.label_seq_id, None);
+    }
+
+    #[test]
+    fn missing_label_columns_leave_label_fields_empty() {
+        let cif_data = r#"data_AUTH
+loop_
+_atom_site.id
+_atom_site.type_symbol
+_atom_site.auth_atom_id
+_atom_site.auth_comp_id
+_atom_site.auth_asym_id
+_atom_site.auth_seq_id
+_atom_site.Cartn_x
+_atom_site.Cartn_y
+_atom_site.Cartn_z
+1 N N ALA A 1 0.0 0.0 0.0
+"#;
+
+        let mol = CifReader::new(cif_data.as_bytes()).read().unwrap();
+        let atom = &mol.atoms_slice()[0];
+
+        assert_eq!(atom.residue.label_asym_id, None);
+        assert_eq!(atom.residue.label_entity_id, None);
+        assert_eq!(atom.residue.label_seq_id, None);
     }
 }

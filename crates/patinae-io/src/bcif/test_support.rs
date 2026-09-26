@@ -95,7 +95,7 @@ pub(crate) fn encode_bcif_file(blocks: &[BcifDataBlock]) -> Vec<u8> {
     rmp_serde::to_vec_named(&file).expect("test bCIF fixture should serialize")
 }
 
-fn int_column(name: &str, values: impl Iterator<Item = i32>) -> BcifColumn {
+pub(crate) fn int_column(name: &str, values: impl Iterator<Item = i32>) -> BcifColumn {
     BcifColumn {
         name: name.to_string(),
         data: BcifData {

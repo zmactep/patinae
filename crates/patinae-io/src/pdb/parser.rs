@@ -10,7 +10,7 @@ use patinae_mol::{AtomIndex, BondOrder, ObjectMolecule, SecondaryStructure};
 
 use crate::assembly::PdbAssemblies;
 use crate::error::{IoError, IoResult};
-use crate::logical_models::{build_molecules, ParsedAtom, ParsedModel};
+use crate::logical_models::{build_molecules, ParsedAtom, ParsedLabels, ParsedModel};
 use crate::pdb::hybrid36::hy36decode;
 use crate::traits::MoleculeReader;
 
@@ -250,6 +250,7 @@ fn parsed_atom_from_record(record: &AtomRecord, effective_chain: String) -> Pars
         occupancy: record.occupancy,
         b_factor: record.b_factor,
         segi: record.segi.clone(),
+        labels: ParsedLabels::default(),
     }
 }
 
@@ -903,5 +904,18 @@ ENDMDL
         assert_eq!(molecule.atom_count(), 2);
         assert_eq!(molecule.state_count(), 1);
         assert_eq!(molecule.atoms_slice()[0].residue.chain, "A");
+    }
+
+    #[test]
+    fn pdb_atoms_have_no_mmcif_label_fields() {
+        let pdb =
+            "ATOM      1  CA  ALA A   1       0.000   0.000   0.000  1.00 20.00           C\n";
+
+        let molecule = crate::pdb::read_pdb_str(pdb).unwrap();
+        let atom = &molecule.atoms_slice()[0];
+
+        assert_eq!(atom.residue.label_asym_id, None);
+        assert_eq!(atom.residue.label_entity_id, None);
+        assert_eq!(atom.residue.label_seq_id, None);
     }
 }

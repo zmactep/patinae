@@ -2,6 +2,7 @@
 //!
 //! Parses BinaryCIF format files into ObjectMolecule.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
 use std::io::Read;
 
@@ -11,7 +12,7 @@ use patinae_mol::{Element, ObjectMolecule, SecondaryStructure};
 use crate::assembly::{AssemblyRow, AssemblyRows, CATEGORIES};
 use crate::cif::common::{apply_secondary_structure, SecondaryStructureRange, SsCategory};
 use crate::error::{IoError, IoResult};
-use crate::logical_models::{build_molecules, ParsedAtom, ParsedModel};
+use crate::logical_models::{build_molecules, ParsedAtom, ParsedLabels, ParsedModel};
 use crate::traits::MoleculeReader;
 
 use super::decode::{decode_column, decode_mask, ColumnMask, DecodedColumn};
@@ -101,6 +102,14 @@ impl CategoryColumns {
             }
         }
         col.str_at(i).filter(|s| !s.is_empty())
+    }
+
+    /// Text of a column that encoders store either as strings or as integers.
+    fn code_at(&self, name: &str, i: usize) -> Option<Cow<'_, str>> {
+        self.str_at(name, i).map(Cow::Borrowed).or_else(|| {
+            self.int_at(name, i)
+                .map(|value| Cow::Owned(value.to_string()))
+        })
     }
 
     fn int_at(&self, name: &str, i: usize) -> Option<i32> {
@@ -273,6 +282,14 @@ fn parse_atom_site(
         // become "A2", which is valid in the selection language.
         let chain_id = chain.replace('-', "");
 
+        // mmCIF label residue ids, kept alongside the auth ids above
+        let label_asym_id = cols.str_at("label_asym_id", i);
+        let label_entity_id = cols.code_at("label_entity_id", i);
+        let label_seq_id = cols
+            .int_at("label_seq_id", i)
+            .and_then(|seq_id| u32::try_from(seq_id).ok())
+            .filter(|&seq_id| seq_id > 0);
+
         // Alt loc
         let alt = cols
             .str_at("label_alt_id", i)
@@ -310,9 +327,13 @@ fn parse_atom_site(
         let model = models
             .entry(model_num)
             .or_insert_with(|| ParsedModel::new(model_num));
-        model
-            .source_chains
-            .push(cols.str_at("label_asym_id", i).unwrap_or(""));
+        model.source_chains.push(label_asym_id.unwrap_or(""));
+        let labels = ParsedLabels::new(
+            label_asym_id,
+            label_entity_id.as_deref(),
+            label_seq_id,
+            model.atoms.last(),
+        );
         model.atoms.push(ParsedAtom {
             name: atom_name.to_string(),
             element,
@@ -327,6 +348,7 @@ fn parse_atom_site(
             occupancy,
             b_factor,
             segi: String::new(),
+            labels,
         });
         model.coords.push(Vec3::new(x, y, z));
     }
@@ -493,7 +515,9 @@ fn parse_entry(category: &BcifCategory, title: &mut String) -> IoResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bcif::test_support::{atom_row, atom_site_block, bcif_file, encode_bcif_file};
+    use crate::bcif::test_support::{
+        atom_row, atom_site_block, bcif_file, encode_bcif_file, int_column, string_column,
+    };
     use std::collections::HashMap;
 
     /// Verify that CategoryColumns::str_at filters out empty strings,
@@ -612,5 +636,30 @@ mod tests {
         assert_eq!(molecule.atom_count(), 2);
         assert_eq!(molecule.state_count(), 1);
         assert_eq!(molecule.atoms_slice()[0].residue.chain, "A");
+    }
+
+    #[test]
+    fn label_fields_are_kept_alongside_auth_fields() {
+        let rows = [
+            atom_row(1, "N", "ALA", "B", 0.0, 1),
+            atom_row(2, "CA", "ALA", "B", 1.5, 1),
+        ];
+        let mut block = atom_site_block("AF3", &rows);
+        block.categories[0].columns.extend([
+            string_column("auth_asym_id", ["H", "H"].into_iter()),
+            int_column("auth_seq_id", [101, 101].into_iter()),
+            int_column("label_entity_id", [2, 2].into_iter()),
+        ]);
+
+        let molecule =
+            crate::bcif::read_bcif_bytes_with_bond_tolerance(&encode_bcif_file(&[block]), 0.1)
+                .unwrap();
+        let atoms = molecule.atoms_slice();
+        let residue = &atoms[0].residue;
+
+        assert_eq!((residue.chain.as_str(), residue.resv), ("H", 101));
+        assert_eq!(residue.label_asym_id.as_deref(), Some("B"));
+        assert_eq!(residue.label_entity_id.as_deref(), Some("2"));
+        assert_eq!(residue.label_seq_id, Some(1));
     }
 }

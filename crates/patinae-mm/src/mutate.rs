@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use patinae_mol::{AtomIndex, AtomResidue, BondOrder, ObjectMolecule};
+use patinae_mol::{AtomIndex, BondOrder, ObjectMolecule};
 
 use crate::residue_geometry::ideal_side_chain_on;
 
@@ -69,13 +69,10 @@ pub fn build_mutant(
     let side_chain = ideal_side_chain_on(target_resn, n, ca, c)
         .ok_or_else(|| format!("residue {target_resn} is not supported"))?;
 
-    let residue = Arc::new(AtomResidue::from_parts(
-        chain,
-        target_resn,
-        resv,
-        inscode,
-        template.residue.segi.clone(),
-    ));
+    // Clone the template residue so file-level ids (segi, mmCIF labels) survive.
+    let mut residue = (*template.residue).clone();
+    residue.key.resn = target_resn.to_owned();
+    let residue = Arc::new(residue);
     let mut name_to_idx: HashMap<String, AtomIndex> = HashMap::new();
     for idx in &survivors {
         if let Some(atom) = mol.get_atom_mut(*idx) {
@@ -102,4 +99,47 @@ pub fn build_mutant(
     }
     mol.regroup_by_residue();
     Ok(mol)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lin_alg::f32::Vec3;
+    use patinae_mol::{Atom, AtomResidue, CoordSet, Element};
+
+    #[test]
+    fn mutation_keeps_file_level_residue_ids() {
+        let mut residue = AtomResidue::from_parts("H", "GLY", 101, ' ', "SEG");
+        residue.label_asym_id = Some("B".to_owned());
+        residue.label_entity_id = Some("2".to_owned());
+        residue.label_seq_id = Some(1);
+        let residue = Arc::new(residue);
+
+        let mut source = ObjectMolecule::new("gly");
+        for (name, element) in [
+            ("N", Element::Nitrogen),
+            ("CA", Element::Carbon),
+            ("C", Element::Carbon),
+        ] {
+            let mut atom = Atom::new(name, element);
+            atom.residue = residue.clone();
+            source.add_atom(atom);
+        }
+        source.add_coord_set(CoordSet::from_vec3(&[
+            Vec3::new(-0.5, 1.4, 0.0),
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(1.5, 0.0, 0.0),
+        ]));
+
+        let mutant = build_mutant(&source, "H", 101, ' ', "ALA").unwrap();
+
+        assert!(mutant.atoms().any(|atom| &*atom.name == "CB"));
+        for atom in mutant.atoms() {
+            assert_eq!(atom.residue.resn, "ALA");
+            assert_eq!(atom.residue.segi, "SEG");
+            assert_eq!(atom.residue.label_asym_id.as_deref(), Some("B"));
+            assert_eq!(atom.residue.label_entity_id.as_deref(), Some("2"));
+            assert_eq!(atom.residue.label_seq_id, Some(1));
+        }
+    }
 }

@@ -22,17 +22,22 @@ pub(crate) struct ParsedAtom {
     pub(crate) occupancy: f32,
     pub(crate) b_factor: f32,
     pub(crate) segi: String,
+    pub(crate) labels: ParsedLabels,
 }
 
 impl ParsedAtom {
     fn residue(&self) -> AtomResidue {
-        AtomResidue::from_parts(
+        let mut residue = AtomResidue::from_parts(
             self.chain.clone(),
             self.resn.clone(),
             self.resv,
             self.icode,
             self.segi.clone(),
-        )
+        );
+        residue.label_asym_id = self.labels.asym_id.as_deref().map(str::to_owned);
+        residue.label_entity_id = self.labels.entity_id.as_deref().map(str::to_owned);
+        residue.label_seq_id = self.labels.seq_id;
+        residue
     }
 
     /// Whether [`ParsedAtom::residue`] gives equal residues for both atoms.
@@ -42,6 +47,43 @@ impl ParsedAtom {
             && self.resv == other.resv
             && self.icode == other.icode
             && self.segi == other.segi
+            && self.labels == other.labels
+    }
+}
+
+/// mmCIF `label_*` identifiers, kept alongside the `auth_*` values used for display.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
+pub(crate) struct ParsedLabels {
+    pub(crate) asym_id: Option<Arc<str>>,
+    pub(crate) entity_id: Option<Arc<str>>,
+    pub(crate) seq_id: Option<u32>,
+}
+
+impl ParsedLabels {
+    /// Atoms of one residue are contiguous, so ids equal to the previous atom's share its strings.
+    pub(crate) fn new(
+        asym_id: Option<&str>,
+        entity_id: Option<&str>,
+        seq_id: Option<u32>,
+        previous: Option<&ParsedAtom>,
+    ) -> Self {
+        let previous = previous.map(|atom| &atom.labels);
+        Self {
+            asym_id: shared(asym_id, previous.and_then(|labels| labels.asym_id.as_ref())),
+            entity_id: shared(
+                entity_id,
+                previous.and_then(|labels| labels.entity_id.as_ref()),
+            ),
+            seq_id,
+        }
+    }
+}
+
+fn shared(value: Option<&str>, previous: Option<&Arc<str>>) -> Option<Arc<str>> {
+    let value = value?;
+    match previous {
+        Some(previous) if &**previous == value => Some(previous.clone()),
+        _ => Some(value.into()),
     }
 }
 
@@ -102,6 +144,7 @@ impl SourceChains {
 }
 
 // File-level atom serials are metadata and may continue across compatible models.
+// mmCIF label ids are metadata too: grouped models keep the first model's labels.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct AtomIdentity {
     name: String,
@@ -298,6 +341,7 @@ mod tests {
             occupancy: 1.0,
             b_factor: 0.0,
             segi: String::new(),
+            labels: ParsedLabels::default(),
         });
         model.coords.push(Vec3::new(1.0, 2.0, 3.0));
         model
@@ -334,9 +378,10 @@ mod tests {
     fn residues_are_shared_by_value_not_by_adjacency() {
         let mut model = model();
         let template = model.atoms[0].clone();
-        for resv in [1, 2, 1] {
+        for (resv, seq_id) in [(1, None), (1, Some(1)), (2, None), (1, None)] {
             model.atoms.push(ParsedAtom {
                 resv,
+                labels: ParsedLabels::new(None, None, seq_id, model.atoms.last()),
                 ..template.clone()
             });
             model.coords.push(Vec3::new(0.0, 0.0, 0.0));
@@ -346,9 +391,32 @@ mod tests {
         let residues: Vec<_> = molecule.atoms().map(|atom| &atom.residue).collect();
 
         assert!(Arc::ptr_eq(residues[0], residues[1]));
+        // Same auth ids, different label_seq_id: a distinct residue.
         assert!(!Arc::ptr_eq(residues[1], residues[2]));
+        assert_eq!(residues[2].label_seq_id, Some(1));
         // Non-contiguous atoms of one residue still share it.
-        assert!(Arc::ptr_eq(residues[0], residues[3]));
-        assert!(!Arc::ptr_eq(residues[2], residues[3]));
+        assert!(Arc::ptr_eq(residues[0], residues[4]));
+        assert!(!Arc::ptr_eq(residues[3], residues[4]));
+    }
+
+    #[test]
+    fn equal_labels_share_the_previous_atom_strings() {
+        let mut model = model();
+        let template = model.atoms[0].clone();
+        for asym_id in ["B", "B", "C"] {
+            model.atoms.push(ParsedAtom {
+                labels: ParsedLabels::new(Some(asym_id), Some("1"), None, model.atoms.last()),
+                ..template.clone()
+            });
+        }
+        let labels: Vec<_> = model.atoms[1..].iter().map(|atom| &atom.labels).collect();
+
+        let asym = |index: usize| labels[index].asym_id.as_ref().unwrap();
+        assert!(Arc::ptr_eq(asym(0), asym(1)));
+        assert_eq!(&**asym(2), "C");
+        assert!(Arc::ptr_eq(
+            labels[0].entity_id.as_ref().unwrap(),
+            labels[2].entity_id.as_ref().unwrap()
+        ));
     }
 }

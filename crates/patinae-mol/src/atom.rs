@@ -329,6 +329,17 @@ pub struct AtomResidue {
     pub key: ResidueKey,
     /// Segment identifier
     pub segi: String,
+    /// mmCIF `label_asym_id` (`None` for formats without the label scheme).
+    ///
+    /// Label ids are kept as read from the file; edits do not renumber them.
+    #[serde(default)]
+    pub label_asym_id: Option<String>,
+    /// mmCIF `label_entity_id`
+    #[serde(default)]
+    pub label_entity_id: Option<String>,
+    /// mmCIF `label_seq_id`, the 1-based `_entity_poly_seq` position (`None` for non-polymers)
+    #[serde(default)]
+    pub label_seq_id: Option<u32>,
 }
 
 impl Deref for AtomResidue {
@@ -341,17 +352,20 @@ impl Deref for AtomResidue {
 
 impl Default for AtomResidue {
     fn default() -> Self {
-        AtomResidue {
-            key: ResidueKey::new("", "", 0, ' '),
-            segi: String::new(),
-        }
+        AtomResidue::new(ResidueKey::new("", "", 0, ' '), String::new())
     }
 }
 
 impl AtomResidue {
     /// Create a new AtomResidue
     pub fn new(key: ResidueKey, segi: String) -> Self {
-        AtomResidue { key, segi }
+        AtomResidue {
+            key,
+            segi,
+            label_asym_id: None,
+            label_entity_id: None,
+            label_seq_id: None,
+        }
     }
 
     /// Create a new AtomResidue from individual fields
@@ -362,10 +376,7 @@ impl AtomResidue {
         inscode: char,
         segi: impl Into<String>,
     ) -> Self {
-        AtomResidue {
-            key: ResidueKey::new(chain, resn, resv, inscode),
-            segi: segi.into(),
-        }
+        AtomResidue::new(ResidueKey::new(chain, resn, resv, inscode), segi.into())
     }
 }
 
@@ -958,5 +969,25 @@ mod tests {
         assert_eq!(Arc::strong_count(&residue), 3);
         // But ss_type is per-atom
         assert_eq!(atom1.ss_type, SecondaryStructure::Helix);
+    }
+
+    #[test]
+    fn residue_without_label_fields_deserializes_from_older_data() {
+        #[derive(Serialize)]
+        struct LegacyAtomResidue {
+            key: ResidueKey,
+            segi: String,
+        }
+
+        let legacy = LegacyAtomResidue {
+            key: ResidueKey::new("A", "ALA", 1, ' '),
+            segi: String::new(),
+        };
+        let bytes = rmp_serde::to_vec_named(&legacy).unwrap();
+        let residue: AtomResidue = rmp_serde::from_slice(&bytes).unwrap();
+
+        assert_eq!(residue, AtomResidue::from_parts("A", "ALA", 1, ' ', ""));
+        assert_eq!(residue.label_asym_id, None);
+        assert_eq!(residue.label_seq_id, None);
     }
 }
