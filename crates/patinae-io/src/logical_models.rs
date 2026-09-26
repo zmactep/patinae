@@ -24,6 +24,27 @@ pub(crate) struct ParsedAtom {
     pub(crate) segi: String,
 }
 
+impl ParsedAtom {
+    fn residue(&self) -> AtomResidue {
+        AtomResidue::from_parts(
+            self.chain.clone(),
+            self.resn.clone(),
+            self.resv,
+            self.icode,
+            self.segi.clone(),
+        )
+    }
+
+    /// Whether [`ParsedAtom::residue`] gives equal residues for both atoms.
+    fn same_residue(&self, other: &ParsedAtom) -> bool {
+        self.chain == other.chain
+            && self.resn == other.resn
+            && self.resv == other.resv
+            && self.icode == other.icode
+            && self.segi == other.segi
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct ParsedModel {
     pub(crate) model_number: i32,
@@ -218,19 +239,21 @@ fn build_group_molecule(
     }
 
     let mut residue_cache: HashMap<AtomResidue, Arc<AtomResidue>> = HashMap::new();
+    let mut previous: Option<(&ParsedAtom, Arc<AtomResidue>)> = None;
     for parsed in &first_model.atoms {
         let mut atom = Atom::new(parsed.name.as_str(), parsed.element);
-        let residue_data = AtomResidue::from_parts(
-            parsed.chain.clone(),
-            parsed.resn.clone(),
-            parsed.resv,
-            parsed.icode,
-            parsed.segi.clone(),
-        );
-        atom.residue = residue_cache
-            .entry(residue_data.clone())
-            .or_insert_with(|| Arc::new(residue_data))
-            .clone();
+        atom.residue = match &previous {
+            // Atoms of one residue are contiguous: skip building and hashing its key.
+            Some((last, residue)) if last.same_residue(parsed) => residue.clone(),
+            _ => {
+                let residue_data = parsed.residue();
+                residue_cache
+                    .entry(residue_data.clone())
+                    .or_insert_with(|| Arc::new(residue_data))
+                    .clone()
+            }
+        };
+        previous = Some((parsed, atom.residue.clone()));
         atom.alt = parsed.alt;
         atom.b_factor = parsed.b_factor;
         atom.occupancy = parsed.occupancy;
@@ -305,5 +328,27 @@ mod tests {
         assert_eq!(molecules[0].title, "title");
         assert_eq!(molecules[0].state_count(), 1);
         assert_eq!(molecules[0].atom_count(), 1);
+    }
+
+    #[test]
+    fn residues_are_shared_by_value_not_by_adjacency() {
+        let mut model = model();
+        let template = model.atoms[0].clone();
+        for resv in [1, 2, 1] {
+            model.atoms.push(ParsedAtom {
+                resv,
+                ..template.clone()
+            });
+            model.coords.push(Vec3::new(0.0, 0.0, 0.0));
+        }
+
+        let molecule = build_molecules("mol", "", vec![model]).unwrap().remove(0);
+        let residues: Vec<_> = molecule.atoms().map(|atom| &atom.residue).collect();
+
+        assert!(Arc::ptr_eq(residues[0], residues[1]));
+        assert!(!Arc::ptr_eq(residues[1], residues[2]));
+        // Non-contiguous atoms of one residue still share it.
+        assert!(Arc::ptr_eq(residues[0], residues[3]));
+        assert!(!Arc::ptr_eq(residues[2], residues[3]));
     }
 }
