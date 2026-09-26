@@ -12,7 +12,7 @@ use rmpv::Value;
 use serde::{Deserialize, Serialize};
 
 /// Current native PRS document format version.
-pub const PRS_FORMAT_VERSION: u32 = 4;
+pub const PRS_FORMAT_VERSION: u32 = 5;
 
 /// Format version assigned to legacy raw [`Session`] files.
 pub const PRS_LEGACY_FORMAT_VERSION: u32 = 1;
@@ -361,7 +361,7 @@ fn session_value_mut(root: &mut Value) -> Result<&mut Value, PrsError> {
 fn validate_registry(registry: &Value, format_version: Option<u64>) -> Result<(), PrsError> {
     let field_count = struct_field_count(registry, "ObjectRegistrySnapshot")?;
     let valid_arity = match format_version {
-        Some(3 | 4) => field_count == 11,
+        Some(3..=5) => field_count == 11,
         Some(2) => matches!(field_count, 8 | 9),
         Some(1) => (7..=9).contains(&field_count),
         Some(version) => return Err(invalid(format!("unsupported PRS format version {version}"))),
@@ -453,7 +453,7 @@ fn validate_molecules(molecules: &Value) -> Result<(), PrsError> {
             MOLECULE_DATA_INDEX,
             "MoleculeObjectSnapshot",
         )?;
-        validate_struct_arity(molecule, &[10, 11], "ObjectMolecule")?;
+        validate_struct_arity(molecule, &[10, 11, 12], "ObjectMolecule")?;
         validate_named_fields(
             molecule,
             &[
@@ -468,6 +468,7 @@ fn validate_molecules(molecules: &Value) -> Result<(), PrsError> {
                 "unique_settings",
                 "symmetry",
                 "assembly",
+                "entities",
             ],
             &[
                 "atoms",
@@ -954,6 +955,55 @@ mod tests {
     }
 
     #[test]
+    fn version_four_without_entities_loads_and_entities_round_trip() {
+        let mut session = cartoon_session_with_restore();
+        let entity = patinae_mol::Entity {
+            id: "1".to_owned(),
+            kind: Some(patinae_mol::EntityKind::Polymer),
+            polymer: Some(patinae_mol::EntityPolymer {
+                kind: Some(patinae_mol::PolymerKind::PeptideL),
+                sequence: vec!["MET".to_owned(), "GLY".to_owned()],
+                alternatives: [(2, vec!["ALA".to_owned()])].into(),
+            }),
+        };
+        session
+            .registry
+            .get_molecule_mut("mol")
+            .unwrap()
+            .molecule_mut()
+            .entities = vec![entity.clone()];
+
+        let document = named_test_document(&session);
+        let restored = decode_prs_document(encode_test_value(&document)).unwrap();
+        let molecule = restored.session.registry.get_molecule("mol").unwrap();
+        assert_eq!(molecule.molecule().entities, [entity]);
+
+        fn strip(value: &mut Value) {
+            match value {
+                Value::Map(fields) => {
+                    fields.retain(|(k, _)| k.as_str() != Some("entities"));
+                    for (_, child) in fields {
+                        strip(child);
+                    }
+                }
+                Value::Array(values) => {
+                    for child in values {
+                        strip(child);
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut document = named_test_document(&session);
+        *test_map_field_mut(&mut document, "prs_format_version") = Value::from(4);
+        strip(&mut document);
+        let restored = decode_prs_document(encode_test_value(&document)).unwrap();
+        assert_eq!(restored.prs_format_version, 4);
+        let molecule = restored.session.registry.get_molecule("mol").unwrap();
+        assert!(molecule.molecule().entities.is_empty());
+    }
+
+    #[test]
     fn positional_version_three_without_appended_fields_loads_as_explicit() {
         let mut session = cartoon_session_with_restore();
         session.registry.add(LabelObject::with_entities(
@@ -971,7 +1021,9 @@ mod tests {
         let owner =
             registry[REGISTRY_MOLECULES_INDEX].as_array_mut_for_test()[0].as_array_mut_for_test();
         let snapshot = owner[1].as_array_mut_for_test();
-        assert_eq!(snapshot[0].as_array_mut_for_test().len(), 11);
+        // Version 3 predates both trailing ObjectMolecule fields: assembly and entities.
+        assert_eq!(snapshot[0].as_array_mut_for_test().len(), 12);
+        snapshot[0].as_array_mut_for_test().pop();
         snapshot[0].as_array_mut_for_test().pop();
         snapshot[1].as_array_mut_for_test().pop();
         for owner in registry[4].as_array_mut_for_test() {

@@ -97,6 +97,10 @@ pub struct ObjectMolecule {
     /// File-defined assembly recipes and original chain membership.
     #[serde(default)]
     pub assembly: crate::AssemblyMetadata,
+    /// mmCIF entities (`_entity`, `_entity_poly`, `_entity_poly_seq`) as loaded from the
+    /// file; edits do not update them. Empty for other formats.
+    #[serde(default)]
+    pub entities: Vec<crate::Entity>,
 }
 
 impl Default for ObjectMolecule {
@@ -115,6 +119,7 @@ impl Default for ObjectMolecule {
             symmetry: None,
             subchain_partition: OnceLock::new(),
             assembly: crate::AssemblyMetadata::default(),
+            entities: Vec::new(),
         }
     }
 }
@@ -179,6 +184,7 @@ impl ObjectMolecule {
             symmetry: None,
             subchain_partition: OnceLock::new(),
             assembly: crate::AssemblyMetadata::default(),
+            entities: Vec::new(),
         }
     }
 

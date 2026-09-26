@@ -11,6 +11,7 @@ use patinae_mol::{Element, ObjectMolecule, SecondaryStructure};
 
 use crate::assembly::{AssemblyRow, AssemblyRows, CATEGORIES};
 use crate::cif::common::{apply_secondary_structure, SecondaryStructureRange, SsCategory};
+use crate::entity::{EntityCategory, EntityRows};
 use crate::error::{IoError, IoResult};
 use crate::logical_models::{build_molecules, ParsedAtom, ParsedLabels, ParsedModel};
 use crate::traits::MoleculeReader;
@@ -193,10 +194,14 @@ fn parse_data_block(block: BcifDataBlock, bond_tolerance: f32) -> IoResult<Vec<O
     let mut cell = CellInfo::default();
     let mut title = String::new();
     let mut assemblies = AssemblyRows::default();
+    let mut entities = EntityRows::default();
 
     for category in &block.categories {
         if CATEGORIES.contains(&category.name.as_str()) {
             parse_assembly_category(category, &mut assemblies)?;
+        }
+        if let Some(entity_category) = EntityCategory::from_name(&category.name) {
+            parse_entity_category(category, entity_category, &mut entities)?;
         }
         match category.name.as_str() {
             "_atom_site" => parse_atom_site(category, &mut models)?,
@@ -216,6 +221,7 @@ fn parse_data_block(block: BcifDataBlock, bond_tolerance: f32) -> IoResult<Vec<O
     }
 
     let definitions = assemblies.resolve()?;
+    let entities = entities.resolve()?;
     if definitions.is_empty() {
         for model in models.values_mut() {
             model.source_chains.clear();
@@ -226,6 +232,7 @@ fn parse_data_block(block: BcifDataBlock, bond_tolerance: f32) -> IoResult<Vec<O
 
     for mol in &mut molecules {
         mol.assembly.definitions = definitions.clone();
+        mol.entities = entities.clone();
         cell.apply_to(mol, space_group.as_deref());
         apply_secondary_structure(mol, &ss_ranges);
         mol.classify_atoms();
@@ -371,6 +378,21 @@ fn parse_assembly_category(category: &BcifCategory, assemblies: &mut AssemblyRow
             }
         }
         assemblies.push(&category.name, row);
+    }
+    Ok(())
+}
+
+fn parse_entity_category(
+    category: &BcifCategory,
+    entity_category: EntityCategory,
+    entities: &mut EntityRows,
+) -> IoResult<()> {
+    let cols =
+        CategoryColumns::decode_selected(category, &["id", "type", "entity_id", "num", "mon_id"])?;
+    for i in 0..category.row_count as usize {
+        entities.push(entity_category, |name| {
+            cols.code_at(name, i).map(Cow::into_owned)
+        });
     }
     Ok(())
 }
@@ -661,5 +683,39 @@ mod tests {
         assert_eq!(residue.label_asym_id.as_deref(), Some("B"));
         assert_eq!(residue.label_entity_id.as_deref(), Some("2"));
         assert_eq!(residue.label_seq_id, Some(1));
+    }
+
+    #[test]
+    fn entity_tables_are_read_from_typed_columns() {
+        let mut block = atom_site_block("ENT", &[atom_row(1, "CA", "GLY", "A", 0.0, 1)]);
+        block.categories.extend([
+            BcifCategory {
+                name: "_entity".to_string(),
+                row_count: 1,
+                columns: vec![
+                    int_column("id", [1].into_iter()),
+                    string_column("type", ["polymer"].into_iter()),
+                ],
+            },
+            BcifCategory {
+                name: "_entity_poly_seq".to_string(),
+                row_count: 2,
+                columns: vec![
+                    string_column("entity_id", ["1", "1"].into_iter()),
+                    int_column("num", [1, 2].into_iter()),
+                    string_column("mon_id", ["MET", "GLY"].into_iter()),
+                ],
+            },
+        ]);
+
+        let molecule =
+            crate::bcif::read_bcif_bytes_with_bond_tolerance(&encode_bcif_file(&[block]), 0.1)
+                .unwrap();
+
+        assert_eq!(molecule.entities.len(), 1);
+        let entity = &molecule.entities[0];
+        assert_eq!(entity.id, "1");
+        assert_eq!(entity.kind, Some(patinae_mol::EntityKind::Polymer));
+        assert_eq!(entity.polymer.as_ref().unwrap().sequence, ["MET", "GLY"]);
     }
 }

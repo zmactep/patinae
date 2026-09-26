@@ -9,6 +9,7 @@ use lin_alg::f32::Vec3;
 use patinae_mol::{Element, ObjectMolecule};
 
 use crate::assembly::{AssemblyRow, AssemblyRows, CATEGORIES};
+use crate::entity::{EntityCategory, EntityRows};
 use crate::error::{IoError, IoResult};
 use crate::logical_models::{build_molecules, ParsedAtom, ParsedLabels, ParsedModel};
 use crate::traits::MoleculeReader;
@@ -54,6 +55,7 @@ struct CifBlockData {
     assemblies: AssemblyRows,
     assembly_singles: BTreeMap<String, AssemblyRow>,
     assembly_error: Option<IoError>,
+    entities: EntityRows,
 }
 
 impl CifBlockData {
@@ -68,6 +70,7 @@ impl CifBlockData {
             assemblies: AssemblyRows::default(),
             assembly_singles: BTreeMap::new(),
             assembly_error: None,
+            entities: EntityRows::default(),
         }
     }
 }
@@ -277,6 +280,9 @@ fn parse_cif_block(
                     &mut block.ss_ranges,
                 );
             }
+            Token::DataName(name) if EntityCategory::of_data_name(name).is_some() => {
+                pos = parse_entity_single(tokens, pos, &mut block.entities);
+            }
             Token::DataName(name) => {
                 if let Some((category, field)) = name.split_once('.') {
                     if CATEGORIES.contains(&category) {
@@ -309,6 +315,7 @@ fn parse_cif_block(
         block.assemblies.push(&category, row);
     }
     let definitions = block.assemblies.resolve()?;
+    let entities = block.entities.resolve()?;
     if definitions.is_empty() {
         for model in block.models.values_mut() {
             model.source_chains.clear();
@@ -319,6 +326,7 @@ fn parse_cif_block(
 
     for mol in &mut molecules {
         mol.assembly.definitions = definitions.clone();
+        mol.entities = entities.clone();
         block.cell.apply_to(mol, block.space_group.as_deref());
         apply_secondary_structure(mol, &block.ss_ranges);
 
@@ -360,6 +368,9 @@ fn parse_loop(tokens: &[Token], mut pos: usize, block: &mut CifBlockData) -> IoR
         .and_then(|name| name.split_once('.'))
         .map(|(category, _)| category)
         .filter(|category| CATEGORIES.contains(category));
+    let entity_category = columns
+        .first()
+        .and_then(|name| EntityCategory::of_data_name(name));
     let data_start = pos;
 
     // Check loop category
@@ -406,6 +417,14 @@ fn parse_loop(tokens: &[Token], mut pos: usize, block: &mut CifBlockData) -> IoR
         ) {
             block.assembly_error.get_or_insert(error);
         }
+    }
+    if let Some(category) = entity_category {
+        parse_entity_loop(
+            &tokens[data_start..pos],
+            &columns,
+            category,
+            &mut block.entities,
+        );
     }
 
     Ok(pos)
@@ -608,6 +627,64 @@ fn parse_assembly_loop(
         return Err(IoError::parse_msg("Incomplete assembly loop row"));
     }
     Ok(())
+}
+
+/// Collect entity rows from a loop already located by the block parser.
+fn parse_entity_loop(
+    tokens: &[Token],
+    columns: &[&str],
+    category: EntityCategory,
+    entities: &mut EntityRows,
+) {
+    let fields: Vec<Option<&str>> = columns
+        .iter()
+        .map(|name| name.split_once('.').map(|(_, field)| field))
+        .collect();
+    let mut chunks = tokens.chunks_exact(columns.len());
+    for row in &mut chunks {
+        entities.push(category, |name| {
+            let index = fields.iter().position(|field| *field == Some(name))?;
+            token_value_str(&row[index]).map(str::to_owned)
+        });
+    }
+    if !chunks.remainder().is_empty() {
+        entities.fail(IoError::parse_msg("Incomplete entity loop row"));
+    }
+}
+
+/// Parse consecutive single-item data names of one entity category
+fn parse_entity_single(tokens: &[Token], mut pos: usize, entities: &mut EntityRows) -> usize {
+    let Some(Token::DataName(first)) = tokens.get(pos) else {
+        return pos + 1;
+    };
+    let Some((prefix, _)) = first.split_once('.') else {
+        return pos + 1;
+    };
+    let Some(category) = EntityCategory::from_name(prefix) else {
+        return pos + 1;
+    };
+
+    let mut fields: HashMap<&str, &str> = HashMap::new();
+    while let Some(Token::DataName(name)) = tokens.get(pos) {
+        let Some((item_prefix, field)) = name.split_once('.') else {
+            break;
+        };
+        if item_prefix != prefix {
+            break;
+        }
+        pos += 1;
+        if let Some(value) = tokens.get(pos).and_then(token_value_str) {
+            fields.insert(field, value);
+            pos += 1;
+        } else if matches!(tokens.get(pos), Some(Token::Missing | Token::Unknown)) {
+            pos += 1;
+        }
+    }
+
+    entities.push(category, |name| {
+        fields.get(name).map(|value| value.to_string())
+    });
+    pos
 }
 
 /// Parse _cell data items

@@ -48,6 +48,7 @@ mod coordset;
 mod dirty;
 pub mod dss;
 mod element;
+mod entity;
 mod error;
 mod flags;
 mod index;
@@ -73,6 +74,7 @@ pub use coordset::{
 };
 pub use dirty::DirtyFlags;
 pub use element::{Element, DEFAULT_COV_RADIUS, DEFAULT_VDW_RADIUS, ELEMENT_COUNT};
+pub use entity::{Entity, EntityKind, EntityPolymer, PolymerKind};
 pub use error::{MolError, MolResult};
 pub use flags::{AtomFlags, AtomGeometry, Chirality, Stereo};
 pub use index::{AtomIndex, AtomRemap, BondIndex, CoordIndex, StateIndex, INVALID_INDEX};

@@ -60,6 +60,7 @@ pub mod ccp4;
 pub mod cif;
 pub mod compress;
 pub mod detect;
+mod entity;
 pub mod error;
 pub mod gro;
 mod logical_models;
