@@ -1,5 +1,5 @@
-import { Theme } from "../../theme.slint";
-import { Tokens } from "../../tokens.slint";
+import { ComponentMetrics } from "../metrics.slint";
+import { Theme, Typography, Spacing, Shape } from "../../foundations/foundations.slint";
 import { ObjectsState } from "../../states/objects-state.slint";
 import {
     ZoomIcon,
@@ -21,15 +21,15 @@ component PillButton inherits Rectangle {
     callback clicked();
     out property <bool> hovered <=> touch.has-hover;
     out property <color> tint: !root.enabled
-        ? Theme.text-ghost
-        : touch.has-hover ? Theme.text : Theme.text-dim;
+        ? Theme.text-placeholder
+        : touch.has-hover ? Theme.text-primary : Theme.text-secondary;
 
-    width: Tokens.action-btn-h;
-    height: Tokens.action-btn-h;
+    width: ComponentMetrics.action-btn-h;
+    height: ComponentMetrics.action-btn-h;
     horizontal-stretch: 0;
-    border-radius: Tokens.action-btn-radius;
+    border-radius: ComponentMetrics.action-btn-radius;
     background: root.enabled && touch.has-hover
-        ? Theme.bg-inset.with-alpha(0.6)
+        ? Theme.surface-control.with-alpha(0.6)
         : transparent;
     opacity: root.enabled ? 1.0 : 0.4;
     accessible-role: button;
@@ -44,18 +44,18 @@ component PillButton inherits Rectangle {
     if touch.has-hover && root.tooltip != "": Rectangle {
         z: 20;
         x: (parent.width - self.width) / 2;
-        y: -self.height - Tokens.space-sm;
-        width: tooltip-text.preferred-width + 2 * Tokens.space-sm;
+        y: -self.height - Spacing.sm;
+        width: tooltip-text.preferred-width + 2 * Spacing.sm;
         height: 22px;
-        border-radius: Tokens.radius-sm;
-        background: Theme.bg-card;
-        border-width: Tokens.hairline;
-        border-color: Theme.line-strong;
+        border-radius: Shape.radius-sm;
+        background: Theme.surface-overlay;
+        border-width: Shape.hairline;
+        border-color: Theme.border-strong;
 
         tooltip-text := Text {
             text: root.tooltip;
-            color: Theme.text-dim;
-            font-size: Tokens.font-md;
+            color: Theme.text-secondary;
+            font-size: Typography.compact-label.size;
             horizontal-alignment: center;
             vertical-alignment: center;
         }
@@ -67,8 +67,8 @@ component MeasurementActionIcon {
     in property <bool> add-to: false;
     in property <color> tint;
 
-    width: Tokens.pill-icon-size;
-    height: Tokens.pill-icon-size;
+    width: ComponentMetrics.pill-icon-size;
+    height: ComponentMetrics.pill-icon-size;
 
     if root.kind == "distance": MeasurementDistanceGlyph {
         x: 1px;
@@ -92,7 +92,7 @@ component MeasurementActionIcon {
         width: 6px;
         height: 6px;
         border-radius: 3px;
-        background: Theme.bg-card;
+        background: Theme.surface-overlay;
 
         Rectangle {
             x: 1px;
@@ -114,9 +114,9 @@ component MeasurementActionIcon {
 // ── Hairline separator ───────────────────────────────────────────────
 
 component PillSep inherits Rectangle {
-    width: Tokens.hairline;
+    width: Shape.hairline;
     horizontal-stretch: 0;
-    background: Theme.line;
+    background: Theme.border-subtle;
 }
 
 // ── Action pill ──────────────────────────────────────────────────────
@@ -129,44 +129,44 @@ export component ActionPill inherits Rectangle {
             || ObjectsState.action-can-orient
             || ObjectsState.action-can-center);
     width: layout.preferred-width;
-    height: Tokens.action-pill-h;
-    border-radius: Tokens.action-pill-radius;
-    background: Theme.bg-card;
-    border-width: Tokens.hairline;
-    border-color: Theme.cyan.with-alpha(0.5);
+    height: ComponentMetrics.action-pill-h;
+    border-radius: ComponentMetrics.action-pill-radius;
+    background: Theme.surface-overlay;
+    border-width: Shape.hairline;
+    border-color: Theme.accent-primary.with-alpha(0.5);
 
     // Block events from passing through to content underneath
     TouchArea {}
 
     // Outer glow
     Rectangle {
-        x: -Tokens.action-pill-glow;
-        y: -Tokens.action-pill-glow;
-        width: parent.width + 2 * Tokens.action-pill-glow;
-        height: parent.height + 2 * Tokens.action-pill-glow;
-        border-radius: Tokens.action-pill-radius + Tokens.border-stroke;
+        x: -ComponentMetrics.action-pill-glow;
+        y: -ComponentMetrics.action-pill-glow;
+        width: parent.width + 2 * ComponentMetrics.action-pill-glow;
+        height: parent.height + 2 * ComponentMetrics.action-pill-glow;
+        border-radius: ComponentMetrics.action-pill-radius + Shape.border-stroke;
         background: transparent;
-        border-width: Tokens.border-stroke;
-        border-color: Theme.cyan.with-alpha(0.08);
+        border-width: Shape.border-stroke;
+        border-color: Theme.accent-primary.with-alpha(0.08);
     }
 
     layout := HorizontalLayout {
-        padding-left:   Tokens.action-pill-pad-h;
-        padding-right:  Tokens.action-pill-pad-h;
-        padding-top:    Tokens.action-pill-pad-v;
-        padding-bottom: Tokens.action-pill-pad-v;
-        spacing: Tokens.action-pill-spacing;
+        padding-left:   ComponentMetrics.action-pill-pad-h;
+        padding-right:  ComponentMetrics.action-pill-pad-h;
+        padding-top:    ComponentMetrics.action-pill-pad-v;
+        padding-bottom: ComponentMetrics.action-pill-pad-v;
+        spacing: ComponentMetrics.action-pill-spacing;
 
         // Count badge
         VerticalLayout {
             alignment: center;
             Rectangle {
-                width: Tokens.badge-size;
-                height: Tokens.badge-size;
-                border-radius: Tokens.badge-radius;
-                background: Theme.cyan.with-alpha(0.18);
-                border-width: Tokens.hairline;
-                border-color: Theme.cyan.with-alpha(0.4);
+                width: ComponentMetrics.badge-size;
+                height: ComponentMetrics.badge-size;
+                border-radius: ComponentMetrics.badge-radius;
+                background: Theme.accent-primary.with-alpha(0.18);
+                border-width: Shape.hairline;
+                border-color: Theme.accent-primary.with-alpha(0.4);
 
                 Text {
                     width: 100%;
@@ -174,8 +174,8 @@ export component ActionPill inherits Rectangle {
                     text: root.recent-domain
                         ? ObjectsState.recent-operand-count
                         : ObjectsState.selected-count;
-                    color: Theme.cyan;
-                    font-size: Tokens.font-sm;
+                    color: Theme.accent-primary;
+                    font-size: Typography.hint.size;
                     font-weight: 500;
                     horizontal-alignment: center;
                     vertical-alignment: center;
@@ -282,7 +282,7 @@ export component ActionPill inherits Rectangle {
         if !root.recent-domain && ObjectsState.action-can-overflow: overflow-btn := PillButton {
             tooltip: "More actions";
             clicked => {
-                ObjectsState.popover-anchor-y = overflow-btn.absolute-position.y - Tokens.action-pill-pad-v;
+                ObjectsState.popover-anchor-y = overflow-btn.absolute-position.y - ComponentMetrics.action-pill-pad-v;
                 ObjectsState.action-overflow();
             }
             OverflowIcon {

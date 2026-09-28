@@ -1,5 +1,4 @@
-import { Theme } from "../theme.slint";
-import { Tokens } from "../tokens.slint";
+import { Theme, Typography, Spacing, Shape } from "../foundations/foundations.slint";
 import { MenuState } from "../states/menu-state.slint";
 
 component DialogButton inherits Rectangle {
@@ -11,20 +10,20 @@ component DialogButton inherits Rectangle {
     horizontal-stretch: 0;
     width: max(104px, label-text.preferred-width + 32px);
     height: 36px;
-    border-radius: Tokens.radius-sm;
-    border-width: Tokens.hairline;
+    border-radius: Shape.radius-sm;
+    border-width: Shape.hairline;
     border-color: !enabled
-        ? Theme.line
-        : (primary ? Theme.cyan-dim : Theme.line-strong);
+        ? Theme.border-subtle
+        : (primary ? Theme.accent-primary-strong : Theme.border-strong);
     background: !enabled
-        ? Theme.bg-inset.with-alpha(0.32)
+        ? Theme.surface-control.with-alpha(0.32)
         : (touch.has-hover
-            ? (primary ? Theme.cyan.with-alpha(0.14) : Theme.bg-inset)
-            : Theme.bg-raised.with-alpha(primary ? 0.18 : 0.62));
+            ? (primary ? Theme.accent-primary.with-alpha(0.14) : Theme.surface-control)
+            : Theme.surface-raised.with-alpha(primary ? 0.18 : 0.62));
 
     label-text := Text {
         text: root.label;
-        color: !root.enabled ? Theme.text-faint : (root.primary ? Theme.cyan : Theme.text);
+        color: !root.enabled ? Theme.text-disabled : (root.primary ? Theme.accent-primary : Theme.text-primary);
         font-size: 13px;
         horizontal-alignment: center;
         vertical-alignment: center;
@@ -42,10 +41,10 @@ component CloseButton inherits Rectangle {
     horizontal-stretch: 0;
     width: 32px;
     height: 32px;
-    border-radius: Tokens.radius-sm;
-    background: touch.has-hover ? Theme.bg-inset : Theme.bg-raised.with-alpha(0.38);
-    border-width: Tokens.hairline;
-    border-color: touch.has-hover ? Theme.line-strong : Theme.line;
+    border-radius: Shape.radius-sm;
+    background: touch.has-hover ? Theme.surface-control : Theme.surface-raised.with-alpha(0.38);
+    border-width: Shape.hairline;
+    border-color: touch.has-hover ? Theme.border-strong : Theme.border-subtle;
 
     icon := Rectangle {
         x: (parent.width - 18px) / 2;
@@ -58,7 +57,7 @@ component CloseButton inherits Rectangle {
             height: 100%;
             viewbox-width: 18;
             viewbox-height: 18;
-            stroke: touch.has-hover ? Theme.text : Theme.text-muted;
+            stroke: touch.has-hover ? Theme.text-primary : Theme.text-muted;
             stroke-width: 2px;
             fill: transparent;
             commands: "M 5 5 L 13 13 M 13 5 L 5 13";
@@ -87,7 +86,7 @@ component FieldBox inherits Rectangle {
 
         HorizontalLayout {
             height: 18px;
-            spacing: Tokens.space-sm;
+            spacing: Spacing.sm;
 
             Text {
                 text: root.label;
@@ -102,7 +101,7 @@ component FieldBox inherits Rectangle {
 
             Text {
                 text: root.helper;
-                color: Theme.text-faint;
+                color: Theme.text-disabled;
                 font-size: 10px;
                 vertical-alignment: center;
             }
@@ -110,23 +109,23 @@ component FieldBox inherits Rectangle {
 
         field := Rectangle {
             height: 38px;
-            border-radius: Tokens.radius-sm;
-            border-width: input.has-focus ? 1px : Tokens.hairline;
-            border-color: input.has-focus ? Theme.cyan-dim : Theme.line-strong;
-            background: input.has-focus ? Theme.bg-inset : Theme.bg-raised.with-alpha(0.54);
+            border-radius: Shape.radius-sm;
+            border-width: input.has-focus ? 1px : Shape.hairline;
+            border-color: input.has-focus ? Theme.accent-primary-strong : Theme.border-strong;
+            background: input.has-focus ? Theme.surface-control : Theme.surface-raised.with-alpha(0.54);
             clip: true;
 
             input := TextInput {
-                x: Tokens.space-sm;
+                x: Spacing.sm;
                 y: 0px;
-                width: parent.width - 2 * Tokens.space-sm;
+                width: parent.width - 2 * Spacing.sm;
                 height: parent.height;
                 text <=> root.value;
-                color: Theme.text;
-                font-family: root.emphasis ? "JetBrains Mono" : "Inter";
+                color: Theme.text-primary;
+                font-family: root.emphasis ? Typography.content-family : Typography.interface-family;
                 font-size: root.emphasis ? 18px : 13px;
                 vertical-alignment: center;
-                selection-background-color: Theme.cyan.with-alpha(0.3);
+                selection-background-color: Theme.accent-primary.with-alpha(0.3);
                 accepted => { root.accepted(); }
                 edited => { root.edited(root.value); }
             }
@@ -142,16 +141,16 @@ component FormatSegment inherits Rectangle {
 
     width: segment-width;
     height: 34px;
-    border-radius: Tokens.radius-sm;
-    border-width: Tokens.hairline;
-    border-color: active ? Theme.cyan-dim : (touch.has-hover ? Theme.line-strong : Theme.line);
+    border-radius: Shape.radius-sm;
+    border-width: Shape.hairline;
+    border-color: active ? Theme.accent-primary-strong : (touch.has-hover ? Theme.border-strong : Theme.border-subtle);
     background: active
-        ? Theme.cyan.with-alpha(0.15)
-        : (touch.has-hover ? Theme.bg-inset : Theme.bg-raised.with-alpha(0.52));
+        ? Theme.accent-primary.with-alpha(0.15)
+        : (touch.has-hover ? Theme.surface-control : Theme.surface-raised.with-alpha(0.52));
 
     Text {
         text: root.label;
-        color: root.active ? Theme.cyan : Theme.text-muted;
+        color: root.active ? Theme.accent-primary : Theme.text-muted;
         font-size: 13px;
         horizontal-alignment: center;
         vertical-alignment: center;
@@ -180,22 +179,22 @@ component FormatBox inherits Rectangle {
 
         HorizontalLayout {
             height: 34px;
-            spacing: Tokens.space-sm;
+            spacing: Spacing.sm;
 
             FormatSegment {
-                segment-width: (root.width - 2 * Tokens.space-sm) / 3;
+                segment-width: (root.width - 2 * Spacing.sm) / 3;
                 value: "cif";
                 label: "mmCIF";
             }
 
             FormatSegment {
-                segment-width: (root.width - 2 * Tokens.space-sm) / 3;
+                segment-width: (root.width - 2 * Spacing.sm) / 3;
                 value: "pdb";
                 label: "PDB";
             }
 
             FormatSegment {
-                segment-width: (root.width - 2 * Tokens.space-sm) / 3;
+                segment-width: (root.width - 2 * Spacing.sm) / 3;
                 value: "bcif";
                 label: "BinaryCIF";
             }
@@ -213,13 +212,13 @@ component MetadataRow inherits Rectangle {
     background: transparent;
 
     HorizontalLayout {
-        spacing: Tokens.space-sm;
+        spacing: Spacing.sm;
 
         Text {
             width: 82px;
             horizontal-stretch: 0;
             text: root.label;
-            color: Theme.text-faint;
+            color: Theme.text-disabled;
             font-size: 11px;
             vertical-alignment: center;
         }
@@ -241,7 +240,7 @@ component MetadataRow inherits Rectangle {
 
             link-text := Text {
                 text: root.value;
-                color: link-touch.has-hover ? Theme.cyan : Theme.cyan-dim;
+                color: link-touch.has-hover ? Theme.accent-primary : Theme.accent-primary-strong;
                 font-size: 12px;
                 vertical-alignment: center;
             }
@@ -267,10 +266,10 @@ component MetadataPreview inherits Rectangle {
 
     horizontal-stretch: 0;
     height: 160px;
-    border-radius: Tokens.radius-sm;
-    border-width: Tokens.hairline;
-    border-color: Theme.line;
-    background: Theme.bg-inset;
+    border-radius: Shape.radius-sm;
+    border-width: Shape.hairline;
+    border-color: Theme.border-subtle;
+    background: Theme.surface-control;
     clip: true;
 
     Rectangle {
@@ -278,15 +277,15 @@ component MetadataPreview inherits Rectangle {
         y: 0px;
         width: 3px;
         height: parent.height;
-        background: root.status != "" ? Theme.warning : Theme.cyan-dim;
+        background: root.status != "" ? Theme.status-warning : Theme.accent-primary-strong;
     }
 
     VerticalLayout {
-        x: Tokens.space-md;
-        y: Tokens.space-md;
-        width: parent.width - 2 * Tokens.space-md;
-        height: parent.height - 2 * Tokens.space-md;
-        spacing: Tokens.space-xs;
+        x: Spacing.md;
+        y: Spacing.md;
+        width: parent.width - 2 * Spacing.md;
+        height: parent.height - 2 * Spacing.md;
+        spacing: Spacing.xs;
 
         Text {
             text: root.loading
@@ -295,8 +294,8 @@ component MetadataPreview inherits Rectangle {
                     ? root.status
                     : (root.title != "" ? root.title : "Metadata preview"));
             color: root.status != ""
-                ? Theme.warning
-                : (root.title == "" && !root.loading ? Theme.text-muted : Theme.text);
+                ? Theme.status-warning
+                : (root.title == "" && !root.loading ? Theme.text-muted : Theme.text-primary);
             font-size: 14px;
             font-weight: root.title != "" ? 600 : 400;
             wrap: word-wrap;
@@ -305,19 +304,19 @@ component MetadataPreview inherits Rectangle {
 
         if root.loading: Text {
             text: "RCSB metadata request in progress";
-            color: Theme.text-faint;
+            color: Theme.text-disabled;
             font-size: 12px;
         }
 
         if !root.loading && root.status != "": Text {
             text: "Fetch remains available.";
-            color: Theme.text-faint;
+            color: Theme.text-disabled;
             font-size: 12px;
         }
 
         if !root.loading && root.status == "" && root.title == "": Text {
             text: "Enter a PDB ID and preview metadata.";
-            color: Theme.text-faint;
+            color: Theme.text-disabled;
             font-size: 12px;
         }
 
@@ -360,7 +359,7 @@ component FooterStatus inherits Rectangle {
         width: 7px;
         height: 7px;
         border-radius: 4px;
-        background: root.status != "" ? Theme.warning : Theme.cyan;
+        background: root.status != "" ? Theme.status-warning : Theme.accent-primary;
     }
 
     Text {
@@ -373,7 +372,7 @@ component FooterStatus inherits Rectangle {
             : (root.loading
                 ? "Looking up metadata"
                 : (root.title != "" ? "RCSB metadata loaded" : "Ready to fetch by PDB ID"));
-        color: root.status != "" ? Theme.warning : Theme.text-muted;
+        color: root.status != "" ? Theme.status-warning : Theme.text-muted;
         font-size: 11px;
         vertical-alignment: center;
     }
@@ -381,7 +380,7 @@ component FooterStatus inherits Rectangle {
 
 export component FetchDialog inherits Rectangle {
     visible: MenuState.fetch-visible;
-    background: Theme.bg.with-alpha(0.62);
+    background: Theme.surface-base.with-alpha(0.62);
 
     TouchArea {
         width: parent.width;
@@ -390,25 +389,25 @@ export component FetchDialog inherits Rectangle {
     }
 
     panel := Rectangle {
-        width: min(528px, parent.width - 2 * Tokens.space-lg);
-        height: min(450px, parent.height - 2 * Tokens.space-lg);
+        width: min(528px, parent.width - 2 * Spacing.lg);
+        height: min(450px, parent.height - 2 * Spacing.lg);
         x: (parent.width - self.width) / 2;
-        y: max(Tokens.space-lg, (parent.height - self.height) / 2);
-        border-radius: Tokens.radius-md;
+        y: max(Spacing.lg, (parent.height - self.height) / 2);
+        border-radius: Shape.radius-md;
         border-width: 1px;
-        border-color: Theme.line-strong;
-        background: Theme.bg-panel;
+        border-color: Theme.border-strong;
+        background: Theme.surface-panel;
 
         VerticalLayout {
-            padding: Tokens.space-lg;
-            spacing: Tokens.space-sm;
+            padding: Spacing.lg;
+            spacing: Spacing.sm;
 
             HorizontalLayout {
                 height: 34px;
 
                 Text {
                     text: "Fetch PDB";
-                    color: Theme.text;
+                    color: Theme.text-primary;
                     font-size: 22px;
                     font-weight: 700;
                     vertical-alignment: center;
@@ -425,15 +424,15 @@ export component FetchDialog inherits Rectangle {
 
             form-row := Rectangle {
                 horizontal-stretch: 0;
-                width: panel.width - 2 * Tokens.space-lg;
+                width: panel.width - 2 * Spacing.lg;
                 height: 66px;
                 background: transparent;
 
                 HorizontalLayout {
-                    spacing: Tokens.space-md;
+                    spacing: Spacing.md;
 
                     FieldBox {
-                        width: (form-row.width - Tokens.space-md) / 2;
+                        width: (form-row.width - Spacing.md) / 2;
                         label: "PDB ID";
                         helper: "4 characters";
                         emphasis: true;
@@ -443,7 +442,7 @@ export component FetchDialog inherits Rectangle {
                     }
 
                     FieldBox {
-                        width: (form-row.width - Tokens.space-md) / 2;
+                        width: (form-row.width - Spacing.md) / 2;
                         label: "Object name";
                         helper: "optional";
                         value <=> MenuState.fetch-object-name;
@@ -452,11 +451,11 @@ export component FetchDialog inherits Rectangle {
             }
 
             FormatBox {
-                width: panel.width - 2 * Tokens.space-lg;
+                width: panel.width - 2 * Spacing.lg;
             }
 
             MetadataPreview {
-                width: panel.width - 2 * Tokens.space-lg;
+                width: panel.width - 2 * Spacing.lg;
                 loading: MenuState.fetch-loading;
                 status: MenuState.fetch-status;
                 title: MenuState.fetch-title;
@@ -468,12 +467,12 @@ export component FetchDialog inherits Rectangle {
 
             footer-row := Rectangle {
                 horizontal-stretch: 0;
-                width: panel.width - 2 * Tokens.space-lg;
+                width: panel.width - 2 * Spacing.lg;
                 height: 40px;
                 background: transparent;
 
                 HorizontalLayout {
-                    spacing: Tokens.space-sm;
+                    spacing: Spacing.sm;
 
                     FooterStatus {
                         loading: MenuState.fetch-loading;

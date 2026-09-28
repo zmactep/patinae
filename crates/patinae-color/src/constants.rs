@@ -120,13 +120,15 @@ pub const TV_YELLOW: Color = Color::new(1.0, 1.0, 0.2);
 pub const TV_ORANGE: Color = Color::new(1.0, 0.55, 0.15);
 
 // --- Chain colors (dark palette) --------------------------------------------
+// Figma PATINAE re / UI Colors / chains/cA..cF, Dark (50:1).
+// Keep the same hue order in Light (52:0); colors are rounded to 8-bit RGB.
 
-pub const CHAIN_DARK_A: Color = CYAN;
-pub const CHAIN_DARK_B: Color = LIME;
-pub const CHAIN_DARK_C: Color = LIGHT_BLUE;
-pub const CHAIN_DARK_D: Color = AMBER;
-pub const CHAIN_DARK_E: Color = EMERALD;
-pub const CHAIN_DARK_F: Color = ORANGE;
+pub const CHAIN_DARK_A: Color = Color::from_rgb8(0x22, 0xD3, 0xEE);
+pub const CHAIN_DARK_B: Color = Color::from_rgb8(0xF4, 0x72, 0xB6);
+pub const CHAIN_DARK_C: Color = Color::from_rgb8(0xA7, 0x8B, 0xFA);
+pub const CHAIN_DARK_D: Color = Color::from_rgb8(0xF7, 0xE0, 0x6E);
+pub const CHAIN_DARK_E: Color = Color::from_rgb8(0x34, 0xD3, 0x99);
+pub const CHAIN_DARK_F: Color = Color::from_rgb8(0xFB, 0x92, 0x3C);
 
 pub const CHAIN_DARK: [Color; 6] = [
     CHAIN_DARK_A,
@@ -139,12 +141,12 @@ pub const CHAIN_DARK: [Color; 6] = [
 
 // --- Chain colors (light palette) -------------------------------------------
 
-pub const CHAIN_LIGHT_A: Color = TEAL;
-pub const CHAIN_LIGHT_B: Color = DEEP_OLIVE;
-pub const CHAIN_LIGHT_C: Color = MARINE;
-pub const CHAIN_LIGHT_D: Color = BURNT_ORANGE;
-pub const CHAIN_LIGHT_E: Color = FOREST;
-pub const CHAIN_LIGHT_F: Color = TERRACOTTA;
+pub const CHAIN_LIGHT_A: Color = Color::from_rgb8(0x0E, 0x74, 0x90);
+pub const CHAIN_LIGHT_B: Color = Color::from_rgb8(0xBE, 0x18, 0x5D);
+pub const CHAIN_LIGHT_C: Color = Color::from_rgb8(0x6D, 0x28, 0xD9);
+pub const CHAIN_LIGHT_D: Color = Color::from_rgb8(0x91, 0x4D, 0x08);
+pub const CHAIN_LIGHT_E: Color = Color::from_rgb8(0x04, 0x78, 0x57);
+pub const CHAIN_LIGHT_F: Color = Color::from_rgb8(0x8E, 0x2C, 0x0B);
 
 pub const CHAIN_LIGHT: [Color; 6] = [
     CHAIN_LIGHT_A,
@@ -157,7 +159,8 @@ pub const CHAIN_LIGHT: [Color; 6] = [
 
 // --- Viewport colors --------------------------------------------------------
 
-pub const VIEWPORT_BG_DARK: Color = Color::from_rgb8(0x0B, 0x0B, 0x10);
+// Match UI Foundations defaults, including the intentionally brighter Light viewport.
+pub const VIEWPORT_BG_DARK: Color = Color::from_rgb8(0x0B, 0x0B, 0x0B);
 pub const VIEWPORT_AO_DARK: Color = Color::from_rgb8(0x06, 0x06, 0x0A);
-pub const VIEWPORT_BG_LIGHT: Color = Color::from_rgb8(0xF0, 0xEE, 0xE7);
+pub const VIEWPORT_BG_LIGHT: Color = Color::from_rgb8(0xFA, 0xF9, 0xF5);
 pub const VIEWPORT_AO_LIGHT: Color = Color::from_rgb8(0xD8, 0xD4, 0xC4);

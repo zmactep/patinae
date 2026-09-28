@@ -1,27 +1,27 @@
-import { Theme } from "../../theme.slint";
-import { Tokens } from "../../tokens.slint";
+import { ComponentMetrics } from "../metrics.slint";
+import { Theme, Typography, Spacing, Shape } from "../../foundations/foundations.slint";
 import { ObjectsState, SelectionRow } from "../../states/objects-state.slint";
 import { RowBtn } from "./row-btn.slint";
 
 // ── Selection section header ─────────────────────────────────────────
 
 component SelectionHeader inherits Rectangle {
-    height: Tokens.tab-bar-h;
+    height: ComponentMetrics.tab-bar-h;
     background: transparent;
 
     HorizontalLayout {
-        padding-left: Tokens.space-md;
-        padding-right: Tokens.space-md;
+        padding-left: Spacing.md;
+        padding-right: Spacing.md;
         alignment: space-between;
 
         HorizontalLayout {
-            spacing: Tokens.space-sm;
+            spacing: Spacing.sm;
             alignment: start;
 
             Text {
                 text: "SELECTIONS";
-                color: Theme.magenta;
-                font-size: Tokens.font-md;
+                color: Theme.accent-selection;
+                font-size: Typography.compact-label.size;
                 font-weight: 500;
                 letter-spacing: 1.1px;
                 vertical-alignment: center;
@@ -29,8 +29,8 @@ component SelectionHeader inherits Rectangle {
 
             Text {
                 text: ObjectsState.selections.length;
-                color: Theme.text-ghost;
-                font-size: Tokens.font-md;
+                color: Theme.text-placeholder;
+                font-size: Typography.compact-label.size;
                 vertical-alignment: center;
             }
         }
@@ -40,14 +40,14 @@ component SelectionHeader inherits Rectangle {
             alignment: center;
 
             Rectangle {
-                width: Tokens.row-btn-w;
-                height: Tokens.row-btn-h;
-                border-radius: Tokens.radius-sm;
+                width: ComponentMetrics.row-btn-w;
+                height: ComponentMetrics.row-btn-h;
+                border-radius: Shape.radius-sm;
 
                 Text {
                     text: "+";
-                    color: Theme.text-faint;
-                    font-size: Tokens.font-xl;
+                    color: Theme.text-disabled;
+                    font-size: Typography.body.size;
                     horizontal-alignment: center;
                     vertical-alignment: center;
                 }
@@ -56,7 +56,7 @@ component SelectionHeader inherits Rectangle {
 
                 states [
                     hover when ta.has-hover: {
-                        background: Theme.bg-inset;
+                        background: Theme.surface-control;
                     }
                 ]
             }
@@ -72,41 +72,41 @@ component SelectionRowItem inherits Rectangle {
     property <bool> click-shift: false;
     property <bool> click-meta:  false;
 
-    height: Tokens.row-h;
-    border-radius: Tokens.radius-md;
+    height: ComponentMetrics.row-h;
+    border-radius: Shape.radius-md;
     background: root.data.selected
-        ? Theme.cyan.with-alpha(0.06)
+        ? Theme.accent-primary.with-alpha(0.06)
         : touch.has-hover
-            ? Theme.bg-inset.with-alpha(0.5)
+            ? Theme.surface-control.with-alpha(0.5)
             : transparent;
-    border-width: root.data.selected ? Tokens.hairline : 0px;
+    border-width: root.data.selected ? Shape.hairline : 0px;
     border-color: root.data.selected
-        ? Theme.cyan.with-alpha(0.5)
+        ? Theme.accent-primary.with-alpha(0.5)
         : transparent;
     accessible-role: list-item;
     accessible-label: root.data.name + ", " + root.data.atom-count + " atoms";
 
     // Name in parentheses, magenta
     Text {
-        x: Tokens.space-md + Tokens.chevron-w + Tokens.space-sm;
+        x: Spacing.md + ComponentMetrics.chevron-w + Spacing.sm;
         y: 0;
-        width: parent.width - self.x - 2 * Tokens.row-h - Tokens.space-sm;
+        width: parent.width - self.x - 2 * ComponentMetrics.row-h - Spacing.sm;
         height: parent.height;
         text: "(" + root.data.name + ")";
-        color: root.data.enabled ? Theme.magenta : Theme.text-ghost;
-        font-size: Tokens.font-lg;
+        color: root.data.enabled ? Theme.accent-selection : Theme.text-placeholder;
+        font-size: Typography.compact-body.size;
         vertical-alignment: center;
         overflow: elide;
     }
 
     // Atom count (fades out when R/C buttons visible)
     Text {
-        x: parent.width - self.width - Tokens.space-md - 2 * Tokens.row-h;
+        x: parent.width - self.width - Spacing.md - 2 * ComponentMetrics.row-h;
         y: 0;
         height: parent.height;
         text: root.data.atom-count;
-        color: Theme.text-ghost;
-        font-size: Tokens.font-sm;
+        color: Theme.text-placeholder;
+        font-size: Typography.hint.size;
         vertical-alignment: center;
         opacity: touch.has-hover ? 0.0 : 1.0;
         visible: root.data.atom-count > 0;
@@ -116,7 +116,7 @@ component SelectionRowItem inherits Rectangle {
     touch := TouchArea {
         x: 0;
         y: 0;
-        width: parent.width - 2 * Tokens.row-h;
+        width: parent.width - 2 * ComponentMetrics.row-h;
         height: parent.height;
         mouse-cursor: pointer;
         pointer-event(event) => {
@@ -136,7 +136,7 @@ component SelectionRowItem inherits Rectangle {
 
     // R button (representations)
     r-btn := RowBtn {
-        x: parent.width - 2 * Tokens.row-h + 4px;
+        x: parent.width - 2 * ComponentMetrics.row-h + 4px;
         y: (parent.height - self.height) / 2;
         letter: "R";
         source: "selection";
@@ -147,7 +147,7 @@ component SelectionRowItem inherits Rectangle {
 
     // C button (color)
     c-btn := RowBtn {
-        x: parent.width - Tokens.row-h + 2px;
+        x: parent.width - ComponentMetrics.row-h + 2px;
         y: (parent.height - self.height) / 2;
         letter: "C";
         source: "selection";
@@ -167,11 +167,11 @@ component SelectionRowsList inherits Rectangle {
 
         VerticalLayout {
             for item in ObjectsState.selections: Rectangle {
-                height: Tokens.row-h + Tokens.row-gap;
+                height: ComponentMetrics.row-h + ComponentMetrics.row-gap;
 
                 SelectionRowItem {
-                    x: Tokens.space-xs;
-                    width: parent.width - 2 * Tokens.space-xs;
+                    x: Spacing.xs;
+                    width: parent.width - 2 * Spacing.xs;
                     data: item;
                 }
             }
@@ -191,12 +191,12 @@ export component SelectionList inherits Rectangle {
 
         if ObjectsState.selections.length == 0: Text {
             text: "no selections yet";
-            color: Theme.text-ghost;
-            font-size: Tokens.font-sm;
+            color: Theme.text-placeholder;
+            font-size: Typography.hint.size;
             letter-spacing: 0.6px;
             horizontal-alignment: left;
             vertical-alignment: top;
-            x: Tokens.space-md;
+            x: Spacing.md;
         }
 
         if ObjectsState.selections.length > 0: SelectionRowsList {

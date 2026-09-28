@@ -1,3 +1,4 @@
+import { Theme, Typography, Spacing, Shape, Motion } from "./foundations/foundations.slint";
 import { MainLayout } from "layout.slint";
 import { LayoutState } from "states/layout-state.slint";
 import { ObjectsState } from "states/objects-state.slint";
@@ -26,13 +27,12 @@ import { FetchDialog } from "components/fetch-dialog.slint";
 import { PluginListDialog } from "components/plugin-list-dialog.slint";
 import { PluginListState, PluginListRow } from "states/plugin-list-state.slint";
 export { PluginListState, PluginListRow }
-import { Theme } from "theme.slint";
-import { Tokens } from "tokens.slint";
 import { Palette, Button } from "std-widgets.slint";
 
-export { ViewportState, LayoutState, ObjectsState, ReplState, OutputItem, CompletionItem, StartState, NotificationState, TaskNotification, SequenceState, SeqChainRow, MovieState, MovieTick, MovieMarker, MovieBlock, MovieLane, PluginState, PluginToolbarItem, PluginPanelTab, PluginControl, PluginOption, PluginButtonItem, MenuState, RecentFileItem, Theme, Tokens, Palette }
+export { ViewportState, LayoutState, ObjectsState, ReplState, OutputItem, CompletionItem, StartState, NotificationState, TaskNotification, SequenceState, SeqChainRow, MovieState, MovieTick, MovieMarker, MovieBlock, MovieLane, PluginState, PluginToolbarItem, PluginPanelTab, PluginControl, PluginOption, PluginButtonItem, MenuState, RecentFileItem, Theme, Spacing, Shape, Motion, Typography, Palette }
 
 export component StartupErrorWindow inherits Window {
+    default-font-family: Typography.interface-family;
     in property <string> dialog-title: "Patinae Renderer Unavailable";
     in property <string> message-text: "";
     callback acknowledged();
@@ -40,27 +40,27 @@ export component StartupErrorWindow inherits Window {
     title: root.dialog-title;
     preferred-width: 560px;
     preferred-height: 300px;
-    background: Theme.bg;
+    background: Theme.surface-base;
 
     VerticalLayout {
-        padding: Tokens.space-lg;
-        spacing: Tokens.space-md;
+        padding: Spacing.lg;
+        spacing: Spacing.md;
 
         HorizontalLayout {
             height: 44px;
-            spacing: Tokens.space-md;
+            spacing: Spacing.md;
 
             Rectangle {
                 width: 36px;
                 height: 36px;
                 border-radius: 18px;
-                background: Theme.error.with-alpha(0.16);
+                background: Theme.status-error.with-alpha(0.16);
                 border-width: 1px;
-                border-color: Theme.error.with-alpha(0.55);
+                border-color: Theme.status-error.with-alpha(0.55);
 
                 Text {
                     text: "!";
-                    color: Theme.error;
+                    color: Theme.status-error;
                     font-size: 22px;
                     font-weight: 700;
                     horizontal-alignment: center;
@@ -70,7 +70,7 @@ export component StartupErrorWindow inherits Window {
 
             Text {
                 text: root.dialog-title;
-                color: Theme.text;
+                color: Theme.text-primary;
                 font-size: 18px;
                 font-weight: 700;
                 vertical-alignment: center;
@@ -79,12 +79,12 @@ export component StartupErrorWindow inherits Window {
 
         Rectangle {
             height: 1px;
-            background: Theme.line;
+            background: Theme.border-subtle;
         }
 
         Text {
             text: root.message-text;
-            color: Theme.text-dim;
+            color: Theme.text-secondary;
             font-size: 13px;
             wrap: word-wrap;
             vertical-stretch: 1;
@@ -108,11 +108,12 @@ export component StartupErrorWindow inherits Window {
 }
 
 export component AppWindow inherits Window {
+    default-font-family: Typography.interface-family;
     forward-focus: app-focus;
     title: "Patinae";
     preferred-width: 1200px;
     preferred-height: 800px;
-    background: Theme.bg;
+    background: Theme.surface-base;
 
     MenuBar {
         Menu {

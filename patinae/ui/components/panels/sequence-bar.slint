@@ -1,5 +1,4 @@
-import { Theme } from "../../theme.slint";
-import { Tokens } from "../../tokens.slint";
+import { Theme, Typography, Spacing, Shape } from "../../foundations/foundations.slint";
 import { SequenceState, SeqChainRow } from "../../states/sequence-state.slint";
 
 // CSS-pixel offset of the first residue cell inside the strip image.
@@ -67,8 +66,8 @@ component SeqChainRowView {
                 width: SequenceState.drag-px-end - SequenceState.drag-px-start;
                 height: 18px;
                 background: SequenceState.ctrl-held
-                    ? Theme.warning.with-alpha(0.45)
-                    : Theme.magenta.with-alpha(0.45);
+                    ? Theme.status-warning.with-alpha(0.45)
+                    : Theme.accent-selection.with-alpha(0.45);
             }
 
             label-context-touch := TouchArea {
@@ -191,19 +190,19 @@ component SeqMenuRow inherits Rectangle {
 
     width: 100%;
     height: 28px;
-    border-radius: Tokens.radius-sm;
+    border-radius: Shape.radius-sm;
     background: root.disabled ? transparent
-        : touch.has-hover ? Theme.bg-inset : transparent;
+        : touch.has-hover ? Theme.surface-control : transparent;
     opacity: root.disabled ? 0.4 : 1.0;
 
     Text {
-        x: Tokens.space-sm;
-        width: parent.width - 2 * Tokens.space-sm;
+        x: Spacing.sm;
+        width: parent.width - 2 * Spacing.sm;
         height: parent.height;
         text: root.label;
-        color: root.disabled ? Theme.text-ghost
-            : touch.has-hover ? Theme.text : Theme.text-dim;
-        font-size: Tokens.font-md;
+        color: root.disabled ? Theme.text-placeholder
+            : touch.has-hover ? Theme.text-primary : Theme.text-secondary;
+        font-size: Typography.compact-label.size;
         font-weight: 500;
         vertical-alignment: center;
     }
@@ -222,10 +221,10 @@ component SeqMenuRow inherits Rectangle {
 component SeqContextMenu inherits Rectangle {
     width: 184px;
     height: inner.preferred-height;
-    border-radius: Tokens.radius-md;
-    background: Theme.bg-card;
-    border-width: Tokens.hairline;
-    border-color: Theme.line;
+    border-radius: Shape.radius-md;
+    background: Theme.surface-overlay;
+    border-width: Shape.hairline;
+    border-color: Theme.border-subtle;
     drop-shadow-color: #00000080;
     drop-shadow-blur: 4px;
     drop-shadow-offset-y: 2px;
@@ -233,7 +232,7 @@ component SeqContextMenu inherits Rectangle {
     TouchArea {}
 
     inner := VerticalLayout {
-        padding: Tokens.space-xs;
+        padding: Spacing.xs;
         spacing: 0px;
 
         if SequenceState.context-menu-chain >= 0: SeqMenuRow {
@@ -266,7 +265,7 @@ component SeqEmptyState inherits Rectangle {
     Text {
         text: "No sequences to display.\nLoad a structure to see its residue sequence here.";
         color: Theme.text-muted;
-        font-size: Tokens.font-md;
+        font-size: Typography.compact-label.size;
         horizontal-alignment: center;
         vertical-alignment: center;
     }
@@ -281,15 +280,15 @@ component SeqObjectHeader inherits Rectangle {
     background: transparent;
 
     HorizontalLayout {
-        padding-left: Tokens.space-xs;
-        padding-top: Tokens.space-xs;
+        padding-left: Spacing.xs;
+        padding-top: Spacing.xs;
         alignment: start;
 
         Text {
             text: object-name;
-            color: Theme.text-dim;
-            font-family: "JetBrains Mono";
-            font-size: Tokens.font-sm;
+            color: Theme.text-secondary;
+            font-family: Typography.content-family;
+            font-size: Typography.hint.size;
             letter-spacing: 0.6px;
             vertical-alignment: center;
         }
@@ -302,7 +301,7 @@ export component SequenceBar inherits Rectangle {
     // Use a Rectangle root so the floating tooltip can be positioned
     // absolutely on top of the layout.
 
-    property <length> content-width: max(SequenceState.max-row-width, max(0px, root.width - 2 * Tokens.space-xs));
+    property <length> content-width: max(SequenceState.max-row-width, max(0px, root.width - 2 * Spacing.xs));
 
     panel-context-touch := TouchArea {
         enabled: !SequenceState.has-data;
@@ -338,8 +337,8 @@ export component SequenceBar inherits Rectangle {
 
             VerticalLayout {
                 spacing: 1px;
-                padding-left: Tokens.space-xs;
-                padding-right: Tokens.space-xs;
+                padding-left: Spacing.xs;
+                padding-right: Spacing.xs;
 
                 for chain[ci] in SequenceState.chains: VerticalLayout {
                     spacing: 0px;
@@ -356,7 +355,7 @@ export component SequenceBar inherits Rectangle {
                 }
 
                 Rectangle {
-                    height: Tokens.space-sm;
+                    height: Spacing.sm;
                 }
             }
         }
@@ -366,15 +365,15 @@ export component SequenceBar inherits Rectangle {
             background: transparent;
 
             HorizontalLayout {
-                padding-left: Tokens.space-md;
-                padding-right: Tokens.space-sm;
-                spacing: Tokens.space-sm;
+                padding-left: Spacing.md;
+                padding-right: Spacing.sm;
+                spacing: Spacing.sm;
                 alignment: space-between;
 
                 Text {
                     text: SequenceState.footer-text;
-                    color: Theme.text-ghost;
-                    font-size: Tokens.font-sm;
+                    color: Theme.text-placeholder;
+                    font-size: Typography.hint.size;
                     letter-spacing: 0.6px;
                     horizontal-alignment: left;
                     vertical-alignment: center;
@@ -383,19 +382,19 @@ export component SequenceBar inherits Rectangle {
                 Rectangle {
                     width: 110px;
                     height: 18px;
-                    border-radius: Tokens.radius-sm;
+                    border-radius: Shape.radius-sm;
                     background: SequenceState.viewer-colors
-                        ? Theme.cyan.with-alpha(0.18)
-                        : (vc-touch.has-hover ? Theme.bg-inset : transparent);
-                    border-width: Tokens.hairline;
+                        ? Theme.accent-primary.with-alpha(0.18)
+                        : (vc-touch.has-hover ? Theme.surface-control : transparent);
+                    border-width: Shape.hairline;
                     border-color: SequenceState.viewer-colors
-                        ? Theme.cyan.with-alpha(0.5)
-                        : Theme.line;
+                        ? Theme.accent-primary.with-alpha(0.5)
+                        : Theme.border-subtle;
 
                     Text {
                         text: SequenceState.viewer-colors ? "✓ Viewer colors" : "Viewer colors";
-                        color: SequenceState.viewer-colors ? Theme.cyan : Theme.text-muted;
-                        font-size: Tokens.font-sm;
+                        color: SequenceState.viewer-colors ? Theme.accent-primary : Theme.text-muted;
+                        font-size: Typography.hint.size;
                         horizontal-alignment: center;
                         vertical-alignment: center;
                     }
@@ -433,19 +432,19 @@ export component SequenceBar inherits Rectangle {
         y: max(0px, min(root.height - self.height - 4px, SequenceState.hover-y + 8px));
         width: tooltip-text.preferred-width + 12px;
         height: 22px;
-        background: Theme.bg-card;
-        border-color: Theme.line-strong;
-        border-width: Tokens.hairline;
-        border-radius: Tokens.radius-sm;
+        background: Theme.surface-overlay;
+        border-color: Theme.border-strong;
+        border-width: Shape.hairline;
+        border-radius: Shape.radius-sm;
         drop-shadow-color: #00000080;
         drop-shadow-blur: 4px;
         drop-shadow-offset-y: 2px;
 
         tooltip-text := Text {
             text: SequenceState.hover-tooltip;
-            color: Theme.text;
-            font-family: "JetBrains Mono";
-            font-size: Tokens.font-md;
+            color: Theme.text-primary;
+            font-family: Typography.content-family;
+            font-size: Typography.compact-label.size;
             horizontal-alignment: center;
             vertical-alignment: center;
         }

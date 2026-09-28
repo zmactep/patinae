@@ -1,4 +1,4 @@
-import { Tokens } from "../../tokens.slint";
+import { Spacing } from "../../foundations/foundations.slint";
 import { ObjectsState } from "../../states/objects-state.slint";
 import {
     AnnotationActionButton,
@@ -22,7 +22,7 @@ export component MeasurementTargetPopover inherits Rectangle {
         dismiss => { ObjectsState.popover-close(); }
 
         VerticalLayout {
-            spacing: Tokens.space-xs;
+            spacing: Spacing.xs;
 
             AnnotationFieldLabel { text: "Destination"; }
             AnnotationTargetDropdown {
@@ -34,7 +34,7 @@ export component MeasurementTargetPopover inherits Rectangle {
         }
 
         HorizontalLayout {
-            spacing: Tokens.space-sm;
+            spacing: Spacing.sm;
 
             AnnotationActionButton {
                 label: "Cancel";

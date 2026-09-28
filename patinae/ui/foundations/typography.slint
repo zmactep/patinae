@@ -1,0 +1,33 @@
+import "../fonts/Fraunces.ttf";
+import "../fonts/JetBrainsMono-Regular.ttf";
+import "../fonts/JetBrainsMono-Bold.ttf";
+import "../fonts/Inter-Regular.ttf";
+import "../fonts/Inter-Medium.ttf";
+
+export struct TextStyle {
+    family: string,
+    size: length,
+    weight: int,
+    tracking: length,
+}
+
+export global Typography {
+    out property <string> interface-family: "Inter";
+    out property <string> content-family: "JetBrains Mono";
+    out property <string> title-family: "Fraunces";
+    out property <TextStyle> title: { family: title-family, size: 32px, weight: 400, tracking: 0px };
+    out property <TextStyle> body: { family: interface-family, size: 16px, weight: 400, tracking: 0px };
+    out property <TextStyle> body-small: { family: interface-family, size: 14px, weight: 400, tracking: 0px };
+    out property <TextStyle> tooltip: { family: interface-family, size: 14px, weight: 500, tracking: 0px };
+    out property <TextStyle> label: { family: interface-family, size: 12px, weight: 400, tracking: 0.96px };
+    out property <TextStyle> hint: { family: interface-family, size: 10px, weight: 400, tracking: 0px };
+    out property <TextStyle> code: { family: content-family, size: 14px, weight: 400, tracking: 0px };
+    out property <TextStyle> sequence: { family: content-family, size: 14px, weight: 400, tracking: 2.24px };
+    out property <TextStyle> input: { family: content-family, size: 12px, weight: 400, tracking: 0px };
+    out property <TextStyle> hud: { family: content-family, size: 10px, weight: 400, tracking: 0px };
+
+    // Existing dense panels retain their metrics until their layout is redesigned.
+    out property <TextStyle> compact-hud: { family: content-family, size: 9px, weight: 400, tracking: 0px };
+    out property <TextStyle> compact-label: { family: interface-family, size: 11px, weight: 400, tracking: 0px };
+    out property <TextStyle> compact-body: { family: interface-family, size: 13px, weight: 400, tracking: 0px };
+}

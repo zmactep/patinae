@@ -1,5 +1,4 @@
-import { Theme } from "../../theme.slint";
-import { Tokens } from "../../tokens.slint";
+import { Theme, Typography, Spacing, Shape } from "../../foundations/foundations.slint";
 import { MovieState, MovieLane } from "../../states/movie-state.slint";
 
 global MovieLayout {
@@ -99,23 +98,23 @@ component MiniButton inherits Rectangle {
 
     width: root.primary ? 34px : 28px;
     height: 24px;
-    border-radius: Tokens.radius-sm;
+    border-radius: Shape.radius-sm;
     background: !root.enabled
         ? transparent
         : root.primary
-            ? Theme.cyan.with-alpha(0.16)
-            : touch.has-hover ? Theme.bg-inset : transparent;
-    border-width: Tokens.hairline;
+            ? Theme.accent-primary.with-alpha(0.16)
+            : touch.has-hover ? Theme.surface-control : transparent;
+    border-width: Shape.hairline;
     border-color: root.primary && root.enabled
-        ? Theme.cyan.with-alpha(0.55)
-        : touch.has-hover && root.enabled ? Theme.line-strong : Theme.line;
+        ? Theme.accent-primary.with-alpha(0.55)
+        : touch.has-hover && root.enabled ? Theme.border-strong : Theme.border-subtle;
     opacity: root.enabled ? 1.0 : 0.35;
 
     TransportIcon {
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
         kind: root.icon;
-        tint: root.primary ? Theme.cyan : Theme.text-dim;
+        tint: root.primary ? Theme.accent-primary : Theme.text-secondary;
     }
 
     touch := TouchArea {
@@ -132,17 +131,17 @@ component ToggleChip inherits Rectangle {
 
     width: chip-label.preferred-width + 16px;
     height: 24px;
-    border-radius: Tokens.radius-sm;
+    border-radius: Shape.radius-sm;
     background: root.active
-        ? Theme.cyan.with-alpha(0.14)
-        : touch.has-hover ? Theme.bg-inset : transparent;
-    border-width: Tokens.hairline;
-    border-color: root.active ? Theme.cyan.with-alpha(0.55) : Theme.line;
+        ? Theme.accent-primary.with-alpha(0.14)
+        : touch.has-hover ? Theme.surface-control : transparent;
+    border-width: Shape.hairline;
+    border-color: root.active ? Theme.accent-primary.with-alpha(0.55) : Theme.border-subtle;
 
     chip-label := Text {
         text: root.label;
-        color: root.active ? Theme.cyan : Theme.text-muted;
-        font-size: Tokens.font-sm;
+        color: root.active ? Theme.accent-primary : Theme.text-muted;
+        font-size: Typography.hint.size;
         font-weight: 500;
         horizontal-alignment: center;
         vertical-alignment: center;
@@ -162,10 +161,10 @@ component FieldBox inherits Rectangle {
 
     width: root.field-w;
     height: 24px;
-    border-radius: Tokens.radius-sm;
-    background: Theme.bg-inset.with-alpha(0.72);
-    border-width: Tokens.hairline;
-    border-color: input.has-focus ? Theme.cyan.with-alpha(0.65) : Theme.line.with-alpha(0.72);
+    border-radius: Shape.radius-sm;
+    background: Theme.surface-control.with-alpha(0.72);
+    border-width: Shape.hairline;
+    border-color: input.has-focus ? Theme.accent-primary.with-alpha(0.65) : Theme.border-subtle.with-alpha(0.72);
 
     input := TextInput {
         x: 4px;
@@ -174,13 +173,13 @@ component FieldBox inherits Rectangle {
         height: parent.height;
         text <=> root.value;
         single-line: true;
-        color: Theme.text-dim;
-        font-family: "JetBrains Mono";
-        font-size: Tokens.font-md;
+        color: Theme.text-secondary;
+        font-family: Typography.content-family;
+        font-size: Typography.compact-label.size;
         horizontal-alignment: center;
         vertical-alignment: center;
-        selection-background-color: Theme.cyan.with-alpha(0.3);
-        selection-foreground-color: Theme.text;
+        selection-background-color: Theme.accent-primary.with-alpha(0.3);
+        selection-foreground-color: Theme.text-primary;
 
         edited => { root.edited(); }
         accepted => { root.accepted(self.text); }
@@ -198,7 +197,7 @@ component StatusLabel inherits Rectangle {
         height: parent.height;
         text: root.label;
         color: Theme.text-muted;
-        font-size: Tokens.font-md;
+        font-size: Typography.compact-label.size;
         vertical-alignment: center;
     }
 }
@@ -214,8 +213,8 @@ component StatusValue inherits Rectangle {
         height: parent.height;
         text: root.label;
         color: Theme.text-muted;
-        font-family: "JetBrains Mono";
-        font-size: Tokens.font-sm;
+        font-family: Typography.content-family;
+        font-size: Typography.hint.size;
         vertical-alignment: center;
     }
 }
@@ -232,42 +231,42 @@ component TimelineLaneRow inherits Rectangle {
         width: MovieLayout.label-w;
         height: parent.height;
         text: root.lane.label;
-        color: root.lane.id == "mset" ? Theme.text-muted : Theme.text-faint;
-        font-family: "JetBrains Mono";
-        font-size: Tokens.font-sm;
+        color: root.lane.id == "mset" ? Theme.text-muted : Theme.text-disabled;
+        font-family: Typography.content-family;
+        font-size: Typography.hint.size;
         horizontal-alignment: right;
         vertical-alignment: center;
     }
 
     track := Rectangle {
-        x: MovieLayout.label-w + Tokens.space-sm;
+        x: MovieLayout.label-w + Spacing.sm;
         y: 4px;
-        width: parent.width - self.x - Tokens.space-md;
+        width: parent.width - self.x - Spacing.md;
         height: parent.height - 8px;
-        border-radius: Tokens.radius-sm;
-        background: Theme.bg-inset.with-alpha(0.42);
+        border-radius: Shape.radius-sm;
+        background: Theme.surface-control.with-alpha(0.42);
 
         for block in root.lane.blocks: Rectangle {
             x: parent.width * block.start-pos;
             y: 3px;
             width: max(2px, parent.width * (block.end-pos - block.start-pos));
             height: parent.height - 6px;
-            border-radius: Tokens.radius-sm;
+            border-radius: Shape.radius-sm;
             background: block.kind == "state"
-                ? Theme.violet.with-alpha(0.16)
-                : Theme.magenta.with-alpha(0.16);
-            border-width: Tokens.hairline;
+                ? Theme.accent-violet.with-alpha(0.16)
+                : Theme.accent-selection.with-alpha(0.16);
+            border-width: Shape.hairline;
             border-color: block.kind == "state"
-                ? Theme.violet.with-alpha(0.32)
-                : Theme.magenta.with-alpha(0.32);
+                ? Theme.accent-violet.with-alpha(0.32)
+                : Theme.accent-selection.with-alpha(0.32);
 
             Text {
                 x: 6px;
                 width: max(0px, parent.width - 12px);
                 height: parent.height;
                 text: block.label;
-                color: block.kind == "state" ? Theme.text-muted : Theme.magenta;
-                font-size: Tokens.font-xs;
+                color: block.kind == "state" ? Theme.text-muted : Theme.accent-selection;
+                font-size: Typography.compact-hud.size;
                 overflow: elide;
                 vertical-alignment: center;
             }
@@ -280,8 +279,8 @@ component TimelineLaneRow inherits Rectangle {
             height: 8px;
             border-radius: 1px;
             background: marker.kind == "camera"
-                ? Theme.cyan
-                : marker.kind == "scene" ? Theme.amber : Theme.magenta;
+                ? Theme.accent-primary
+                : marker.kind == "scene" ? Theme.accent-amber : Theme.accent-selection;
             transform-rotation: 45deg;
             transform-origin: { x: 4px, y: 4px };
         }
@@ -291,8 +290,8 @@ component TimelineLaneRow inherits Rectangle {
             y: 0px;
             height: parent.height;
             text: root.lane.id == "camera" ? "" : marker.label;
-            color: marker.kind == "scene" ? Theme.amber : Theme.magenta;
-            font-size: Tokens.font-xs;
+            color: marker.kind == "scene" ? Theme.accent-amber : Theme.accent-selection;
+            font-size: Typography.compact-hud.size;
             overflow: elide;
             vertical-alignment: center;
         }
@@ -303,27 +302,27 @@ component RulerRow inherits Rectangle {
     height: 22px;
 
     Rectangle {
-        x: MovieLayout.label-w + Tokens.space-sm;
+        x: MovieLayout.label-w + Spacing.sm;
         y: parent.height - 4px;
-        width: parent.width - self.x - Tokens.space-md;
-        height: Tokens.hairline;
-        background: Theme.line;
+        width: parent.width - self.x - Spacing.md;
+        height: Shape.hairline;
+        background: Theme.border-subtle;
 
         for tick in MovieState.ticks: Rectangle {
             x: parent.width * tick.pos;
             y: -4px;
-            width: Tokens.hairline;
+            width: Shape.hairline;
             height: 8px;
-            background: Theme.line-strong;
+            background: Theme.border-strong;
         }
 
         for tick in MovieState.ticks: Text {
             x: max(0px, min(parent.width - self.width, parent.width * tick.pos - self.width / 2));
             y: -18px;
             text: tick.label;
-            color: Theme.text-ghost;
-            font-family: "JetBrains Mono";
-            font-size: Tokens.font-xs;
+            color: Theme.text-placeholder;
+            font-family: Typography.content-family;
+            font-size: Typography.compact-hud.size;
         }
     }
 }
@@ -335,16 +334,16 @@ component ActionButton inherits Rectangle {
 
     width: label-text.preferred-width + 18px;
     height: 24px;
-    border-radius: Tokens.radius-sm;
-    background: root.enabled && touch.has-hover ? Theme.bg-inset : transparent;
-    border-width: Tokens.hairline;
-    border-color: root.enabled && touch.has-hover ? Theme.line-strong : Theme.line;
+    border-radius: Shape.radius-sm;
+    background: root.enabled && touch.has-hover ? Theme.surface-control : transparent;
+    border-width: Shape.hairline;
+    border-color: root.enabled && touch.has-hover ? Theme.border-strong : Theme.border-subtle;
     opacity: root.enabled ? 1.0 : 0.35;
 
     label-text := Text {
         text: root.label;
         color: Theme.text-muted;
-        font-size: Tokens.font-sm;
+        font-size: Typography.hint.size;
         font-weight: 500;
         horizontal-alignment: center;
         vertical-alignment: center;
@@ -360,7 +359,7 @@ component ActionButton inherits Rectangle {
 // Movie panel — compact timeline for animation playback and keyframes.
 export component MoviePanel inherits Rectangle {
     clip: true;
-    background: Theme.bg-panel;
+    background: Theme.surface-panel;
 
     property <float> playhead-pos: (MovieState.current-frame - 0.5) / max(1, MovieState.frame-count);
 
@@ -373,13 +372,13 @@ export component MoviePanel inherits Rectangle {
             background: transparent;
 
             Rectangle {
-                x: Tokens.space-md;
+                x: Spacing.md;
                 y: (parent.height - self.height) / 2;
-                width: parent.width - 2 * Tokens.space-md;
+                width: parent.width - 2 * Spacing.md;
                 height: 24px;
 
                 HorizontalLayout {
-                    spacing: Tokens.space-sm;
+                    spacing: Spacing.sm;
                     alignment: start;
 
                     MiniButton { icon: "first"; clicked => { MovieState.goto-frame(1); } }
@@ -393,7 +392,7 @@ export component MoviePanel inherits Rectangle {
                     MiniButton { icon: "last"; clicked => { MovieState.goto-frame(MovieState.frame-count); } }
                     MiniButton { icon: "stop"; clicked => { MovieState.stop(); } }
 
-                    Rectangle { width: Tokens.space-sm; }
+                    Rectangle { width: Spacing.sm; }
 
                     StatusLabel { label: "Frame"; }
 
@@ -447,13 +446,13 @@ export component MoviePanel inherits Rectangle {
             }
         }
 
-        Rectangle { height: Tokens.hairline; background: Theme.line; }
+        Rectangle { height: Shape.hairline; background: Theme.border-subtle; }
 
         // ── Timeline ─────────────────────────────────────────────
         timeline := Rectangle {
             vertical-stretch: 1;
             clip: true;
-            background: Theme.bg-panel;
+            background: Theme.surface-panel;
 
             VerticalLayout {
                 spacing: 0px;
@@ -464,12 +463,12 @@ export component MoviePanel inherits Rectangle {
             }
 
             playhead := Rectangle {
-                x: MovieLayout.label-w + Tokens.space-sm
-                    + (parent.width - MovieLayout.label-w - Tokens.space-sm - Tokens.space-md) * root.playhead-pos;
+                x: MovieLayout.label-w + Spacing.sm
+                    + (parent.width - MovieLayout.label-w - Spacing.sm - Spacing.md) * root.playhead-pos;
                 y: 2px;
                 width: 1px;
                 height: parent.height - 4px;
-                background: Theme.cyan;
+                background: Theme.accent-primary;
             }
 
             Rectangle {
@@ -478,15 +477,15 @@ export component MoviePanel inherits Rectangle {
                 width: 9px;
                 height: 9px;
                 border-radius: 1px;
-                background: Theme.cyan;
+                background: Theme.accent-primary;
                 transform-rotation: 45deg;
                 transform-origin: { x: 4.5px, y: 4.5px };
             }
 
             scrub := TouchArea {
-                x: MovieLayout.label-w + Tokens.space-sm;
+                x: MovieLayout.label-w + Spacing.sm;
                 y: 0px;
-                width: parent.width - self.x - Tokens.space-md;
+                width: parent.width - self.x - Spacing.md;
                 height: parent.height;
                 mouse-cursor: pointer;
 
@@ -501,7 +500,7 @@ export component MoviePanel inherits Rectangle {
             }
         }
 
-        Rectangle { height: Tokens.hairline; background: Theme.line; }
+        Rectangle { height: Shape.hairline; background: Theme.border-subtle; }
 
         // ── Quick actions ────────────────────────────────────────
         Rectangle {
@@ -509,9 +508,9 @@ export component MoviePanel inherits Rectangle {
             background: transparent;
 
             HorizontalLayout {
-                padding-left: Tokens.space-md;
-                padding-right: Tokens.space-md;
-                spacing: Tokens.space-sm;
+                padding-left: Spacing.md;
+                padding-right: Spacing.md;
+                spacing: Spacing.sm;
                 alignment: start;
 
                 ActionButton {
@@ -541,9 +540,9 @@ export component MoviePanel inherits Rectangle {
                     text: MovieState.frame-count <= 1
                         ? "single frame"
                         : "" + MovieState.frame-count + " frames";
-                    color: Theme.text-ghost;
-                    font-family: "JetBrains Mono";
-                    font-size: Tokens.font-sm;
+                    color: Theme.text-placeholder;
+                    font-family: Typography.content-family;
+                    font-size: Typography.hint.size;
                     vertical-alignment: center;
                 }
             }

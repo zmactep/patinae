@@ -1,5 +1,5 @@
-import { Theme } from "../../theme.slint";
-import { Tokens } from "../../tokens.slint";
+import { ComponentMetrics } from "../metrics.slint";
+import { Typography, Theme, Spacing, Shape, Motion } from "../../foundations/foundations.slint";
 import { LayoutState } from "../../states/layout-state.slint";
 import { ReplState } from "../../states/repl-state.slint";
 import { ViewportState } from "../../states/viewport-state.slint";
@@ -8,7 +8,7 @@ import { CompletionPopup } from "completion-popup.slint";
 // ── Prompt icon — right-pointing chevron "›" ────────────────────────
 
 component PromptIcon inherits Rectangle {
-    in property <color> tint: Theme.cyan;
+    in property <color> tint: Theme.accent-primary;
 
     width: 12px;
     height: 14px;
@@ -166,14 +166,14 @@ component OutputLine inherits Rectangle {
     in property <string> kind;
     in property <bool> show-icon: true;
 
-    background: kind == "command" || code-block ? Theme.bg-raised : transparent;
-    border-radius: kind == "command" ? Tokens.radius-sm : 0px;
+    background: kind == "command" || code-block ? Theme.surface-raised : transparent;
+    border-radius: kind == "command" ? Shape.radius-sm : 0px;
     height: row.preferred-height;
 
     row := HorizontalLayout {
         padding-top: 5px;
         padding-bottom: 5px;
-        padding-right: Tokens.repl-output-pad;
+        padding-right: ComponentMetrics.repl-output-pad;
 
         // Icon cell — vertically centered by layout
         VerticalLayout {
@@ -182,36 +182,36 @@ component OutputLine inherits Rectangle {
             alignment: center;
 
             if root.show-icon && kind == "command": CmdChevronIcon { tint: Theme.text-muted; }
-            if root.show-icon && kind == "timing": ClockIcon { tint: Theme.text-ghost; }
-            if root.show-icon && (kind == "info" || kind == "normal"): CheckIcon { tint: Theme.cyan; }
-            if root.show-icon && kind == "warning": WarningIcon { tint: Theme.warning; }
-            if root.show-icon && kind == "error": ErrorIcon { tint: Theme.error; }
+            if root.show-icon && kind == "timing": ClockIcon { tint: Theme.text-placeholder; }
+            if root.show-icon && (kind == "info" || kind == "normal"): CheckIcon { tint: Theme.accent-primary; }
+            if root.show-icon && kind == "warning": WarningIcon { tint: Theme.status-warning; }
+            if root.show-icon && kind == "error": ErrorIcon { tint: Theme.status-error; }
         }
 
         if !root.markdown || root.heading-level > 0 || root.code-block: Text {
             horizontal-stretch: 1;
             vertical-alignment: center;
-            font-size: root.heading-level > 0 ? Tokens.repl-output-font + (7 - root.heading-level) * 1px : Tokens.repl-output-font;
+            font-size: root.heading-level > 0 ? Typography.input.size + (7 - root.heading-level) * 1px : Typography.input.size;
             font-weight: root.heading-level > 0 ? 700 : kind == "command" ? 500 : 400;
             font-family: root.code-block ? "monospace" : "";
             wrap: word-wrap;
-            color: kind == "command" ? Theme.text-dim
-                 : kind == "timing"  ? Theme.text-ghost
-                 : kind == "error"   ? Theme.error
-                 : kind == "warning" ? Theme.warning
+            color: kind == "command" ? Theme.text-secondary
+                 : kind == "timing"  ? Theme.text-placeholder
+                 : kind == "error"   ? Theme.status-error
+                 : kind == "warning" ? Theme.status-warning
                  :                     Theme.text-muted;
             text: root.plain-text;
         }
         if root.markdown && root.heading-level == 0 && !root.code-block: StyledText {
             horizontal-stretch: 1;
             vertical-alignment: center;
-            default-font-size: Tokens.repl-output-font;
-            default-color: kind == "command" ? Theme.text-dim
-                 : kind == "timing"  ? Theme.text-ghost
-                 : kind == "error"   ? Theme.error
-                 : kind == "warning" ? Theme.warning
+            default-font-size: Typography.input.size;
+            default-color: kind == "command" ? Theme.text-secondary
+                 : kind == "timing"  ? Theme.text-placeholder
+                 : kind == "error"   ? Theme.status-error
+                 : kind == "warning" ? Theme.status-warning
                  :                     Theme.text-muted;
-            link-color: Theme.cyan;
+            link-color: Theme.accent-primary;
             link-clicked(url) => { ReplState.open-link(url); }
             text: root.text;
         }
@@ -254,14 +254,14 @@ export component ReplPill inherits Rectangle {
     }
 
     // Pill geometry
-    property <length> pill-w: Tokens.repl-pill-w;
-    property <length> pill-h: Tokens.repl-pill-h;
+    property <length> pill-w: ComponentMetrics.repl-pill-w;
+    property <length> pill-h: ComponentMetrics.repl-pill-h;
     property <length> pill-x: (root.viewport-w - pill-w) / 2;
-    property <length> pill-y: root.viewport-h - Tokens.repl-pill-bottom - pill-h;
+    property <length> pill-y: root.viewport-h - ComponentMetrics.repl-pill-bottom - pill-h;
 
     // Drawer geometry — full height is always computed, clip height animates
     property <length> drawer-max-h: root.viewport-h * 0.5;
-    property <length> drawer-content-h: drawer-layout.preferred-height + 2 * Tokens.repl-output-pad;
+    property <length> drawer-content-h: drawer-layout.preferred-height + 2 * ComponentMetrics.repl-output-pad;
     property <length> drawer-full-h: min(drawer-content-h, drawer-max-h);
     property <length> drawer-h: ReplState.drawer-open ? drawer-full-h : 0px;
 
@@ -286,10 +286,10 @@ export component ReplPill inherits Rectangle {
                 ReplState.drawer-open
                 && self.mouse-x >= root.pill-x
                 && self.mouse-x < root.pill-x + root.pill-w
-                && self.mouse-y >= root.pill-y - root.drawer-h - Tokens.repl-drawer-gap
-                && self.mouse-y < root.pill-y - Tokens.repl-drawer-gap;
+                && self.mouse-y >= root.pill-y - root.drawer-h - ComponentMetrics.repl-drawer-gap
+                && self.mouse-y < root.pill-y - ComponentMetrics.repl-drawer-gap;
             property <length> completion-h:
-                min(ReplState.completion-items.length, 8) * 26px + 2 * Tokens.space-xs;
+                min(ReplState.completion-items.length, 8) * 26px + 2 * Spacing.xs;
             property <bool> over-completion:
                 ReplState.completion-visible
                 && ReplState.completion-items.length > 0
@@ -359,18 +359,18 @@ export component ReplPill inherits Rectangle {
     // the bottom (near the input) rather than from the top.
     drawer := Rectangle {
         x: root.pill-x;
-        y: root.pill-y - root.drawer-h - Tokens.repl-drawer-gap;
+        y: root.pill-y - root.drawer-h - ComponentMetrics.repl-drawer-gap;
         width: root.pill-w;
         height: root.drawer-h;
         clip: true;
-        border-radius: Tokens.radius-lg;
-        background: Theme.bg-card;
-        border-width: Tokens.hairline;
-        border-color: Theme.line;
+        border-radius: Shape.radius-lg;
+        background: Theme.surface-overlay;
+        border-width: Shape.hairline;
+        border-color: Theme.border-subtle;
         visible: ReplState.drawer-open;
 
-        animate height { duration: Tokens.motion-base; easing: ease-in-out; }
-        animate y      { duration: Tokens.motion-base; easing: ease-in-out; }
+        animate height { duration: Motion.base; easing: ease-in-out; }
+        animate y      { duration: Motion.base; easing: ease-in-out; }
 
         // Block events from passing through
         TouchArea {}
@@ -388,19 +388,19 @@ export component ReplPill inherits Rectangle {
                 y: 0;
                 width: parent.width;
                 height: parent.height;
-                content-height: drawer-layout.preferred-height + 2 * Tokens.repl-output-pad;
+                content-height: drawer-layout.preferred-height + 2 * ComponentMetrics.repl-output-pad;
                 // Scroll to bottom whenever new output arrives (generation bumps).
                 // The `* 0` makes the dependency invisible to the value.
                 content-y: min(0px, self.height - self.content-height)
                             + ReplState.output-generation * 0px;
 
                 drawer-layout := VerticalLayout {
-                    padding: Tokens.repl-output-pad;
+                    padding: ComponentMetrics.repl-output-pad;
                     spacing: 2px;
                     width: parent.width;
 
                     for item in ReplState.output-items: OutputLine {
-                        width: parent.width - 2 * Tokens.repl-output-pad;
+                        width: parent.width - 2 * ComponentMetrics.repl-output-pad;
                         text: item.text;
                         plain-text: item.plain-text;
                         markdown: item.markdown;
@@ -427,17 +427,17 @@ export component ReplPill inherits Rectangle {
         y: root.pill-y;
         width: root.pill-w;
         height: root.pill-h;
-        border-radius: Tokens.repl-pill-radius;
-        background: Theme.bg-inset;
-        border-width: Tokens.hairline;
+        border-radius: ComponentMetrics.repl-pill-radius;
+        background: Theme.surface-control;
+        border-width: Shape.hairline;
         border-color: input-field.has-focus
-            ? Theme.cyan.with-alpha(0.6)
-            : Theme.line;
+            ? Theme.accent-primary.with-alpha(0.6)
+            : Theme.border-subtle;
         opacity: input-field.has-focus ? 1.0 : 0.55;
         clip: true;
 
-        animate opacity { duration: Tokens.motion-base; }
-        animate border-color { duration: Tokens.motion-base; }
+        animate opacity { duration: Motion.base; }
+        animate border-color { duration: Motion.base; }
 
         // Block events from passing through to viewport
         TouchArea {
@@ -457,7 +457,7 @@ export component ReplPill inherits Rectangle {
                 alignment: center;
                 horizontal-stretch: 0;
                 PromptIcon {
-                    tint: Theme.cyan;
+                    tint: Theme.accent-primary;
                 }
             }
 
@@ -476,12 +476,12 @@ export component ReplPill inherits Rectangle {
                     width: max(parent.width, self.preferred-width);
                     height: parent.height;
                     vertical-alignment: center;
-                    font-size: Tokens.repl-prompt-size;
-                    color: Theme.text;
+                    font-size: Typography.compact-body.size;
+                    color: Theme.text-primary;
                     single-line: true;
                     text <=> ReplState.input-text;
-                    selection-background-color: Theme.cyan.with-alpha(0.3);
-                    selection-foreground-color: Theme.text;
+                    selection-background-color: Theme.accent-primary.with-alpha(0.3);
+                    selection-foreground-color: Theme.text-primary;
 
                     changed has-focus => {
                         ReplState.focused = self.has-focus;
@@ -600,19 +600,19 @@ export component ReplPill inherits Rectangle {
                 width: 28px;
                 horizontal-stretch: 0;
                 background: chevron-ta.has-hover
-                    ? Theme.text-ghost.with-alpha(0.22)
+                    ? Theme.text-placeholder.with-alpha(0.22)
                     : transparent;
-                border-radius: Tokens.radius-sm;
+                border-radius: Shape.radius-sm;
 
                 if ReplState.drawer-open: DrawerChevronUp {
                     x: (parent.width - self.width) / 2;
                     y: (parent.height - self.height) / 2;
-                    tint: chevron-ta.has-hover ? Theme.text : Theme.text-muted;
+                    tint: chevron-ta.has-hover ? Theme.text-primary : Theme.text-muted;
                 }
                 if !ReplState.drawer-open: DrawerChevronDown {
                     x: (parent.width - self.width) / 2;
                     y: (parent.height - self.height) / 2;
-                    tint: chevron-ta.has-hover ? Theme.text : Theme.text-muted;
+                    tint: chevron-ta.has-hover ? Theme.text-primary : Theme.text-muted;
                 }
 
                 chevron-ta := TouchArea {
@@ -647,8 +647,8 @@ export component ReplPill inherits Rectangle {
         y: root.pill-y;
         height: root.pill-h;
         text: LayoutState.mod-key == "⌘" ? "Cmd-L to focus" : LayoutState.mod-key + "-L to focus";
-        color: Theme.text-ghost;
-        font-size: Tokens.repl-prompt-size;
+        color: Theme.text-placeholder;
+        font-size: Typography.compact-body.size;
         font-italic: true;
         vertical-alignment: center;
         opacity: 0.55;

@@ -23,7 +23,10 @@ impl PlatformBridge {
     pub fn sync(&mut self, _app: &AppWindow) {
         #[cfg(target_os = "macos")]
         {
-            let bg = _app.global::<crate::Theme>().get_bg().to_argb_f32();
+            let bg = _app
+                .global::<crate::Theme>()
+                .get_surface_base()
+                .to_argb_f32();
             let new_bg = [bg.red, bg.green, bg.blue];
             if new_bg != self.prev_titlebar_bg {
                 crate::macos::set_background_color(_app.window(), new_bg[0], new_bg[1], new_bg[2]);

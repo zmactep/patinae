@@ -1,5 +1,5 @@
-import { Theme } from "../../theme.slint";
-import { Tokens } from "../../tokens.slint";
+import { ComponentMetrics } from "../metrics.slint";
+import { Theme, Typography, Shape } from "../../foundations/foundations.slint";
 import { ObjectsState } from "../../states/objects-state.slint";
 
 // ── Row button (C for color, R for representations) ─────────────────
@@ -31,26 +31,26 @@ export component RowBtn inherits Rectangle {
     property <bool> shown: root.row-popover-open
         || (ObjectsState.popover-kind == "" && (root.row-hovered || btn-touch.has-hover || root.sibling-hovered));
 
-    width: Tokens.chain-row-h - 2px;
-    height: Tokens.chain-row-h - 2px;
-    border-radius: Tokens.radius-sm;
+    width: ComponentMetrics.chain-row-h - 2px;
+    height: ComponentMetrics.chain-row-h - 2px;
+    border-radius: Shape.radius-sm;
     opacity: root.shown ? 1.0 : 0.0;
     background: root.active
-        ? Theme.cyan.with-alpha(0.18)
+        ? Theme.accent-primary.with-alpha(0.18)
         : btn-touch.has-hover
-            ? Theme.bg-inset
+            ? Theme.surface-control
             : transparent;
-    border-width: root.active ? Tokens.hairline : 0px;
-    border-color: root.active ? Theme.cyan.with-alpha(0.5) : transparent;
+    border-width: root.active ? Shape.hairline : 0px;
+    border-color: root.active ? Theme.accent-primary.with-alpha(0.5) : transparent;
 
     Text {
         width: 100%;
         height: 100%;
         text: root.letter;
         color: root.active
-            ? Theme.cyan
-            : btn-touch.has-hover ? Theme.text : Theme.text-muted;
-        font-size: Tokens.font-md;
+            ? Theme.accent-primary
+            : btn-touch.has-hover ? Theme.text-primary : Theme.text-muted;
+        font-size: Typography.compact-label.size;
         font-weight: 600;
         horizontal-alignment: center;
         vertical-alignment: center;

@@ -1,5 +1,5 @@
-import { Theme } from "../theme.slint";
-import { Tokens } from "../tokens.slint";
+import { ComponentMetrics } from "./metrics.slint";
+import { Theme, Typography, Spacing, Shape, Motion } from "../foundations/foundations.slint";
 import { LayoutState } from "../states/layout-state.slint";
 import { PluginState } from "../states/plugin-state.slint";
 import { PluginListState } from "../states/plugin-list-state.slint";
@@ -10,9 +10,9 @@ component SidebarButton inherits Rectangle {
     in property <bool> active: false;
     callback clicked;
 
-    width: Tokens.icon-size;
-    height: Tokens.icon-size;
-    border-radius: Tokens.radius-md;
+    width: ComponentMetrics.icon-size;
+    height: ComponentMetrics.icon-size;
+    border-radius: Shape.radius-md;
 
     @children
 
@@ -25,30 +25,30 @@ component SidebarButton inherits Rectangle {
 
     states [
         active-hover when active && ta.has-hover: {
-            background: Theme.cyan.with-alpha(0.22);
+            background: Theme.accent-primary.with-alpha(0.22);
         }
         active when active: {
-            background: Theme.cyan.with-alpha(0.14);
+            background: Theme.accent-primary.with-alpha(0.14);
         }
         hover when ta.has-hover: {
-            background: Theme.text-ghost.with-alpha(0.18);
+            background: Theme.text-placeholder.with-alpha(0.18);
         }
     ]
 
-    animate background { duration: Tokens.motion-micro; }
+    animate background { duration: Motion.micro; }
 }
 
 export component Sidebar inherits Rectangle {
-    width: Tokens.sidebar-w;
-    background: Theme.bg-panel;
+    width: ComponentMetrics.sidebar-w;
+    background: Theme.surface-panel;
     property <bool> builtins-enabled: !LayoutState.empty-mode;
 
     // ── Core icons (top cluster) ───────────────────────────────────
 
     top := VerticalLayout {
-        x: (parent.width - Tokens.icon-size) / 2;
+        x: (parent.width - ComponentMetrics.icon-size) / 2;
         y: 16px;
-        spacing: Tokens.space-sm;
+        spacing: Spacing.sm;
 
         // REPL — prompt chevron → toggles REPL pill
         SidebarButton {
@@ -67,7 +67,7 @@ export component Sidebar inherits Rectangle {
                 width: parent.width;
                 height: parent.height;
                 text: "\u{203a}";
-                color: root.builtins-enabled && LayoutState.repl-visible ? Theme.cyan : Theme.text-faint;
+                color: root.builtins-enabled && LayoutState.repl-visible ? Theme.accent-primary : Theme.text-disabled;
                 font-size: 24px;
                 font-weight: 500;
                 horizontal-alignment: center;
@@ -97,19 +97,19 @@ export component Sidebar inherits Rectangle {
                 Rectangle {
                     height: 3px;
                     border-radius: 1px;
-                    background: root.builtins-enabled && LayoutState.objects-visible ? Theme.cyan : Theme.text-faint;
+                    background: root.builtins-enabled && LayoutState.objects-visible ? Theme.accent-primary : Theme.text-disabled;
                 }
 
                 Rectangle {
                     height: 3px;
                     border-radius: 1px;
-                    background: root.builtins-enabled && LayoutState.objects-visible ? Theme.cyan : Theme.text-faint;
+                    background: root.builtins-enabled && LayoutState.objects-visible ? Theme.accent-primary : Theme.text-disabled;
                 }
 
                 Rectangle {
                     height: 3px;
                     border-radius: 1px;
-                    background: root.builtins-enabled && LayoutState.objects-visible ? Theme.cyan : Theme.text-faint;
+                    background: root.builtins-enabled && LayoutState.objects-visible ? Theme.accent-primary : Theme.text-disabled;
                 }
             }
         }
@@ -131,7 +131,7 @@ export component Sidebar inherits Rectangle {
                 width: parent.width;
                 height: parent.height;
                 text: "⊕";
-                color: root.builtins-enabled && LayoutState.selections-visible ? Theme.cyan : Theme.text-faint;
+                color: root.builtins-enabled && LayoutState.selections-visible ? Theme.accent-primary : Theme.text-disabled;
                 font-size: 16px;
                 horizontal-alignment: center;
                 vertical-alignment: center;
@@ -155,8 +155,8 @@ export component Sidebar inherits Rectangle {
                 x: (parent.width - self.width) / 2;
                 y: (parent.height - self.height) / 2;
                 tint: root.builtins-enabled && LayoutState.recent-atoms-visible
-                    ? Theme.cyan
-                    : Theme.text-faint;
+                    ? Theme.accent-primary
+                    : Theme.text-disabled;
             }
         }
 
@@ -177,8 +177,8 @@ export component Sidebar inherits Rectangle {
                 width: parent.width;
                 height: parent.height;
                 text: "Aa";
-                color: root.builtins-enabled && LayoutState.sequence-visible ? Theme.cyan : Theme.text-faint;
-                font-size: Tokens.font-md;
+                color: root.builtins-enabled && LayoutState.sequence-visible ? Theme.accent-primary : Theme.text-disabled;
+                font-size: Typography.compact-label.size;
                 font-weight: 500;
                 horizontal-alignment: center;
                 vertical-alignment: center;
@@ -211,7 +211,7 @@ export component Sidebar inherits Rectangle {
                     width: parent.width;
                     height: 5px;
                     border-radius: 1px;
-                    background: root.builtins-enabled && LayoutState.movie-visible ? Theme.cyan : Theme.text-faint;
+                    background: root.builtins-enabled && LayoutState.movie-visible ? Theme.accent-primary : Theme.text-disabled;
                     transform-rotation: -15deg;
                     transform-origin: {x: 0, y: self.height};
                 }
@@ -222,9 +222,9 @@ export component Sidebar inherits Rectangle {
                     width: parent.width;
                     height: 9px;
                     border-radius: 1px;
-                    background: root.builtins-enabled && LayoutState.movie-visible ? Theme.cyan.with-alpha(0.35) : Theme.text-faint.with-alpha(0.35);
+                    background: root.builtins-enabled && LayoutState.movie-visible ? Theme.accent-primary.with-alpha(0.35) : Theme.text-disabled.with-alpha(0.35);
                     border-width: 1px;
-                    border-color: root.builtins-enabled && LayoutState.movie-visible ? Theme.cyan : Theme.text-faint;
+                    border-color: root.builtins-enabled && LayoutState.movie-visible ? Theme.accent-primary : Theme.text-disabled;
                 }
             }
         }
@@ -234,19 +234,19 @@ export component Sidebar inherits Rectangle {
     // ── Hairline separator ─────────────────────────────────────────
 
     separator := Rectangle {
-        x: Tokens.space-sm;
+        x: Spacing.sm;
         y: top.y + top.preferred-height + 16px;
-        width: parent.width - 2 * Tokens.space-sm;
+        width: parent.width - 2 * Spacing.sm;
         height: 0.5px;
-        background: Theme.line;
+        background: Theme.border-subtle;
     }
 
     // ── Plugin panel toggles ───────────────────────────────────────
 
     VerticalLayout {
-        x: (parent.width - Tokens.icon-size) / 2;
+        x: (parent.width - ComponentMetrics.icon-size) / 2;
         y: separator.y + 16px;
-        spacing: Tokens.space-sm;
+        spacing: Spacing.sm;
 
         for item in PluginState.toolbar-items: SidebarButton {
             active: item.active;
@@ -258,8 +258,8 @@ export component Sidebar inherits Rectangle {
                 width: parent.width;
                 height: parent.height;
                 text: item.icon;
-                color: item.active ? Theme.cyan : Theme.text-faint;
-                font-size: Tokens.font-sm;
+                color: item.active ? Theme.accent-primary : Theme.text-disabled;
+                font-size: Typography.hint.size;
                 font-weight: 600;
                 horizontal-alignment: center;
                 vertical-alignment: center;
@@ -270,9 +270,9 @@ export component Sidebar inherits Rectangle {
     // ── Bottom cluster (theme toggle + plugin list) ─────────────────
 
     VerticalLayout {
-        x: (parent.width - Tokens.icon-size) / 2;
-        y: parent.height - 2 * Tokens.icon-size - Tokens.space-sm - 16px;
-        spacing: Tokens.space-sm;
+        x: (parent.width - ComponentMetrics.icon-size) / 2;
+        y: parent.height - 2 * ComponentMetrics.icon-size - Spacing.sm - 16px;
+        spacing: Spacing.sm;
 
         // Theme toggle — sun/moon
         SidebarButton {
@@ -289,7 +289,7 @@ export component Sidebar inherits Rectangle {
                 height: 14px;
                 border-radius: 7px;
                 border-width: 1.5px;
-                border-color: Theme.dark-mode ? Theme.text-faint : Theme.amber;
+                border-color: Theme.dark-mode ? Theme.text-disabled : Theme.accent-amber;
                 background: transparent;
 
                 // Filled half (right side)
@@ -300,7 +300,7 @@ export component Sidebar inherits Rectangle {
                     width: parent.width / 2;
                     height: parent.height;
                     border-radius: 0;
-                    background: Theme.dark-mode ? Theme.text-faint : Theme.amber;
+                    background: Theme.dark-mode ? Theme.text-disabled : Theme.accent-amber;
                 }
             }
         }
@@ -310,17 +310,17 @@ export component Sidebar inherits Rectangle {
             accessible-role: button;
             accessible-label: "Plugins";
             accessible-action-default => { PluginListState.open(); }
-            width: Tokens.icon-size;
-            height: Tokens.icon-size;
-            border-radius: Tokens.radius-md;
+            width: ComponentMetrics.icon-size;
+            height: ComponentMetrics.icon-size;
+            border-radius: Shape.radius-md;
             border-width: 0.5px;
-            border-color: Theme.line;
+            border-color: Theme.border-subtle;
 
             Text {
                 width: parent.width;
                 height: parent.height;
                 text: "+";
-                color: Theme.text-faint;
+                color: Theme.text-disabled;
                 font-size: 16px;
                 horizontal-alignment: center;
                 vertical-alignment: center;
@@ -333,11 +333,11 @@ export component Sidebar inherits Rectangle {
 
             states [
                 hover when plugin-ta.has-hover: {
-                    background: Theme.text-ghost.with-alpha(0.18);
+                    background: Theme.text-placeholder.with-alpha(0.18);
                 }
             ]
 
-            animate background { duration: Tokens.motion-micro; }
+            animate background { duration: Motion.micro; }
         }
     }
 }

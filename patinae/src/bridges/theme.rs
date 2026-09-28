@@ -88,14 +88,17 @@ pub fn sync_theme(
     let changed = mode != *prev_theme;
     *prev_theme = mode;
 
-    let palette = ThemedPalette::by_name(mode.name());
+    // UI Foundations own the desktop viewport background; scientific colors
+    // still come from the molecular palette.
+    theme_global.set_dark_mode(mode == ThemeMode::Dark);
+    let bg = theme_global.get_surface_viewport();
+    let mut palette = ThemedPalette::by_name(mode.name());
+    palette.viewport_bg = Color::from_rgb8(bg.red(), bg.green(), bg.blue());
     kernel.session.palette = palette;
 
     let bg = kernel.session.palette.viewport_bg;
     kernel.sync_clear_color([bg.r, bg.g, bg.b]);
 
-    // Push dark-mode boolean to Slint (drives UI chrome colors)
-    theme_global.set_dark_mode(mode == ThemeMode::Dark);
     app_window.invoke_sync_widget_theme();
     sync_window_theme(app_window.window(), mode);
 

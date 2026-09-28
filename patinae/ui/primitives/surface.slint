@@ -1,0 +1,14 @@
+import { Theme } from "../foundations/foundations.slint";
+
+export enum SurfaceLevel { viewport, base, panel, raised, control, overlay }
+
+// Light: darker means closer. Dark: lighter means closer.
+export component Surface inherits Rectangle {
+    in property <SurfaceLevel> level: panel;
+    background: level == SurfaceLevel.viewport ? Theme.surface-viewport
+        : level == SurfaceLevel.base ? Theme.surface-base
+        : level == SurfaceLevel.panel ? Theme.surface-panel
+        : level == SurfaceLevel.raised ? Theme.surface-raised
+        : level == SurfaceLevel.control ? Theme.surface-control
+        : Theme.surface-overlay;
+}

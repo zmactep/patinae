@@ -53,7 +53,7 @@ use crate::{
 };
 
 const SIDEBAR_WIDTH_LP: f32 = 48.0;
-// Keep these in sync with `patinae/ui/tokens.slint`; raw winit input is
+// Keep these in sync with `patinae/ui/components/metrics.slint`; raw winit input is
 // filtered before Slint hit-testing can tell Rust which overlay consumed it.
 const REPL_PILL_WIDTH_LP: f32 = 380.0;
 const REPL_PILL_HEIGHT_LP: f32 = 32.0;

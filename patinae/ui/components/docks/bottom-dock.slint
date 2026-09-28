@@ -1,4 +1,4 @@
-import { Theme } from "../../theme.slint";
+import { Theme } from "../../foundations/foundations.slint";
 import { LayoutState } from "../../states/layout-state.slint";
 import { PluginState } from "../../states/plugin-state.slint";
 import { DockTabBar } from "../panels/dock-tab-bar.slint";
@@ -16,7 +16,7 @@ import { PluginPanelView } from "../panels/plugin-panel-view.slint";
 // is hidden — on a 7KP3-sized model that's tens of thousands of Slint
 // elements walked per frame, costing ~18 ms of scene-graph time.
 export component BottomDock inherits Rectangle {
-    background: Theme.bg-panel;
+    background: Theme.surface-panel;
 
     VerticalLayout {
         DockTabBar {}

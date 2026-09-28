@@ -1,5 +1,5 @@
-import { Theme } from "../../theme.slint";
-import { Tokens } from "../../tokens.slint";
+import { ComponentMetrics } from "../metrics.slint";
+import { Theme, Typography, Spacing, Shape } from "../../foundations/foundations.slint";
 import { AnnotationTargetItem } from "../../states/objects-state.slint";
 import { ChevronDown } from "../icons.slint";
 
@@ -14,32 +14,32 @@ component DropdownOptionRow inherits Rectangle {
     in property <bool> selected;
     callback clicked();
 
-    height: Tokens.row-h;
-    border-radius: Tokens.radius-sm;
+    height: ComponentMetrics.row-h;
+    border-radius: Shape.radius-sm;
     background: root.selected
-        ? Theme.cyan.with-alpha(0.10)
-        : option-touch.has-hover ? Theme.bg-inset : transparent;
+        ? Theme.accent-primary.with-alpha(0.10)
+        : option-touch.has-hover ? Theme.surface-control : transparent;
     accessible-role: button;
     accessible-label: root.label;
 
     if root.selected: Rectangle {
         x: 0px;
-        y: Tokens.space-xs;
+        y: Spacing.xs;
         width: 2px;
-        height: parent.height - 2 * Tokens.space-xs;
+        height: parent.height - 2 * Spacing.xs;
         border-radius: 1px;
-        background: Theme.cyan;
+        background: Theme.accent-primary;
     }
 
     Text {
-        x: Tokens.space-sm;
-        width: parent.width - 2 * Tokens.space-sm;
+        x: Spacing.sm;
+        width: parent.width - 2 * Spacing.sm;
         height: parent.height;
         text: root.label;
         color: root.selected
-            ? Theme.cyan
-            : option-touch.has-hover ? Theme.text : Theme.text-dim;
-        font-size: Tokens.font-lg;
+            ? Theme.accent-primary
+            : option-touch.has-hover ? Theme.text-primary : Theme.text-secondary;
+        font-size: Typography.compact-body.size;
         font-weight: root.selected ? 500 : 400;
         vertical-alignment: center;
         overflow: elide;
@@ -57,35 +57,35 @@ component DropdownField inherits Rectangle {
     in property <bool> enabled: true;
     callback clicked();
 
-    height: Tokens.annotation-field-h;
-    border-radius: Tokens.radius-md;
+    height: ComponentMetrics.annotation-field-h;
+    border-radius: Shape.radius-md;
     background: field-touch.pressed
-        ? Theme.bg-inset
-        : field-touch.has-hover || root.open ? Theme.bg-inset.with-alpha(0.75) : Theme.bg-raised;
-    border-width: Tokens.hairline;
+        ? Theme.surface-control
+        : field-touch.has-hover || root.open ? Theme.surface-control.with-alpha(0.75) : Theme.surface-raised;
+    border-width: Shape.hairline;
     border-color: root.open
-        ? Theme.cyan.with-alpha(0.75)
-        : field-touch.has-hover ? Theme.line-strong : Theme.line;
+        ? Theme.accent-primary.with-alpha(0.75)
+        : field-touch.has-hover ? Theme.border-strong : Theme.border-subtle;
     opacity: root.enabled ? 1.0 : 0.45;
     accessible-role: button;
     accessible-label: root.label;
 
     Text {
-        x: Tokens.space-sm;
-        width: parent.width - 2 * Tokens.space-sm - Tokens.chevron-w;
+        x: Spacing.sm;
+        width: parent.width - 2 * Spacing.sm - ComponentMetrics.chevron-w;
         height: parent.height;
         text: root.label;
-        color: Theme.text;
-        font-size: Tokens.font-lg;
+        color: Theme.text-primary;
+        font-size: Typography.compact-body.size;
         font-weight: 500;
         vertical-alignment: center;
         overflow: elide;
     }
 
     ChevronDown {
-        x: parent.width - Tokens.space-sm - self.width;
+        x: parent.width - Spacing.sm - self.width;
         y: (parent.height - self.height) / 2;
-        tint: root.open || field-touch.has-hover ? Theme.text-dim : Theme.text-faint;
+        tint: root.open || field-touch.has-hover ? Theme.text-secondary : Theme.text-disabled;
     }
 
     field-touch := TouchArea {
@@ -102,7 +102,7 @@ export component AnnotationChoiceDropdown inherits Rectangle {
     in property <bool> open-upward: false;
     callback selected(string, string);
 
-    height: Tokens.annotation-field-h;
+    height: ComponentMetrics.annotation-field-h;
     horizontal-stretch: 1;
 
     DropdownField {
@@ -120,20 +120,20 @@ export component AnnotationChoiceDropdown inherits Rectangle {
 
     options-popup := PopupWindow {
         x: 0px;
-        y: root.open-upward ? -self.height - Tokens.space-xs : root.height + Tokens.space-xs;
+        y: root.open-upward ? -self.height - Spacing.xs : root.height + Spacing.xs;
         width: root.width;
         height: min(
-            Tokens.annotation-dropdown-max-h,
-            2 * Tokens.space-xs + root.options.length * (Tokens.row-h + Tokens.row-gap)
+            ComponentMetrics.annotation-dropdown-max-h,
+            2 * Spacing.xs + root.options.length * (ComponentMetrics.row-h + ComponentMetrics.row-gap)
         );
         close-policy: PopupClosePolicy.close-on-click-outside;
 
         Rectangle {
             clip: true;
-            border-radius: Tokens.radius-md;
-            background: Theme.bg-card;
-            border-width: Tokens.hairline;
-            border-color: Theme.line-strong;
+            border-radius: Shape.radius-md;
+            background: Theme.surface-overlay;
+            border-width: Shape.hairline;
+            border-color: Theme.border-strong;
 
             Flickable {
                 width: parent.width;
@@ -141,8 +141,8 @@ export component AnnotationChoiceDropdown inherits Rectangle {
 
                 VerticalLayout {
                     width: parent.width;
-                    padding: Tokens.space-xs;
-                    spacing: Tokens.row-gap;
+                    padding: Spacing.xs;
+                    spacing: ComponentMetrics.row-gap;
 
                     for option in root.options: DropdownOptionRow {
                         key: option.key;
@@ -172,7 +172,7 @@ export component AnnotationTargetDropdown inherits Rectangle {
         : root.new-option-label != "" ? root.new-option-label : "No destinations";
     property <int> option-count: root.targets.length + (root.new-option-label != "" ? 1 : 0);
 
-    height: Tokens.annotation-field-h;
+    height: ComponentMetrics.annotation-field-h;
     horizontal-stretch: 1;
 
     DropdownField {
@@ -190,20 +190,20 @@ export component AnnotationTargetDropdown inherits Rectangle {
 
     targets-popup := PopupWindow {
         x: 0px;
-        y: root.open-upward ? -self.height - Tokens.space-xs : root.height + Tokens.space-xs;
+        y: root.open-upward ? -self.height - Spacing.xs : root.height + Spacing.xs;
         width: root.width;
         height: min(
-            Tokens.annotation-dropdown-max-h,
-            2 * Tokens.space-xs + root.option-count * (Tokens.row-h + Tokens.row-gap)
+            ComponentMetrics.annotation-dropdown-max-h,
+            2 * Spacing.xs + root.option-count * (ComponentMetrics.row-h + ComponentMetrics.row-gap)
         );
         close-policy: PopupClosePolicy.close-on-click-outside;
 
         Rectangle {
             clip: true;
-            border-radius: Tokens.radius-md;
-            background: Theme.bg-card;
-            border-width: Tokens.hairline;
-            border-color: Theme.line-strong;
+            border-radius: Shape.radius-md;
+            background: Theme.surface-overlay;
+            border-width: Shape.hairline;
+            border-color: Theme.border-strong;
 
             Flickable {
                 width: parent.width;
@@ -211,8 +211,8 @@ export component AnnotationTargetDropdown inherits Rectangle {
 
                 VerticalLayout {
                     width: parent.width;
-                    padding: Tokens.space-xs;
-                    spacing: Tokens.row-gap;
+                    padding: Spacing.xs;
+                    spacing: ComponentMetrics.row-gap;
 
                     if root.new-option-label != "": DropdownOptionRow {
                         key: "";
@@ -245,13 +245,13 @@ export component AnnotationPopoverFrame inherits Rectangle {
     callback dismiss();
 
     forward-focus: key-scope;
-    width: Tokens.popover-w;
+    width: ComponentMetrics.popover-w;
     height: inner.preferred-height;
     clip: true;
-    border-radius: Tokens.radius-lg;
-    background: Theme.bg-card;
-    border-width: Tokens.hairline;
-    border-color: Theme.line-strong;
+    border-radius: Shape.radius-lg;
+    background: Theme.surface-overlay;
+    border-width: Shape.hairline;
+    border-color: Theme.border-strong;
 
     TouchArea {}
 
@@ -267,17 +267,17 @@ export component AnnotationPopoverFrame inherits Rectangle {
     }
 
     inner := VerticalLayout {
-        padding: Tokens.space-md;
-        spacing: Tokens.space-sm;
+        padding: Spacing.md;
+        spacing: Spacing.sm;
 
         VerticalLayout {
-            spacing: Tokens.space-xs;
+            spacing: Spacing.xs;
 
             Text {
                 height: 18px;
                 text: root.title;
-                color: Theme.text;
-                font-size: Tokens.font-lg;
+                color: Theme.text-primary;
+                font-size: Typography.compact-body.size;
                 font-weight: 500;
                 vertical-alignment: center;
                 overflow: elide;
@@ -286,7 +286,7 @@ export component AnnotationPopoverFrame inherits Rectangle {
             Text {
                 text: root.description;
                 color: Theme.text-muted;
-                font-size: Tokens.font-md;
+                font-size: Typography.compact-label.size;
                 wrap: word-wrap;
             }
         }
@@ -298,7 +298,7 @@ export component AnnotationPopoverFrame inherits Rectangle {
 export component AnnotationFieldLabel inherits Text {
     height: 14px;
     color: Theme.text-muted;
-    font-size: Tokens.font-md;
+    font-size: Typography.compact-label.size;
     font-weight: 500;
     vertical-alignment: center;
 }
@@ -308,24 +308,24 @@ export component AnnotationTextField inherits Rectangle {
     callback accepted();
     callback escape();
 
-    height: Tokens.annotation-field-h;
+    height: ComponentMetrics.annotation-field-h;
     horizontal-stretch: 1;
-    border-radius: Tokens.radius-md;
-    background: Theme.bg-raised;
-    border-width: Tokens.hairline;
-    border-color: input.has-focus ? Theme.cyan.with-alpha(0.75) : Theme.line;
+    border-radius: Shape.radius-md;
+    background: Theme.surface-raised;
+    border-width: Shape.hairline;
+    border-color: input.has-focus ? Theme.accent-primary.with-alpha(0.75) : Theme.border-subtle;
 
     input := TextInput {
-        x: Tokens.space-sm;
-        width: parent.width - 2 * Tokens.space-sm;
+        x: Spacing.sm;
+        width: parent.width - 2 * Spacing.sm;
         height: parent.height;
         vertical-alignment: center;
         single-line: true;
         text <=> root.text;
-        color: Theme.text;
-        font-size: Tokens.font-lg;
-        selection-background-color: Theme.cyan.with-alpha(0.3);
-        selection-foreground-color: Theme.text;
+        color: Theme.text-primary;
+        font-size: Typography.compact-body.size;
+        selection-background-color: Theme.accent-primary.with-alpha(0.3);
+        selection-foreground-color: Theme.text-primary;
         accessible-role: text-input;
         accessible-label: "Literal label text";
         accepted => { root.accepted(); }
@@ -349,15 +349,15 @@ export component AnnotationActionButton inherits Rectangle {
     in property <bool> primary: false;
     callback clicked();
 
-    height: Tokens.annotation-action-h;
+    height: ComponentMetrics.annotation-action-h;
     horizontal-stretch: 1;
-    border-radius: Tokens.radius-md;
+    border-radius: Shape.radius-md;
     opacity: root.enabled ? 1.0 : 0.4;
     background: root.primary
-        ? Theme.cyan.with-alpha(action-touch.pressed ? 0.32 : action-touch.has-hover ? 0.24 : 0.14)
-        : action-touch.pressed ? Theme.bg-inset : action-touch.has-hover ? Theme.bg-raised : transparent;
-    border-width: root.primary ? Tokens.hairline : 0px;
-    border-color: root.primary ? Theme.cyan.with-alpha(0.5) : transparent;
+        ? Theme.accent-primary.with-alpha(action-touch.pressed ? 0.32 : action-touch.has-hover ? 0.24 : 0.14)
+        : action-touch.pressed ? Theme.surface-control : action-touch.has-hover ? Theme.surface-raised : transparent;
+    border-width: root.primary ? Shape.hairline : 0px;
+    border-color: root.primary ? Theme.accent-primary.with-alpha(0.5) : transparent;
     accessible-role: button;
     accessible-label: root.label;
 
@@ -365,8 +365,8 @@ export component AnnotationActionButton inherits Rectangle {
         width: parent.width;
         height: parent.height;
         text: root.label;
-        color: root.primary ? Theme.cyan : Theme.text-dim;
-        font-size: Tokens.font-lg;
+        color: root.primary ? Theme.accent-primary : Theme.text-secondary;
+        font-size: Typography.compact-body.size;
         font-weight: 500;
         horizontal-alignment: center;
         vertical-alignment: center;

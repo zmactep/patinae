@@ -1,11 +1,10 @@
-import { Theme } from "../../theme.slint";
-import { Tokens } from "../../tokens.slint";
+import { Theme, Typography, Spacing, Shape } from "../../foundations/foundations.slint";
 import { ViewportState } from "../../states/viewport-state.slint";
 
 // Thin separator between HUD sections; stretches to the card's content width.
 component HudRule inherits Rectangle {
-    height: Tokens.hairline;
-    background: Theme.line;
+    height: Shape.hairline;
+    background: Theme.border-subtle;
 }
 
 // `label …………… value` row (label flush left, value flush right).
@@ -14,17 +13,17 @@ component StatRow inherits HorizontalLayout {
     in property <string> stat-value;
 
     alignment: space-between;
-    spacing: Tokens.space-md;
+    spacing: Spacing.md;
 
     Text {
         text: root.stat-label;
-        color: Theme.text-faint;
-        font-size: Tokens.font-xs;
+        color: Theme.text-disabled;
+        font-size: Typography.compact-hud.size;
     }
     Text {
         text: root.stat-value;
-        color: Theme.text-dim;
-        font-size: Tokens.font-xs;
+        color: Theme.text-secondary;
+        font-size: Typography.compact-hud.size;
     }
 }
 
@@ -35,26 +34,26 @@ component MemoryPanel inherits VerticalLayout {
 
     // Bar fill warms up as the budget fills: green → amber → red.
     property <color> fill-color:
-        ViewportState.perf-memory-fill >= 0.9 ? Theme.error
-        : ViewportState.perf-memory-fill >= 0.7 ? Theme.warning
-        : Theme.good;
+        ViewportState.perf-memory-fill >= 0.9 ? Theme.status-error
+        : ViewportState.perf-memory-fill >= 0.7 ? Theme.status-warning
+        : Theme.status-success;
 
     HorizontalLayout {
         alignment: space-between;
-        spacing: Tokens.space-sm;
+        spacing: Spacing.sm;
 
         Rectangle {
-            width: badge-label.preferred-width + 2 * Tokens.space-xs;
+            width: badge-label.preferred-width + 2 * Spacing.xs;
             height: 14px;
-            border-radius: Tokens.radius-sm;
+            border-radius: Shape.radius-sm;
             background: root.badge-color.with-alpha(0.16);
-            border-width: Tokens.hairline;
+            border-width: Shape.hairline;
             border-color: root.badge-color.with-alpha(0.42);
 
             badge-label := Text {
                 text: ViewportState.perf-memory-profile-label;
                 color: root.badge-color;
-                font-size: Tokens.font-xs;
+                font-size: Typography.compact-hud.size;
                 font-weight: 600;
                 horizontal-alignment: center;
                 vertical-alignment: center;
@@ -63,15 +62,15 @@ component MemoryPanel inherits VerticalLayout {
         Text {
             y: (parent.height - self.height) / 2;
             text: ViewportState.perf-memory-total-text;
-            color: Theme.text-dim;
-            font-size: Tokens.font-xs;
+            color: Theme.text-secondary;
+            font-size: Typography.compact-hud.size;
         }
     }
 
     if ViewportState.perf-memory-fill >= 0: Rectangle {
         height: 4px;
         border-radius: 2px;
-        background: Theme.bg-inset;
+        background: Theme.surface-control;
 
         Rectangle {
             x: 0;
@@ -95,29 +94,29 @@ export component Hud inherits Rectangle {
     height: layout.preferred-height;
 
     property <color> indicator-color:
-        ViewportState.fps-value >= 50 ? Theme.good
-        : ViewportState.fps-value >= 25 ? Theme.warning
-        : Theme.error;
+        ViewportState.fps-value >= 50 ? Theme.status-success
+        : ViewportState.fps-value >= 25 ? Theme.status-warning
+        : Theme.status-error;
 
     property <color> memory-profile-color:
-        ViewportState.perf-memory-profile-label == "PERF" ? Theme.good
-        : ViewportState.perf-memory-profile-label == "BAL" ? Theme.cyan
-        : Theme.warning;
+        ViewportState.perf-memory-profile-label == "PERF" ? Theme.status-success
+        : ViewportState.perf-memory-profile-label == "BAL" ? Theme.accent-primary
+        : Theme.status-warning;
 
     layout := VerticalLayout {
-        spacing: Tokens.space-xs;
+        spacing: Spacing.xs;
 
         // Device + engine header — unchanged.
         Text {
             text: ViewportState.device-name;
             color: Theme.text-muted;
-            font-size: Tokens.font-xs;
+            font-size: Typography.compact-hud.size;
             horizontal-alignment: right;
         }
         Text {
             text: ViewportState.engine-name;
-            color: Theme.text-faint;
-            font-size: Tokens.font-xs;
+            color: Theme.text-disabled;
+            font-size: Typography.compact-hud.size;
             horizontal-alignment: right;
         }
 
@@ -135,7 +134,7 @@ export component Hud inherits Rectangle {
             Text {
                 text: ViewportState.fps-text;
                 color: Theme.text-muted;
-                font-size: Tokens.font-xs;
+                font-size: Typography.compact-hud.size;
             }
         }
 
@@ -160,8 +159,8 @@ export component Hud inherits Rectangle {
         if ViewportState.perf-visible && ViewportState.perf-gpu-text != "": HudRule {}
         if ViewportState.perf-visible && ViewportState.perf-gpu-text != "": Text {
             text: ViewportState.perf-gpu-text;
-            color: Theme.text-ghost;
-            font-size: Tokens.font-xs;
+            color: Theme.text-placeholder;
+            font-size: Typography.compact-hud.size;
             horizontal-alignment: right;
             wrap: word-wrap;
         }

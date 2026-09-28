@@ -1,4 +1,4 @@
-import { Tokens } from "../../tokens.slint";
+import { Spacing } from "../../foundations/foundations.slint";
 import { ObjectsState } from "../../states/objects-state.slint";
 import {
     AnnotationActionButton,
@@ -44,7 +44,7 @@ export component LabelPopover inherits Rectangle {
         dismiss => { ObjectsState.popover-close(); }
 
         VerticalLayout {
-            spacing: Tokens.space-xs;
+            spacing: Spacing.xs;
 
             AnnotationFieldLabel { text: "Label value"; }
             AnnotationChoiceDropdown {
@@ -59,7 +59,7 @@ export component LabelPopover inherits Rectangle {
         }
 
         if root.selected-expression == "literal": VerticalLayout {
-            spacing: Tokens.space-xs;
+            spacing: Spacing.xs;
 
             AnnotationFieldLabel { text: "Text"; }
             literal-field := AnnotationTextField {
@@ -78,7 +78,7 @@ export component LabelPopover inherits Rectangle {
         }
 
         VerticalLayout {
-            spacing: Tokens.space-xs;
+            spacing: Spacing.xs;
 
             AnnotationFieldLabel { text: "Destination"; }
             AnnotationTargetDropdown {
@@ -91,7 +91,7 @@ export component LabelPopover inherits Rectangle {
         }
 
         HorizontalLayout {
-            spacing: Tokens.space-sm;
+            spacing: Spacing.sm;
 
             AnnotationActionButton {
                 label: "Cancel";

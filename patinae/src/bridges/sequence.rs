@@ -38,11 +38,11 @@ const MAX_ROW_PADDING_PX: f32 = 8.0;
 /// Strip height in CSS pixels: 10 px ruler + 18 px letter row.
 const STRIP_H_CSS: f32 = 28.0;
 const RULER_H_CSS: f32 = 10.0;
-/// Font sizes — strip font is bumped vs. Tokens.font-md (11) for readability.
+/// Font sizes — strip font exceeds the compact UI label size for readability.
 const FONT_MD_PX: f32 = 12.0;
 const FONT_XS_PX: f32 = 9.0;
 
-/// Bundled font (already imported by `theme.slint` for the Slint side).
+/// Bundled font (also imported by Foundations typography for the Slint side).
 const FONT_BYTES: &[u8] = include_bytes!("../../ui/fonts/JetBrainsMono-Regular.ttf");
 
 // ---------------------------------------------------------------------------

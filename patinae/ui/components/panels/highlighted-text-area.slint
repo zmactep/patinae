@@ -1,5 +1,4 @@
-import { Theme } from "../../theme.slint";
-import { Tokens } from "../../tokens.slint";
+import { Theme, Typography, Shape } from "../../foundations/foundations.slint";
 import { PluginHighlightLine } from "../../states/plugin-state.slint";
 
 export component HighlightedTextArea inherits Rectangle {
@@ -7,8 +6,8 @@ export component HighlightedTextArea inherits Rectangle {
     in property <string> placeholder;
     in property <bool> read-only;
     in property <[PluginHighlightLine]> highlight-lines;
-    in property <string> font-family: "JetBrains Mono";
-    in property <length> font-size: Tokens.font-md;
+    in property <string> font-family: Typography.content-family;
+    in property <length> font-size: Typography.compact-label.size;
     in property <string> identity: "";
 
     callback edited(string);
@@ -21,10 +20,10 @@ export component HighlightedTextArea inherits Rectangle {
     property <length> char-width: max(1px, char-probe.preferred-width / 10);
     property <length> line-height: max(root.font-size * 1.35, line-probe.preferred-height);
 
-    border-radius: Tokens.radius-sm;
-    background: root.read-only ? Theme.bg-card.with-alpha(0.88) : Theme.bg-inset.with-alpha(0.70);
-    border-width: Tokens.hairline;
-    border-color: root.read-only ? Theme.line-strong : Theme.line;
+    border-radius: Shape.radius-sm;
+    background: root.read-only ? Theme.surface-overlay.with-alpha(0.88) : Theme.surface-control.with-alpha(0.70);
+    border-width: Shape.hairline;
+    border-color: root.read-only ? Theme.border-strong : Theme.border-subtle;
     clip: true;
 
     changed value-text => {
@@ -115,14 +114,14 @@ export component HighlightedTextArea inherits Rectangle {
             text <=> root.editor-text;
             single-line: false;
             wrap: no-wrap;
-            color: root.highlight-lines.length > 0 ? Theme.text-dim.with-alpha(0.04) : Theme.text-dim;
+            color: root.highlight-lines.length > 0 ? Theme.text-secondary.with-alpha(0.04) : Theme.text-secondary;
             font-family: root.font-family;
             font-size: root.font-size;
             font-weight: 400;
             letter-spacing: 0px;
             vertical-alignment: top;
-            selection-background-color: Theme.cyan.with-alpha(0.3);
-            selection-foreground-color: Theme.text;
+            selection-background-color: Theme.accent-primary.with-alpha(0.3);
+            selection-foreground-color: Theme.text-primary;
 
             edited => {
                 root.edited(self.text);
@@ -163,7 +162,7 @@ export component HighlightedTextArea inherits Rectangle {
             y: root.pad-y;
             width: parent.width - 2 * root.pad-x;
             text: root.value-text == "" ? root.placeholder : root.value-text;
-            color: root.value-text == "" ? Theme.text-ghost : Theme.text-muted;
+            color: root.value-text == "" ? Theme.text-placeholder : Theme.text-muted;
             font-family: root.font-family;
             font-size: root.font-size;
             font-weight: 400;
@@ -178,7 +177,7 @@ export component HighlightedTextArea inherits Rectangle {
         width: parent.width - 2 * root.pad-x;
         height: root.line-height;
         text: root.placeholder;
-        color: Theme.text-ghost;
+        color: Theme.text-placeholder;
         font-family: root.font-family;
         font-size: root.font-size;
         font-weight: 400;
@@ -190,16 +189,16 @@ export component HighlightedTextArea inherits Rectangle {
     }
 
     function highlight-color(style: string) -> color {
-        return style == "keyword" ? Theme.violet
-            : style == "string" ? Theme.amber
-            : style == "comment" ? Theme.text-faint
-            : style == "number" ? Theme.magenta
-            : style == "function" ? Theme.cyan
-            : style == "type" ? Theme.good
-            : style == "constant" ? Theme.magenta
-            : style == "operator" ? Theme.violet
+        return style == "keyword" ? Theme.accent-violet
+            : style == "string" ? Theme.accent-amber
+            : style == "comment" ? Theme.text-disabled
+            : style == "number" ? Theme.accent-selection
+            : style == "function" ? Theme.accent-primary
+            : style == "type" ? Theme.status-success
+            : style == "constant" ? Theme.accent-selection
+            : style == "operator" ? Theme.accent-violet
             : style == "punctuation" ? Theme.text-muted
-            : style == "builtin" ? Theme.cyan
-            : Theme.text-dim;
+            : style == "builtin" ? Theme.accent-primary
+            : Theme.text-secondary;
     }
 }

@@ -1,5 +1,4 @@
-import { Theme } from "../../theme.slint";
-import { Tokens } from "../../tokens.slint";
+import { Theme, Typography, Spacing, Shape } from "../../foundations/foundations.slint";
 import { ObjectsState } from "../../states/objects-state.slint";
 
 // ── Menu row (handles both separators and actions via is-separator) ──
@@ -21,11 +20,11 @@ component MenuRow inherits Rectangle {
         background: transparent;
 
         Rectangle {
-            x: Tokens.space-sm;
+            x: Spacing.sm;
             y: 4px;
-            width: parent.width - 2 * Tokens.space-sm;
-            height: Tokens.hairline;
-            background: Theme.line;
+            width: parent.width - 2 * Spacing.sm;
+            height: Shape.hairline;
+            background: Theme.border-subtle;
         }
     }
 
@@ -34,20 +33,20 @@ component MenuRow inherits Rectangle {
         visible: !root.is-separator;
         width: 100%;
         height: 28px;
-        border-radius: Tokens.radius-sm;
+        border-radius: Shape.radius-sm;
         background: root.disabled ? transparent
-            : touch.has-hover ? Theme.bg-inset : transparent;
+            : touch.has-hover ? Theme.surface-control : transparent;
         opacity: root.disabled ? 0.4 : 1.0;
 
         Text {
-            x: Tokens.space-sm;
+            x: Spacing.sm;
             y: 0;
-            width: parent.width - 2 * Tokens.space-sm;
+            width: parent.width - 2 * Spacing.sm;
             height: parent.height;
             text: root.label;
-            color: root.disabled ? Theme.text-ghost
-                : touch.has-hover ? Theme.text : Theme.text-dim;
-            font-size: Tokens.font-md;
+            color: root.disabled ? Theme.text-placeholder
+                : touch.has-hover ? Theme.text-primary : Theme.text-secondary;
+            font-size: Typography.compact-label.size;
             font-weight: 500;
             vertical-alignment: center;
         }
@@ -68,15 +67,15 @@ component MenuRow inherits Rectangle {
 export component OverflowMenu inherits Rectangle {
     width: 184px;
     height: inner.preferred-height;
-    border-radius: Tokens.radius-md;
-    background: Theme.bg-card;
-    border-width: Tokens.hairline;
-    border-color: Theme.line;
+    border-radius: Shape.radius-md;
+    background: Theme.surface-overlay;
+    border-width: Shape.hairline;
+    border-color: Theme.border-subtle;
 
     TouchArea {}
 
     inner := VerticalLayout {
-        padding: Tokens.space-xs;
+        padding: Spacing.xs;
         spacing: 0px;
 
         for item in ObjectsState.overflow-menu-items: MenuRow {

@@ -1,5 +1,5 @@
-import { Theme } from "../../theme.slint";
-import { Tokens } from "../../tokens.slint";
+import { ComponentMetrics } from "../metrics.slint";
+import { Theme, Typography, Spacing, Shape } from "../../foundations/foundations.slint";
 import { ReplState } from "../../states/repl-state.slint";
 
 // ── Single completion row ──────────────────────────────────────────
@@ -12,8 +12,8 @@ component CompletionRow inherits Rectangle {
     in property <int> index;
 
     height: 26px;
-    background: selected ? Theme.bg-raised : transparent;
-    border-radius: Tokens.radius-sm;
+    background: selected ? Theme.surface-raised : transparent;
+    border-radius: Shape.radius-sm;
 
     HorizontalLayout {
         padding-left: 8px;
@@ -23,8 +23,8 @@ component CompletionRow inherits Rectangle {
         // Command/item name
         Text {
             text: root.text;
-            color: root.selected ? Theme.text : Theme.text-dim;
-            font-size: Tokens.repl-output-font;
+            color: root.selected ? Theme.text-primary : Theme.text-secondary;
+            font-size: Typography.input.size;
             font-weight: 500;
             vertical-alignment: center;
             horizontal-stretch: 1;
@@ -35,7 +35,7 @@ component CompletionRow inherits Rectangle {
         if root.description != "": Text {
             text: root.description;
             color: Theme.text-muted;
-            font-size: Tokens.font-xs;
+            font-size: Typography.compact-hud.size;
             vertical-alignment: center;
             horizontal-stretch: 0;
             max-width: 160px;
@@ -50,13 +50,13 @@ component CompletionRow inherits Rectangle {
             Rectangle {
                 width: 42px;
                 height: 16px;
-                border-radius: Tokens.radius-sm;
-                background: Theme.violet.with-alpha(0.15);
+                border-radius: Shape.radius-sm;
+                background: Theme.accent-violet.with-alpha(0.15);
 
                 Text {
                     text: "plugin";
-                    color: Theme.violet;
-                    font-size: Tokens.font-xs;
+                    color: Theme.accent-violet;
+                    font-size: Typography.compact-hud.size;
                     horizontal-alignment: center;
                     vertical-alignment: center;
                     width: parent.width;
@@ -80,15 +80,15 @@ export component CompletionPopup inherits Rectangle {
     property <int> max-visible: 8;
     property <int> count: ReplState.completion-items.length;
     property <length> row-h: 26px;
-    property <length> pad: Tokens.space-xs;
+    property <length> pad: Spacing.xs;
 
     visible: ReplState.completion-visible && count > 0;
     height: min(count, max-visible) * row-h + 2 * pad;
     clip: true;
-    border-radius: Tokens.radius-lg;
-    background: Theme.bg-card;
-    border-width: Tokens.hairline;
-    border-color: Theme.line;
+    border-radius: Shape.radius-lg;
+    background: Theme.surface-overlay;
+    border-width: Shape.hairline;
+    border-color: Theme.border-subtle;
 
     // Block events from passing through
     TouchArea {}

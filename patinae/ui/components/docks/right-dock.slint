@@ -1,5 +1,6 @@
-import { Theme } from "../../theme.slint";
-import { Tokens } from "../../tokens.slint";
+import { Surface } from "../../primitives/surface.slint";
+import { ComponentMetrics } from "../metrics.slint";
+import { Theme, Typography, Spacing, Shape } from "../../foundations/foundations.slint";
 import { LayoutState } from "../../states/layout-state.slint";
 import { ObjectsState } from "../../states/objects-state.slint";
 import { PluginState } from "../../states/plugin-state.slint";
@@ -10,9 +11,9 @@ import { ActionPill } from "../panels/action-pill.slint";
 import { PluginPanelView } from "../panels/plugin-panel-view.slint";
 
 // Right dock — hosts built-in panels with action pill overlay.
-export component RightDock inherits Rectangle {
+export component RightDock inherits Surface {
     clip: true;
-    background: Theme.bg-raised;
+    level: panel;
 
     property <bool> builtins-visible:
         !LayoutState.empty-mode
@@ -44,8 +45,8 @@ export component RightDock inherits Rectangle {
 
                 if LayoutState.objects-visible
                     && (LayoutState.selections-visible || LayoutState.recent-atoms-visible): Rectangle {
-                    height: Tokens.hairline;
-                    background: Theme.line;
+                    height: Shape.hairline;
+                    background: Theme.border-subtle;
                 }
 
                 // Selections
@@ -61,8 +62,8 @@ export component RightDock inherits Rectangle {
                 }
 
                 if LayoutState.selections-visible && LayoutState.recent-atoms-visible: Rectangle {
-                    height: Tokens.hairline;
-                    background: Theme.line;
+                    height: Shape.hairline;
+                    background: Theme.border-subtle;
                 }
 
                 // Recent atom operands
@@ -80,8 +81,8 @@ export component RightDock inherits Rectangle {
         }
 
         if root.builtins-visible && PluginState.right-visible: Rectangle {
-            height: Tokens.hairline;
-            background: Theme.line;
+            height: Shape.hairline;
+            background: Theme.border-subtle;
         }
 
         if PluginState.right-visible: Rectangle {
@@ -90,9 +91,9 @@ export component RightDock inherits Rectangle {
 
             VerticalLayout {
                 if PluginState.right-tabs.length > 1: HorizontalLayout {
-                    height: Tokens.tab-bar-h;
-                    padding-left: Tokens.space-md;
-                    spacing: Tokens.space-md;
+                    height: ComponentMetrics.tab-bar-h;
+                    padding-left: Spacing.md;
+                    spacing: Spacing.md;
 
                     for tab in PluginState.right-tabs: Rectangle {
                         width: tab-label.preferred-width;
@@ -100,8 +101,8 @@ export component RightDock inherits Rectangle {
 
                         tab-label := Text {
                             text: tab.title;
-                            color: tab.active ? Theme.cyan : Theme.text-muted;
-                            font-size: Tokens.font-md;
+                            color: tab.active ? Theme.accent-primary : Theme.text-muted;
+                            font-size: Typography.compact-label.size;
                             font-weight: 500;
                             letter-spacing: 1.1px;
                             vertical-alignment: center;
@@ -116,7 +117,7 @@ export component RightDock inherits Rectangle {
                             y: parent.height - 2px;
                             height: 2px;
                             width: 100%;
-                            background: Theme.cyan;
+                            background: Theme.accent-primary;
                             opacity: tab.active ? 1.0 : 0.0;
                         }
                     }
@@ -134,6 +135,6 @@ export component RightDock inherits Rectangle {
     // Action pill overlay — docked at the bottom, centered horizontally.
     if ObjectsState.selected-count > 0 || ObjectsState.recent-operand-count > 0: ActionPill {
         x: (parent.width - self.width) / 2;
-        y: parent.height - self.height - Tokens.action-pill-bottom-gap;
+        y: parent.height - self.height - ComponentMetrics.action-pill-bottom-gap;
     }
 }

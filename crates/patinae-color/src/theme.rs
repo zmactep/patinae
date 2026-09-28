@@ -121,29 +121,29 @@ mod tests {
     }
 
     #[test]
-    fn test_default_chain_palettes_avoid_selection_magenta_family() {
-        let forbidden = [
-            PINK,
-            MAGENTA,
-            VIOLET,
-            HOTPINK,
-            LIGHT_PINK,
-            SALMON,
-            DEEP_SALMON,
-            BURGUNDY,
-            DEEP_VIOLET,
-        ];
+    fn default_chain_colors_are_unique_and_contrast_with_their_background() {
+        fn luminance(color: Color) -> f32 {
+            let [r, g, b] = color.to_array().map(|channel| {
+                if channel <= 0.04045 {
+                    channel / 12.92
+                } else {
+                    ((channel + 0.055) / 1.055).powf(2.4)
+                }
+            });
+            0.2126 * r + 0.7152 * g + 0.0722 * b
+        }
 
-        let dark = ThemedPalette::dark();
-        let light = ThemedPalette::light();
-
-        for color in dark
-            .chains
-            .colors()
-            .iter()
-            .chain(light.chains.colors().iter())
-        {
-            assert!(!forbidden.contains(color));
+        for palette in [ThemedPalette::dark(), ThemedPalette::light()] {
+            let colors = palette.chains.colors();
+            let background = luminance(palette.viewport_bg);
+            for (index, &color) in colors.iter().enumerate() {
+                assert!(!colors[..index].contains(&color), "duplicate chain color");
+                let foreground = luminance(color);
+                let contrast =
+                    (foreground.max(background) + 0.05) / (foreground.min(background) + 0.05);
+                // Base swatches must remain visible before renderer lighting.
+                assert!(contrast >= 3.0, "chain {index}: contrast {contrast}");
+            }
         }
     }
 }

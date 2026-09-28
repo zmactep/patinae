@@ -1,0 +1,11 @@
+import { Theme, Typography, TextStyle } from "../foundations/foundations.slint";
+
+// Apply a complete typography role; callers only choose content and layout.
+export component UiText inherits Text {
+    in property <TextStyle> text-style: Typography.body;
+    font-family: text-style.family;
+    font-size: text-style.size;
+    font-weight: text-style.weight;
+    letter-spacing: text-style.tracking;
+    color: Theme.text-primary;
+}

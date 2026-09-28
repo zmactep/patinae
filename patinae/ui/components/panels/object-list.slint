@@ -1,5 +1,5 @@
-import { Theme } from "../../theme.slint";
-import { Tokens } from "../../tokens.slint";
+import { ComponentMetrics } from "../metrics.slint";
+import { Theme, Typography, Spacing, Shape } from "../../foundations/foundations.slint";
 import { ObjectsState, ObjectItem, SubchainItem, TopLevelRow } from "../../states/objects-state.slint";
 import {
     ChevronRight,
@@ -21,22 +21,22 @@ import { RowBtn } from "./row-btn.slint";
 // ── Section header ───────────────────────────────────────────────────
 
 component SectionHeader inherits Rectangle {
-    height: Tokens.tab-bar-h;
+    height: ComponentMetrics.tab-bar-h;
     background: transparent;
 
     HorizontalLayout {
-        padding-left: Tokens.space-md;
-        padding-right: Tokens.space-md;
+        padding-left: Spacing.md;
+        padding-right: Spacing.md;
         alignment: space-between;
 
         HorizontalLayout {
-            spacing: Tokens.space-sm;
+            spacing: Spacing.sm;
             alignment: start;
 
             Text {
                 text: "OBJECTS";
-                color: Theme.cyan;
-                font-size: Tokens.font-md;
+                color: Theme.accent-primary;
+                font-size: Typography.compact-label.size;
                 font-weight: 500;
                 letter-spacing: 1.1px;
                 vertical-alignment: center;
@@ -44,8 +44,8 @@ component SectionHeader inherits Rectangle {
 
             Text {
                 text: ObjectsState.object-count;
-                color: Theme.text-ghost;
-                font-size: Tokens.font-md;
+                color: Theme.text-placeholder;
+                font-size: Typography.compact-label.size;
                 vertical-alignment: center;
             }
         }
@@ -63,76 +63,76 @@ component SubchainRow inherits Rectangle {
     property <bool> click-shift: false;
     property <bool> click-meta:  false;
 
-    height: Tokens.chain-row-h;
-    border-radius: Tokens.radius-md;
+    height: ComponentMetrics.chain-row-h;
+    border-radius: Shape.radius-md;
     background: root.subchain.selected
-        ? Theme.cyan.with-alpha(0.06)
+        ? Theme.accent-primary.with-alpha(0.06)
         : touch.has-hover
-            ? Theme.bg-inset.with-alpha(0.5)
+            ? Theme.surface-control.with-alpha(0.5)
             : transparent;
-    border-width: root.subchain.selected ? Tokens.hairline : 0px;
+    border-width: root.subchain.selected ? Shape.hairline : 0px;
     border-color: root.subchain.selected
-        ? Theme.cyan.with-alpha(0.5)
+        ? Theme.accent-primary.with-alpha(0.5)
         : transparent;
 
     // Kind indicator slot
     Rectangle {
         x: root.base-indent;
         y: 0;
-        width: Tokens.chain-indicator-w;
+        width: ComponentMetrics.chain-indicator-w;
         height: parent.height;
         background: transparent;
 
         if root.subchain.kind == "biopolymer": BioGlyph {
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
-            tint: root.obj-enabled ? root.subchain.color : Theme.text-ghost;
+            tint: root.obj-enabled ? root.subchain.color : Theme.text-placeholder;
             multicolor: root.obj-enabled && root.subchain.multicolor;
         }
 
         if root.subchain.kind == "solvent": SolventGlyph {
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
-            tint: root.obj-enabled ? Theme.violet : Theme.text-ghost;
+            tint: root.obj-enabled ? Theme.accent-violet : Theme.text-placeholder;
         }
 
         if root.subchain.kind == "organic": OrganicGlyph {
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
-            tint: root.obj-enabled ? Theme.text-muted : Theme.text-ghost;
+            tint: root.obj-enabled ? Theme.text-muted : Theme.text-placeholder;
         }
 
         if root.subchain.kind == "inorganic": InorganicGlyph {
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
-            tint: root.obj-enabled ? Theme.magenta : Theme.text-ghost;
+            tint: root.obj-enabled ? Theme.accent-selection : Theme.text-placeholder;
         }
     }
 
     // Chain letter (+ label suffix when present, e.g. "A (HEM)")
     Text {
-        x: root.base-indent + Tokens.chain-indicator-w + Tokens.space-sm;
+        x: root.base-indent + ComponentMetrics.chain-indicator-w + Spacing.sm;
         y: 0;
         height: parent.height;
         text: root.subchain.label == ""
             ? root.subchain.chain-id
             : root.subchain.chain-id + " (" + root.subchain.label + ")";
         color: !root.obj-enabled
-            ? Theme.text-ghost
-            : root.subchain.selected ? Theme.text : Theme.text-dim;
-        font-size: Tokens.font-md;
+            ? Theme.text-placeholder
+            : root.subchain.selected ? Theme.text-primary : Theme.text-secondary;
+        font-size: Typography.compact-label.size;
         font-weight: 500;
         vertical-alignment: center;
     }
 
     // Atom count (fades out when R/C buttons visible)
     Text {
-        x: parent.width - self.width - Tokens.space-md - 2 * Tokens.row-h;
+        x: parent.width - self.width - Spacing.md - 2 * ComponentMetrics.row-h;
         y: 0;
         height: parent.height;
         text: root.subchain.atom-count;
-        color: root.obj-enabled ? Theme.text-ghost : Theme.text-ghost.with-alpha(0.4);
-        font-size: Tokens.font-sm;
+        color: root.obj-enabled ? Theme.text-placeholder : Theme.text-placeholder.with-alpha(0.4);
+        font-size: Typography.hint.size;
         vertical-alignment: center;
         opacity: touch.has-hover ? 0.0 : 1.0;
     }
@@ -141,7 +141,7 @@ component SubchainRow inherits Rectangle {
     touch := TouchArea {
         x: 0;
         y: 0;
-        width: parent.width - 2 * Tokens.row-h;
+        width: parent.width - 2 * ComponentMetrics.row-h;
         height: parent.height;
         pointer-event(event) => {
             if (event.kind == PointerEventKind.down) {
@@ -159,7 +159,7 @@ component SubchainRow inherits Rectangle {
 
     // R button (representations)
     r-btn := RowBtn {
-        x: parent.width - 2 * Tokens.row-h + 4px;
+        x: parent.width - 2 * ComponentMetrics.row-h + 4px;
         y: (parent.height - self.height) / 2;
         letter: "R";
         obj-name: root.obj-name;
@@ -174,7 +174,7 @@ component SubchainRow inherits Rectangle {
 
     // C button (color)
     c-btn := RowBtn {
-        x: parent.width - Tokens.row-h + 2px;
+        x: parent.width - ComponentMetrics.row-h + 2px;
         y: (parent.height - self.height) / 2;
         letter: "C";
         obj-name: root.obj-name;
@@ -203,8 +203,8 @@ component ObjectSection inherits VerticalLayout {
         || root.obj.object-type == "measurement"
         || root.obj.object-type == "label";
     property <length> action-buttons-w: root.obj.has-representations
-        ? 2 * Tokens.row-h
-        : root.has-row-color ? Tokens.row-h : 0px;
+        ? 2 * ComponentMetrics.row-h
+        : root.has-row-color ? ComponentMetrics.row-h : 0px;
     property <length> annotation-meta-w:
         root.obj.object-type == "measurement" || root.obj.object-type == "label" || root.obj.instanced ? 92px : 0px;
 
@@ -213,16 +213,16 @@ component ObjectSection inherits VerticalLayout {
         property <bool> click-shift: false;
         property <bool> click-meta:  false;
 
-        height: Tokens.row-h;
-        border-radius: Tokens.radius-md;
+        height: ComponentMetrics.row-h;
+        border-radius: Shape.radius-md;
         background: root.obj.selected
-            ? Theme.cyan.with-alpha(0.06)
+            ? Theme.accent-primary.with-alpha(0.06)
             : obj-touch.has-hover || chevron-touch.has-hover
-                ? Theme.bg-inset.with-alpha(0.5)
+                ? Theme.surface-control.with-alpha(0.5)
                 : transparent;
-        border-width: root.obj.selected ? Tokens.hairline : 0px;
+        border-width: root.obj.selected ? Shape.hairline : 0px;
         border-color: root.obj.selected
-            ? Theme.cyan.with-alpha(0.5)
+            ? Theme.accent-primary.with-alpha(0.5)
             : transparent;
         accessible-role: list-item;
         accessible-label: root.obj.name
@@ -231,29 +231,29 @@ component ObjectSection inherits VerticalLayout {
 
         // Chevron
         Rectangle {
-            x: root.indent + Tokens.space-md;
+            x: root.indent + Spacing.md;
             y: 0;
-            width: Tokens.chevron-w;
+            width: ComponentMetrics.chevron-w;
             height: parent.height;
             visible: root.can-expand;
 
             if root.obj.expanded: ChevronDown {
                 x: (parent.width - self.width) / 2;
                 y: (parent.height - self.height) / 2;
-                tint: root.obj.enabled ? Theme.text-dim : Theme.text-ghost;
+                tint: root.obj.enabled ? Theme.text-secondary : Theme.text-placeholder;
             }
             if !root.obj.expanded: ChevronRight {
                 x: (parent.width - self.width) / 2;
                 y: (parent.height - self.height) / 2;
-                tint: root.obj.enabled ? Theme.text-faint : Theme.text-ghost;
+                tint: root.obj.enabled ? Theme.text-disabled : Theme.text-placeholder;
             }
         }
 
         // Object-kind icon
         Rectangle {
-            x: root.indent + Tokens.space-md;
+            x: root.indent + Spacing.md;
             y: 0;
-            width: Tokens.chevron-w;
+            width: ComponentMetrics.chevron-w;
             height: parent.height;
             visible: root.has-object-icon;
             background: transparent;
@@ -261,63 +261,63 @@ component ObjectSection inherits VerticalLayout {
             if root.obj.object-icon-kind == "map-source": MapSourceGlyph {
                 x: (parent.width - self.width) / 2;
                 y: (parent.height - self.height) / 2;
-                tint: root.obj.enabled ? Theme.cyan : Theme.text-ghost;
+                tint: root.obj.enabled ? Theme.accent-primary : Theme.text-placeholder;
             }
 
             if root.obj.object-icon-kind == "map-isomesh": MapIsomeshGlyph {
                 x: (parent.width - self.width) / 2;
                 y: (parent.height - self.height) / 2;
-                tint: root.obj.enabled ? Theme.cyan : Theme.text-ghost;
+                tint: root.obj.enabled ? Theme.accent-primary : Theme.text-placeholder;
             }
 
             if root.obj.object-icon-kind == "map-isosurface": MapIsosurfaceGlyph {
                 x: (parent.width - self.width) / 2;
                 y: (parent.height - self.height) / 2;
-                tint: root.obj.enabled ? Theme.cyan : Theme.text-ghost;
+                tint: root.obj.enabled ? Theme.accent-primary : Theme.text-placeholder;
             }
 
             if root.obj.object-icon-kind == "measurement-distance": MeasurementDistanceGlyph {
                 x: (parent.width - self.width) / 2;
                 y: (parent.height - self.height) / 2;
-                tint: root.obj.enabled ? root.obj.color : Theme.text-ghost;
+                tint: root.obj.enabled ? root.obj.color : Theme.text-placeholder;
                 multicolor: root.obj.enabled && root.obj.multicolor;
             }
 
             if root.obj.object-icon-kind == "measurement-angle": MeasurementAngleGlyph {
                 x: (parent.width - self.width) / 2;
                 y: (parent.height - self.height) / 2;
-                tint: root.obj.enabled ? root.obj.color : Theme.text-ghost;
+                tint: root.obj.enabled ? root.obj.color : Theme.text-placeholder;
                 multicolor: root.obj.enabled && root.obj.multicolor;
             }
 
             if root.obj.object-icon-kind == "measurement-dihedral": MeasurementDihedralGlyph {
                 x: (parent.width - self.width) / 2;
                 y: (parent.height - self.height) / 2;
-                tint: root.obj.enabled ? root.obj.color : Theme.text-ghost;
+                tint: root.obj.enabled ? root.obj.color : Theme.text-placeholder;
                 multicolor: root.obj.enabled && root.obj.multicolor;
             }
 
             if root.obj.object-icon-kind == "label": LabelGlyph {
                 x: (parent.width - self.width) / 2;
                 y: (parent.height - self.height) / 2;
-                tint: root.obj.enabled ? root.obj.color : Theme.text-ghost;
+                tint: root.obj.enabled ? root.obj.color : Theme.text-placeholder;
                 multicolor: root.obj.enabled && root.obj.multicolor;
             }
         }
 
         // Name
         Text {
-            x: root.indent + Tokens.space-md
-                + (root.has-leading-slot ? Tokens.chevron-w + Tokens.space-sm : 0px);
+            x: root.indent + Spacing.md
+                + (root.has-leading-slot ? ComponentMetrics.chevron-w + Spacing.sm : 0px);
             y: 0;
-            width: parent.width - self.x - Tokens.space-md
+            width: parent.width - self.x - Spacing.md
                 - root.action-buttons-w - root.annotation-meta-w;
             height: parent.height;
             text: root.obj.name;
             color: !root.obj.enabled
-                ? Theme.text-ghost
-                : root.obj.selected ? Theme.text : Theme.text-dim;
-            font-size: Tokens.font-lg;
+                ? Theme.text-placeholder
+                : root.obj.selected ? Theme.text-primary : Theme.text-secondary;
+            font-size: Typography.compact-body.size;
             font-weight: root.obj.selected ? 500 : 400;
             vertical-alignment: center;
             overflow: elide;
@@ -326,11 +326,11 @@ component ObjectSection inherits VerticalLayout {
         // Annotation entity count and unresolved warning
         if root.obj.instanced: Text {
             x: parent.width - root.action-buttons-w - root.annotation-meta-w;
-            width: root.annotation-meta-w - Tokens.space-sm;
+            width: root.annotation-meta-w - Spacing.sm;
             height: parent.height;
             text: root.obj.atom-count + " instanced";
-            color: Theme.text-ghost;
-            font-size: Tokens.font-sm;
+            color: Theme.text-placeholder;
+            font-size: Typography.hint.size;
             horizontal-alignment: right;
             vertical-alignment: center;
             overflow: elide;
@@ -338,7 +338,7 @@ component ObjectSection inherits VerticalLayout {
         if root.obj.object-type == "measurement" || root.obj.object-type == "label": Text {
             x: parent.width - root.action-buttons-w - root.annotation-meta-w;
             y: 0;
-            width: root.annotation-meta-w - Tokens.space-sm;
+            width: root.annotation-meta-w - Spacing.sm;
             height: parent.height;
             text: root.obj.entity-count + " "
                 + (root.obj.object-type == "measurement"
@@ -346,9 +346,9 @@ component ObjectSection inherits VerticalLayout {
                     : (root.obj.entity-count == 1 ? "label" : "labels"))
                 + (root.obj.has-unresolved-entities ? "  !" : "");
             color: root.obj.has-unresolved-entities
-                ? Theme.warning
-                : root.obj.enabled ? Theme.text-ghost : Theme.text-ghost.with-alpha(0.4);
-            font-size: Tokens.font-sm;
+                ? Theme.status-warning
+                : root.obj.enabled ? Theme.text-placeholder : Theme.text-placeholder.with-alpha(0.4);
+            font-size: Typography.hint.size;
             horizontal-alignment: right;
             vertical-alignment: center;
             overflow: elide;
@@ -358,7 +358,7 @@ component ObjectSection inherits VerticalLayout {
         chevron-touch := TouchArea {
             x: root.indent;
             y: 0;
-            width: root.can-expand ? Tokens.chevron-touch-w : 0px;
+            width: root.can-expand ? ComponentMetrics.chevron-touch-w : 0px;
             height: parent.height;
             clicked => {
                 if (root.can-expand) {
@@ -369,10 +369,10 @@ component ObjectSection inherits VerticalLayout {
 
         // Row click area
         obj-touch := TouchArea {
-            x: root.indent + (root.can-expand ? Tokens.chevron-touch-w : 0px);
+            x: root.indent + (root.can-expand ? ComponentMetrics.chevron-touch-w : 0px);
             y: 0;
             width: parent.width - root.indent
-                - (root.can-expand ? Tokens.chevron-touch-w : 0px)
+                - (root.can-expand ? ComponentMetrics.chevron-touch-w : 0px)
                 - root.action-buttons-w;
             height: parent.height;
             pointer-event(event) => {
@@ -392,7 +392,7 @@ component ObjectSection inherits VerticalLayout {
 
         // R button (representations)
         obj-r-btn := RowBtn {
-            x: parent.width - 2 * Tokens.row-h + 4px;
+            x: parent.width - 2 * ComponentMetrics.row-h + 4px;
             y: (parent.height - self.height) / 2;
             visible: root.obj.has-representations;
             letter: "R";
@@ -403,7 +403,7 @@ component ObjectSection inherits VerticalLayout {
 
         // C button (color)
         obj-c-btn := RowBtn {
-            x: parent.width - Tokens.row-h + 2px;
+            x: parent.width - ComponentMetrics.row-h + 2px;
             y: (parent.height - self.height) / 2;
             visible: root.has-row-color;
             letter: "C";
@@ -415,22 +415,22 @@ component ObjectSection inherits VerticalLayout {
 
     // Expanded subchains
     if root.can-expand && root.obj.expanded: VerticalLayout {
-        spacing: Tokens.row-gap;
+        spacing: ComponentMetrics.row-gap;
 
         for subchain in root.obj.subchains: SubchainRow {
             subchain: subchain;
             obj-name: root.obj.name;
             obj-enabled: root.obj.enabled;
-            base-indent: root.indent + Tokens.chain-row-indent;
+            base-indent: root.indent + ComponentMetrics.chain-row-indent;
         }
 
         if root.obj.overflow-count > 0: Rectangle {
-            height: Tokens.row-h;
+            height: ComponentMetrics.row-h;
             Text {
-                x: root.indent + Tokens.chain-row-indent;
+                x: root.indent + ComponentMetrics.chain-row-indent;
                 text: root.obj.overflow-count + " more subchains not shown";
-                color: Theme.text-ghost;
-                font-size: Tokens.font-md;
+                color: Theme.text-placeholder;
+                font-size: Typography.compact-label.size;
                 vertical-alignment: center;
             }
         }
@@ -447,48 +447,48 @@ component GroupSection inherits VerticalLayout {
 
     // Group header
     group-header := Rectangle {
-        height: Tokens.row-h;
-        border-radius: Tokens.radius-md;
+        height: ComponentMetrics.row-h;
+        border-radius: Shape.radius-md;
         background: root.data.group-selected
-            ? Theme.cyan.with-alpha(0.06)
+            ? Theme.accent-primary.with-alpha(0.06)
             : group-touch.has-hover || group-chevron-touch.has-hover
-                ? Theme.bg-inset.with-alpha(0.5)
+                ? Theme.surface-control.with-alpha(0.5)
                 : transparent;
-        border-width: root.data.group-selected ? Tokens.hairline : 0px;
+        border-width: root.data.group-selected ? Shape.hairline : 0px;
         border-color: root.data.group-selected
-            ? Theme.cyan.with-alpha(0.5)
+            ? Theme.accent-primary.with-alpha(0.5)
             : transparent;
 
         // Chevron
         Rectangle {
-            x: Tokens.space-md;
+            x: Spacing.md;
             y: 0;
-            width: Tokens.chevron-w;
+            width: ComponentMetrics.chevron-w;
             height: parent.height;
 
             if root.data.group-open: ChevronDown {
                 x: (parent.width - self.width) / 2;
                 y: (parent.height - self.height) / 2;
-                tint: root.data.group-enabled ? Theme.text-dim : Theme.text-ghost;
+                tint: root.data.group-enabled ? Theme.text-secondary : Theme.text-placeholder;
             }
             if !root.data.group-open: ChevronRight {
                 x: (parent.width - self.width) / 2;
                 y: (parent.height - self.height) / 2;
-                tint: root.data.group-enabled ? Theme.text-faint : Theme.text-ghost;
+                tint: root.data.group-enabled ? Theme.text-disabled : Theme.text-placeholder;
             }
         }
 
         // Group name
         Text {
-            x: Tokens.space-md + Tokens.chevron-w + Tokens.space-sm;
+            x: Spacing.md + ComponentMetrics.chevron-w + Spacing.sm;
             y: 0;
-            width: parent.width - self.x - Tokens.space-md;
+            width: parent.width - self.x - Spacing.md;
             height: parent.height;
             text: root.data.group-name;
             color: !root.data.group-enabled
-                ? Theme.text-ghost
-                : root.data.group-selected ? Theme.text : Theme.text-dim;
-            font-size: Tokens.font-lg;
+                ? Theme.text-placeholder
+                : root.data.group-selected ? Theme.text-primary : Theme.text-secondary;
+            font-size: Typography.compact-body.size;
             font-weight: root.data.group-selected ? 500 : 400;
             vertical-alignment: center;
             overflow: elide;
@@ -496,12 +496,12 @@ component GroupSection inherits VerticalLayout {
 
         // Child count badge (on hover)
         if group-touch.has-hover || group-chevron-touch.has-hover: Text {
-            x: parent.width - self.width - Tokens.space-md;
+            x: parent.width - self.width - Spacing.md;
             y: 0;
             height: parent.height;
             text: root.data.group-child-count;
-            color: Theme.text-ghost;
-            font-size: Tokens.font-sm;
+            color: Theme.text-placeholder;
+            font-size: Typography.hint.size;
             vertical-alignment: center;
         }
 
@@ -509,7 +509,7 @@ component GroupSection inherits VerticalLayout {
         group-chevron-touch := TouchArea {
             x: 0;
             y: 0;
-            width: Tokens.chevron-touch-w;
+            width: ComponentMetrics.chevron-touch-w;
             height: parent.height;
             clicked => {
                 ObjectsState.toggle-group-open(root.data.group-name);
@@ -518,9 +518,9 @@ component GroupSection inherits VerticalLayout {
 
         // Row click area
         group-touch := TouchArea {
-            x: Tokens.chevron-touch-w;
+            x: ComponentMetrics.chevron-touch-w;
             y: 0;
-            width: parent.width - Tokens.chevron-touch-w;
+            width: parent.width - ComponentMetrics.chevron-touch-w;
             height: parent.height;
             pointer-event(event) => {
                 if (event.kind == PointerEventKind.down) {
@@ -537,7 +537,7 @@ component GroupSection inherits VerticalLayout {
 
     // Expanded group children
     if root.data.group-open: VerticalLayout {
-        spacing: Tokens.row-gap;
+        spacing: ComponentMetrics.row-gap;
 
         for obj in root.data.group-objects: ObjectSection {
             obj: obj;
@@ -559,12 +559,12 @@ export component ObjectList inherits Rectangle {
         // Empty state
         if ObjectsState.top-level.length == 0: Text {
             text: "no objects yet";
-            color: Theme.text-ghost;
-            font-size: Tokens.font-sm;
+            color: Theme.text-placeholder;
+            font-size: Typography.hint.size;
             letter-spacing: 0.6px;
             horizontal-alignment: left;
             vertical-alignment: top;
-            x: Tokens.space-md;
+            x: Spacing.md;
         }
 
         // Object tree
@@ -578,11 +578,11 @@ export component ObjectList inherits Rectangle {
             }
 
             VerticalLayout {
-                padding: Tokens.space-xs;
-                spacing: Tokens.row-gap;
+                padding: Spacing.xs;
+                spacing: ComponentMetrics.row-gap;
 
                 for row in ObjectsState.top-level: VerticalLayout {
-                    spacing: Tokens.row-gap;
+                    spacing: ComponentMetrics.row-gap;
 
                     if row.is-group: GroupSection {
                         data: row;

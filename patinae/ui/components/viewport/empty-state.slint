@@ -1,5 +1,6 @@
-import { Theme } from "../../theme.slint";
-import { Tokens } from "../../tokens.slint";
+import { UiText } from "../../primitives/text.slint";
+import { Surface } from "../../primitives/surface.slint";
+import { Theme, Typography, Spacing, Shape } from "../../foundations/foundations.slint";
 import { LayoutState } from "../../states/layout-state.slint";
 import { MenuState } from "../../states/menu-state.slint";
 import { StartState } from "../../states/start-state.slint";
@@ -18,7 +19,7 @@ component PatinaeMark inherits Rectangle {
 }
 
 component DropFileIcon inherits Rectangle {
-    in property <color> tint: Theme.text-ghost;
+    in property <color> tint: Theme.text-placeholder;
 
     width: 44px;
     height: 44px;
@@ -31,7 +32,7 @@ component DropFileIcon inherits Rectangle {
         border-radius: 5px;
         border-width: 1.2px;
         border-color: tint;
-        background: Theme.bg-inset.with-alpha(0.35);
+        background: Theme.surface-control.with-alpha(0.35);
     }
 
     Path {
@@ -43,7 +44,7 @@ component DropFileIcon inherits Rectangle {
         viewbox-height: 12;
         stroke: tint;
         stroke-width: 1.2px;
-        fill: Theme.viewport-bg;
+        fill: Theme.surface-viewport;
         commands: "M 0 0 L 12 12 L 0 12 Z";
     }
 
@@ -54,7 +55,7 @@ component DropFileIcon inherits Rectangle {
         height: 14px;
         viewbox-width: 15;
         viewbox-height: 14;
-        stroke: Theme.cyan-dim;
+        stroke: Theme.accent-primary-strong;
         stroke-width: 1.5px;
         fill: transparent;
         commands: "M 7.5 1 L 7.5 10 M 3 6 L 7.5 10.5 L 12 6 M 1 13 L 14 13";
@@ -62,7 +63,7 @@ component DropFileIcon inherits Rectangle {
 }
 
 component DatabaseIcon inherits Rectangle {
-    in property <color> tint: Theme.cyan;
+    in property <color> tint: Theme.accent-primary;
 
     width: 16px;
     height: 16px;
@@ -81,9 +82,9 @@ component DatabaseIcon inherits Rectangle {
 
 component PreviewGlyph inherits Rectangle {
     in property <int> slot: 0;
-    in property <color> tint: Theme.cyan;
+    in property <color> tint: Theme.accent-primary;
 
-    background: Theme.bg;
+    background: Theme.surface-base;
 
     Path {
         x: 32px;
@@ -92,7 +93,7 @@ component PreviewGlyph inherits Rectangle {
         height: 50px;
         viewbox-width: 76;
         viewbox-height: 50;
-        stroke: Theme.line-strong;
+        stroke: Theme.border-strong;
         stroke-width: 3px;
         fill: transparent;
         commands: slot == 1
@@ -115,7 +116,7 @@ component PreviewGlyph inherits Rectangle {
         width: 21px;
         height: 21px;
         border-radius: 10.5px;
-        background: Theme.violet.with-alpha(0.88);
+        background: Theme.accent-violet.with-alpha(0.88);
     }
 
     Rectangle {
@@ -124,7 +125,7 @@ component PreviewGlyph inherits Rectangle {
         width: 14px;
         height: 14px;
         border-radius: 7px;
-        background: Theme.warning.with-alpha(0.88);
+        background: Theme.status-warning.with-alpha(0.88);
     }
 
     Rectangle {
@@ -133,7 +134,7 @@ component PreviewGlyph inherits Rectangle {
         width: 11px;
         height: 11px;
         border-radius: 5.5px;
-        background: Theme.magenta.with-alpha(0.82);
+        background: Theme.accent-selection.with-alpha(0.82);
     }
 
     Rectangle {
@@ -151,7 +152,7 @@ component PreviewGlyph inherits Rectangle {
         width: parent.width - 104px;
         height: 4px;
         border-radius: 2px;
-        background: Theme.line-strong.with-alpha(0.45);
+        background: Theme.border-strong.with-alpha(0.45);
     }
 }
 
@@ -161,7 +162,7 @@ component ExampleGlyph inherits Rectangle {
     width: 28px;
     height: 28px;
     border-radius: 8px;
-    background: Theme.bg.with-alpha(0.82);
+    background: Theme.surface-base.with-alpha(0.82);
 
     if kind == "antibody": Rectangle {
         background: transparent;
@@ -173,15 +174,15 @@ component ExampleGlyph inherits Rectangle {
             height: 15px;
             viewbox-width: 16;
             viewbox-height: 15;
-            stroke: Theme.cyan;
+            stroke: Theme.accent-primary;
             stroke-width: 1.8px;
             fill: transparent;
             commands: "M 8 15 L 8 8 M 8 8 L 2 1 M 8 8 L 14 1";
         }
 
-        Rectangle { x: 11px; y: 18px; width: 6px; height: 6px; border-radius: 3px; background: Theme.cyan; }
-        Rectangle { x: 3px; y: 2px; width: 6px; height: 6px; border-radius: 3px; background: Theme.violet; }
-        Rectangle { x: 19px; y: 2px; width: 6px; height: 6px; border-radius: 3px; background: Theme.magenta; }
+        Rectangle { x: 11px; y: 18px; width: 6px; height: 6px; border-radius: 3px; background: Theme.accent-primary; }
+        Rectangle { x: 3px; y: 2px; width: 6px; height: 6px; border-radius: 3px; background: Theme.accent-violet; }
+        Rectangle { x: 19px; y: 2px; width: 6px; height: 6px; border-radius: 3px; background: Theme.accent-selection; }
     }
 
     if kind == "pocket": Rectangle {
@@ -193,11 +194,11 @@ component ExampleGlyph inherits Rectangle {
             width: 18px;
             height: 16px;
             border-radius: 8px;
-            background: Theme.violet.with-alpha(0.48);
+            background: Theme.accent-violet.with-alpha(0.48);
         }
 
-        Rectangle { x: 11px; y: 12px; width: 6px; height: 6px; border-radius: 3px; background: Theme.magenta; }
-        Rectangle { x: 17px; y: 8px; width: 4px; height: 4px; border-radius: 2px; background: Theme.cyan.with-alpha(0.84); }
+        Rectangle { x: 11px; y: 12px; width: 6px; height: 6px; border-radius: 3px; background: Theme.accent-selection; }
+        Rectangle { x: 17px; y: 8px; width: 4px; height: 4px; border-radius: 2px; background: Theme.accent-primary.with-alpha(0.84); }
     }
 
     if kind == "dna": Rectangle {
@@ -210,14 +211,14 @@ component ExampleGlyph inherits Rectangle {
             height: 20px;
             viewbox-width: 16;
             viewbox-height: 20;
-            stroke: Theme.warning;
+            stroke: Theme.status-warning;
             stroke-width: 1.6px;
             fill: transparent;
             commands: "M 4 1 C 13 5 13 15 4 19 M 12 1 C 3 5 3 15 12 19 M 5 6 L 11 6 M 5 10 L 11 10 M 5 14 L 11 14";
         }
 
-        Rectangle { x: 8px; y: 8px; width: 3px; height: 3px; border-radius: 1.5px; background: Theme.cyan; }
-        Rectangle { x: 17px; y: 17px; width: 3px; height: 3px; border-radius: 1.5px; background: Theme.magenta; }
+        Rectangle { x: 8px; y: 8px; width: 3px; height: 3px; border-radius: 1.5px; background: Theme.accent-primary; }
+        Rectangle { x: 17px; y: 17px; width: 3px; height: 3px; border-radius: 1.5px; background: Theme.accent-selection; }
     }
 
     if kind == "gpcr": Rectangle {
@@ -230,14 +231,14 @@ component ExampleGlyph inherits Rectangle {
             height: 20px;
             viewbox-width: 20;
             viewbox-height: 20;
-            stroke: Theme.magenta;
+            stroke: Theme.accent-selection;
             stroke-width: 1.5px;
             fill: transparent;
             commands: "M 3 1 C 6 5 2 9 5 13 C 7 16 3 19 3 19 M 9 1 C 12 5 8 9 11 13 C 13 16 9 19 9 19 M 15 1 C 18 5 14 9 17 13 C 19 16 15 19 15 19";
         }
 
-        Rectangle { x: 4px; y: 6px; width: 20px; height: 2px; border-radius: 1px; background: Theme.cyan.with-alpha(0.28); }
-        Rectangle { x: 4px; y: 20px; width: 20px; height: 2px; border-radius: 1px; background: Theme.cyan.with-alpha(0.28); }
+        Rectangle { x: 4px; y: 6px; width: 20px; height: 2px; border-radius: 1px; background: Theme.accent-primary.with-alpha(0.28); }
+        Rectangle { x: 4px; y: 20px; width: 20px; height: 2px; border-radius: 1px; background: Theme.accent-primary.with-alpha(0.28); }
     }
 }
 
@@ -246,8 +247,8 @@ component FetchForm inherits Rectangle {
     height: 42px;
     border-radius: 11px;
     border-width: 1px;
-    border-color: input.has-focus ? Theme.cyan.with-alpha(0.8) : Theme.line-strong;
-    background: Theme.bg-inset;
+    border-color: input.has-focus ? Theme.accent-primary.with-alpha(0.8) : Theme.border-strong;
+    background: Theme.surface-control;
     clip: true;
 
     Rectangle {
@@ -256,7 +257,7 @@ component FetchForm inherits Rectangle {
         width: 54px;
         height: 24px;
         border-radius: 7px;
-        background: Theme.cyan.with-alpha(0.1);
+        background: Theme.accent-primary.with-alpha(0.1);
 
         DatabaseIcon {
             x: 8px;
@@ -269,9 +270,9 @@ component FetchForm inherits Rectangle {
             width: 22px;
             height: parent.height;
             text: "PDB";
-            color: Theme.cyan;
-            font-size: Tokens.font-xs;
-            font-family: "JetBrains Mono";
+            color: Theme.accent-primary;
+            font-size: Typography.compact-hud.size;
+            font-family: Typography.content-family;
             font-weight: 500;
             vertical-alignment: center;
         }
@@ -283,12 +284,12 @@ component FetchForm inherits Rectangle {
         width: parent.width - 178px;
         height: parent.height;
         text <=> StartState.fetch-pdb-id;
-        color: Theme.text;
-        font-family: "JetBrains Mono";
+        color: Theme.text-primary;
+        font-family: Typography.content-family;
         font-size: 15px;
         single-line: true;
         vertical-alignment: center;
-        selection-background-color: Theme.cyan.with-alpha(0.3);
+        selection-background-color: Theme.accent-primary.with-alpha(0.3);
 
         accepted => {
             if StartState.fetch-pdb-valid {
@@ -307,9 +308,9 @@ component FetchForm inherits Rectangle {
         width: parent.width - 178px;
         height: parent.height;
         text: "PDB ID";
-        color: Theme.text-ghost;
-        font-size: Tokens.font-lg;
-        font-family: "JetBrains Mono";
+        color: Theme.text-placeholder;
+        font-size: Typography.compact-body.size;
+        font-family: Typography.content-family;
         vertical-alignment: center;
 
         TouchArea {
@@ -326,18 +327,18 @@ component FetchForm inherits Rectangle {
         height: 28px;
         border-radius: 8px;
         background: StartState.fetch-pdb-valid
-            ? Theme.cyan.with-alpha(submit-touch.has-hover ? 0.24 : 0.16)
-            : Theme.text-ghost.with-alpha(0.14);
-        border-width: Tokens.hairline;
-        border-color: StartState.fetch-pdb-valid ? Theme.cyan.with-alpha(0.42) : transparent;
+            ? Theme.accent-primary.with-alpha(submit-touch.has-hover ? 0.24 : 0.16)
+            : Theme.text-placeholder.with-alpha(0.14);
+        border-width: Shape.hairline;
+        border-color: StartState.fetch-pdb-valid ? Theme.accent-primary.with-alpha(0.42) : transparent;
 
         Text {
             width: parent.width;
             height: parent.height;
             text: "FETCH";
-            color: StartState.fetch-pdb-valid ? Theme.cyan : Theme.text-faint;
-            font-size: Tokens.font-xs;
-            font-family: "JetBrains Mono";
+            color: StartState.fetch-pdb-valid ? Theme.accent-primary : Theme.text-disabled;
+            font-size: Typography.compact-hud.size;
+            font-family: Typography.content-family;
             font-weight: 500;
             horizontal-alignment: center;
             vertical-alignment: center;
@@ -363,9 +364,9 @@ component RecentCard inherits Rectangle {
     width: 140px;
     height: 126px;
     border-radius: 10px;
-    border-width: Tokens.hairline;
-    border-color: card-touch.has-hover ? Theme.line-strong : Theme.line;
-    background: card-touch.has-hover ? Theme.bg-card : Theme.bg-inset;
+    border-width: Shape.hairline;
+    border-color: card-touch.has-hover ? Theme.border-strong : Theme.border-subtle;
+    background: card-touch.has-hover ? Theme.surface-overlay : Theme.surface-control;
     clip: true;
 
     if root.has-thumbnail: Image {
@@ -380,7 +381,7 @@ component RecentCard inherits Rectangle {
         width: parent.width;
         height: 88px;
         slot: root.slot;
-        tint: root.slot == 1 ? Theme.violet : Theme.cyan-dim;
+        tint: root.slot == 1 ? Theme.accent-violet : Theme.accent-primary-strong;
     }
 
     if root.extension != "": Rectangle {
@@ -389,17 +390,17 @@ component RecentCard inherits Rectangle {
         width: 42px;
         height: 18px;
         border-radius: 5px;
-        border-width: Tokens.hairline;
-        border-color: Theme.cyan.with-alpha(0.3);
-        background: Theme.bg-inset.with-alpha(0.82);
+        border-width: Shape.hairline;
+        border-color: Theme.accent-primary.with-alpha(0.3);
+        background: Theme.surface-control.with-alpha(0.82);
 
         Text {
             width: parent.width;
             height: parent.height;
             text: root.extension;
-            color: Theme.cyan;
-            font-size: Tokens.font-xs;
-            font-family: "JetBrains Mono";
+            color: Theme.accent-primary;
+            font-size: Typography.compact-hud.size;
+            font-family: Typography.content-family;
             horizontal-alignment: center;
             vertical-alignment: center;
             overflow: elide;
@@ -412,9 +413,9 @@ component RecentCard inherits Rectangle {
         width: parent.width - 20px;
         height: 14px;
         text: root.title;
-        color: Theme.text;
-        font-size: Tokens.font-sm;
-        font-family: "JetBrains Mono";
+        color: Theme.text-primary;
+        font-size: Typography.hint.size;
+        font-family: Typography.content-family;
         overflow: elide;
     }
 
@@ -424,9 +425,9 @@ component RecentCard inherits Rectangle {
         width: parent.width - 20px;
         height: 12px;
         text: root.subtitle;
-        color: Theme.text-ghost;
-        font-size: Tokens.font-xs;
-        font-family: "JetBrains Mono";
+        color: Theme.text-placeholder;
+        font-size: Typography.compact-hud.size;
+        font-family: Typography.content-family;
         overflow: elide;
     }
 
@@ -447,9 +448,9 @@ component ExampleCard inherits Rectangle {
     width: card-width;
     height: 50px;
     border-radius: 9px;
-    border-width: Tokens.hairline;
-    border-color: example-touch.has-hover ? Theme.line-strong : Theme.line;
-    background: example-touch.has-hover ? Theme.bg-card : Theme.bg-inset;
+    border-width: Shape.hairline;
+    border-color: example-touch.has-hover ? Theme.border-strong : Theme.border-subtle;
+    background: example-touch.has-hover ? Theme.surface-overlay : Theme.surface-control;
     clip: true;
 
     Rectangle {
@@ -457,7 +458,7 @@ component ExampleCard inherits Rectangle {
         y: 0px;
         width: 42px;
         height: parent.height;
-        background: Theme.bg.with-alpha(0.82);
+        background: Theme.surface-base.with-alpha(0.82);
     }
 
     if root.thumbnail.width > 0: Image {
@@ -481,9 +482,9 @@ component ExampleCard inherits Rectangle {
         width: parent.width - 56px;
         height: 15px;
         text: root.title;
-        color: Theme.text;
-        font-size: Tokens.font-sm;
-        font-family: "JetBrains Mono";
+        color: Theme.text-primary;
+        font-size: Typography.hint.size;
+        font-family: Typography.content-family;
         font-weight: 500;
         overflow: elide;
     }
@@ -494,9 +495,9 @@ component ExampleCard inherits Rectangle {
         width: parent.width - 56px;
         height: 12px;
         text: root.subtitle;
-        color: Theme.text-ghost;
-        font-size: Tokens.font-xs;
-        font-family: "JetBrains Mono";
+        color: Theme.text-placeholder;
+        font-size: Typography.compact-hud.size;
+        font-family: Typography.content-family;
         overflow: elide;
     }
 
@@ -506,11 +507,11 @@ component ExampleCard inherits Rectangle {
     }
 }
 
-export component EmptyState inherits Rectangle {
-    background: Theme.viewport-bg;
+export component EmptyState inherits Surface {
+    level: viewport;
     clip: true;
 
-    property <length> content-w: min(590px, root.width - 2 * Tokens.space-lg);
+    property <length> content-w: min(590px, root.width - 2 * Spacing.lg);
     property <length> content-x: (root.width - content-w) / 2;
     property <length> hero-y: max(42px, (root.height - 660px) / 2);
     property <length> drop-y: hero-y + 150px;
@@ -522,16 +523,14 @@ export component EmptyState inherits Rectangle {
         y: root.hero-y;
     }
 
-    Text {
+    UiText {
+        text-style: Typography.title;
         x: root.content-x;
         y: root.hero-y + 76px;
         width: root.content-w;
         height: 34px;
         text: "Patinae";
-        color: Theme.text;
-        font-family: "Georgia";
-        font-size: 30px;
-        font-weight: 400;
+        color: Theme.text-primary;
         horizontal-alignment: center;
         vertical-alignment: center;
     }
@@ -542,8 +541,8 @@ export component EmptyState inherits Rectangle {
         width: root.content-w;
         height: 18px;
         text: "load a structure to start";
-        color: Theme.text-faint;
-        font-size: Tokens.font-lg;
+        color: Theme.text-disabled;
+        font-size: Typography.compact-body.size;
         horizontal-alignment: center;
         vertical-alignment: center;
     }
@@ -559,13 +558,13 @@ export component EmptyState inherits Rectangle {
             || drop-bottom-touch.has-hover;
         border-radius: 14px;
         border-width: 1px;
-        border-color: drop.open-hover ? Theme.cyan-dim : Theme.line-strong;
-        background: drop.open-hover ? Theme.bg-card.with-alpha(0.9) : Theme.bg.with-alpha(0.86);
+        border-color: drop.open-hover ? Theme.accent-primary-strong : Theme.border-strong;
+        background: drop.open-hover ? Theme.surface-overlay.with-alpha(0.9) : Theme.surface-base.with-alpha(0.86);
 
         DropFileIcon {
             x: (parent.width - self.width) / 2;
             y: 22px;
-            tint: drop.open-hover ? Theme.text-muted : Theme.text-ghost;
+            tint: drop.open-hover ? Theme.text-muted : Theme.text-placeholder;
         }
 
         Text {
@@ -575,8 +574,8 @@ export component EmptyState inherits Rectangle {
             height: 16px;
             text: "drop a .pdb / .cif / .mol2 file here";
             color: Theme.text-muted;
-            font-size: Tokens.font-md;
-            font-family: "JetBrains Mono";
+            font-size: Typography.compact-label.size;
+            font-family: Typography.content-family;
             horizontal-alignment: center;
             vertical-alignment: center;
         }
@@ -587,9 +586,9 @@ export component EmptyState inherits Rectangle {
             width: parent.width;
             height: 14px;
             text: "or fetch from PDB";
-            color: Theme.text-ghost;
-            font-size: Tokens.font-sm;
-            font-family: "JetBrains Mono";
+            color: Theme.text-placeholder;
+            font-size: Typography.hint.size;
+            font-family: Typography.content-family;
             horizontal-alignment: center;
             vertical-alignment: center;
         }
@@ -642,8 +641,8 @@ export component EmptyState inherits Rectangle {
         width: root.content-w;
         height: 16px;
         text: StartState.fetch-status;
-        color: Theme.warning;
-        font-size: Tokens.font-sm;
+        color: Theme.status-warning;
+        font-size: Typography.hint.size;
         horizontal-alignment: center;
         vertical-alignment: center;
     }
@@ -661,9 +660,9 @@ export component EmptyState inherits Rectangle {
             width: parent.width;
             height: 14px;
             text: "RECENT";
-            color: Theme.text-faint;
-            font-size: Tokens.font-sm;
-            font-family: "JetBrains Mono";
+            color: Theme.text-disabled;
+            font-size: Typography.hint.size;
+            font-family: Typography.content-family;
             font-weight: 500;
             letter-spacing: 1.2px;
         }
@@ -707,9 +706,9 @@ export component EmptyState inherits Rectangle {
             width: parent.width;
             height: 14px;
             text: "EXAMPLES";
-            color: Theme.text-faint;
-            font-size: Tokens.font-sm;
-            font-family: "JetBrains Mono";
+            color: Theme.text-disabled;
+            font-size: Typography.hint.size;
+            font-family: Typography.content-family;
             font-weight: 500;
             letter-spacing: 1.2px;
         }
@@ -762,9 +761,9 @@ export component EmptyState inherits Rectangle {
         width: parent.width;
         height: 14px;
         text: LayoutState.mod-key + "O open file   " + LayoutState.mod-key + "F fetch PDB";
-        color: Theme.text-ghost;
-        font-size: Tokens.font-sm;
-        font-family: "JetBrains Mono";
+        color: Theme.text-placeholder;
+        font-size: Typography.hint.size;
+        font-family: Typography.content-family;
         horizontal-alignment: center;
         vertical-alignment: center;
     }

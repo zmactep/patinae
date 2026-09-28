@@ -1,4 +1,4 @@
-import { Tokens } from "../tokens.slint";
+import { ComponentMetrics } from "../components/metrics.slint";
 
 // Layout zone dimensions — accessible from Rust for viewport sizing.
 export global LayoutState {
@@ -26,8 +26,8 @@ export global LayoutState {
         plugin-bottom-visible || (!empty-mode && (sequence-visible || movie-visible));
 
     // ── Dock dimensions ───────────────────────────────────────────
-    in-out property <length> right-dock-width:  Tokens.right-dock-default-w;
-    in-out property <length> bottom-dock-height: Tokens.bottom-dock-default-h;
+    in-out property <length> right-dock-width:  ComponentMetrics.right-dock-default-w;
+    in-out property <length> bottom-dock-height: ComponentMetrics.bottom-dock-default-h;
     out property <length> effective-right-dock-width:
         right-dock-visible ? right-dock-width : 0px;
     out property <length> effective-bottom-dock-height:

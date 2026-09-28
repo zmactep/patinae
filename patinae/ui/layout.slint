@@ -1,6 +1,6 @@
+import { ComponentMetrics } from "./components/metrics.slint";
+import { Theme, Typography, Spacing, Motion } from "./foundations/foundations.slint";
 import { Button, ScrollView } from "std-widgets.slint";
-import { Theme } from "theme.slint";
-import { Tokens } from "tokens.slint";
 import { Viewport } from "components/viewport/viewport.slint";
 import { ViewportState } from "states/viewport-state.slint";
 import { Sidebar } from "components/sidebar.slint";
@@ -31,15 +31,15 @@ export { LayoutState }
 
 export component MainLayout inherits Rectangle {
     forward-focus: focus-shell;
-    background: Theme.bg;
+    background: Theme.surface-base;
 
     // Shorthand aliases
-    property <length> sw: Tokens.sidebar-w;
+    property <length> sw: ComponentMetrics.sidebar-w;
     property <length> rw: LayoutState.effective-right-dock-width;
     property <length> bh: LayoutState.effective-bottom-dock-height;
 
-    animate rw { duration: Tokens.motion-base; easing: ease-in-out; }
-    animate bh { duration: Tokens.motion-base; easing: ease-in-out; }
+    animate rw { duration: Motion.base; easing: ease-in-out; }
+    animate bh { duration: Motion.base; easing: ease-in-out; }
 
     focus-shell := FocusScope {
         focus-on-click: false;
@@ -84,7 +84,7 @@ export component MainLayout inherits Rectangle {
         y: 0;
         width: 0.5px;
         height: parent.height;
-        background: Theme.line;
+        background: Theme.border-subtle;
     }
 
     // Viewport | right dock (vertical, above bottom dock)
@@ -93,7 +93,7 @@ export component MainLayout inherits Rectangle {
         y: 0;
         width: 0.5px;
         height: parent.height - root.bh;
-        background: Theme.line;
+        background: Theme.border-subtle;
     }
 
     // Top zones | bottom dock (horizontal)
@@ -102,7 +102,7 @@ export component MainLayout inherits Rectangle {
         y: parent.height - root.bh;
         width: parent.width - root.sw;
         height: 0.5px;
-        background: Theme.line;
+        background: Theme.border-subtle;
     }
 
     // ── Resize handles ─────────────────────────────────────────────
@@ -122,8 +122,8 @@ export component MainLayout inherits Rectangle {
                 if self.pressed {
                     LayoutState.right-dock-width = clamp(
                         LayoutState.right-dock-width - (self.mouse-x - self.pressed-x),
-                        Tokens.right-dock-min-w,
-                        Tokens.right-dock-max-w
+                        ComponentMetrics.right-dock-min-w,
+                        ComponentMetrics.right-dock-max-w
                     );
                 }
             }
@@ -145,8 +145,8 @@ export component MainLayout inherits Rectangle {
                 if self.pressed {
                     LayoutState.bottom-dock-height = clamp(
                         LayoutState.bottom-dock-height - (self.mouse-y - self.pressed-y),
-                        Tokens.bottom-dock-min-h,
-                        Tokens.bottom-dock-max-h
+                        ComponentMetrics.bottom-dock-min-h,
+                        ComponentMetrics.bottom-dock-max-h
                     );
                 }
             }
@@ -166,28 +166,28 @@ export component MainLayout inherits Rectangle {
 
     // ── Background task notification overlay ─────────────────────
     if NotificationState.visible: Rectangle {
-        width: min(420px, parent.width - root.sw - root.rw - 2 * Tokens.space-md);
-        height: min(notification-content.preferred-height + 2 * Tokens.space-xs, parent.height / 2);
+        width: min(420px, parent.width - root.sw - root.rw - 2 * Spacing.md);
+        height: min(notification-content.preferred-height + 2 * Spacing.xs, parent.height / 2);
         x: root.sw + (parent.width - root.sw - root.rw - self.width) / 2;
-        y: Tokens.space-lg;
-        border-radius: Tokens.repl-pill-radius;
+        y: Spacing.lg;
+        border-radius: ComponentMetrics.repl-pill-radius;
         border-width: 1px;
-        border-color: Theme.cyan-dim.with-alpha(0.45);
-        background: Theme.bg-inset.with-alpha(0.92);
+        border-color: Theme.accent-primary-strong.with-alpha(0.45);
+        background: Theme.surface-control.with-alpha(0.92);
 
         ScrollView {
-            x: Tokens.space-sm;
-            y: Tokens.space-xs;
-            width: parent.width - 2 * Tokens.space-sm;
-            height: parent.height - 2 * Tokens.space-xs;
+            x: Spacing.sm;
+            y: Spacing.xs;
+            width: parent.width - 2 * Spacing.sm;
+            height: parent.height - 2 * Spacing.xs;
             notification-content := VerticalLayout {
-                spacing: Tokens.space-xs;
+                spacing: Spacing.xs;
                 for task in NotificationState.tasks: HorizontalLayout {
-                    spacing: Tokens.space-sm;
+                    spacing: Spacing.sm;
                     Text {
                         text: task.text;
-                        color: Theme.text;
-                        font-size: Tokens.font-md;
+                        color: Theme.text-primary;
+                        font-size: Typography.compact-label.size;
                         vertical-alignment: center;
                         wrap: word-wrap;
                         horizontal-stretch: 1;
@@ -200,8 +200,8 @@ export component MainLayout inherits Rectangle {
                 }
                 if NotificationState.text != "": Text {
                     text: NotificationState.text;
-                    color: Theme.text;
-                    font-size: Tokens.font-md;
+                    color: Theme.text-primary;
+                    font-size: Typography.compact-label.size;
                     wrap: word-wrap;
                 }
             }
@@ -254,19 +254,19 @@ export component MainLayout inherits Rectangle {
     }
 
     if ObjectsState.popover-kind == "C": ColorPopover {
-        x: parent.width - root.rw + Tokens.space-sm;
+        x: parent.width - root.rw + Spacing.sm;
         y: ObjectsState.popover-source == "pill"
             ? max(0px, min(ObjectsState.popover-anchor-y - self.height - 4px, parent.height - self.height))
             : min(ObjectsState.popover-anchor-y, parent.height - self.height);
-        width: root.rw - 2 * Tokens.space-sm;
+        width: root.rw - 2 * Spacing.sm;
     }
 
     if ObjectsState.popover-kind == "R": RepPopover {
-        x: parent.width - root.rw + Tokens.space-sm;
+        x: parent.width - root.rw + Spacing.sm;
         y: ObjectsState.popover-source == "pill"
             ? max(0px, min(ObjectsState.popover-anchor-y - self.height - 4px, parent.height - self.height))
             : min(ObjectsState.popover-anchor-y, parent.height - self.height);
-        width: root.rw - 2 * Tokens.space-sm;
+        width: root.rw - 2 * Spacing.sm;
     }
 
     if ObjectsState.popover-kind == "M": OverflowMenu {

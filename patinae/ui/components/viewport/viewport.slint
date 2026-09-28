@@ -1,11 +1,11 @@
+import { Theme } from "../../foundations/foundations.slint";
 import { Hud } from "hud.slint";
 import { EmptyState } from "empty-state.slint";
-import { Theme } from "../../theme.slint";
 import { LayoutState } from "../../states/layout-state.slint";
 import { ViewportState } from "../../states/viewport-state.slint";
 
 export component Viewport inherits Rectangle {
-    background: Theme.viewport-bg;
+    background: Theme.surface-viewport;
 
     if !LayoutState.empty-mode: Image {
         source: ViewportState.viewport-texture;

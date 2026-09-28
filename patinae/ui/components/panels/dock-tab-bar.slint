@@ -1,18 +1,18 @@
-import { Theme } from "../../theme.slint";
-import { Tokens } from "../../tokens.slint";
+import { ComponentMetrics } from "../metrics.slint";
+import { Theme, Typography, Spacing, Motion } from "../../foundations/foundations.slint";
 import { LayoutState } from "../../states/layout-state.slint";
 import { PluginState } from "../../states/plugin-state.slint";
 
 // Tab switcher for the bottom dock (Sequence | Movie).
 // Tabs appear only when their panel is toggled on via sidebar.
 export component DockTabBar inherits Rectangle {
-    height: Tokens.tab-bar-h;
+    height: ComponentMetrics.tab-bar-h;
     background: transparent;
 
     HorizontalLayout {
-        padding-left: Tokens.space-md;
+        padding-left: Spacing.md;
         alignment: start;
-        spacing: Tokens.space-md;
+        spacing: Spacing.md;
 
         // ── Sequence tab ──────────────────────────────────────────
         if LayoutState.sequence-visible: Rectangle {
@@ -22,13 +22,13 @@ export component DockTabBar inherits Rectangle {
             seq-text := Text {
                 text: "SEQUENCE";
                 color: LayoutState.bottom-active-tab == 0
-                    ? Theme.cyan : Theme.text-muted;
-                font-size: Tokens.font-md;
+                    ? Theme.accent-primary : Theme.text-muted;
+                font-size: Typography.compact-label.size;
                 font-weight: 500;
                 letter-spacing: 1.1px;
                 vertical-alignment: center;
 
-                animate color { duration: Tokens.motion-micro; }
+                animate color { duration: Motion.micro; }
             }
 
             TouchArea {
@@ -44,10 +44,10 @@ export component DockTabBar inherits Rectangle {
                 y: parent.height - 2px;
                 height: 2px;
                 width: 100%;
-                background: Theme.cyan;
+                background: Theme.accent-primary;
                 opacity: LayoutState.bottom-active-tab == 0 ? 1.0 : 0.0;
 
-                animate opacity { duration: Tokens.motion-micro; }
+                animate opacity { duration: Motion.micro; }
             }
         }
 
@@ -59,13 +59,13 @@ export component DockTabBar inherits Rectangle {
             mov-text := Text {
                 text: "MOVIE";
                 color: LayoutState.bottom-active-tab == 1
-                    ? Theme.cyan : Theme.text-muted;
-                font-size: Tokens.font-md;
+                    ? Theme.accent-primary : Theme.text-muted;
+                font-size: Typography.compact-label.size;
                 font-weight: 500;
                 letter-spacing: 1.1px;
                 vertical-alignment: center;
 
-                animate color { duration: Tokens.motion-micro; }
+                animate color { duration: Motion.micro; }
             }
 
             TouchArea {
@@ -81,10 +81,10 @@ export component DockTabBar inherits Rectangle {
                 y: parent.height - 2px;
                 height: 2px;
                 width: 100%;
-                background: Theme.cyan;
+                background: Theme.accent-primary;
                 opacity: LayoutState.bottom-active-tab == 1 ? 1.0 : 0.0;
 
-                animate opacity { duration: Tokens.motion-micro; }
+                animate opacity { duration: Motion.micro; }
             }
         }
 
@@ -94,8 +94,8 @@ export component DockTabBar inherits Rectangle {
 
             plug-text := Text {
                 text: tab.title;
-                color: tab.active ? Theme.cyan : Theme.text-muted;
-                font-size: Tokens.font-md;
+                color: tab.active ? Theme.accent-primary : Theme.text-muted;
+                font-size: Typography.compact-label.size;
                 font-weight: 500;
                 letter-spacing: 1.1px;
                 vertical-alignment: center;
@@ -113,7 +113,7 @@ export component DockTabBar inherits Rectangle {
                 y: parent.height - 2px;
                 height: 2px;
                 width: 100%;
-                background: Theme.cyan;
+                background: Theme.accent-primary;
                 opacity: tab.active ? 1.0 : 0.0;
             }
         }
@@ -124,6 +124,6 @@ export component DockTabBar inherits Rectangle {
         y: parent.height - 0.5px;
         height: 0.5px;
         width: 100%;
-        background: Theme.line;
+        background: Theme.border-subtle;
     }
 }

@@ -1,11 +1,11 @@
+import { ComponentMetrics } from "./metrics.slint";
+import { Theme, Typography } from "../foundations/foundations.slint";
 // Custom-drawn UI icons — Rectangle and Path primitives only. No Unicode.
 //
 // Used by the action pill (ZoomIcon / OrientIcon / CenterIcon / ToggleIcon /
 // OverflowIcon) and by the object-list chain rows (BioGlyph / SolventGlyph /
 // OrganicGlyph / InorganicGlyph).
 
-import { Theme } from "../theme.slint";
-import { Tokens } from "../tokens.slint";
 
 // ── Chevron icons (object-list expand/collapse) ─────────────────────
 
@@ -52,8 +52,8 @@ export component ChevronDown {
 // Viewfinder — 4 L-shaped corner brackets inside a centered 12×12 box.
 export component ZoomIcon {
     in property <color> tint;
-    property <length> s: Tokens.pill-icon-size;
-    property <length> t: Tokens.pill-icon-stroke;
+    property <length> s: ComponentMetrics.pill-icon-size;
+    property <length> t: ComponentMetrics.pill-icon-stroke;
     // Inner frame: centered 12×12 so icon visually matches other 12×12 icons.
     property <length> inset: (s - 12px) / 2;
     property <length> b: 4px;  // bracket arm length
@@ -76,8 +76,8 @@ export component ZoomIcon {
 export component OrientIcon {
     in property <color> tint;
 
-    width: Tokens.pill-icon-size;
-    height: Tokens.pill-icon-size;
+    width: ComponentMetrics.pill-icon-size;
+    height: ComponentMetrics.pill-icon-size;
 
     Path {
         width: 100%;
@@ -85,7 +85,7 @@ export component OrientIcon {
         viewbox-width: 16;
         viewbox-height: 16;
         stroke: tint;
-        stroke-width: Tokens.pill-icon-stroke;
+        stroke-width: ComponentMetrics.pill-icon-stroke;
         fill: transparent;
         // 270° arc (r=5) from 3 o'clock CW around to 12 o'clock, with arrowhead.
         commands: "M 13 8 A 5 5 0 1 1 8 3 M 8 3 L 6 1 M 8 3 L 6 5";
@@ -95,8 +95,8 @@ export component OrientIcon {
 // Crosshair in a ring — center / recenter action. 12×12 target centered in 16×16.
 export component CenterIcon {
     in property <color> tint;
-    property <length> s: Tokens.pill-icon-size;
-    property <length> t: Tokens.pill-icon-stroke;
+    property <length> s: ComponentMetrics.pill-icon-size;
+    property <length> t: ComponentMetrics.pill-icon-stroke;
     property <length> d: 8px;        // ring diameter
     property <length> r: d / 2;
     property <length> arm: 2px;      // crosshair protrusion beyond ring
@@ -136,8 +136,8 @@ export component CenterIcon {
 export component ToggleIcon {
     in property <color> tint;
 
-    width: Tokens.pill-icon-size;
-    height: Tokens.pill-icon-size;
+    width: ComponentMetrics.pill-icon-size;
+    height: ComponentMetrics.pill-icon-size;
 
     Path {
         width: 100%;
@@ -145,7 +145,7 @@ export component ToggleIcon {
         viewbox-width: 16;
         viewbox-height: 16;
         stroke: tint;
-        stroke-width: Tokens.pill-icon-stroke;
+        stroke-width: ComponentMetrics.pill-icon-stroke;
         fill: transparent;
         // Arc with gap at top (from ~30° to ~330°), plus vertical bar.
         commands: "M 10 4 A 5 5 0 1 1 6 4 M 8 3 L 8 8";
@@ -157,8 +157,8 @@ export component OverflowIcon {
     in property <color> tint;
     property <length> dot: 3px;
 
-    width: Tokens.pill-icon-size;
-    height: Tokens.pill-icon-size;
+    width: ComponentMetrics.pill-icon-size;
+    height: ComponentMetrics.pill-icon-size;
 
     HorizontalLayout {
         spacing: 2px;
@@ -174,7 +174,7 @@ export component OverflowIcon {
 
 // Atom centered in a four-corner picking reticle.
 export component AtomPickIcon {
-    in property <color> tint: Theme.magenta;
+    in property <color> tint: Theme.accent-selection;
 
     width: 14px;
     height: 14px;
@@ -202,7 +202,7 @@ export component AtomPickIcon {
 
 // Small close/remove glyph for row-local destructive actions.
 export component RemoveIcon {
-    in property <color> tint: Theme.text-faint;
+    in property <color> tint: Theme.text-disabled;
 
     width: 10px;
     height: 10px;
@@ -226,13 +226,13 @@ export component BioGlyph {
     in property <color> tint;
     in property <bool> multicolor: false;
 
-    width: Tokens.dot-size;
-    height: Tokens.dot-size;
+    width: ComponentMetrics.dot-size;
+    height: ComponentMetrics.dot-size;
 
     Rectangle {
         width: 100%;
         height: 100%;
-        border-radius: Tokens.dot-radius;
+        border-radius: ComponentMetrics.dot-radius;
         background: root.multicolor
             ? @linear-gradient(135deg, #22D3EE 0%, #A78BFA 50%, #FB923C 100%)
             : root.tint;
@@ -241,9 +241,9 @@ export component BioGlyph {
 
 // Solvent — "SOL" text tag in violet.
 export component SolventGlyph {
-    in property <color> tint: Theme.violet;
+    in property <color> tint: Theme.accent-violet;
 
-    width: Tokens.chain-indicator-w;
+    width: ComponentMetrics.chain-indicator-w;
     height: 12px;
 
     Text {
@@ -251,7 +251,7 @@ export component SolventGlyph {
         height: 100%;
         text: "SOL";
         color: tint;
-        font-size: Tokens.font-xs;
+        font-size: Typography.compact-hud.size;
         font-weight: 500;
         horizontal-alignment: center;
         vertical-alignment: center;
@@ -284,7 +284,7 @@ export component OrganicGlyph {
 
 // Inorganic — rotated magenta square (diamond), suggesting crystalline/ion.
 export component InorganicGlyph {
-    in property <color> tint: Theme.magenta;
+    in property <color> tint: Theme.accent-selection;
 
     width: 10px;
     height: 10px;
@@ -302,7 +302,7 @@ export component InorganicGlyph {
 
 // Source map — small volume/grid square.
 export component MapSourceGlyph {
-    in property <color> tint: Theme.cyan;
+    in property <color> tint: Theme.accent-primary;
 
     width: 14px;
     height: 14px;
@@ -332,7 +332,7 @@ export component MapSourceGlyph {
 
 // Isomesh — contour wire.
 export component MapIsomeshGlyph {
-    in property <color> tint: Theme.cyan;
+    in property <color> tint: Theme.accent-primary;
 
     width: 14px;
     height: 14px;
@@ -351,7 +351,7 @@ export component MapIsomeshGlyph {
 
 // Isosurface — filled contour surface.
 export component MapIsosurfaceGlyph {
-    in property <color> tint: Theme.cyan;
+    in property <color> tint: Theme.accent-primary;
 
     width: 14px;
     height: 14px;
@@ -370,7 +370,7 @@ export component MapIsosurfaceGlyph {
 
 // Distance measurement — dashed segment with endpoint dots.
 export component MeasurementDistanceGlyph {
-    in property <color> tint: Theme.cyan;
+    in property <color> tint: Theme.accent-primary;
     in property <bool> multicolor: false;
 
     width: 14px;
@@ -390,13 +390,13 @@ export component MeasurementDistanceGlyph {
     Rectangle { x: 10.5px; y: 1.5px; width: 3px; height: 3px; border-radius: 1.5px; background: tint; }
     if root.multicolor: Rectangle {
         x: 9px; y: 9px; width: 5px; height: 5px; border-radius: 2.5px;
-        background: @linear-gradient(90deg, Theme.cyan 0%, Theme.magenta 100%);
+        background: @linear-gradient(90deg, Theme.accent-primary 0%, Theme.accent-selection 100%);
     }
 }
 
 // Angle measurement — two legs and an inner arc.
 export component MeasurementAngleGlyph {
-    in property <color> tint: Theme.cyan;
+    in property <color> tint: Theme.accent-primary;
     in property <bool> multicolor: false;
 
     width: 14px;
@@ -414,13 +414,13 @@ export component MeasurementAngleGlyph {
     }
     if root.multicolor: Rectangle {
         x: 9px; y: 9px; width: 5px; height: 5px; border-radius: 2.5px;
-        background: @linear-gradient(90deg, Theme.cyan 0%, Theme.magenta 100%);
+        background: @linear-gradient(90deg, Theme.accent-primary 0%, Theme.accent-selection 100%);
     }
 }
 
 // Dihedral measurement — skewed four-point chain with a signed arc.
 export component MeasurementDihedralGlyph {
-    in property <color> tint: Theme.cyan;
+    in property <color> tint: Theme.accent-primary;
     in property <bool> multicolor: false;
 
     width: 14px;
@@ -438,13 +438,13 @@ export component MeasurementDihedralGlyph {
     }
     if root.multicolor: Rectangle {
         x: 9px; y: 9px; width: 5px; height: 5px; border-radius: 2.5px;
-        background: @linear-gradient(90deg, Theme.cyan 0%, Theme.magenta 100%);
+        background: @linear-gradient(90deg, Theme.accent-primary 0%, Theme.accent-selection 100%);
     }
 }
 
 // Text label collection — compact tag with two text strokes.
 export component LabelGlyph {
-    in property <color> tint: Theme.cyan;
+    in property <color> tint: Theme.accent-primary;
     in property <bool> multicolor: false;
 
     width: 14px;
@@ -469,6 +469,6 @@ export component LabelGlyph {
     }
     if root.multicolor: Rectangle {
         x: 9px; y: 9px; width: 5px; height: 5px; border-radius: 2.5px;
-        background: @linear-gradient(90deg, Theme.cyan 0%, Theme.magenta 100%);
+        background: @linear-gradient(90deg, Theme.accent-primary 0%, Theme.accent-selection 100%);
     }
 }

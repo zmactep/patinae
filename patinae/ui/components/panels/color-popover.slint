@@ -1,12 +1,11 @@
-import { Theme, NamedColor } from "../../theme.slint";
-import { Tokens } from "../../tokens.slint";
+import { Theme, Typography, Spacing, Shape } from "../../foundations/foundations.slint";
 import { ObjectsState } from "../../states/objects-state.slint";
 
 // ── Section label ──────────────────────────────────────────────────
 
 component SectionLabel inherits Text {
-    color: Theme.text-ghost;
-    font-size: Tokens.font-xs;
+    color: Theme.text-placeholder;
+    font-size: Typography.compact-hud.size;
     font-weight: 500;
     letter-spacing: 1.1px;
     vertical-alignment: center;
@@ -31,12 +30,12 @@ component SchemeCard inherits Rectangle {
     height: 42px;
     preferred-width: 0px;
     min-width: 0px;
-    border-radius: Tokens.radius-sm;
-    border-width: Tokens.hairline;
-    border-color: root.disabled ? Theme.line
-        : card-touch.has-hover ? Theme.line-strong : Theme.line;
+    border-radius: Shape.radius-sm;
+    border-width: Shape.hairline;
+    border-color: root.disabled ? Theme.border-subtle
+        : card-touch.has-hover ? Theme.border-strong : Theme.border-subtle;
     background: root.disabled ? transparent
-        : card-touch.has-hover ? Theme.bg-inset : Theme.bg-raised;
+        : card-touch.has-hover ? Theme.surface-control : Theme.surface-raised;
     opacity: root.disabled ? 0.4 : 1.0;
 
     // Default icons — hidden when custom icon is used
@@ -68,9 +67,9 @@ component SchemeCard inherits Rectangle {
         width: 100%;
         height: 18px;
         text: root.label;
-        color: root.disabled ? Theme.text-ghost
-            : card-touch.has-hover ? Theme.text : Theme.text-dim;
-        font-size: Tokens.font-sm;
+        color: root.disabled ? Theme.text-placeholder
+            : card-touch.has-hover ? Theme.text-primary : Theme.text-secondary;
+        font-size: Typography.hint.size;
         font-weight: 500;
         horizontal-alignment: center;
         vertical-alignment: center;
@@ -101,7 +100,7 @@ component ColorSwatch inherits Rectangle {
     border-radius: 4px;
     background: root.swatch-color;
     border-width: swatch-touch.has-hover ? 1.5px : 0px;
-    border-color: Theme.text;
+    border-color: Theme.text-primary;
 
     swatch-touch := TouchArea {
         changed has-hover => {
@@ -128,24 +127,24 @@ component ScopeButton inherits Rectangle {
     preferred-width: 0px;
     min-width: 0px;
     height: 22px;
-    border-radius: Tokens.radius-sm;
-    border-width: root.active ? 1px : Tokens.hairline;
-    border-color: root.disabled ? Theme.line
-        : root.active ? Theme.cyan
-        : scope-touch.has-hover ? Theme.line-strong : Theme.line;
+    border-radius: Shape.radius-sm;
+    border-width: root.active ? 1px : Shape.hairline;
+    border-color: root.disabled ? Theme.border-subtle
+        : root.active ? Theme.accent-primary
+        : scope-touch.has-hover ? Theme.border-strong : Theme.border-subtle;
     background: root.disabled ? transparent
-        : root.active ? Theme.cyan.with-alpha(0.12)
-        : scope-touch.has-hover ? Theme.bg-inset : Theme.bg-raised;
+        : root.active ? Theme.accent-primary.with-alpha(0.12)
+        : scope-touch.has-hover ? Theme.surface-control : Theme.surface-raised;
     opacity: root.disabled ? 0.4 : 1.0;
 
     Text {
         width: 100%;
         height: 100%;
         text: root.label;
-        color: root.disabled ? Theme.text-ghost
-            : root.active ? Theme.cyan
-            : scope-touch.has-hover ? Theme.text : Theme.text-dim;
-        font-size: Tokens.font-sm;
+        color: root.disabled ? Theme.text-placeholder
+            : root.active ? Theme.accent-primary
+            : scope-touch.has-hover ? Theme.text-primary : Theme.text-secondary;
+        font-size: Typography.hint.size;
         font-weight: root.active ? 600 : 500;
         horizontal-alignment: center;
         vertical-alignment: center;
@@ -167,22 +166,22 @@ component ScopeIconButton inherits Rectangle {
     in property <bool> disabled: false;
 
     property <bool> active: !root.disabled && ObjectsState.popover-scope == root.scope-id;
-    out property <color> tint: root.disabled ? Theme.text-ghost
-        : root.active ? Theme.cyan
-        : scope-touch.has-hover ? Theme.text : Theme.text-dim;
+    out property <color> tint: root.disabled ? Theme.text-placeholder
+        : root.active ? Theme.accent-primary
+        : scope-touch.has-hover ? Theme.text-primary : Theme.text-secondary;
 
     horizontal-stretch: 1;
     preferred-width: 0px;
     min-width: 0px;
     height: 36px;
-    border-radius: Tokens.radius-sm;
-    border-width: root.active ? 1px : Tokens.hairline;
-    border-color: root.disabled ? Theme.line
-        : root.active ? Theme.cyan
-        : scope-touch.has-hover ? Theme.line-strong : Theme.line;
+    border-radius: Shape.radius-sm;
+    border-width: root.active ? 1px : Shape.hairline;
+    border-color: root.disabled ? Theme.border-subtle
+        : root.active ? Theme.accent-primary
+        : scope-touch.has-hover ? Theme.border-strong : Theme.border-subtle;
     background: root.disabled ? transparent
-        : root.active ? Theme.cyan.with-alpha(0.12)
-        : scope-touch.has-hover ? Theme.bg-inset : Theme.bg-raised;
+        : root.active ? Theme.accent-primary.with-alpha(0.12)
+        : scope-touch.has-hover ? Theme.surface-control : Theme.surface-raised;
     opacity: root.disabled ? 0.4 : 1.0;
 
     // Icon area (10×10, centered horizontally, top-aligned)
@@ -200,7 +199,7 @@ component ScopeIconButton inherits Rectangle {
         height: 16px;
         text: root.label;
         color: root.tint;
-        font-size: Tokens.font-sm;
+        font-size: Typography.hint.size;
         font-weight: root.active ? 600 : 500;
         horizontal-alignment: center;
         vertical-alignment: center;
@@ -218,10 +217,10 @@ component ScopeIconButton inherits Rectangle {
 
 export component ColorPopover inherits Rectangle {
     height: inner.preferred-height;
-    border-radius: Tokens.radius-md;
-    background: Theme.bg-card;
-    border-width: Tokens.hairline;
-    border-color: Theme.line;
+    border-radius: Shape.radius-md;
+    background: Theme.surface-overlay;
+    border-width: Shape.hairline;
+    border-color: Theme.border-subtle;
 
     // Block empty-surface clicks from falling through to the dismiss backdrop.
     TouchArea {}
@@ -252,20 +251,20 @@ export component ColorPopover inherits Rectangle {
         : "color ";
 
     inner := VerticalLayout {
-        padding: Tokens.space-sm;
-        spacing: Tokens.space-sm;
+        padding: Spacing.sm;
+        spacing: Spacing.sm;
 
         // Header
         HorizontalLayout {
             alignment: space-between;
             height: 18px;
-            padding-left: Tokens.space-xs;
-            padding-right: Tokens.space-xs;
+            padding-left: Spacing.xs;
+            padding-right: Spacing.xs;
 
             Text {
                 text: "COLOR";
                 color: Theme.text-muted;
-                font-size: Tokens.font-xs;
+                font-size: Typography.compact-hud.size;
                 font-weight: 500;
                 letter-spacing: 1.1px;
                 vertical-alignment: center;
@@ -273,8 +272,8 @@ export component ColorPopover inherits Rectangle {
 
             Text {
                 text: ObjectsState.popover-display-label;
-                color: Theme.text-ghost;
-                font-size: Tokens.font-xs;
+                color: Theme.text-placeholder;
+                font-size: Typography.compact-hud.size;
                 vertical-alignment: center;
             }
         }
@@ -378,8 +377,8 @@ export component ColorPopover inherits Rectangle {
 
         // Separator
         if !root.solid-only: Rectangle {
-            height: Tokens.hairline;
-            background: Theme.line;
+            height: Shape.hairline;
+            background: Theme.border-subtle;
         }
 
         // ── SOLID ──
@@ -418,8 +417,8 @@ export component ColorPopover inherits Rectangle {
 
         // Separator
         Rectangle {
-            height: Tokens.hairline;
-            background: Theme.line;
+            height: Shape.hairline;
+            background: Theme.border-subtle;
         }
 
         // ── SCHEME ──
@@ -575,17 +574,17 @@ export component ColorPopover inherits Rectangle {
 
             // CMD badge
             Rectangle {
-                width: cmd-label.preferred-width + 2 * Tokens.space-sm;
+                width: cmd-label.preferred-width + 2 * Spacing.sm;
                 height: parent.height;
-                border-radius: Tokens.radius-sm;
-                background: Theme.bg-raised;
+                border-radius: Shape.radius-sm;
+                background: Theme.surface-raised;
 
                 cmd-label := Text {
                     width: 100%;
                     height: 100%;
                     text: "CMD";
-                    color: Theme.text-ghost;
-                    font-size: Tokens.font-sm;
+                    color: Theme.text-placeholder;
+                    font-size: Typography.hint.size;
                     font-weight: 600;
                     letter-spacing: 0.8px;
                     horizontal-alignment: center;
@@ -597,16 +596,16 @@ export component ColorPopover inherits Rectangle {
             Rectangle {
                 horizontal-stretch: 1;
                 height: parent.height;
-                border-radius: Tokens.radius-sm;
-                background: Theme.bg-inset;
+                border-radius: Shape.radius-sm;
+                background: Theme.surface-control;
 
                 Text {
-                    x: Tokens.space-sm;
-                    width: parent.width - 2 * Tokens.space-sm;
+                    x: Spacing.sm;
+                    width: parent.width - 2 * Spacing.sm;
                     height: 100%;
                     text: ObjectsState.popover-cmd-preview;
                     color: Theme.text-muted;
-                    font-size: Tokens.font-sm;
+                    font-size: Typography.hint.size;
                     vertical-alignment: center;
                     overflow: elide;
                 }

@@ -1,0 +1,65 @@
+import { FoundationPalette } from "palette.slint";
+
+export struct NamedColor { name: string, swatch: color }
+
+export global Theme {
+    in-out property <bool> dark-mode: true;
+    callback toggle-theme();
+
+    out property <color> surface-base: dark-mode ? FoundationPalette.dark-surface-base : FoundationPalette.light-surface-base;
+    out property <color> surface-panel: dark-mode ? FoundationPalette.dark-surface-panel : FoundationPalette.light-surface-panel;
+    out property <color> surface-raised: dark-mode ? FoundationPalette.dark-surface-raised : FoundationPalette.light-surface-raised;
+    out property <color> surface-control: dark-mode ? FoundationPalette.dark-surface-control : FoundationPalette.light-surface-control;
+    out property <color> surface-overlay: dark-mode ? FoundationPalette.dark-surface-overlay : FoundationPalette.light-surface-overlay;
+    out property <color> border-subtle: dark-mode ? FoundationPalette.dark-border-subtle : FoundationPalette.light-border-subtle;
+    out property <color> border-strong: dark-mode ? FoundationPalette.dark-border-strong : FoundationPalette.light-border-strong;
+    out property <color> text-primary: dark-mode ? FoundationPalette.dark-text-primary : FoundationPalette.light-text-primary;
+    out property <color> text-secondary: dark-mode ? FoundationPalette.dark-text-secondary : FoundationPalette.light-text-secondary;
+    out property <color> text-muted: dark-mode ? FoundationPalette.dark-text-muted : FoundationPalette.light-text-muted;
+    out property <color> text-disabled: dark-mode ? FoundationPalette.dark-text-disabled : FoundationPalette.light-text-disabled;
+    out property <color> text-placeholder: dark-mode ? FoundationPalette.dark-text-placeholder : FoundationPalette.light-text-placeholder;
+    out property <color> accent-primary: dark-mode ? FoundationPalette.dark-accent-primary : FoundationPalette.light-accent-primary;
+    out property <color> accent-primary-strong: dark-mode ? FoundationPalette.dark-accent-primary-strong : FoundationPalette.light-accent-primary-strong;
+    out property <color> accent-selection: dark-mode ? FoundationPalette.dark-accent-selection : FoundationPalette.light-accent-selection;
+    out property <color> accent-selection-strong: dark-mode ? FoundationPalette.dark-accent-selection-strong : FoundationPalette.light-accent-selection-strong;
+    out property <color> accent-violet: dark-mode ? FoundationPalette.dark-accent-violet : FoundationPalette.light-accent-violet;
+    out property <color> accent-amber: dark-mode ? FoundationPalette.dark-accent-amber : FoundationPalette.light-accent-amber;
+    out property <color> status-error: dark-mode ? FoundationPalette.dark-status-error : FoundationPalette.light-status-error;
+    out property <color> status-warning: dark-mode ? FoundationPalette.dark-status-warning : FoundationPalette.light-status-warning;
+    out property <color> status-success: dark-mode ? FoundationPalette.dark-status-success : FoundationPalette.light-status-success;
+    out property <color> surface-viewport: dark-mode ? FoundationPalette.dark-surface-viewport : FoundationPalette.light-surface-viewport;
+
+    out property <color> focus-background: accent-primary.with-alpha(0.15);
+    out property <color> focus-outline: accent-primary.with-alpha(0.5);
+    out property <color> selection-background: accent-selection.with-alpha(dark-mode ? 0.12 : 0.14);
+    out property <color> selection-outline: accent-selection.with-alpha(0.5);
+
+    // Interaction roles reuse the palette without exposing its raw colors.
+    out property <color> icon-default: text-muted;
+    out property <color> icon-hover: accent-primary;
+    out property <color> icon-disabled: dark-mode ? FoundationPalette.dark-icon-disabled : FoundationPalette.light-icon-disabled;
+    out property <color> border-focus: accent-primary;
+    out property <color> action-primary: accent-primary;
+    out property <color> action-hover: accent-primary-strong;
+    out property <color> action-pressed: accent-primary-strong;
+    out property <color> text-on-accent: dark-mode ? FoundationPalette.dark-text-on-accent : FoundationPalette.light-text-on-accent;
+
+    // ── Chain palette (pushed from Rust via ThemedPalette) ──────
+    in property <color> chain-a;
+    in property <color> chain-b;
+    in property <color> chain-c;
+    in property <color> chain-d;
+    in property <color> chain-e;
+    in property <color> chain-f;
+
+    // ── Solid color swatches for color popover (pushed from Rust) ─
+    in property <[NamedColor]> solid-row1;
+    in property <[NamedColor]> solid-row2;
+    in property <[NamedColor]> solid-row3;
+
+    // ── Secondary structure colors (pushed from Rust) ────────
+    in property <color> ss-helix;
+    in property <color> ss-loop;
+    in property <color> ss-sheet;
+
+}

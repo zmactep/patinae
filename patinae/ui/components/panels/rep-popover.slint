@@ -1,12 +1,11 @@
-import { Theme } from "../../theme.slint";
-import { Tokens } from "../../tokens.slint";
+import { Theme, Typography, Spacing, Shape } from "../../foundations/foundations.slint";
 import { ObjectsState } from "../../states/objects-state.slint";
 
 // ── Section label ──────────────────────────────────────────────────
 
 component SectionLabel inherits Text {
-    color: Theme.text-ghost;
-    font-size: Tokens.font-xs;
+    color: Theme.text-placeholder;
+    font-size: Typography.compact-hud.size;
     font-weight: 500;
     letter-spacing: 1.1px;
     vertical-alignment: center;
@@ -23,16 +22,16 @@ component RepToggle inherits Rectangle {
     in property <string> target;
 
     property <bool> active: !root.disabled && root.rep-active;
-    out property <color> tint: root.disabled ? Theme.text-ghost : root.active ? Theme.cyan : rep-touch.has-hover ? Theme.text : Theme.text-dim;
+    out property <color> tint: root.disabled ? Theme.text-placeholder : root.active ? Theme.accent-primary : rep-touch.has-hover ? Theme.text-primary : Theme.text-secondary;
 
     horizontal-stretch: 1;
     preferred-width: 0px;
     min-width: 0px;
     height: 36px;
-    border-radius: Tokens.radius-sm;
-    border-width: root.active ? 1px : Tokens.hairline;
-    border-color: root.disabled ? Theme.line : root.active ? Theme.cyan : rep-touch.has-hover ? Theme.line-strong : Theme.line;
-    background: root.disabled ? transparent : root.active ? Theme.cyan.with-alpha(0.12) : rep-touch.has-hover ? Theme.bg-inset : Theme.bg-raised;
+    border-radius: Shape.radius-sm;
+    border-width: root.active ? 1px : Shape.hairline;
+    border-color: root.disabled ? Theme.border-subtle : root.active ? Theme.accent-primary : rep-touch.has-hover ? Theme.border-strong : Theme.border-subtle;
+    background: root.disabled ? transparent : root.active ? Theme.accent-primary.with-alpha(0.12) : rep-touch.has-hover ? Theme.surface-control : Theme.surface-raised;
     opacity: root.disabled ? 0.4 : 1.0;
 
     // Icon area (10×10, centered horizontally, top-aligned)
@@ -50,7 +49,7 @@ component RepToggle inherits Rectangle {
         height: 16px;
         text: root.label;
         color: root.tint;
-        font-size: Tokens.font-sm;
+        font-size: Typography.hint.size;
         font-weight: root.active ? 600 : 500;
         horizontal-alignment: center;
         vertical-alignment: center;
@@ -80,16 +79,16 @@ component PresetCard inherits Rectangle {
     in property <bool> disabled: false;
 
     property <bool> active: !root.disabled && root.preset-active;
-    out property <color> tint: root.disabled ? Theme.text-ghost : root.active ? Theme.cyan : card-touch.has-hover ? Theme.text : Theme.text-dim;
+    out property <color> tint: root.disabled ? Theme.text-placeholder : root.active ? Theme.accent-primary : card-touch.has-hover ? Theme.text-primary : Theme.text-secondary;
 
     height: 38px;
     horizontal-stretch: 1;
     preferred-width: 0px;
     min-width: 0px;
-    border-radius: Tokens.radius-sm;
-    border-width: root.active ? 1px : Tokens.hairline;
-    border-color: root.disabled ? Theme.line : root.active ? Theme.cyan : card-touch.has-hover ? Theme.line-strong : Theme.line;
-    background: root.disabled ? transparent : root.active ? Theme.cyan.with-alpha(0.12) : card-touch.has-hover ? Theme.bg-inset : Theme.bg-raised;
+    border-radius: Shape.radius-sm;
+    border-width: root.active ? 1px : Shape.hairline;
+    border-color: root.disabled ? Theme.border-subtle : root.active ? Theme.accent-primary : card-touch.has-hover ? Theme.border-strong : Theme.border-subtle;
+    background: root.disabled ? transparent : root.active ? Theme.accent-primary.with-alpha(0.12) : card-touch.has-hover ? Theme.surface-control : Theme.surface-raised;
     opacity: root.disabled ? 0.4 : 1.0;
 
     // Icon area (12×12, centered horizontally)
@@ -107,7 +106,7 @@ component PresetCard inherits Rectangle {
         height: 16px;
         text: root.label;
         color: root.tint;
-        font-size: Tokens.font-sm;
+        font-size: Typography.hint.size;
         font-weight: root.active ? 600 : 500;
         horizontal-alignment: center;
         vertical-alignment: center;
@@ -142,13 +141,13 @@ component TransparencySlider inherits Rectangle {
     height: 22px;
 
     HorizontalLayout {
-        spacing: Tokens.space-sm;
+        spacing: Spacing.sm;
 
         Text {
             width: 44px;
             text: root.label;
-            color: root.enabled ? Theme.text-dim : Theme.text-ghost;
-            font-size: Tokens.font-sm;
+            color: root.enabled ? Theme.text-secondary : Theme.text-placeholder;
+            font-size: Typography.hint.size;
             vertical-alignment: center;
         }
 
@@ -158,8 +157,8 @@ component TransparencySlider inherits Rectangle {
             height: 12px;
             border-radius: 3px;
             border-width: 1px;
-            border-color: root.enabled ? Theme.cyan : Theme.text-ghost;
-            background: root.enabled ? Theme.cyan.with-alpha(0.2) : transparent;
+            border-color: root.enabled ? Theme.accent-primary : Theme.text-placeholder;
+            background: root.enabled ? Theme.accent-primary.with-alpha(0.2) : transparent;
 
             // Checkmark
             if root.enabled: Path {
@@ -168,7 +167,7 @@ component TransparencySlider inherits Rectangle {
                 x: 2px;
                 y: 2px;
                 commands: "M 1 4 L 3.5 6.5 L 7 2";
-                stroke: Theme.cyan;
+                stroke: Theme.accent-primary;
                 stroke-width: 1.5px;
             }
 
@@ -194,7 +193,7 @@ component TransparencySlider inherits Rectangle {
             horizontal-stretch: 1;
             height: 12px;
             border-radius: 6px;
-            background: Theme.bg-inset;
+            background: Theme.surface-control;
             opacity: root.enabled ? 1.0 : 0.35;
 
             // Fill
@@ -203,7 +202,7 @@ component TransparencySlider inherits Rectangle {
                 width: parent.width * root.value;
                 height: parent.height;
                 border-radius: parent.border-radius;
-                background: Theme.cyan.with-alpha(0.3 + 0.5 * root.value);
+                background: Theme.accent-primary.with-alpha(0.3 + 0.5 * root.value);
             }
 
             // Thumb
@@ -213,7 +212,7 @@ component TransparencySlider inherits Rectangle {
                 height: 10px;
                 y: (parent.height - self.height) / 2;
                 border-radius: 5px;
-                background: slider-touch.has-hover || root.dragging ? Theme.cyan : Theme.text-muted;
+                background: slider-touch.has-hover || root.dragging ? Theme.accent-primary : Theme.text-muted;
             }
 
             slider-touch := TouchArea {
@@ -244,8 +243,8 @@ component TransparencySlider inherits Rectangle {
         Text {
             width: 28px;
             text: root.enabled ? round(root.value * 100) + "%" : "—";
-            color: root.enabled ? Theme.cyan : Theme.text-ghost;
-            font-size: Tokens.font-xs;
+            color: root.enabled ? Theme.accent-primary : Theme.text-placeholder;
+            font-size: Typography.compact-hud.size;
             vertical-alignment: center;
             horizontal-alignment: right;
         }
@@ -256,10 +255,10 @@ component TransparencySlider inherits Rectangle {
 
 export component RepPopover inherits Rectangle {
     height: inner.preferred-height;
-    border-radius: Tokens.radius-md;
-    background: Theme.bg-card;
-    border-width: Tokens.hairline;
-    border-color: Theme.line;
+    border-radius: Shape.radius-md;
+    background: Theme.surface-overlay;
+    border-width: Shape.hairline;
+    border-color: Theme.border-subtle;
 
     // Block empty-surface clicks from falling through to the dismiss backdrop.
     TouchArea { }
@@ -271,20 +270,20 @@ export component RepPopover inherits Rectangle {
     property <bool> is-obj: ObjectsState.popover-subchain-kind == "";
 
     inner := VerticalLayout {
-        padding: Tokens.space-sm;
-        spacing: Tokens.space-sm;
+        padding: Spacing.sm;
+        spacing: Spacing.sm;
 
         // Header
         HorizontalLayout {
             alignment: space-between;
             height: 18px;
-            padding-left: Tokens.space-xs;
-            padding-right: Tokens.space-xs;
+            padding-left: Spacing.xs;
+            padding-right: Spacing.xs;
 
             Text {
                 text: "SHOW / HIDE";
                 color: Theme.text-muted;
-                font-size: Tokens.font-xs;
+                font-size: Typography.compact-hud.size;
                 font-weight: 500;
                 letter-spacing: 1.1px;
                 vertical-alignment: center;
@@ -292,8 +291,8 @@ export component RepPopover inherits Rectangle {
 
             Text {
                 text: ObjectsState.popover-display-label;
-                color: Theme.text-ghost;
-                font-size: Tokens.font-xs;
+                color: Theme.text-placeholder;
+                font-size: Typography.compact-hud.size;
                 vertical-alignment: center;
             }
         }
@@ -476,8 +475,8 @@ export component RepPopover inherits Rectangle {
 
         // Presets section — only for biopolymer chains or object-level
         if root.is-bio: Rectangle {
-            height: Tokens.hairline;
-            background: Theme.line;
+            height: Shape.hairline;
+            background: Theme.border-subtle;
         }
 
         if root.is-bio: SectionLabel {
@@ -661,8 +660,8 @@ export component RepPopover inherits Rectangle {
 
         // ── TRANSPARENCY ──
         Rectangle {
-            height: Tokens.hairline;
-            background: Theme.line;
+            height: Shape.hairline;
+            background: Theme.border-subtle;
         }
 
         SectionLabel {
@@ -708,17 +707,17 @@ export component RepPopover inherits Rectangle {
 
             // CMD badge
             Rectangle {
-                width: cmd-label.preferred-width + 2 * Tokens.space-sm;
+                width: cmd-label.preferred-width + 2 * Spacing.sm;
                 height: parent.height;
-                border-radius: Tokens.radius-sm;
-                background: Theme.bg-raised;
+                border-radius: Shape.radius-sm;
+                background: Theme.surface-raised;
 
                 cmd-label := Text {
                     width: 100%;
                     height: 100%;
                     text: "CMD";
-                    color: Theme.text-ghost;
-                    font-size: Tokens.font-sm;
+                    color: Theme.text-placeholder;
+                    font-size: Typography.hint.size;
                     font-weight: 600;
                     letter-spacing: 0.8px;
                     horizontal-alignment: center;
@@ -730,16 +729,16 @@ export component RepPopover inherits Rectangle {
             Rectangle {
                 horizontal-stretch: 1;
                 height: parent.height;
-                border-radius: Tokens.radius-sm;
-                background: Theme.bg-inset;
+                border-radius: Shape.radius-sm;
+                background: Theme.surface-control;
 
                 Text {
-                    x: Tokens.space-sm;
-                    width: parent.width - 2 * Tokens.space-sm;
+                    x: Spacing.sm;
+                    width: parent.width - 2 * Spacing.sm;
                     height: 100%;
                     text: ObjectsState.popover-cmd-preview;
                     color: Theme.text-muted;
-                    font-size: Tokens.font-sm;
+                    font-size: Typography.hint.size;
                     vertical-alignment: center;
                     overflow: elide;
                 }

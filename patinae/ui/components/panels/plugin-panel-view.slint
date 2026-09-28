@@ -1,5 +1,4 @@
-import { Theme } from "../../theme.slint";
-import { Tokens } from "../../tokens.slint";
+import { Theme, Typography, Spacing, Shape, Motion } from "../../foundations/foundations.slint";
 import { PluginState, PluginControl, PluginControlNode, PluginControlLeaf, PluginSubLeaf, PluginOption, PluginButtonItem, PluginHighlightLine } from "../../states/plugin-state.slint";
 import { HighlightedTextArea } from "highlighted-text-area.slint";
 
@@ -8,19 +7,19 @@ component PluginButton inherits Rectangle {
     in property <string> panel-id;
 
     height: 32px;
-    border-radius: Tokens.radius-sm;
+    border-radius: Shape.radius-sm;
     background: root.control.primary
-        ? Theme.cyan.with-alpha(0.20)
-        : touch.has-hover ? Theme.bg-inset : Theme.bg-raised.with-alpha(0.22);
-    border-width: Tokens.hairline;
+        ? Theme.accent-primary.with-alpha(0.20)
+        : touch.has-hover ? Theme.surface-control : Theme.surface-raised.with-alpha(0.22);
+    border-width: Shape.hairline;
     border-color: root.control.primary
-        ? Theme.cyan.with-alpha(0.68)
-        : touch.has-hover ? Theme.line-strong : Theme.line.with-alpha(0.72);
+        ? Theme.accent-primary.with-alpha(0.68)
+        : touch.has-hover ? Theme.border-strong : Theme.border-subtle.with-alpha(0.72);
 
     Text {
         text: root.control.label;
-        color: root.control.primary ? Theme.cyan : Theme.text-dim;
-        font-size: Tokens.font-md;
+        color: root.control.primary ? Theme.accent-primary : Theme.text-secondary;
+        font-size: Typography.compact-label.size;
         font-weight: 500;
         horizontal-alignment: center;
         vertical-alignment: center;
@@ -79,21 +78,21 @@ component PluginIconButton inherits Rectangle {
 
     width: root.button.primary ? 32px : 28px;
     height: 24px;
-    border-radius: Tokens.radius-sm;
+    border-radius: Shape.radius-sm;
     background: root.button.primary
-        ? (root.button.enabled ? Theme.cyan.with-alpha(0.16) : transparent)
-        : touch.has-hover && root.button.enabled ? Theme.bg-inset : transparent;
-    border-width: Tokens.hairline;
+        ? (root.button.enabled ? Theme.accent-primary.with-alpha(0.16) : transparent)
+        : touch.has-hover && root.button.enabled ? Theme.surface-control : transparent;
+    border-width: Shape.hairline;
     border-color: root.button.primary && root.button.enabled
-        ? Theme.cyan.with-alpha(0.55)
-        : touch.has-hover && root.button.enabled ? Theme.line-strong : Theme.line;
+        ? Theme.accent-primary.with-alpha(0.55)
+        : touch.has-hover && root.button.enabled ? Theme.border-strong : Theme.border-subtle;
     opacity: root.button.enabled ? 1.0 : 0.35;
 
     PluginGlyph {
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
         icon: root.button.icon;
-        tint: root.button.primary ? Theme.cyan : Theme.text-dim;
+        tint: root.button.primary ? Theme.accent-primary : Theme.text-secondary;
     }
 
     touch := TouchArea {
@@ -108,18 +107,18 @@ component PluginIconButton inherits Rectangle {
         y: parent.height + 4px;
         width: tooltip-text.preferred-width + 10px;
         height: 20px;
-        border-radius: Tokens.radius-sm;
-        background: Theme.bg-card;
-        border-width: Tokens.hairline;
-        border-color: Theme.line-strong;
+        border-radius: Shape.radius-sm;
+        background: Theme.surface-overlay;
+        border-width: Shape.hairline;
+        border-color: Theme.border-strong;
 
         tooltip-text := Text {
             x: 5px;
             width: parent.width - 10px;
             height: 100%;
             text: root.button.label;
-            color: Theme.text-dim;
-            font-size: Tokens.font-sm;
+            color: Theme.text-secondary;
+            font-size: Typography.hint.size;
             vertical-alignment: center;
         }
     }
@@ -132,7 +131,7 @@ component PluginButtonRow inherits Rectangle {
     height: 24px;
 
     HorizontalLayout {
-        spacing: Tokens.space-xs;
+        spacing: Spacing.xs;
 
         for button in root.control.buttons: PluginIconButton {
             button: button;
@@ -153,7 +152,7 @@ component PluginToggle inherits Rectangle {
     height: 28px;
 
     HorizontalLayout {
-        spacing: Tokens.space-sm;
+        spacing: Spacing.sm;
 
         Rectangle {
             width: 24px;
@@ -167,8 +166,8 @@ component PluginToggle inherits Rectangle {
                 height: 14px;
                 border-radius: 4px;
                 border-width: 1px;
-                border-color: root.control.bool-value ? Theme.cyan : Theme.text-ghost;
-                background: root.control.bool-value ? Theme.cyan.with-alpha(0.20) : transparent;
+                border-color: root.control.bool-value ? Theme.accent-primary : Theme.text-placeholder;
+                background: root.control.bool-value ? Theme.accent-primary.with-alpha(0.20) : transparent;
 
                 if root.control.bool-value: Path {
                     width: 10px;
@@ -176,7 +175,7 @@ component PluginToggle inherits Rectangle {
                     x: 2px;
                     y: 2px;
                     commands: "M 1 5 L 4 8 L 9 2";
-                    stroke: Theme.cyan;
+                    stroke: Theme.accent-primary;
                     stroke-width: 1.5px;
                     fill: transparent;
                 }
@@ -187,8 +186,8 @@ component PluginToggle inherits Rectangle {
             horizontal-stretch: 1;
             height: 100%;
             text: root.control.label;
-            color: Theme.text-dim;
-            font-size: Tokens.font-md;
+            color: Theme.text-secondary;
+            font-size: Typography.compact-label.size;
             vertical-alignment: center;
         }
     }
@@ -236,15 +235,15 @@ component PluginSlider inherits Rectangle {
             Text {
                 horizontal-stretch: 1;
                 text: root.control.label;
-                color: Theme.text-dim;
-                font-size: Tokens.font-sm;
+                color: Theme.text-secondary;
+                font-size: Typography.hint.size;
             }
             Text {
                 width: 52px;
                 text: root.display-value();
-                color: Theme.cyan;
-                font-family: "JetBrains Mono";
-                font-size: Tokens.font-sm;
+                color: Theme.accent-primary;
+                font-family: Typography.content-family;
+                font-size: Typography.hint.size;
                 horizontal-alignment: right;
             }
         }
@@ -258,7 +257,7 @@ component PluginSlider inherits Rectangle {
                 width: 100%;
                 height: 8px;
                 border-radius: 4px;
-                background: Theme.bg-inset;
+                background: Theme.surface-control;
             }
 
             property <length> knob-size: 10px;
@@ -272,7 +271,7 @@ component PluginSlider inherits Rectangle {
                 width: parent.width * parent.pos;
                 height: 8px;
                 border-radius: 4px;
-                background: Theme.cyan.with-alpha(0.45);
+                background: Theme.accent-primary.with-alpha(0.45);
             }
 
             Rectangle {
@@ -281,7 +280,7 @@ component PluginSlider inherits Rectangle {
                 width: parent.knob-size;
                 height: parent.knob-size;
                 border-radius: parent.knob-size / 2;
-                background: touch.has-hover ? Theme.cyan : Theme.text-muted;
+                background: touch.has-hover ? Theme.accent-primary : Theme.text-muted;
             }
 
             touch := TouchArea {
@@ -311,15 +310,15 @@ component PluginOptionChip inherits Rectangle {
 
     width: max(42px, label.preferred-width + 16px);
     height: 28px;
-    border-radius: Tokens.radius-sm;
-    background: selected ? Theme.cyan.with-alpha(0.14) : touch.has-hover ? Theme.bg-inset : transparent;
-    border-width: Tokens.hairline;
-    border-color: selected ? Theme.cyan.with-alpha(0.55) : Theme.line;
+    border-radius: Shape.radius-sm;
+    background: selected ? Theme.accent-primary.with-alpha(0.14) : touch.has-hover ? Theme.surface-control : transparent;
+    border-width: Shape.hairline;
+    border-color: selected ? Theme.accent-primary.with-alpha(0.55) : Theme.border-subtle;
 
     label := Text {
         text: root.option.label;
-        color: root.selected ? Theme.cyan : Theme.text-muted;
-        font-size: Tokens.font-sm;
+        color: root.selected ? Theme.accent-primary : Theme.text-muted;
+        font-size: Typography.hint.size;
         font-weight: 500;
         horizontal-alignment: center;
         vertical-alignment: center;
@@ -341,12 +340,12 @@ component PluginSelect inherits VerticalLayout {
 
     Text {
         text: root.control.label;
-        color: Theme.text-dim;
-        font-size: Tokens.font-sm;
+        color: Theme.text-secondary;
+        font-size: Typography.hint.size;
     }
 
     HorizontalLayout {
-        spacing: Tokens.space-xs;
+        spacing: Spacing.xs;
         for option in root.control.options: PluginOptionChip {
             option: option;
             control: root.control;
@@ -366,16 +365,16 @@ component PluginTextInput inherits Rectangle {
 
         Text {
             text: root.control.label;
-            color: Theme.text-dim;
-            font-size: Tokens.font-sm;
+            color: Theme.text-secondary;
+            font-size: Typography.hint.size;
         }
 
         Rectangle {
             height: 28px;
-            border-radius: Tokens.radius-sm;
-            background: Theme.bg-inset.with-alpha(0.70);
-            border-width: Tokens.hairline;
-            border-color: input.has-focus ? Theme.cyan.with-alpha(0.65) : Theme.line;
+            border-radius: Shape.radius-sm;
+            background: Theme.surface-control.with-alpha(0.70);
+            border-width: Shape.hairline;
+            border-color: input.has-focus ? Theme.accent-primary.with-alpha(0.65) : Theme.border-subtle;
 
             input := TextInput {
                 x: 8px;
@@ -383,11 +382,11 @@ component PluginTextInput inherits Rectangle {
                 height: parent.height;
                 text: root.control.value-text;
                 single-line: true;
-                color: Theme.text-dim;
-                font-size: Tokens.font-md;
+                color: Theme.text-secondary;
+                font-size: Typography.compact-label.size;
                 vertical-alignment: center;
-                selection-background-color: Theme.cyan.with-alpha(0.3);
-                selection-foreground-color: Theme.text;
+                selection-background-color: Theme.accent-primary.with-alpha(0.3);
+                selection-foreground-color: Theme.text-primary;
 
                 edited => {
                     PluginState.control-event(root.panel-id, root.control.id, "text-edit", self.text, 0, false);
@@ -407,7 +406,7 @@ component PluginNodeToggle inherits Rectangle {
     height: 28px;
 
     HorizontalLayout {
-        spacing: Tokens.space-sm;
+        spacing: Spacing.sm;
 
         Rectangle {
             width: 24px;
@@ -421,8 +420,8 @@ component PluginNodeToggle inherits Rectangle {
                 height: 14px;
                 border-radius: 4px;
                 border-width: 1px;
-                border-color: root.control.bool-value ? Theme.cyan : Theme.text-ghost;
-                background: root.control.bool-value ? Theme.cyan.with-alpha(0.20) : transparent;
+                border-color: root.control.bool-value ? Theme.accent-primary : Theme.text-placeholder;
+                background: root.control.bool-value ? Theme.accent-primary.with-alpha(0.20) : transparent;
 
                 if root.control.bool-value: Path {
                     width: 10px;
@@ -430,7 +429,7 @@ component PluginNodeToggle inherits Rectangle {
                     x: 2px;
                     y: 2px;
                     commands: "M 1 5 L 4 8 L 9 2";
-                    stroke: Theme.cyan;
+                    stroke: Theme.accent-primary;
                     stroke-width: 1.5px;
                     fill: transparent;
                 }
@@ -441,8 +440,8 @@ component PluginNodeToggle inherits Rectangle {
             horizontal-stretch: 1;
             height: 100%;
             text: root.control.label;
-            color: Theme.text-dim;
-            font-size: Tokens.font-md;
+            color: Theme.text-secondary;
+            font-size: Typography.compact-label.size;
             vertical-alignment: center;
         }
     }
@@ -490,15 +489,15 @@ component PluginNodeSlider inherits Rectangle {
             Text {
                 horizontal-stretch: 1;
                 text: root.control.label;
-                color: Theme.text-dim;
-                font-size: Tokens.font-sm;
+                color: Theme.text-secondary;
+                font-size: Typography.hint.size;
             }
             Text {
                 width: 52px;
                 text: root.display-value();
-                color: Theme.cyan;
-                font-family: "JetBrains Mono";
-                font-size: Tokens.font-sm;
+                color: Theme.accent-primary;
+                font-family: Typography.content-family;
+                font-size: Typography.hint.size;
                 horizontal-alignment: right;
             }
         }
@@ -512,7 +511,7 @@ component PluginNodeSlider inherits Rectangle {
                 width: 100%;
                 height: 8px;
                 border-radius: 4px;
-                background: Theme.bg-inset;
+                background: Theme.surface-control;
             }
 
             property <length> knob-size: 10px;
@@ -526,7 +525,7 @@ component PluginNodeSlider inherits Rectangle {
                 width: parent.width * parent.pos;
                 height: 8px;
                 border-radius: 4px;
-                background: Theme.cyan.with-alpha(0.45);
+                background: Theme.accent-primary.with-alpha(0.45);
             }
 
             Rectangle {
@@ -535,7 +534,7 @@ component PluginNodeSlider inherits Rectangle {
                 width: parent.knob-size;
                 height: parent.knob-size;
                 border-radius: parent.knob-size / 2;
-                background: touch.has-hover ? Theme.cyan : Theme.text-muted;
+                background: touch.has-hover ? Theme.accent-primary : Theme.text-muted;
             }
 
             touch := TouchArea {
@@ -565,15 +564,15 @@ component PluginNodeOptionChip inherits Rectangle {
 
     width: max(42px, label.preferred-width + 16px);
     height: 28px;
-    border-radius: Tokens.radius-sm;
-    background: selected ? Theme.cyan.with-alpha(0.14) : touch.has-hover ? Theme.bg-inset : transparent;
-    border-width: Tokens.hairline;
-    border-color: selected ? Theme.cyan.with-alpha(0.55) : Theme.line;
+    border-radius: Shape.radius-sm;
+    background: selected ? Theme.accent-primary.with-alpha(0.14) : touch.has-hover ? Theme.surface-control : transparent;
+    border-width: Shape.hairline;
+    border-color: selected ? Theme.accent-primary.with-alpha(0.55) : Theme.border-subtle;
 
     label := Text {
         text: root.option.label;
-        color: root.selected ? Theme.cyan : Theme.text-muted;
-        font-size: Tokens.font-sm;
+        color: root.selected ? Theme.accent-primary : Theme.text-muted;
+        font-size: Typography.hint.size;
         font-weight: 500;
         horizontal-alignment: center;
         vertical-alignment: center;
@@ -595,12 +594,12 @@ component PluginNodeSelect inherits VerticalLayout {
 
     Text {
         text: root.control.label;
-        color: Theme.text-dim;
-        font-size: Tokens.font-sm;
+        color: Theme.text-secondary;
+        font-size: Typography.hint.size;
     }
 
     HorizontalLayout {
-        spacing: Tokens.space-xs;
+        spacing: Spacing.xs;
         for option in root.control.options: PluginNodeOptionChip {
             option: option;
             control: root.control;
@@ -620,16 +619,16 @@ component PluginNodeTextInput inherits Rectangle {
 
         Text {
             text: root.control.label;
-            color: Theme.text-dim;
-            font-size: Tokens.font-sm;
+            color: Theme.text-secondary;
+            font-size: Typography.hint.size;
         }
 
         Rectangle {
             height: 28px;
-            border-radius: Tokens.radius-sm;
-            background: Theme.bg-inset.with-alpha(0.70);
-            border-width: Tokens.hairline;
-            border-color: input.has-focus ? Theme.cyan.with-alpha(0.65) : Theme.line;
+            border-radius: Shape.radius-sm;
+            background: Theme.surface-control.with-alpha(0.70);
+            border-width: Shape.hairline;
+            border-color: input.has-focus ? Theme.accent-primary.with-alpha(0.65) : Theme.border-subtle;
 
             input := TextInput {
                 x: 8px;
@@ -637,11 +636,11 @@ component PluginNodeTextInput inherits Rectangle {
                 height: parent.height;
                 text: root.control.value-text;
                 single-line: true;
-                color: Theme.text-dim;
-                font-size: Tokens.font-md;
+                color: Theme.text-secondary;
+                font-size: Typography.compact-label.size;
                 vertical-alignment: center;
-                selection-background-color: Theme.cyan.with-alpha(0.3);
-                selection-foreground-color: Theme.text;
+                selection-background-color: Theme.accent-primary.with-alpha(0.3);
+                selection-foreground-color: Theme.text-primary;
 
                 edited => {
                     PluginState.control-event(root.panel-id, root.control.id, "text-edit", self.text, 0, false);
@@ -666,16 +665,16 @@ component PluginLeafTextInput inherits Rectangle {
 
         Text {
             text: root.control.label;
-            color: Theme.text-dim;
-            font-size: Tokens.font-sm;
+            color: Theme.text-secondary;
+            font-size: Typography.hint.size;
         }
 
         Rectangle {
             height: 28px;
-            border-radius: Tokens.radius-sm;
-            background: Theme.bg-inset.with-alpha(0.70);
-            border-width: Tokens.hairline;
-            border-color: input.has-focus ? Theme.cyan.with-alpha(0.65) : Theme.line;
+            border-radius: Shape.radius-sm;
+            background: Theme.surface-control.with-alpha(0.70);
+            border-width: Shape.hairline;
+            border-color: input.has-focus ? Theme.accent-primary.with-alpha(0.65) : Theme.border-subtle;
 
             input := TextInput {
                 x: 8px;
@@ -683,11 +682,11 @@ component PluginLeafTextInput inherits Rectangle {
                 height: parent.height;
                 text: root.control.value-text;
                 single-line: true;
-                color: Theme.text-dim;
-                font-size: Tokens.font-md;
+                color: Theme.text-secondary;
+                font-size: Typography.compact-label.size;
                 vertical-alignment: center;
-                selection-background-color: Theme.cyan.with-alpha(0.3);
-                selection-foreground-color: Theme.text;
+                selection-background-color: Theme.accent-primary.with-alpha(0.3);
+                selection-foreground-color: Theme.text-primary;
 
                 edited => {
                     PluginState.control-event(root.panel-id, root.control.id, "text-edit", self.text, 0, false);
@@ -716,8 +715,8 @@ component PluginTextAreaPane inherits Rectangle {
             visible: root.label != "";
             height: root.label == "" ? 0px : 14px;
             text: root.label;
-            color: Theme.text-dim;
-            font-size: Tokens.font-sm;
+            color: Theme.text-secondary;
+            font-size: Typography.hint.size;
         }
 
         HighlightedTextArea {
@@ -728,8 +727,8 @@ component PluginTextAreaPane inherits Rectangle {
             placeholder: root.placeholder;
             read-only: root.read-only;
             highlight-lines: root.highlight-lines;
-            font-family: "JetBrains Mono";
-            font-size: Tokens.font-md;
+            font-family: Typography.content-family;
+            font-size: Typography.compact-label.size;
 
             edited(text) => {
                 PluginState.control-event(root.panel-id, root.control-id, "text-area-edit", text, 0, false);
@@ -749,7 +748,7 @@ component PluginLeafToggle inherits Rectangle {
     height: 28px;
 
     HorizontalLayout {
-        spacing: Tokens.space-sm;
+        spacing: Spacing.sm;
 
         Rectangle {
             width: 30px;
@@ -762,9 +761,9 @@ component PluginLeafToggle inherits Rectangle {
                 width: 28px;
                 height: 16px;
                 border-radius: 8px;
-                border-width: Tokens.hairline;
-                border-color: root.control.bool-value ? Theme.cyan.with-alpha(0.60) : Theme.line-strong;
-                background: root.control.bool-value ? Theme.cyan.with-alpha(0.28) : Theme.bg-inset;
+                border-width: Shape.hairline;
+                border-color: root.control.bool-value ? Theme.accent-primary.with-alpha(0.60) : Theme.border-strong;
+                background: root.control.bool-value ? Theme.accent-primary.with-alpha(0.28) : Theme.surface-control;
 
                 Rectangle {
                     x: root.control.bool-value ? parent.width - self.width - 2px : 2px;
@@ -772,8 +771,8 @@ component PluginLeafToggle inherits Rectangle {
                     width: 12px;
                     height: 12px;
                     border-radius: 6px;
-                    background: root.control.bool-value ? Theme.cyan : Theme.text-muted;
-                    animate x { duration: Tokens.motion-micro; easing: ease-out; }
+                    background: root.control.bool-value ? Theme.accent-primary : Theme.text-muted;
+                    animate x { duration: Motion.micro; easing: ease-out; }
                 }
             }
         }
@@ -782,8 +781,8 @@ component PluginLeafToggle inherits Rectangle {
             horizontal-stretch: 1;
             height: 100%;
             text: root.control.label;
-            color: Theme.text-dim;
-            font-size: Tokens.font-md;
+            color: Theme.text-secondary;
+            font-size: Typography.compact-label.size;
             vertical-alignment: center;
         }
     }
@@ -813,18 +812,18 @@ component PluginLeafButton inherits Rectangle {
     property <bool> action: root.control.id == "run";
 
     height: 100%;
-    border-radius: Tokens.radius-sm;
+    border-radius: Shape.radius-sm;
     background: root.action
-        ? (touch.has-hover ? Theme.cyan.brighter(0.15) : Theme.cyan)
-        : root.control.primary ? Theme.cyan.with-alpha(0.14)
-        : touch.has-hover ? Theme.bg-inset.with-alpha(0.6) : transparent;
+        ? (touch.has-hover ? Theme.accent-primary.brighter(0.15) : Theme.accent-primary)
+        : root.control.primary ? Theme.accent-primary.with-alpha(0.14)
+        : touch.has-hover ? Theme.surface-control.with-alpha(0.6) : transparent;
 
     if root.control.primary && !root.action: Rectangle {
         x: 0;
         width: 2px;
         height: parent.height - 6px;
         y: 3px;
-        background: Theme.cyan;
+        background: Theme.accent-primary;
     }
 
     Text {
@@ -832,8 +831,8 @@ component PluginLeafButton inherits Rectangle {
         width: root.action ? parent.width : parent.width - 20px;
         height: 100%;
         text: root.control.label;
-        color: root.action ? Theme.bg : (root.control.primary ? Theme.cyan : Theme.text-dim);
-        font-size: root.action ? Tokens.font-md : Tokens.font-sm;
+        color: root.action ? Theme.surface-base : (root.control.primary ? Theme.accent-primary : Theme.text-secondary);
+        font-size: root.action ? Typography.compact-label.size : Typography.hint.size;
         font-weight: root.action || root.control.primary ? 500 : 400;
         horizontal-alignment: root.action ? center : left;
         vertical-alignment: center;
@@ -856,15 +855,15 @@ component PluginLeafOptionChip inherits Rectangle {
 
     width: max(42px, label.preferred-width + 16px);
     height: 28px;
-    border-radius: Tokens.radius-sm;
-    background: selected ? Theme.cyan.with-alpha(0.14) : touch.has-hover ? Theme.bg-inset : transparent;
-    border-width: Tokens.hairline;
-    border-color: selected ? Theme.cyan.with-alpha(0.55) : Theme.line;
+    border-radius: Shape.radius-sm;
+    background: selected ? Theme.accent-primary.with-alpha(0.14) : touch.has-hover ? Theme.surface-control : transparent;
+    border-width: Shape.hairline;
+    border-color: selected ? Theme.accent-primary.with-alpha(0.55) : Theme.border-subtle;
 
     label := Text {
         text: root.option.label;
-        color: root.selected ? Theme.cyan : Theme.text-muted;
-        font-size: Tokens.font-sm;
+        color: root.selected ? Theme.accent-primary : Theme.text-muted;
+        font-size: Typography.hint.size;
         font-weight: 500;
         horizontal-alignment: center;
         vertical-alignment: center;
@@ -887,13 +886,13 @@ component PluginLeafSelect inherits VerticalLayout {
 
     Text {
         text: root.control.label;
-        color: Theme.text-dim;
-        font-size: Tokens.font-sm;
+        color: Theme.text-secondary;
+        font-size: Typography.hint.size;
         vertical-stretch: 0;
     }
 
     HorizontalLayout {
-        spacing: Tokens.space-xs;
+        spacing: Spacing.xs;
         vertical-stretch: 0;
         for option in root.control.options: PluginLeafOptionChip {
             option: option;
@@ -932,16 +931,16 @@ component PluginSubTextInput inherits Rectangle {
             visible: root.control.label != "";
             height: root.control.label == "" ? 0px : 14px;
             text: root.control.label;
-            color: Theme.text-dim;
-            font-size: Tokens.font-sm;
+            color: Theme.text-secondary;
+            font-size: Typography.hint.size;
         }
 
         Rectangle {
             height: 28px;
-            border-radius: Tokens.radius-sm;
-            background: Theme.bg-inset.with-alpha(0.70);
-            border-width: Tokens.hairline;
-            border-color: input.has-focus ? Theme.cyan.with-alpha(0.65) : Theme.line;
+            border-radius: Shape.radius-sm;
+            background: Theme.surface-control.with-alpha(0.70);
+            border-width: Shape.hairline;
+            border-color: input.has-focus ? Theme.accent-primary.with-alpha(0.65) : Theme.border-subtle;
 
             input := TextInput {
                 x: 8px;
@@ -949,11 +948,11 @@ component PluginSubTextInput inherits Rectangle {
                 height: parent.height;
                 text: root.control.value-text;
                 single-line: true;
-                color: Theme.text-dim;
-                font-size: Tokens.font-md;
+                color: Theme.text-secondary;
+                font-size: Typography.compact-label.size;
                 vertical-alignment: center;
-                selection-background-color: Theme.cyan.with-alpha(0.3);
-                selection-foreground-color: Theme.text;
+                selection-background-color: Theme.accent-primary.with-alpha(0.3);
+                selection-foreground-color: Theme.text-primary;
 
                 edited => {
                     PluginState.control-event(root.panel-id, root.control.id, "text-edit", self.text, 0, false);
@@ -974,15 +973,15 @@ component PluginSubOptionChip inherits Rectangle {
 
     width: max(42px, label.preferred-width + 16px);
     height: 28px;
-    border-radius: Tokens.radius-sm;
-    background: selected ? Theme.cyan.with-alpha(0.14) : touch.has-hover ? Theme.bg-inset : transparent;
-    border-width: Tokens.hairline;
-    border-color: selected ? Theme.cyan.with-alpha(0.55) : Theme.line;
+    border-radius: Shape.radius-sm;
+    background: selected ? Theme.accent-primary.with-alpha(0.14) : touch.has-hover ? Theme.surface-control : transparent;
+    border-width: Shape.hairline;
+    border-color: selected ? Theme.accent-primary.with-alpha(0.55) : Theme.border-subtle;
 
     label := Text {
         text: root.option.label;
-        color: root.selected ? Theme.cyan : Theme.text-muted;
-        font-size: Tokens.font-sm;
+        color: root.selected ? Theme.accent-primary : Theme.text-muted;
+        font-size: Typography.hint.size;
         font-weight: 500;
         horizontal-alignment: center;
         vertical-alignment: center;
@@ -1006,13 +1005,13 @@ component PluginSubSelect inherits VerticalLayout {
     Text {
         height: 14px;
         text: root.control.label;
-        color: Theme.text-dim;
-        font-size: Tokens.font-sm;
+        color: Theme.text-secondary;
+        font-size: Typography.hint.size;
         vertical-stretch: 0;
     }
 
     HorizontalLayout {
-        spacing: Tokens.space-xs;
+        spacing: Spacing.xs;
         vertical-stretch: 0;
         for option in root.control.options: PluginSubOptionChip {
             option: option;
@@ -1027,7 +1026,7 @@ component PluginSubToggle inherits Rectangle {
     in property <string> panel-id;
 
     HorizontalLayout {
-        spacing: Tokens.space-sm;
+        spacing: Spacing.sm;
 
         Rectangle {
             width: 30px;
@@ -1037,9 +1036,9 @@ component PluginSubToggle inherits Rectangle {
                 width: 28px;
                 height: 16px;
                 border-radius: 8px;
-                border-width: Tokens.hairline;
-                border-color: root.control.bool-value ? Theme.cyan.with-alpha(0.60) : Theme.line-strong;
-                background: root.control.bool-value ? Theme.cyan.with-alpha(0.28) : Theme.bg-inset;
+                border-width: Shape.hairline;
+                border-color: root.control.bool-value ? Theme.accent-primary.with-alpha(0.60) : Theme.border-strong;
+                background: root.control.bool-value ? Theme.accent-primary.with-alpha(0.28) : Theme.surface-control;
 
                 Rectangle {
                     x: root.control.bool-value ? parent.width - self.width - 2px : 2px;
@@ -1047,8 +1046,8 @@ component PluginSubToggle inherits Rectangle {
                     width: 12px;
                     height: 12px;
                     border-radius: 6px;
-                    background: root.control.bool-value ? Theme.cyan : Theme.text-muted;
-                    animate x { duration: Tokens.motion-micro; easing: ease-out; }
+                    background: root.control.bool-value ? Theme.accent-primary : Theme.text-muted;
+                    animate x { duration: Motion.micro; easing: ease-out; }
                 }
             }
         }
@@ -1056,8 +1055,8 @@ component PluginSubToggle inherits Rectangle {
         Text {
             horizontal-stretch: 1;
             text: root.control.label;
-            color: Theme.text-dim;
-            font-size: Tokens.font-md;
+            color: Theme.text-secondary;
+            font-size: Typography.compact-label.size;
             vertical-alignment: center;
         }
     }
@@ -1077,18 +1076,18 @@ component PluginSubButton inherits Rectangle {
 
     height: 100%;
     min-width: btn-label.preferred-width + (root.action ? 28px : 4px);
-    border-radius: Tokens.radius-sm;
+    border-radius: Shape.radius-sm;
     background: root.action
-        ? (touch.has-hover ? Theme.cyan.brighter(0.15) : Theme.cyan)
-        : touch.has-hover ? Theme.bg-inset.with-alpha(0.6) : transparent;
+        ? (touch.has-hover ? Theme.accent-primary.brighter(0.15) : Theme.accent-primary)
+        : touch.has-hover ? Theme.surface-control.with-alpha(0.6) : transparent;
 
     btn-label := Text {
         x: root.action ? 12px : 0px;
         width: parent.width - (root.action ? 24px : 0px);
         height: 100%;
         text: root.control.label;
-        color: root.action ? Theme.bg : Theme.text-dim;
-        font-size: Tokens.font-md;
+        color: root.action ? Theme.surface-base : Theme.text-secondary;
+        font-size: Typography.compact-label.size;
         font-weight: root.action ? 500 : 400;
         horizontal-alignment: center;
         vertical-alignment: center;
@@ -1111,8 +1110,8 @@ component PluginSubTitleDesc inherits VerticalLayout {
 
     Text {
         text: root.control.label;
-        color: Theme.text;
-        font-size: Tokens.font-md;
+        color: Theme.text-primary;
+        font-size: Typography.compact-label.size;
         font-weight: 600;
         vertical-stretch: 0;
     }
@@ -1120,7 +1119,7 @@ component PluginSubTitleDesc inherits VerticalLayout {
     Text {
         text: root.control.text;
         color: Theme.text-muted;
-        font-size: Tokens.font-sm;
+        font-size: Typography.hint.size;
         wrap: word-wrap;
         vertical-stretch: 0;
     }
@@ -1144,8 +1143,8 @@ component PluginSubLeafRow inherits Rectangle {
     if control.kind == "heading": Text {
         width: 100%;
         text: root.control.text;
-        color: Theme.text;
-        font-size: Tokens.font-md;
+        color: Theme.text-primary;
+        font-size: Typography.compact-label.size;
         font-weight: 600;
         horizontal-alignment: left;
         vertical-alignment: center;
@@ -1156,7 +1155,7 @@ component PluginSubLeafRow inherits Rectangle {
         width: 100%;
         text: root.control.text;
         color: Theme.text-muted;
-        font-size: Tokens.font-sm;
+        font-size: Typography.hint.size;
         horizontal-alignment: left;
         wrap: word-wrap;
     }
@@ -1197,8 +1196,8 @@ component PluginControlLeafRow inherits Rectangle {
     if control.kind == "heading": Text {
         width: 100%;
         text: root.control.text;
-        color: Theme.text;
-        font-size: Tokens.font-md;
+        color: Theme.text-primary;
+        font-size: Typography.compact-label.size;
         font-weight: 600;
         horizontal-alignment: left;
         vertical-alignment: center;
@@ -1209,7 +1208,7 @@ component PluginControlLeafRow inherits Rectangle {
         width: 100%;
         text: root.control.text;
         color: Theme.text-muted;
-        font-size: Tokens.font-sm;
+        font-size: Typography.hint.size;
         horizontal-alignment: left;
         wrap: word-wrap;
     }
@@ -1312,19 +1311,19 @@ component PluginNodeButton inherits Rectangle {
     in property <string> panel-id;
 
     height: 32px;
-    border-radius: Tokens.radius-sm;
+    border-radius: Shape.radius-sm;
     background: root.control.primary
-        ? Theme.cyan.with-alpha(0.20)
-        : touch.has-hover ? Theme.bg-inset : Theme.bg-raised.with-alpha(0.22);
-    border-width: Tokens.hairline;
+        ? Theme.accent-primary.with-alpha(0.20)
+        : touch.has-hover ? Theme.surface-control : Theme.surface-raised.with-alpha(0.22);
+    border-width: Shape.hairline;
     border-color: root.control.primary
-        ? Theme.cyan.with-alpha(0.68)
-        : touch.has-hover ? Theme.line-strong : Theme.line.with-alpha(0.72);
+        ? Theme.accent-primary.with-alpha(0.68)
+        : touch.has-hover ? Theme.border-strong : Theme.border-subtle.with-alpha(0.72);
 
     Text {
         text: root.control.label;
-        color: root.control.primary ? Theme.cyan : Theme.text-dim;
-        font-size: Tokens.font-md;
+        color: root.control.primary ? Theme.accent-primary : Theme.text-secondary;
+        font-size: Typography.compact-label.size;
         font-weight: 500;
         horizontal-alignment: center;
         vertical-alignment: center;
@@ -1345,7 +1344,7 @@ component PluginNodeButtonRow inherits Rectangle {
     height: 24px;
 
     HorizontalLayout {
-        spacing: Tokens.space-xs;
+        spacing: Spacing.xs;
 
         for button in root.control.buttons: PluginIconButton {
             button: button;
@@ -1368,8 +1367,8 @@ component PluginControlNodeRow inherits Rectangle {
 
     if control.kind == "heading": Text {
         text: root.control.text;
-        color: Theme.text;
-        font-size: Tokens.font-md;
+        color: Theme.text-primary;
+        font-size: Typography.compact-label.size;
         font-weight: 600;
         vertical-alignment: center;
     }
@@ -1378,7 +1377,7 @@ component PluginControlNodeRow inherits Rectangle {
         visible: root.control.kind == "text";
         text: root.control.text;
         color: Theme.text-muted;
-        font-size: Tokens.font-sm;
+        font-size: Typography.hint.size;
         wrap: word-wrap;
     }
 
@@ -1415,10 +1414,10 @@ component PluginControlNodeRow inherits Rectangle {
     if control.kind == "column": Rectangle {
         width: 100%;
         height: 100%;
-        border-radius: Tokens.radius-md;
-        background: Theme.bg-raised.with-alpha(0.32);
-        border-width: Tokens.hairline;
-        border-color: Theme.line.with-alpha(0.72);
+        border-radius: Shape.radius-md;
+        background: Theme.surface-raised.with-alpha(0.32);
+        border-width: Shape.hairline;
+        border-color: Theme.border-subtle.with-alpha(0.72);
 
         VerticalLayout {
             padding: 12px;
@@ -1477,10 +1476,10 @@ component PluginGroup inherits Rectangle {
     in property <string> panel-id;
 
     height: 100%;
-    border-radius: Tokens.radius-md;
-    background: Theme.bg-raised.with-alpha(0.50);
-    border-width: Tokens.hairline;
-    border-color: Theme.line.with-alpha(0.78);
+    border-radius: Shape.radius-md;
+    background: Theme.surface-raised.with-alpha(0.50);
+    border-width: Shape.hairline;
+    border-color: Theme.border-subtle.with-alpha(0.78);
 
     VerticalLayout {
         padding: 8px;
@@ -1494,8 +1493,8 @@ component PluginGroup inherits Rectangle {
                 width: parent.width - 28px;
                 height: 100%;
                 text: root.control.label;
-                color: Theme.text;
-                font-size: Tokens.font-md;
+                color: Theme.text-primary;
+                font-size: Typography.compact-label.size;
                 font-weight: 600;
                 vertical-alignment: center;
             }
@@ -1508,7 +1507,7 @@ component PluginGroup inherits Rectangle {
                 viewbox-width: 10;
                 viewbox-height: 10;
                 commands: "M 3 2 L 7 5 L 3 8";
-                stroke: Theme.cyan;
+                stroke: Theme.accent-primary;
                 stroke-width: 1.4px;
                 fill: transparent;
             }
@@ -1521,7 +1520,7 @@ component PluginGroup inherits Rectangle {
                 viewbox-width: 10;
                 viewbox-height: 10;
                 commands: "M 2 3 L 5 7 L 8 3";
-                stroke: Theme.cyan;
+                stroke: Theme.accent-primary;
                 stroke-width: 1.4px;
                 fill: transparent;
             }
@@ -1554,8 +1553,8 @@ component PluginControlRow inherits Rectangle {
     if control.kind == "heading": Text {
         width: 100%;
         text: root.control.text;
-        color: Theme.text;
-        font-size: Tokens.font-md;
+        color: Theme.text-primary;
+        font-size: Typography.compact-label.size;
         font-weight: 600;
         horizontal-alignment: center;
         vertical-alignment: center;
@@ -1566,24 +1565,24 @@ component PluginControlRow inherits Rectangle {
         width: 100%;
         text: root.control.text;
         color: Theme.text-muted;
-        font-size: Tokens.font-sm;
+        font-size: Typography.hint.size;
         wrap: word-wrap;
     }
 
     if control.kind == "section": Rectangle {
         height: 100%;
-        border-radius: Tokens.radius-md;
-        background: touch.has-hover ? Theme.bg-inset.with-alpha(0.72) : Theme.bg-raised.with-alpha(0.38);
-        border-width: Tokens.hairline;
-        border-color: touch.has-hover ? Theme.line-strong : Theme.line.with-alpha(0.70);
+        border-radius: Shape.radius-md;
+        background: touch.has-hover ? Theme.surface-control.with-alpha(0.72) : Theme.surface-raised.with-alpha(0.38);
+        border-width: Shape.hairline;
+        border-color: touch.has-hover ? Theme.border-strong : Theme.border-subtle.with-alpha(0.70);
 
         Text {
             x: 10px;
             width: 12px;
             height: 100%;
             text: root.control.open ? "⌄" : "›";
-            color: Theme.cyan;
-            font-size: Tokens.font-md;
+            color: Theme.accent-primary;
+            font-size: Typography.compact-label.size;
             horizontal-alignment: center;
             vertical-alignment: center;
         }
@@ -1593,8 +1592,8 @@ component PluginControlRow inherits Rectangle {
             width: parent.width - 38px;
             height: 100%;
             text: root.control.label;
-            color: Theme.text;
-            font-size: Tokens.font-md;
+            color: Theme.text-primary;
+            font-size: Typography.compact-label.size;
             font-weight: 600;
             vertical-alignment: center;
         }
@@ -1698,7 +1697,7 @@ export component PluginPanelView inherits Rectangle {
     in property <string> panel-id;
     in property <[PluginControl]> controls;
 
-    background: Theme.bg-panel;
+    background: Theme.surface-panel;
     clip: true;
 
     Flickable {
