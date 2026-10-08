@@ -1,9 +1,11 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::sync::Arc;
 
 use lin_alg::f32::Vec3;
-use patinae_mol::{Atom, AtomResidue, CoordSet, Element, ObjectMolecule};
+use patinae_mol::{
+    Atom, AtomResidue, CoordSet, Element, ObjectMolecule, ResidueLabelChain, ResidueLabels,
+};
 
 use crate::error::{IoError, IoResult};
 
@@ -11,87 +13,77 @@ use crate::error::{IoError, IoResult};
 pub(crate) struct ParsedAtom {
     pub(crate) name: String,
     pub(crate) element: Element,
-    pub(crate) chain: String,
-    pub(crate) resn: String,
-    pub(crate) resv: i32,
-    pub(crate) icode: char,
+    pub(crate) residue: ResidueId,
     pub(crate) alt: char,
     pub(crate) hetatm: bool,
     pub(crate) serial: Option<i32>,
     pub(crate) formal_charge: Option<i8>,
     pub(crate) occupancy: f32,
     pub(crate) b_factor: f32,
-    pub(crate) segi: String,
-    pub(crate) labels: ParsedLabels,
 }
 
-impl ParsedAtom {
-    fn residue(&self) -> AtomResidue {
-        let mut residue = AtomResidue::from_parts(
-            self.chain.clone(),
-            self.resn.clone(),
-            self.resv,
-            self.icode,
-            self.segi.clone(),
-        );
-        residue.label_asym_id = self.labels.asym_id.as_deref().map(str::to_owned);
-        residue.label_entity_id = self.labels.entity_id.as_deref().map(str::to_owned);
-        residue.label_seq_id = self.labels.seq_id;
-        residue
-    }
+/// Index into one parsed model's residue table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ResidueId(u32);
 
-    /// Whether [`ParsedAtom::residue`] gives equal residues for both atoms.
-    fn same_residue(&self, other: &ParsedAtom) -> bool {
-        self.chain == other.chain
-            && self.resn == other.resn
-            && self.resv == other.resv
-            && self.icode == other.icode
-            && self.segi == other.segi
-            && self.labels == other.labels
-    }
-}
-
-/// mmCIF `label_*` identifiers, kept alongside the `auth_*` values used for display.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
-pub(crate) struct ParsedLabels {
-    pub(crate) asym_id: Option<Arc<str>>,
-    pub(crate) entity_id: Option<Arc<str>>,
+/// Borrowed residue metadata from the current input row.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct ParsedLabels<'a> {
+    pub(crate) asym_id: Option<&'a str>,
+    pub(crate) entity_id: Option<&'a str>,
     pub(crate) seq_id: Option<u32>,
 }
 
-impl ParsedLabels {
-    /// Atoms of one residue are contiguous, so ids equal to the previous atom's share its strings.
+impl<'a> ParsedLabels<'a> {
     pub(crate) fn new(
-        asym_id: Option<&str>,
-        entity_id: Option<&str>,
+        asym_id: Option<&'a str>,
+        entity_id: Option<&'a str>,
         seq_id: Option<u32>,
-        previous: Option<&ParsedAtom>,
     ) -> Self {
-        let previous = previous.map(|atom| &atom.labels);
         Self {
-            asym_id: shared(asym_id, previous.and_then(|labels| labels.asym_id.as_ref())),
-            entity_id: shared(
-                entity_id,
-                previous.and_then(|labels| labels.entity_id.as_ref()),
-            ),
+            asym_id,
+            entity_id,
             seq_id,
         }
     }
 }
 
-fn shared(value: Option<&str>, previous: Option<&Arc<str>>) -> Option<Arc<str>> {
-    let value = value?;
-    match previous {
-        Some(previous) if &**previous == value => Some(previous.clone()),
-        _ => Some(value.into()),
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ParsedResidue<'a> {
+    pub(crate) chain: &'a str,
+    pub(crate) resn: &'a str,
+    pub(crate) resv: i32,
+    pub(crate) icode: char,
+    pub(crate) segi: &'a str,
+    pub(crate) labels: ParsedLabels<'a>,
+}
+
+impl ParsedResidue<'_> {
+    fn matches(&self, residue: &AtomResidue) -> bool {
+        self.chain == residue.chain
+            && self.resn == residue.resn
+            && self.resv == residue.resv
+            && self.icode == residue.inscode
+            && self.segi == residue.segi
+            && self.labels.asym_id == residue.label_asym_id()
+            && self.labels.entity_id == residue.label_entity_id()
+            && self.labels.seq_id == residue.label_seq_id()
     }
 }
+
+#[cfg(target_pointer_width = "64")]
+const _: () = assert!(std::mem::size_of::<ParsedAtom>() <= 64);
 
 #[derive(Debug, Clone)]
 pub(crate) struct ParsedModel {
     pub(crate) model_number: i32,
     pub(crate) atoms: Vec<ParsedAtom>,
     pub(crate) coords: Vec<Vec3>,
+    residues: Vec<Arc<AtomResidue>>,
+    residue_ids: HashMap<Arc<AtomResidue>, ResidueId>,
+    previous_residue: Option<ResidueId>,
+    label_strings: HashSet<Arc<str>>,
+    label_chains: HashSet<Arc<ResidueLabelChain>>,
     /// Original assembly chain identifiers, in source atom order.
     pub(crate) source_chains: SourceChains,
 }
@@ -102,9 +94,65 @@ impl ParsedModel {
             model_number,
             atoms: Vec::new(),
             coords: Vec::new(),
+            residues: Vec::new(),
+            residue_ids: HashMap::new(),
+            previous_residue: None,
+            label_strings: HashSet::new(),
+            label_chains: HashSet::new(),
             source_chains: SourceChains::default(),
         }
     }
+
+    pub(crate) fn intern_residue(&mut self, input: ParsedResidue<'_>) -> IoResult<ResidueId> {
+        if let Some(id) = self.previous_residue {
+            if input.matches(&self.residues[id.0 as usize]) {
+                return Ok(id);
+            }
+        }
+        let mut residue =
+            AtomResidue::from_parts(input.chain, input.resn, input.resv, input.icode, input.segi);
+        if input.labels.asym_id.is_some()
+            || input.labels.entity_id.is_some()
+            || input.labels.seq_id.is_some()
+        {
+            let chain = ResidueLabelChain::new(
+                intern_string(&mut self.label_strings, input.labels.asym_id),
+                intern_string(&mut self.label_strings, input.labels.entity_id),
+            );
+            let chain = if let Some(shared) = self.label_chains.get(&chain) {
+                Arc::clone(shared)
+            } else {
+                let chain = Arc::new(chain);
+                self.label_chains.insert(Arc::clone(&chain));
+                chain
+            };
+            residue.set_labels(Some(ResidueLabels::new(chain, input.labels.seq_id)));
+        }
+        let id = if let Some(&id) = self.residue_ids.get(&residue) {
+            id
+        } else {
+            let id = ResidueId(
+                u32::try_from(self.residues.len())
+                    .map_err(|_| IoError::parse_msg("Residue index exceeds u32"))?,
+            );
+            let residue = Arc::new(residue);
+            self.residue_ids.insert(Arc::clone(&residue), id);
+            self.residues.push(residue);
+            id
+        };
+        self.previous_residue = Some(id);
+        Ok(id)
+    }
+}
+
+fn intern_string(pool: &mut HashSet<Arc<str>>, value: Option<&str>) -> Option<Arc<str>> {
+    let value = value?;
+    if let Some(shared) = pool.get(value) {
+        return Some(Arc::clone(shared));
+    }
+    let shared: Arc<str> = Arc::from(value);
+    pool.insert(Arc::clone(&shared));
+    Some(shared)
 }
 
 /// Interned assembly chain identifiers, assigned in first-appearance order.
@@ -158,15 +206,15 @@ struct AtomIdentity {
     formal_charge: Option<i8>,
 }
 
-impl From<&ParsedAtom> for AtomIdentity {
-    fn from(atom: &ParsedAtom) -> Self {
+impl AtomIdentity {
+    fn new(atom: &ParsedAtom, residue: &AtomResidue) -> Self {
         Self {
             name: atom.name.clone(),
             element: atom.element,
-            chain: atom.chain.clone(),
-            resn: atom.resn.clone(),
-            resv: atom.resv,
-            icode: atom.icode,
+            chain: residue.chain.clone(),
+            resn: residue.resn.clone(),
+            resv: residue.resv,
+            icode: residue.inscode,
             alt: atom.alt,
             hetatm: atom.hetatm,
             formal_charge: atom.formal_charge,
@@ -234,7 +282,7 @@ fn group_models_by_topology(models: Vec<ParsedModel>) -> IoResult<Vec<TopologyGr
             model
                 .atoms
                 .iter()
-                .map(AtomIdentity::from)
+                .map(|atom| AtomIdentity::new(atom, &model.residues[atom.residue.0 as usize]))
                 .collect::<Vec<_>>(),
             model.source_chains.names.clone(),
             model.source_chains.atom_chains.clone(),
@@ -281,22 +329,12 @@ fn build_group_molecule(
         mol.assembly.chains.insert(name.clone(), members);
     }
 
-    let mut residue_cache: HashMap<AtomResidue, Arc<AtomResidue>> = HashMap::new();
-    let mut previous: Option<(&ParsedAtom, Arc<AtomResidue>)> = None;
     for parsed in &first_model.atoms {
-        let mut atom = Atom::new(parsed.name.as_str(), parsed.element);
-        atom.residue = match &previous {
-            // Atoms of one residue are contiguous: skip building and hashing its key.
-            Some((last, residue)) if last.same_residue(parsed) => residue.clone(),
-            _ => {
-                let residue_data = parsed.residue();
-                residue_cache
-                    .entry(residue_data.clone())
-                    .or_insert_with(|| Arc::new(residue_data))
-                    .clone()
-            }
-        };
-        previous = Some((parsed, atom.residue.clone()));
+        let mut atom = Atom::with_residue(
+            parsed.name.as_str(),
+            parsed.element,
+            Arc::clone(&first_model.residues[parsed.residue.0 as usize]),
+        );
         atom.alt = parsed.alt;
         atom.b_factor = parsed.b_factor;
         atom.occupancy = parsed.occupancy;
@@ -325,23 +363,32 @@ fn suffixed_name(base_name: &str, model_number: i32) -> String {
 mod tests {
     use super::*;
 
+    fn input(resv: i32, labels: ParsedLabels<'_>) -> ParsedResidue<'_> {
+        ParsedResidue {
+            chain: "A",
+            resn: "GLY",
+            resv,
+            icode: ' ',
+            segi: "",
+            labels,
+        }
+    }
+
     fn model() -> ParsedModel {
         let mut model = ParsedModel::new(1);
+        let residue = model
+            .intern_residue(input(1, ParsedLabels::default()))
+            .unwrap();
         model.atoms.push(ParsedAtom {
-            name: "CA".to_owned(),
+            name: "CA".into(),
             element: Element::Carbon,
-            chain: "A".to_owned(),
-            resn: "GLY".to_owned(),
-            resv: 1,
-            icode: ' ',
+            residue,
             alt: ' ',
             hetatm: false,
             serial: None,
             formal_charge: None,
             occupancy: 1.0,
             b_factor: 0.0,
-            segi: String::new(),
-            labels: ParsedLabels::default(),
         });
         model.coords.push(Vec3::new(1.0, 2.0, 3.0));
         model
@@ -351,16 +398,17 @@ mod tests {
     fn single_model_still_validates_coordinates_and_assembly_membership() {
         let mut missing_coord = model();
         missing_coord.coords.clear();
-        let error = build_molecules("bad", "", vec![missing_coord])
-            .err()
-            .unwrap();
-        assert!(error.to_string().contains("1 atoms but 0 coordinates"));
-
+        assert!(build_molecules("bad", "", vec![missing_coord])
+            .unwrap_err()
+            .to_string()
+            .contains("1 atoms but 0 coordinates"));
         let mut extra_chain = model();
         extra_chain.source_chains.push("A");
         extra_chain.source_chains.push("B");
-        let error = build_molecules("bad", "", vec![extra_chain]).err().unwrap();
-        assert!(error.to_string().contains("Assembly chain membership"));
+        assert!(build_molecules("bad", "", vec![extra_chain])
+            .unwrap_err()
+            .to_string()
+            .contains("Assembly chain membership"));
     }
 
     #[test]
@@ -379,44 +427,41 @@ mod tests {
         let mut model = model();
         let template = model.atoms[0].clone();
         for (resv, seq_id) in [(1, None), (1, Some(1)), (2, None), (1, None)] {
+            let residue = model
+                .intern_residue(input(resv, ParsedLabels::new(None, None, seq_id)))
+                .unwrap();
             model.atoms.push(ParsedAtom {
-                resv,
-                labels: ParsedLabels::new(None, None, seq_id, model.atoms.last()),
+                residue,
                 ..template.clone()
             });
             model.coords.push(Vec3::new(0.0, 0.0, 0.0));
         }
-
         let molecule = build_molecules("mol", "", vec![model]).unwrap().remove(0);
         let residues: Vec<_> = molecule.atoms().map(|atom| &atom.residue).collect();
-
         assert!(Arc::ptr_eq(residues[0], residues[1]));
-        // Same auth ids, different label_seq_id: a distinct residue.
         assert!(!Arc::ptr_eq(residues[1], residues[2]));
-        assert_eq!(residues[2].label_seq_id, Some(1));
-        // Non-contiguous atoms of one residue still share it.
+        assert_eq!(residues[2].label_seq_id(), Some(1));
         assert!(Arc::ptr_eq(residues[0], residues[4]));
         assert!(!Arc::ptr_eq(residues[3], residues[4]));
     }
 
     #[test]
-    fn equal_labels_share_the_previous_atom_strings() {
-        let mut model = model();
-        let template = model.atoms[0].clone();
-        for asym_id in ["B", "B", "C"] {
-            model.atoms.push(ParsedAtom {
-                labels: ParsedLabels::new(Some(asym_id), Some("1"), None, model.atoms.last()),
-                ..template.clone()
-            });
-        }
-        let labels: Vec<_> = model.atoms[1..].iter().map(|atom| &atom.labels).collect();
-
-        let asym = |index: usize| labels[index].asym_id.as_ref().unwrap();
-        assert!(Arc::ptr_eq(asym(0), asym(1)));
-        assert_eq!(&**asym(2), "C");
-        assert!(Arc::ptr_eq(
-            labels[0].entity_id.as_ref().unwrap(),
-            labels[2].entity_id.as_ref().unwrap()
-        ));
+    fn topology_resolves_model_local_ids_and_keeps_first_labels() {
+        let mut first = model();
+        let mut second = model();
+        second.model_number = 2;
+        let labels = ParsedLabels::new(Some("L-01"), Some("001x"), Some(9));
+        first.atoms[0].residue = first.intern_residue(input(1, labels)).unwrap();
+        second.intern_residue(input(99, labels)).unwrap();
+        second.atoms[0].residue = second
+            .intern_residue(input(1, ParsedLabels::new(Some("other"), None, None)))
+            .unwrap();
+        let molecules = build_molecules("mol", "", vec![first, second]).unwrap();
+        assert_eq!(molecules.len(), 1);
+        assert_eq!(molecules[0].state_count(), 2);
+        assert_eq!(
+            molecules[0].atoms().next().unwrap().residue.label_asym_id(),
+            Some("L-01")
+        );
     }
 }

@@ -10,7 +10,9 @@ use patinae_mol::{AtomIndex, BondOrder, ObjectMolecule, SecondaryStructure};
 
 use crate::assembly::PdbAssemblies;
 use crate::error::{IoError, IoResult};
-use crate::logical_models::{build_molecules, ParsedAtom, ParsedLabels, ParsedModel};
+use crate::logical_models::{
+    build_molecules, ParsedAtom, ParsedLabels, ParsedModel, ParsedResidue, ResidueId,
+};
 use crate::pdb::hybrid36::hy36decode;
 use crate::traits::MoleculeReader;
 
@@ -91,9 +93,15 @@ impl<R: Read> PdbReader<R> {
                         let model = current_model
                             .get_or_insert_with(|| ParsedModel::new(next_model_number));
                         model.source_chains.push(&record.chain);
-                        model
-                            .atoms
-                            .push(parsed_atom_from_record(&record, effective_chain));
+                        let residue = model.intern_residue(ParsedResidue {
+                            chain: &effective_chain,
+                            resn: &record.resn,
+                            resv: record.resv,
+                            icode: record.icode,
+                            segi: &record.segi,
+                            labels: ParsedLabels::default(),
+                        })?;
+                        model.atoms.push(parsed_atom_from_record(&record, residue));
                         model.coords.push(coord);
                     }
                 }
@@ -235,22 +243,17 @@ fn flush_model(
     chain_ids.reset();
 }
 
-fn parsed_atom_from_record(record: &AtomRecord, effective_chain: String) -> ParsedAtom {
+fn parsed_atom_from_record(record: &AtomRecord, residue: ResidueId) -> ParsedAtom {
     ParsedAtom {
         name: record.name.clone(),
         element: record.get_element(),
-        chain: effective_chain,
-        resn: record.resn.clone(),
-        resv: record.resv,
-        icode: record.icode,
+        residue,
         alt: record.alt_loc,
         hetatm: record.hetatm,
         serial: Some(record.serial),
         formal_charge: (!record.charge.trim().is_empty()).then(|| record.get_formal_charge()),
         occupancy: record.occupancy,
         b_factor: record.b_factor,
-        segi: record.segi.clone(),
-        labels: ParsedLabels::default(),
     }
 }
 
@@ -914,8 +917,8 @@ ENDMDL
         let molecule = crate::pdb::read_pdb_str(pdb).unwrap();
         let atom = &molecule.atoms_slice()[0];
 
-        assert_eq!(atom.residue.label_asym_id, None);
-        assert_eq!(atom.residue.label_entity_id, None);
-        assert_eq!(atom.residue.label_seq_id, None);
+        assert_eq!(atom.residue.label_asym_id(), None);
+        assert_eq!(atom.residue.label_entity_id(), None);
+        assert_eq!(atom.residue.label_seq_id(), None);
     }
 }

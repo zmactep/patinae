@@ -323,24 +323,105 @@ impl AtomColors {
 /// assert_eq!(residue.chain, "A");
 /// assert_eq!(residue.resn, "ALA");
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize)]
+#[serde(from = "ResidueWire")]
 pub struct AtomResidue {
-    /// Identity key (chain, resn, resv, inscode) - used for lookups
+    /// Identity key used for residue lookups.
     pub key: ResidueKey,
-    /// Segment identifier
+    /// Segment identifier.
     pub segi: String,
-    /// mmCIF `label_asym_id` (`None` for formats without the label scheme).
-    ///
-    /// Label ids are kept as read from the file; edits do not renumber them.
-    #[serde(default)]
-    pub label_asym_id: Option<String>,
-    /// mmCIF `label_entity_id`
-    #[serde(default)]
-    pub label_entity_id: Option<String>,
-    /// mmCIF `label_seq_id`, the 1-based `_entity_poly_seq` position (`None` for non-polymers)
-    #[serde(default)]
-    pub label_seq_id: Option<u32>,
+    labels: Option<ResidueLabels>,
 }
+
+/// Original mmCIF chain and entity identifiers shared across residues.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ResidueLabelChain {
+    asym_id: Option<Arc<str>>,
+    entity_id: Option<Arc<str>>,
+}
+
+impl ResidueLabelChain {
+    /// Preserve original identifier strings without normalization.
+    pub fn new(asym_id: Option<Arc<str>>, entity_id: Option<Arc<str>>) -> Self {
+        Self { asym_id, entity_id }
+    }
+
+    /// Return the original label chain identifier.
+    pub fn asym_id(&self) -> Option<&str> {
+        self.asym_id.as_deref()
+    }
+
+    /// Return the original entity identifier.
+    pub fn entity_id(&self) -> Option<&str> {
+        self.entity_id.as_deref()
+    }
+}
+
+/// Original mmCIF residue labels, independent of editable auth identifiers.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ResidueLabels {
+    pub(crate) chain: Arc<ResidueLabelChain>,
+    seq_id: Option<u32>,
+}
+
+impl ResidueLabels {
+    /// Combine shared chain identifiers with an optional sequence position.
+    pub fn new(chain: Arc<ResidueLabelChain>, seq_id: Option<u32>) -> Self {
+        Self { chain, seq_id }
+    }
+}
+
+// Keep both named and positional wire fields identical to PRS 5.
+#[derive(Deserialize)]
+struct ResidueWire {
+    key: ResidueKey,
+    segi: String,
+    #[serde(default)]
+    label_asym_id: Option<Arc<str>>,
+    #[serde(default)]
+    label_entity_id: Option<Arc<str>>,
+    #[serde(default)]
+    label_seq_id: Option<u32>,
+}
+
+impl From<ResidueWire> for AtomResidue {
+    fn from(wire: ResidueWire) -> Self {
+        let mut residue = Self::new(wire.key, wire.segi);
+        if wire.label_asym_id.is_some()
+            || wire.label_entity_id.is_some()
+            || wire.label_seq_id.is_some()
+        {
+            residue.set_labels(Some(ResidueLabels::new(
+                Arc::new(ResidueLabelChain::new(
+                    wire.label_asym_id,
+                    wire.label_entity_id,
+                )),
+                wire.label_seq_id,
+            )));
+        }
+        residue
+    }
+}
+
+impl Serialize for AtomResidue {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let mut fields = serializer.serialize_struct("AtomResidue", 5)?;
+        fields.serialize_field("key", &self.key)?;
+        fields.serialize_field("segi", &self.segi)?;
+        fields.serialize_field("label_asym_id", &self.label_asym_id())?;
+        fields.serialize_field("label_entity_id", &self.label_entity_id())?;
+        fields.serialize_field("label_seq_id", &self.label_seq_id())?;
+        fields.end()
+    }
+}
+
+#[cfg(target_pointer_width = "64")]
+const _: () = {
+    assert!(std::mem::size_of::<Option<ResidueLabels>>() <= 16);
+    assert!(std::mem::size_of::<AtomResidue>() <= 96);
+    assert!(std::mem::size_of::<Atom>() <= 256);
+};
 
 impl Deref for AtomResidue {
     type Target = ResidueKey;
@@ -362,9 +443,44 @@ impl AtomResidue {
         AtomResidue {
             key,
             segi,
-            label_asym_id: None,
-            label_entity_id: None,
-            label_seq_id: None,
+            labels: None,
+        }
+    }
+
+    /// Return the original mmCIF label chain identifier.
+    pub fn label_asym_id(&self) -> Option<&str> {
+        self.labels
+            .as_ref()
+            .and_then(|labels| labels.chain.asym_id())
+    }
+
+    /// Return the original mmCIF entity identifier.
+    pub fn label_entity_id(&self) -> Option<&str> {
+        self.labels
+            .as_ref()
+            .and_then(|labels| labels.chain.entity_id())
+    }
+
+    /// Return the original mmCIF sequence position.
+    pub fn label_seq_id(&self) -> Option<u32> {
+        self.labels.as_ref().and_then(|labels| labels.seq_id)
+    }
+
+    /// Replace source labels without changing editable auth identifiers.
+    ///
+    /// Empty labels are canonicalized to `None`. Editing auth fields does not
+    /// renumber these source identifiers.
+    pub fn set_labels(&mut self, labels: Option<ResidueLabels>) {
+        self.labels = labels.filter(|labels| {
+            labels.chain.asym_id().is_some()
+                || labels.chain.entity_id().is_some()
+                || labels.seq_id.is_some()
+        });
+    }
+
+    pub(crate) fn share_label_chain(&mut self, chain: Arc<ResidueLabelChain>) {
+        if let Some(labels) = &mut self.labels {
+            labels.chain = chain;
         }
     }
 
@@ -583,13 +699,43 @@ pub struct Atom {
 
 impl Default for Atom {
     fn default() -> Self {
+        Self::from_parts(
+            Arc::from(""),
+            Element::Unknown,
+            0.0,
+            Arc::new(AtomResidue::default()),
+        )
+    }
+}
+
+impl Atom {
+    /// Create a new atom with the given name and element.
+    pub fn new(name: impl Into<String>, element: Element) -> Self {
+        Self::with_residue(name, element, Arc::new(AtomResidue::default()))
+    }
+
+    /// Create an atom using an existing shared residue without allocating a placeholder.
+    pub fn with_residue(
+        name: impl Into<String>,
+        element: Element,
+        residue: Arc<AtomResidue>,
+    ) -> Self {
+        Self::from_parts(
+            Arc::from(name.into()),
+            element,
+            element.vdw_radius(),
+            residue,
+        )
+    }
+
+    fn from_parts(name: Arc<str>, element: Element, vdw: f32, residue: Arc<AtomResidue>) -> Self {
         Atom {
-            name: Arc::from(""),
-            element: Element::Unknown,
+            name,
+            element,
             alt: ' ',
             b_factor: 0.0,
             occupancy: 1.0,
-            vdw: 0.0, // Will be set from element if 0
+            vdw,
             partial_charge: 0.0,
             formal_charge: 0,
             elec_radius: 0.0,
@@ -602,21 +748,9 @@ impl Default for Atom {
             id: 0,
             rank: 0,
             discrete_state: 0,
-            residue: Arc::new(AtomResidue::default()),
+            residue,
             state: AtomState::default(),
             repr: AtomRepresentation::default(),
-        }
-    }
-}
-
-impl Atom {
-    /// Create a new atom with the given name and element
-    pub fn new(name: impl Into<String>, element: Element) -> Self {
-        Atom {
-            name: Arc::from(name.into()),
-            element,
-            vdw: element.vdw_radius(),
-            ..Default::default()
         }
     }
 
@@ -987,7 +1121,7 @@ mod tests {
         let residue: AtomResidue = rmp_serde::from_slice(&bytes).unwrap();
 
         assert_eq!(residue, AtomResidue::from_parts("A", "ALA", 1, ' ', ""));
-        assert_eq!(residue.label_asym_id, None);
-        assert_eq!(residue.label_seq_id, None);
+        assert_eq!(residue.label_asym_id(), None);
+        assert_eq!(residue.label_seq_id(), None);
     }
 }

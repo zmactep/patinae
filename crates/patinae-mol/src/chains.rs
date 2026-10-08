@@ -3,6 +3,7 @@
 //! Extracted from molecule.rs — provides automatic chain ID assignment
 //! for formats like GRO that lack chain information.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::atom::AtomResidue;
@@ -184,17 +185,16 @@ pub(crate) fn assign_chains(mol: &mut ObjectMolecule) {
             continue;
         }
 
-        let first_atom = &mol.atoms[range.start];
-        let new_residue = Arc::new(AtomResidue::from_parts(
-            chain.as_str(),
-            &first_atom.residue.resn,
-            first_atom.residue.resv,
-            first_atom.residue.inscode,
-            &first_atom.residue.segi,
-        ));
-
+        // One display residue can contain several distinct source label identities.
+        let mut replacements: HashMap<Arc<AtomResidue>, Arc<AtomResidue>> = HashMap::new();
         for atom_idx in range.clone() {
-            mol.atoms[atom_idx].residue = new_residue.clone();
+            let original = &mol.atoms[atom_idx].residue;
+            let replacement = replacements.entry(Arc::clone(original)).or_insert_with(|| {
+                let mut residue = (**original).clone();
+                residue.key.chain = chain.clone();
+                Arc::new(residue)
+            });
+            mol.atoms[atom_idx].residue = Arc::clone(replacement);
         }
     }
 }

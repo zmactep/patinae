@@ -110,9 +110,13 @@ mod tests {
     #[test]
     fn mutation_keeps_file_level_residue_ids() {
         let mut residue = AtomResidue::from_parts("H", "GLY", 101, ' ', "SEG");
-        residue.label_asym_id = Some("B".to_owned());
-        residue.label_entity_id = Some("2".to_owned());
-        residue.label_seq_id = Some(1);
+        residue.set_labels(Some(patinae_mol::ResidueLabels::new(
+            Arc::new(patinae_mol::ResidueLabelChain::new(
+                Some(Arc::from("B")),
+                Some(Arc::from("2")),
+            )),
+            Some(1),
+        )));
         let residue = Arc::new(residue);
 
         let mut source = ObjectMolecule::new("gly");
@@ -137,9 +141,9 @@ mod tests {
         for atom in mutant.atoms() {
             assert_eq!(atom.residue.resn, "ALA");
             assert_eq!(atom.residue.segi, "SEG");
-            assert_eq!(atom.residue.label_asym_id.as_deref(), Some("B"));
-            assert_eq!(atom.residue.label_entity_id.as_deref(), Some("2"));
-            assert_eq!(atom.residue.label_seq_id, Some(1));
+            assert_eq!(atom.residue.label_asym_id(), Some("B"));
+            assert_eq!(atom.residue.label_entity_id(), Some("2"));
+            assert_eq!(atom.residue.label_seq_id(), Some(1));
         }
     }
 }

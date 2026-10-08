@@ -13,7 +13,9 @@ use crate::assembly::{AssemblyRow, AssemblyRows, CATEGORIES};
 use crate::cif::common::{apply_secondary_structure, SecondaryStructureRange, SsCategory};
 use crate::entity::{EntityCategory, EntityRows};
 use crate::error::{IoError, IoResult};
-use crate::logical_models::{build_molecules, ParsedAtom, ParsedLabels, ParsedModel};
+use crate::logical_models::{
+    build_molecules, ParsedAtom, ParsedLabels, ParsedModel, ParsedResidue,
+};
 use crate::traits::MoleculeReader;
 
 use super::decode::{decode_column, decode_mask, ColumnMask, DecodedColumn};
@@ -287,7 +289,11 @@ fn parse_atom_site(
 
         // Strip hyphens from chain IDs so assembly chains like "A-2"
         // become "A2", which is valid in the selection language.
-        let chain_id = chain.replace('-', "");
+        let chain_id = if chain.contains('-') {
+            std::borrow::Cow::Owned(chain.replace('-', ""))
+        } else {
+            std::borrow::Cow::Borrowed(chain)
+        };
 
         // mmCIF label residue ids, kept alongside the auth ids above
         let label_asym_id = cols.str_at("label_asym_id", i);
@@ -335,27 +341,25 @@ fn parse_atom_site(
             .entry(model_num)
             .or_insert_with(|| ParsedModel::new(model_num));
         model.source_chains.push(label_asym_id.unwrap_or(""));
-        let labels = ParsedLabels::new(
-            label_asym_id,
-            label_entity_id.as_deref(),
-            label_seq_id,
-            model.atoms.last(),
-        );
+        let labels = ParsedLabels::new(label_asym_id, label_entity_id.as_deref(), label_seq_id);
+        let residue = model.intern_residue(ParsedResidue {
+            chain: &chain_id,
+            resn,
+            resv,
+            icode: inscode,
+            segi: "",
+            labels,
+        })?;
         model.atoms.push(ParsedAtom {
             name: atom_name.to_string(),
             element,
-            chain: chain_id,
-            resn: resn.to_string(),
-            resv,
-            icode: inscode,
+            residue,
             alt,
             hetatm,
             serial,
             formal_charge,
             occupancy,
             b_factor,
-            segi: String::new(),
-            labels,
         });
         model.coords.push(Vec3::new(x, y, z));
     }
@@ -680,9 +684,9 @@ mod tests {
         let residue = &atoms[0].residue;
 
         assert_eq!((residue.chain.as_str(), residue.resv), ("H", 101));
-        assert_eq!(residue.label_asym_id.as_deref(), Some("B"));
-        assert_eq!(residue.label_entity_id.as_deref(), Some("2"));
-        assert_eq!(residue.label_seq_id, Some(1));
+        assert_eq!(residue.label_asym_id(), Some("B"));
+        assert_eq!(residue.label_entity_id(), Some("2"));
+        assert_eq!(residue.label_seq_id(), Some(1));
     }
 
     #[test]
@@ -717,5 +721,25 @@ mod tests {
         assert_eq!(entity.id, "1");
         assert_eq!(entity.kind, Some(patinae_mol::EntityKind::Polymer));
         assert_eq!(entity.polymer.as_ref().unwrap().sequence, ["MET", "GLY"]);
+    }
+    #[test]
+    fn string_entity_ids_and_label_chain_spelling_are_preserved() {
+        let rows = [
+            atom_row(1, "N", "GLY", "L-01", 0.0, 1),
+            atom_row(2, "CA", "GLY", "L-01", 1.0, 1),
+        ];
+        let mut block = atom_site_block("LABELS", &rows);
+        block.categories[0].columns.extend([
+            string_column("auth_asym_id", ["A-1", "A-1"].into_iter()),
+            string_column("label_entity_id", ["001x", "001x"].into_iter()),
+        ]);
+        let molecule =
+            crate::bcif::read_bcif_bytes_with_bond_tolerance(&encode_bcif_file(&[block]), 0.1)
+                .unwrap();
+        for atom in molecule.atoms() {
+            assert_eq!(atom.residue.chain, "A1");
+            assert_eq!(atom.residue.label_asym_id(), Some("L-01"));
+            assert_eq!(atom.residue.label_entity_id(), Some("001x"));
+        }
     }
 }

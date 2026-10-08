@@ -957,6 +957,24 @@ mod tests {
     #[test]
     fn version_four_without_entities_loads_and_entities_round_trip() {
         let mut session = cartoon_session_with_restore();
+        let molecule = session
+            .registry
+            .get_molecule_mut("mol")
+            .unwrap()
+            .molecule_mut();
+        let residue = std::sync::Arc::make_mut(
+            &mut molecule
+                .get_atom_mut(patinae_mol::AtomIndex(0))
+                .unwrap()
+                .residue,
+        );
+        residue.set_labels(Some(patinae_mol::ResidueLabels::new(
+            std::sync::Arc::new(patinae_mol::ResidueLabelChain::new(
+                Some(std::sync::Arc::from("L-01")),
+                Some(std::sync::Arc::from("001x")),
+            )),
+            Some(9),
+        )));
         let entity = patinae_mol::Entity {
             id: "1".to_owned(),
             kind: Some(patinae_mol::EntityKind::Polymer),
@@ -977,11 +995,30 @@ mod tests {
         let restored = decode_prs_document(encode_test_value(&document)).unwrap();
         let molecule = restored.session.registry.get_molecule("mol").unwrap();
         assert_eq!(molecule.molecule().entities, [entity]);
+        assert_eq!(
+            molecule.molecule().atoms_slice()[0].residue.label_asym_id(),
+            Some("L-01")
+        );
+        assert_eq!(
+            molecule.molecule().atoms_slice()[0]
+                .residue
+                .label_entity_id(),
+            Some("001x")
+        );
+        assert_eq!(
+            molecule.molecule().atoms_slice()[0].residue.label_seq_id(),
+            Some(9)
+        );
 
         fn strip(value: &mut Value) {
             match value {
                 Value::Map(fields) => {
-                    fields.retain(|(k, _)| k.as_str() != Some("entities"));
+                    fields.retain(|(k, _)| {
+                        !matches!(
+                            k.as_str(),
+                            Some("entities" | "label_asym_id" | "label_entity_id" | "label_seq_id")
+                        )
+                    });
                     for (_, child) in fields {
                         strip(child);
                     }
@@ -1001,6 +1038,10 @@ mod tests {
         assert_eq!(restored.prs_format_version, 4);
         let molecule = restored.session.registry.get_molecule("mol").unwrap();
         assert!(molecule.molecule().entities.is_empty());
+        assert_eq!(
+            molecule.molecule().atoms_slice()[0].residue.label_seq_id(),
+            None
+        );
     }
 
     #[test]

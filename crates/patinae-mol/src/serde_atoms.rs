@@ -6,7 +6,7 @@ use std::sync::Arc;
 use ahash::AHashSet;
 use serde::de::{Deserializer, SeqAccess, Visitor};
 
-use crate::{Atom, AtomResidue};
+use crate::{Atom, AtomResidue, ResidueLabelChain};
 
 pub(crate) fn deserialize_atoms<'de, D: Deserializer<'de>>(
     deserializer: D,
@@ -26,11 +26,30 @@ pub(crate) fn deserialize_atoms<'de, D: Deserializer<'de>>(
             let mut atoms = Vec::new();
             let mut names: AHashSet<Arc<str>> = AHashSet::new();
             let mut residues: AHashSet<Arc<AtomResidue>> = AHashSet::new();
+            let mut label_strings: AHashSet<Arc<str>> = AHashSet::new();
+            let mut label_chains: AHashSet<Arc<ResidueLabelChain>> = AHashSet::new();
             while let Some(mut atom) = seq.next_element::<Atom>()? {
                 if let Some(name) = names.get(atom.name.as_ref()) {
                     atom.name = Arc::clone(name);
                 } else {
                     names.insert(Arc::clone(&atom.name));
+                }
+                if atom.residue.label_asym_id().is_some()
+                    || atom.residue.label_entity_id().is_some()
+                    || atom.residue.label_seq_id().is_some()
+                {
+                    let chain = ResidueLabelChain::new(
+                        intern_label(&mut label_strings, atom.residue.label_asym_id()),
+                        intern_label(&mut label_strings, atom.residue.label_entity_id()),
+                    );
+                    let shared = if let Some(shared) = label_chains.get(&chain) {
+                        Arc::clone(shared)
+                    } else {
+                        let shared = Arc::new(chain);
+                        label_chains.insert(Arc::clone(&shared));
+                        shared
+                    };
+                    Arc::make_mut(&mut atom.residue).share_label_chain(shared);
                 }
                 if let Some(residue) = residues.get(atom.residue.as_ref()) {
                     atom.residue = Arc::clone(residue);
@@ -44,6 +63,16 @@ pub(crate) fn deserialize_atoms<'de, D: Deserializer<'de>>(
     }
 
     deserializer.deserialize_seq(AtomsVisitor)
+}
+
+fn intern_label(pool: &mut AHashSet<Arc<str>>, value: Option<&str>) -> Option<Arc<str>> {
+    let value = value?;
+    if let Some(shared) = pool.get(value) {
+        return Some(Arc::clone(shared));
+    }
+    let shared: Arc<str> = Arc::from(value);
+    pool.insert(Arc::clone(&shared));
+    Some(shared)
 }
 
 #[cfg(test)]

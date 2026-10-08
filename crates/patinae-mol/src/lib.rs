@@ -65,7 +65,7 @@ mod subchain;
 // Re-export main types
 pub use atom::{
     Atom, AtomBuilder, AtomColors, AtomRepresentation, AtomResidue, AtomState, RepMask,
-    COLOR_BY_CHAIN, COLOR_UNSET,
+    ResidueLabelChain, ResidueLabels, COLOR_BY_CHAIN, COLOR_UNSET,
 };
 pub use bond::{Bond, BondOrder, BondStereo, SymOp};
 pub use bonding::DEFAULT_BOND_TOLERANCE;

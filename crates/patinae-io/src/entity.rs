@@ -231,9 +231,9 @@ _entity_poly_seq.mon_id
         assert_eq!(chain.kind, Some(PolymerKind::PeptideL));
         assert_eq!(chain.sequence, ["MET", "GLY", "SER"]);
         let atom = &mol.atoms_slice()[0];
-        assert_eq!(atom.residue.label_entity_id.as_deref(), Some("1"));
+        assert_eq!(atom.residue.label_entity_id(), Some("1"));
         assert_eq!(
-            chain.monomer(atom.residue.label_seq_id.unwrap()),
+            chain.monomer(atom.residue.label_seq_id().unwrap()),
             Some("GLY")
         );
     }

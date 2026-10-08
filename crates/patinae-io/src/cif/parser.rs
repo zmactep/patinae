@@ -11,7 +11,9 @@ use patinae_mol::{Element, ObjectMolecule};
 use crate::assembly::{AssemblyRow, AssemblyRows, CATEGORIES};
 use crate::entity::{EntityCategory, EntityRows};
 use crate::error::{IoError, IoResult};
-use crate::logical_models::{build_molecules, ParsedAtom, ParsedLabels, ParsedModel};
+use crate::logical_models::{
+    build_molecules, ParsedAtom, ParsedLabels, ParsedModel, ParsedResidue,
+};
 use crate::traits::MoleculeReader;
 
 use super::common::{
@@ -581,23 +583,30 @@ fn parse_atom_site_loop(
             col!(cols.label_asym_id),
             col!(cols.label_entity_id),
             label_seq_id,
-            model.atoms.last(),
         );
+        let chain = if chain_str.contains('-') {
+            std::borrow::Cow::Owned(chain_str.replace('-', ""))
+        } else {
+            std::borrow::Cow::Borrowed(chain_str)
+        };
+        let residue = model.intern_residue(ParsedResidue {
+            chain: &chain,
+            resn: resn_str,
+            resv,
+            icode: inscode,
+            segi: "",
+            labels,
+        })?;
         model.atoms.push(ParsedAtom {
             name: atom_name.to_string(),
             element,
-            chain: chain_str.replace('-', ""),
-            resn: resn_str.to_string(),
-            resv,
-            icode: inscode,
+            residue,
             alt,
             hetatm,
             serial,
             formal_charge,
             occupancy,
             b_factor,
-            segi: String::new(),
-            labels,
         });
         model.coords.push(Vec3::new(x, y, z));
     }
@@ -1296,18 +1305,18 @@ HETATM 4 O O HOH D 4 . O HOH H 201 6.0 0.0 0.0
         let first = &atoms[0].residue;
         assert_eq!((first.chain.as_str(), first.resv), ("H", 101));
         assert_eq!(first.resn, "MET");
-        assert_eq!(first.label_asym_id.as_deref(), Some("B"));
-        assert_eq!(first.label_entity_id.as_deref(), Some("2"));
-        assert_eq!(first.label_seq_id, Some(1));
+        assert_eq!(first.label_asym_id(), Some("B"));
+        assert_eq!(first.label_entity_id(), Some("2"));
+        assert_eq!(first.label_seq_id(), Some(1));
         assert!(Arc::ptr_eq(&atoms[0].residue, &atoms[1].residue));
 
-        assert_eq!(atoms[2].residue.label_seq_id, Some(2));
+        assert_eq!(atoms[2].residue.label_seq_id(), Some(2));
         assert!(!Arc::ptr_eq(&atoms[1].residue, &atoms[2].residue));
 
         let water = &atoms[3].residue;
-        assert_eq!(water.label_asym_id.as_deref(), Some("D"));
-        assert_eq!(water.label_entity_id.as_deref(), Some("4"));
-        assert_eq!(water.label_seq_id, None);
+        assert_eq!(water.label_asym_id(), Some("D"));
+        assert_eq!(water.label_entity_id(), Some("4"));
+        assert_eq!(water.label_seq_id(), None);
     }
 
     #[test]
@@ -1329,8 +1338,22 @@ _atom_site.Cartn_z
         let mol = CifReader::new(cif_data.as_bytes()).read().unwrap();
         let atom = &mol.atoms_slice()[0];
 
-        assert_eq!(atom.residue.label_asym_id, None);
-        assert_eq!(atom.residue.label_entity_id, None);
-        assert_eq!(atom.residue.label_seq_id, None);
+        assert_eq!(atom.residue.label_asym_id(), None);
+        assert_eq!(atom.residue.label_entity_id(), None);
+        assert_eq!(atom.residue.label_seq_id(), None);
+    }
+    #[test]
+    fn source_labels_survive_normalization_missing_values_and_noncontiguous_rows() {
+        let cif = "data_labels\nloop_\n_atom_site.id\n_atom_site.type_symbol\n_atom_site.auth_atom_id\n_atom_site.auth_comp_id\n_atom_site.auth_asym_id\n_atom_site.auth_seq_id\n_atom_site.label_asym_id\n_atom_site.label_entity_id\n_atom_site.label_seq_id\n_atom_site.Cartn_x\n_atom_site.Cartn_y\n_atom_site.Cartn_z\n1 C CA GLY A-1 7 L-01 001x 9 0 0 0\n2 C CA GLY A-1 7 ? . 10 5 0 0\n3 N N GLY A-1 7 L-01 001x 9 1 0 0\n";
+        let mol = CifReader::new(cif.as_bytes()).read().unwrap();
+        let atoms = mol.atoms_slice();
+        assert_eq!(atoms[0].residue.chain, "A1");
+        assert_eq!(atoms[0].residue.label_asym_id(), Some("L-01"));
+        assert_eq!(atoms[0].residue.label_entity_id(), Some("001x"));
+        assert_eq!(atoms[1].residue.label_asym_id(), None);
+        assert_eq!(atoms[1].residue.label_entity_id(), None);
+        assert_eq!(atoms[1].residue.label_seq_id(), Some(10));
+        assert!(Arc::ptr_eq(&atoms[0].residue, &atoms[2].residue));
+        assert!(!Arc::ptr_eq(&atoms[0].residue, &atoms[1].residue));
     }
 }
