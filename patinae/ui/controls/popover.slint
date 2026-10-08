@@ -1,0 +1,29 @@
+import { Spacing, Shape, Theme } from "../foundations/foundations.slint";
+import { Surface } from "../primitives/surface.slint";
+
+// One placement and scrolling policy for every anchored settings card.
+export component AnchoredPopover inherits Surface {
+    in property <length> anchor-top;
+    in property <length> anchor-bottom;
+    in property <length> available-height;
+    level: overlay;
+    height: min(content.preferred-height, max(0px, root.available-height - 2 * Spacing.sm));
+    y: max(Spacing.sm, min(
+        root.anchor-top + self.height <= root.available-height - Spacing.sm
+            ? root.anchor-top : root.anchor-bottom - self.height,
+        root.available-height - self.height - Spacing.sm));
+    border-radius: Shape.radius-md;
+    border-width: Shape.hairline;
+    border-color: Theme.border-subtle;
+    clip: true;
+    TouchArea {}
+    Flickable {
+        width: parent.width; height: parent.height;
+        viewport-width: self.width;
+        viewport-height: content.preferred-height;
+        content := VerticalLayout {
+            width: parent.width;
+            @children
+        }
+    }
+}

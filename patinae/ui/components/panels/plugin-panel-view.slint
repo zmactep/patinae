@@ -1,3 +1,4 @@
+import { UiText } from "../../primitives/text.slint";
 import { Theme, Typography, Spacing, Shape, Motion } from "../../foundations/foundations.slint";
 import { PluginState, PluginControl, PluginControlNode, PluginControlLeaf, PluginSubLeaf, PluginOption, PluginButtonItem, PluginHighlightLine } from "../../states/plugin-state.slint";
 import { HighlightedTextArea } from "highlighted-text-area.slint";
@@ -16,10 +17,10 @@ component PluginButton inherits Rectangle {
         ? Theme.accent-primary.with-alpha(0.68)
         : touch.has-hover ? Theme.border-strong : Theme.border-subtle.with-alpha(0.72);
 
-    Text {
+    UiText {
         text: root.control.label;
         color: root.control.primary ? Theme.accent-primary : Theme.text-secondary;
-        font-size: Typography.compact-label.size;
+        text-style: Typography.label;
         font-weight: 500;
         horizontal-alignment: center;
         vertical-alignment: center;
@@ -112,13 +113,13 @@ component PluginIconButton inherits Rectangle {
         border-width: Shape.hairline;
         border-color: Theme.border-strong;
 
-        tooltip-text := Text {
+        tooltip-text := UiText {
             x: 5px;
             width: parent.width - 10px;
             height: 100%;
             text: root.button.label;
             color: Theme.text-secondary;
-            font-size: Typography.hint.size;
+            text-style: Typography.hint;
             vertical-alignment: center;
         }
     }
@@ -182,12 +183,12 @@ component PluginToggle inherits Rectangle {
             }
         }
 
-        Text {
+        UiText {
             horizontal-stretch: 1;
             height: 100%;
             text: root.control.label;
             color: Theme.text-secondary;
-            font-size: Typography.compact-label.size;
+            text-style: Typography.label;
             vertical-alignment: center;
         }
     }
@@ -232,18 +233,17 @@ component PluginSlider inherits Rectangle {
         spacing: 3px;
 
         HorizontalLayout {
-            Text {
+            UiText {
                 horizontal-stretch: 1;
                 text: root.control.label;
                 color: Theme.text-secondary;
-                font-size: Typography.hint.size;
+                text-style: Typography.hint;
             }
-            Text {
+            UiText {
                 width: 52px;
                 text: root.display-value();
                 color: Theme.accent-primary;
-                font-family: Typography.content-family;
-                font-size: Typography.hint.size;
+                text-style: Typography.hint;
                 horizontal-alignment: right;
             }
         }
@@ -315,10 +315,10 @@ component PluginOptionChip inherits Rectangle {
     border-width: Shape.hairline;
     border-color: selected ? Theme.accent-primary.with-alpha(0.55) : Theme.border-subtle;
 
-    label := Text {
+    label := UiText {
         text: root.option.label;
         color: root.selected ? Theme.accent-primary : Theme.text-muted;
-        font-size: Typography.hint.size;
+        text-style: Typography.hint;
         font-weight: 500;
         horizontal-alignment: center;
         vertical-alignment: center;
@@ -338,10 +338,10 @@ component PluginSelect inherits VerticalLayout {
 
     spacing: 4px;
 
-    Text {
+    UiText {
         text: root.control.label;
         color: Theme.text-secondary;
-        font-size: Typography.hint.size;
+        text-style: Typography.hint;
     }
 
     HorizontalLayout {
@@ -363,10 +363,10 @@ component PluginTextInput inherits Rectangle {
     VerticalLayout {
         spacing: 4px;
 
-        Text {
+        UiText {
             text: root.control.label;
             color: Theme.text-secondary;
-            font-size: Typography.hint.size;
+            text-style: Typography.hint;
         }
 
         Rectangle {
@@ -383,7 +383,7 @@ component PluginTextInput inherits Rectangle {
                 text: root.control.value-text;
                 single-line: true;
                 color: Theme.text-secondary;
-                font-size: Typography.compact-label.size;
+                font-size: Typography.label.size;
                 vertical-alignment: center;
                 selection-background-color: Theme.accent-primary.with-alpha(0.3);
                 selection-foreground-color: Theme.text-primary;
@@ -436,12 +436,12 @@ component PluginNodeToggle inherits Rectangle {
             }
         }
 
-        Text {
+        UiText {
             horizontal-stretch: 1;
             height: 100%;
             text: root.control.label;
             color: Theme.text-secondary;
-            font-size: Typography.compact-label.size;
+            text-style: Typography.label;
             vertical-alignment: center;
         }
     }
@@ -486,18 +486,17 @@ component PluginNodeSlider inherits Rectangle {
         spacing: 3px;
 
         HorizontalLayout {
-            Text {
+            UiText {
                 horizontal-stretch: 1;
                 text: root.control.label;
                 color: Theme.text-secondary;
-                font-size: Typography.hint.size;
+                text-style: Typography.hint;
             }
-            Text {
+            UiText {
                 width: 52px;
                 text: root.display-value();
                 color: Theme.accent-primary;
-                font-family: Typography.content-family;
-                font-size: Typography.hint.size;
+                text-style: Typography.hint;
                 horizontal-alignment: right;
             }
         }
@@ -569,10 +568,10 @@ component PluginNodeOptionChip inherits Rectangle {
     border-width: Shape.hairline;
     border-color: selected ? Theme.accent-primary.with-alpha(0.55) : Theme.border-subtle;
 
-    label := Text {
+    label := UiText {
         text: root.option.label;
         color: root.selected ? Theme.accent-primary : Theme.text-muted;
-        font-size: Typography.hint.size;
+        text-style: Typography.hint;
         font-weight: 500;
         horizontal-alignment: center;
         vertical-alignment: center;
@@ -592,10 +591,10 @@ component PluginNodeSelect inherits VerticalLayout {
 
     spacing: 4px;
 
-    Text {
+    UiText {
         text: root.control.label;
         color: Theme.text-secondary;
-        font-size: Typography.hint.size;
+        text-style: Typography.hint;
     }
 
     HorizontalLayout {
@@ -617,10 +616,10 @@ component PluginNodeTextInput inherits Rectangle {
     VerticalLayout {
         spacing: 4px;
 
-        Text {
+        UiText {
             text: root.control.label;
             color: Theme.text-secondary;
-            font-size: Typography.hint.size;
+            text-style: Typography.hint;
         }
 
         Rectangle {
@@ -637,7 +636,7 @@ component PluginNodeTextInput inherits Rectangle {
                 text: root.control.value-text;
                 single-line: true;
                 color: Theme.text-secondary;
-                font-size: Typography.compact-label.size;
+                font-size: Typography.label.size;
                 vertical-alignment: center;
                 selection-background-color: Theme.accent-primary.with-alpha(0.3);
                 selection-foreground-color: Theme.text-primary;
@@ -663,10 +662,10 @@ component PluginLeafTextInput inherits Rectangle {
         spacing: 4px;
         alignment: start;
 
-        Text {
+        UiText {
             text: root.control.label;
             color: Theme.text-secondary;
-            font-size: Typography.hint.size;
+            text-style: Typography.hint;
         }
 
         Rectangle {
@@ -683,7 +682,7 @@ component PluginLeafTextInput inherits Rectangle {
                 text: root.control.value-text;
                 single-line: true;
                 color: Theme.text-secondary;
-                font-size: Typography.compact-label.size;
+                font-size: Typography.label.size;
                 vertical-alignment: center;
                 selection-background-color: Theme.accent-primary.with-alpha(0.3);
                 selection-foreground-color: Theme.text-primary;
@@ -711,12 +710,12 @@ component PluginTextAreaPane inherits Rectangle {
     VerticalLayout {
         spacing: 4px;
 
-        Text {
+        UiText {
             visible: root.label != "";
             height: root.label == "" ? 0px : 14px;
             text: root.label;
             color: Theme.text-secondary;
-            font-size: Typography.hint.size;
+            text-style: Typography.hint;
         }
 
         HighlightedTextArea {
@@ -728,7 +727,7 @@ component PluginTextAreaPane inherits Rectangle {
             read-only: root.read-only;
             highlight-lines: root.highlight-lines;
             font-family: Typography.content-family;
-            font-size: Typography.compact-label.size;
+            font-size: Typography.label.size;
 
             edited(text) => {
                 PluginState.control-event(root.panel-id, root.control-id, "text-area-edit", text, 0, false);
@@ -777,12 +776,12 @@ component PluginLeafToggle inherits Rectangle {
             }
         }
 
-        Text {
+        UiText {
             horizontal-stretch: 1;
             height: 100%;
             text: root.control.label;
             color: Theme.text-secondary;
-            font-size: Typography.compact-label.size;
+            text-style: Typography.label;
             vertical-alignment: center;
         }
     }
@@ -832,7 +831,7 @@ component PluginLeafButton inherits Rectangle {
         height: 100%;
         text: root.control.label;
         color: root.action ? Theme.surface-base : (root.control.primary ? Theme.accent-primary : Theme.text-secondary);
-        font-size: root.action ? Typography.compact-label.size : Typography.hint.size;
+        font-size: root.action ? Typography.label.size : Typography.hint.size;
         font-weight: root.action || root.control.primary ? 500 : 400;
         horizontal-alignment: root.action ? center : left;
         vertical-alignment: center;
@@ -860,10 +859,10 @@ component PluginLeafOptionChip inherits Rectangle {
     border-width: Shape.hairline;
     border-color: selected ? Theme.accent-primary.with-alpha(0.55) : Theme.border-subtle;
 
-    label := Text {
+    label := UiText {
         text: root.option.label;
         color: root.selected ? Theme.accent-primary : Theme.text-muted;
-        font-size: Typography.hint.size;
+        text-style: Typography.hint;
         font-weight: 500;
         horizontal-alignment: center;
         vertical-alignment: center;
@@ -884,10 +883,10 @@ component PluginLeafSelect inherits VerticalLayout {
     spacing: 4px;
     alignment: start;
 
-    Text {
+    UiText {
         text: root.control.label;
         color: Theme.text-secondary;
-        font-size: Typography.hint.size;
+        text-style: Typography.hint;
         vertical-stretch: 0;
     }
 
@@ -927,12 +926,12 @@ component PluginSubTextInput inherits Rectangle {
         spacing: 3px;
         alignment: start;
 
-        Text {
+        UiText {
             visible: root.control.label != "";
             height: root.control.label == "" ? 0px : 14px;
             text: root.control.label;
             color: Theme.text-secondary;
-            font-size: Typography.hint.size;
+            text-style: Typography.hint;
         }
 
         Rectangle {
@@ -949,7 +948,7 @@ component PluginSubTextInput inherits Rectangle {
                 text: root.control.value-text;
                 single-line: true;
                 color: Theme.text-secondary;
-                font-size: Typography.compact-label.size;
+                font-size: Typography.label.size;
                 vertical-alignment: center;
                 selection-background-color: Theme.accent-primary.with-alpha(0.3);
                 selection-foreground-color: Theme.text-primary;
@@ -978,10 +977,10 @@ component PluginSubOptionChip inherits Rectangle {
     border-width: Shape.hairline;
     border-color: selected ? Theme.accent-primary.with-alpha(0.55) : Theme.border-subtle;
 
-    label := Text {
+    label := UiText {
         text: root.option.label;
         color: root.selected ? Theme.accent-primary : Theme.text-muted;
-        font-size: Typography.hint.size;
+        text-style: Typography.hint;
         font-weight: 500;
         horizontal-alignment: center;
         vertical-alignment: center;
@@ -1002,11 +1001,11 @@ component PluginSubSelect inherits VerticalLayout {
     spacing: 3px;
     alignment: start;
 
-    Text {
+    UiText {
         height: 14px;
         text: root.control.label;
         color: Theme.text-secondary;
-        font-size: Typography.hint.size;
+        text-style: Typography.hint;
         vertical-stretch: 0;
     }
 
@@ -1052,11 +1051,11 @@ component PluginSubToggle inherits Rectangle {
             }
         }
 
-        Text {
+        UiText {
             horizontal-stretch: 1;
             text: root.control.label;
             color: Theme.text-secondary;
-            font-size: Typography.compact-label.size;
+            text-style: Typography.label;
             vertical-alignment: center;
         }
     }
@@ -1081,13 +1080,13 @@ component PluginSubButton inherits Rectangle {
         ? (touch.has-hover ? Theme.accent-primary.brighter(0.15) : Theme.accent-primary)
         : touch.has-hover ? Theme.surface-control.with-alpha(0.6) : transparent;
 
-    btn-label := Text {
+    btn-label := UiText {
         x: root.action ? 12px : 0px;
         width: parent.width - (root.action ? 24px : 0px);
         height: 100%;
         text: root.control.label;
         color: root.action ? Theme.surface-base : Theme.text-secondary;
-        font-size: Typography.compact-label.size;
+        text-style: Typography.label;
         font-weight: root.action ? 500 : 400;
         horizontal-alignment: center;
         vertical-alignment: center;
@@ -1108,18 +1107,18 @@ component PluginSubTitleDesc inherits VerticalLayout {
     spacing: 3px;
     alignment: start;
 
-    Text {
+    UiText {
         text: root.control.label;
         color: Theme.text-primary;
-        font-size: Typography.compact-label.size;
+        text-style: Typography.label;
         font-weight: 600;
         vertical-stretch: 0;
     }
 
-    Text {
+    UiText {
         text: root.control.text;
         color: Theme.text-muted;
-        font-size: Typography.hint.size;
+        text-style: Typography.hint;
         wrap: word-wrap;
         vertical-stretch: 0;
     }
@@ -1140,22 +1139,22 @@ component PluginSubLeafRow inherits Rectangle {
         control: root.control;
     }
 
-    if control.kind == "heading": Text {
+    if control.kind == "heading": UiText {
         width: 100%;
         text: root.control.text;
         color: Theme.text-primary;
-        font-size: Typography.compact-label.size;
+        text-style: Typography.label;
         font-weight: 600;
         horizontal-alignment: left;
         vertical-alignment: center;
     }
 
-    sub-text := Text {
+    sub-text := UiText {
         visible: root.control.kind == "text";
         width: 100%;
         text: root.control.text;
         color: Theme.text-muted;
-        font-size: Typography.hint.size;
+        text-style: Typography.hint;
         horizontal-alignment: left;
         wrap: word-wrap;
     }
@@ -1193,22 +1192,22 @@ component PluginControlLeafRow inherits Rectangle {
     height: root.control.kind == "text" ? max(root.control.height * 1px, leaf-text.preferred-height)
         : max(4px, root.control.height * 1px);
 
-    if control.kind == "heading": Text {
+    if control.kind == "heading": UiText {
         width: 100%;
         text: root.control.text;
         color: Theme.text-primary;
-        font-size: Typography.compact-label.size;
+        text-style: Typography.label;
         font-weight: 600;
         horizontal-alignment: left;
         vertical-alignment: center;
     }
 
-    leaf-text := Text {
+    leaf-text := UiText {
         visible: root.control.kind == "text";
         width: 100%;
         text: root.control.text;
         color: Theme.text-muted;
-        font-size: Typography.hint.size;
+        text-style: Typography.hint;
         horizontal-alignment: left;
         wrap: word-wrap;
     }
@@ -1320,10 +1319,10 @@ component PluginNodeButton inherits Rectangle {
         ? Theme.accent-primary.with-alpha(0.68)
         : touch.has-hover ? Theme.border-strong : Theme.border-subtle.with-alpha(0.72);
 
-    Text {
+    UiText {
         text: root.control.label;
         color: root.control.primary ? Theme.accent-primary : Theme.text-secondary;
-        font-size: Typography.compact-label.size;
+        text-style: Typography.label;
         font-weight: 500;
         horizontal-alignment: center;
         vertical-alignment: center;
@@ -1365,19 +1364,19 @@ component PluginControlNodeRow inherits Rectangle {
     height: root.control.kind == "text" ? max(root.control.height * 1px, text-row.preferred-height)
         : max(4px, root.control.height * 1px);
 
-    if control.kind == "heading": Text {
+    if control.kind == "heading": UiText {
         text: root.control.text;
         color: Theme.text-primary;
-        font-size: Typography.compact-label.size;
+        text-style: Typography.label;
         font-weight: 600;
         vertical-alignment: center;
     }
 
-    text-row := Text {
+    text-row := UiText {
         visible: root.control.kind == "text";
         text: root.control.text;
         color: Theme.text-muted;
-        font-size: Typography.hint.size;
+        text-style: Typography.hint;
         wrap: word-wrap;
     }
 
@@ -1488,13 +1487,13 @@ component PluginGroup inherits Rectangle {
         if root.control.label != "": Rectangle {
             height: 24px;
 
-            Text {
+            UiText {
                 x: 2px;
                 width: parent.width - 28px;
                 height: 100%;
                 text: root.control.label;
                 color: Theme.text-primary;
-                font-size: Typography.compact-label.size;
+                text-style: Typography.label;
                 font-weight: 600;
                 vertical-alignment: center;
             }
@@ -1550,22 +1549,22 @@ component PluginControlRow inherits Rectangle {
     height: control.kind == "text" ? max(root.control.height * 1px, text-row.preferred-height)
         : max(4px, root.control.height * 1px);
 
-    if control.kind == "heading": Text {
+    if control.kind == "heading": UiText {
         width: 100%;
         text: root.control.text;
         color: Theme.text-primary;
-        font-size: Typography.compact-label.size;
+        text-style: Typography.label;
         font-weight: 600;
         horizontal-alignment: center;
         vertical-alignment: center;
     }
 
-    text-row := Text {
+    text-row := UiText {
         visible: root.control.kind == "text";
         width: 100%;
         text: root.control.text;
         color: Theme.text-muted;
-        font-size: Typography.hint.size;
+        text-style: Typography.hint;
         wrap: word-wrap;
     }
 
@@ -1576,24 +1575,24 @@ component PluginControlRow inherits Rectangle {
         border-width: Shape.hairline;
         border-color: touch.has-hover ? Theme.border-strong : Theme.border-subtle.with-alpha(0.70);
 
-        Text {
+        UiText {
             x: 10px;
             width: 12px;
             height: 100%;
             text: root.control.open ? "⌄" : "›";
             color: Theme.accent-primary;
-            font-size: Typography.compact-label.size;
+            text-style: Typography.label;
             horizontal-alignment: center;
             vertical-alignment: center;
         }
 
-        Text {
+        UiText {
             x: 28px;
             width: parent.width - 38px;
             height: 100%;
             text: root.control.label;
             color: Theme.text-primary;
-            font-size: Typography.compact-label.size;
+            text-style: Typography.label;
             font-weight: 600;
             vertical-alignment: center;
         }

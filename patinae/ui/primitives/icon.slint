@@ -1,0 +1,8 @@
+import { Theme } from "../foundations/foundations.slint";
+
+// Monochrome SVGs retain their original geometry; tint follows the UI theme.
+export component UiIcon inherits Image {
+    in property <color> tint: Theme.icon-default;
+    image-fit: contain;
+    colorize: root.tint;
+}

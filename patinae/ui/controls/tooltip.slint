@@ -1,0 +1,44 @@
+import { TooltipState } from "../states/tooltip-state.slint";
+import { Theme, Typography, Spacing, Shape, Motion } from "../foundations/foundations.slint";
+import { ComponentMetrics } from "../components/metrics.slint";
+import { UiText } from "../primitives/text.slint";
+
+// A passive anchor: the owning control supplies its hover/focus state.
+export component TooltipAnchor inherits Rectangle {
+    in property <bool> active;
+    in property <string> text;
+    property <int> ticket: -1;
+    changed active => {
+        if root.active && root.text != "" {
+            root.ticket = TooltipState.show(root.text, root.absolute-position.x,
+                root.absolute-position.y, root.absolute-position.y + root.height, false);
+        } else { TooltipState.release(root.ticket); }
+    }
+    changed absolute-position => { TooltipState.release(root.ticket); }
+}
+
+export component TooltipLayer inherits Rectangle {
+    timer := Timer {
+        interval: 2 * Motion.base;
+        running: TooltipState.pending;
+        triggered => { TooltipState.pending = false; TooltipState.visible = TooltipState.text != ""; }
+    }
+    card := Rectangle {
+        visible: TooltipState.visible;
+        width: min(caption.preferred-width + 2 * Spacing.sm,
+            min(ComponentMetrics.popover-w, max(0px, root.width - 2 * Spacing.sm)));
+        height: caption.preferred-height + 2 * Spacing.xs;
+        x: clamp(TooltipState.x, Spacing.sm, max(Spacing.sm, root.width - self.width - Spacing.sm));
+        y: clamp(TooltipState.bottom + Spacing.sm + self.height <= root.height - Spacing.sm
+            ? TooltipState.bottom + Spacing.sm : TooltipState.top - self.height - Spacing.sm,
+            Spacing.sm, max(Spacing.sm, root.height - self.height - Spacing.sm));
+        background: Theme.accent-primary;
+        border-radius: Shape.radius-sm;
+        caption := UiText {
+            x: Spacing.sm; y: Spacing.xs;
+            width: parent.width - 2 * Spacing.sm;
+            text: TooltipState.text; text-style: Typography.tooltip;
+            color: Theme.text-on-accent; wrap: word-wrap;
+        }
+    }
+}

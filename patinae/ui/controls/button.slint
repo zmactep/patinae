@@ -1,0 +1,94 @@
+import { TooltipAnchor } from "tooltip.slint";
+import { TooltipState } from "../states/tooltip-state.slint";
+import { Theme, Typography, Spacing, Shape, Motion } from "../foundations/foundations.slint";
+import { ComponentMetrics } from "../components/metrics.slint";
+import { UiText } from "../primitives/text.slint";
+import { UiIcon } from "../primitives/icon.slint";
+
+// Shared interaction surface. Specialized controls supply content and callbacks.
+export component Control inherits Rectangle {
+    in property <bool> primary: false;
+    in property <bool> enabled: true;
+    in property <bool> active: false;
+    in property <string> label;
+    in property <string> tooltip: root.label;
+    out property <bool> focused: keys.has-focus;
+    out property <bool> hovered: touch.has-hover && root.enabled;
+    out property <color> tint: !root.enabled ? Theme.icon-disabled
+        : root.primary || root.active || root.hovered ? Theme.accent-primary : Theme.text-secondary;
+    callback clicked;
+    forward-focus: keys;
+    height: ComponentMetrics.icon-size;
+    border-radius: Shape.radius-sm;
+    border-width: keys.has-focus ? Shape.border-stroke : 0px;
+    border-color: Theme.border-focus;
+    background: !root.enabled ? transparent : touch.pressed ? Theme.surface-control
+        : root.active || root.primary ? Theme.focus-background : root.hovered ? Theme.surface-raised : transparent;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-enabled: root.enabled;
+    accessible-action-default => { if root.enabled { root.clicked(); } }
+    animate background { duration: Motion.micro; }
+    TooltipAnchor { width: parent.width; height: parent.height; text: root.tooltip; active: root.visible && root.enabled && (root.hovered || root.focused) && !touch.pressed; }
+    @children
+    keys := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == Key.Return || event.text == " " {
+                TooltipState.dismiss(); root.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: root.enabled ? pointer : default;
+        pointer-event(event) => { if event.kind == PointerEventKind.down { TooltipState.dismiss(); } }
+        clicked => { keys.focus(); root.clicked(); }
+    }
+}
+
+export component IconButton inherits Control {
+    in property <image> icon;
+    width: ComponentMetrics.icon-size;
+    UiIcon {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: ComponentMetrics.row-action-icon-size;
+        height: self.width;
+        source: root.icon;
+        tint: root.tint;
+    }
+}
+
+
+export component TextButton inherits Control {
+    horizontal-stretch: 0;
+    min-width: label-text.preferred-width + 2 * Spacing.md;
+    preferred-width: self.min-width;
+    border-width: root.focused ? Shape.border-stroke : Shape.hairline;
+    border-color: root.focused ? Theme.border-focus : root.primary ? Theme.focus-outline : Theme.border-subtle;
+    label-text := UiText {
+        x: Spacing.md; height: parent.height;
+        text: root.label; text-style: Typography.body-small;
+        color: root.tint; vertical-alignment: center;
+    }
+}
+
+export component IconTile inherits Control {
+    in property <image> icon;
+    horizontal-stretch: 1; preferred-width: 0px; min-width: 0px;
+    height: ComponentMetrics.row-action-icon-size + Typography.hint.size + 3 * Spacing.xs;
+    UiIcon {
+        x: (parent.width - self.width) / 2; y: Spacing.xs;
+        width: ComponentMetrics.row-action-icon-size; height: self.width;
+        source: root.icon; tint: root.tint;
+    }
+    UiText {
+        y: ComponentMetrics.row-action-icon-size + 2 * Spacing.xs;
+        width: parent.width; height: Typography.hint.size + Spacing.xs;
+        text: root.label; text-style: Typography.hint; color: root.tint;
+        horizontal-alignment: center; vertical-alignment: center;
+    }
+}

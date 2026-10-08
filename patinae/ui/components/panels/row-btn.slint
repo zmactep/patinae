@@ -1,11 +1,13 @@
 import { ComponentMetrics } from "../metrics.slint";
-import { Theme, Typography, Shape } from "../../foundations/foundations.slint";
+import { IconButton } from "../../controls/button.slint";
+import { Icons } from "../../icons/icons.slint";
 import { ObjectsState } from "../../states/objects-state.slint";
 
-// ── Row button (C for color, R for representations) ─────────────────
+// The action ID is a command-routing contract, not the displayed glyph.
 
-export component RowBtn inherits Rectangle {
-    in property <string> letter;
+component RowBtn inherits IconButton {
+    in property <string> action-id;
+    icon: root.action-id == "R" ? Icons.representation : Icons.color;
     in property <string> source: "object";   // "object" | "selection"
     in property <string> obj-name;
     in property <string> chain-id: "";
@@ -15,51 +17,66 @@ export component RowBtn inherits Rectangle {
     in property <string> selector-clause: "";
     in property <bool> row-hovered: false;
     in property <bool> sibling-hovered: false;
-    in property <bool> active: ObjectsState.popover-kind == root.letter
+    active: ObjectsState.popover-kind == root.action-id
         && ObjectsState.popover-source == root.source
         && ObjectsState.popover-obj-name == root.obj-name
         && ObjectsState.popover-chain-id == root.chain-id
         && ObjectsState.popover-subchain-label == root.subchain-label;
-    // Any popover (C or R) is open for this row
+    // Any popover is open for this row
     property <bool> row-popover-open: ObjectsState.popover-kind != ""
         && ObjectsState.popover-source == root.source
         && ObjectsState.popover-obj-name == root.obj-name
         && ObjectsState.popover-chain-id == root.chain-id
         && ObjectsState.popover-subchain-label == root.subchain-label;
-    out property <bool> hovered: btn-touch.has-hover;
+    changed absolute-position => {
+        if root.active { ObjectsState.popover-anchor-y = root.absolute-position.y + root.height; }
+    }
+    label: root.action-id == "R" ? "Representations" : "Colors";
+    clicked => { root.activate(); }
+    function activate() {
+        ObjectsState.popover-anchor-y = root.absolute-position.y + root.height;
+        ObjectsState.row-btn-clicked(root.action-id, root.source, root.obj-name, root.chain-id, root.subchain-label, root.subchain-kind, root.entry-index, root.selector-clause);
+    }
     // When a popover is open, only the active row shows buttons; otherwise normal hover behavior
     property <bool> shown: root.row-popover-open
-        || (ObjectsState.popover-kind == "" && (root.row-hovered || btn-touch.has-hover || root.sibling-hovered));
+        || (ObjectsState.popover-kind == "" && (root.row-hovered || root.hovered || root.focused || root.sibling-hovered));
 
-    width: ComponentMetrics.chain-row-h - 2px;
-    height: ComponentMetrics.chain-row-h - 2px;
-    border-radius: Shape.radius-sm;
+    width: ComponentMetrics.row-btn-w;
+    height: ComponentMetrics.row-btn-h;
     opacity: root.shown ? 1.0 : 0.0;
-    background: root.active
-        ? Theme.accent-primary.with-alpha(0.18)
-        : btn-touch.has-hover
-            ? Theme.surface-control
-            : transparent;
-    border-width: root.active ? Shape.hairline : 0px;
-    border-color: root.active ? Theme.accent-primary.with-alpha(0.5) : transparent;
 
-    Text {
-        width: 100%;
-        height: 100%;
-        text: root.letter;
-        color: root.active
-            ? Theme.accent-primary
-            : btn-touch.has-hover ? Theme.text-primary : Theme.text-muted;
-        font-size: Typography.compact-label.size;
-        font-weight: 600;
-        horizontal-alignment: center;
-        vertical-alignment: center;
-    }
+}
 
-    btn-touch := TouchArea {
-        clicked => {
-            ObjectsState.popover-anchor-y = root.absolute-position.y + root.height;
-            ObjectsState.row-btn-clicked(root.letter, root.source, root.obj-name, root.chain-id, root.subchain-label, root.subchain-kind, root.entry-index, root.selector-clause);
+export component RowActions inherits Rectangle {
+    in property <string> source: "object";
+    in property <string> obj-name;
+    in property <string> chain-id;
+    in property <string> subchain-label;
+    in property <string> subchain-kind;
+    in property <int> entry-index: -1;
+    in property <string> selector-clause;
+    in property <bool> row-hovered;
+    in property <bool> representations: true;
+    in property <bool> colors: true;
+    width: ComponentMetrics.row-actions-w;
+    height: ComponentMetrics.row-btn-h;
+    HorizontalLayout {
+        padding-left: ComponentMetrics.row-btn-group-pad;
+        padding-right: ComponentMetrics.row-btn-group-pad;
+        spacing: ComponentMetrics.row-btn-spacing;
+        representation := RowBtn {
+            action-id: "R"; visible: root.representations;
+            source: root.source; obj-name: root.obj-name; chain-id: root.chain-id;
+            subchain-label: root.subchain-label; subchain-kind: root.subchain-kind;
+            entry-index: root.entry-index; selector-clause: root.selector-clause;
+            row-hovered: root.row-hovered; sibling-hovered: color.hovered;
+        }
+        color := RowBtn {
+            action-id: "C"; visible: root.colors;
+            source: root.source; obj-name: root.obj-name; chain-id: root.chain-id;
+            subchain-label: root.subchain-label; subchain-kind: root.subchain-kind;
+            entry-index: root.entry-index; selector-clause: root.selector-clause;
+            row-hovered: root.row-hovered; sibling-hovered: representation.hovered;
         }
     }
 }

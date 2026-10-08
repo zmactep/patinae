@@ -1,12 +1,12 @@
+import { BuiltinPanels } from "../panels/builtin-panels.slint";
+import { DockTab } from "../panels/dock-tab-bar.slint";
+import { UiText } from "../../primitives/text.slint";
 import { Surface } from "../../primitives/surface.slint";
 import { ComponentMetrics } from "../metrics.slint";
 import { Theme, Typography, Spacing, Shape } from "../../foundations/foundations.slint";
 import { LayoutState } from "../../states/layout-state.slint";
 import { ObjectsState } from "../../states/objects-state.slint";
 import { PluginState } from "../../states/plugin-state.slint";
-import { ObjectList } from "../panels/object-list.slint";
-import { SelectionList } from "../panels/selection-list.slint";
-import { RecentAtomsList } from "../panels/recent-atoms-list.slint";
 import { ActionPill } from "../panels/action-pill.slint";
 import { PluginPanelView } from "../panels/plugin-panel-view.slint";
 
@@ -20,63 +20,17 @@ export component RightDock inherits Surface {
         && (LayoutState.objects-visible
             || LayoutState.selections-visible
             || LayoutState.recent-atoms-visible);
-    property <int> builtin-panel-count:
-        (LayoutState.objects-visible ? 1 : 0)
-        + (LayoutState.selections-visible ? 1 : 0)
-        + (LayoutState.recent-atoms-visible ? 1 : 0);
+    property <bool> has-actions: ObjectsState.selected-count > 0 || ObjectsState.recent-operand-count > 0;
 
     VerticalLayout {
+        x: 0px; y: 0px; width: root.width;
+        height: max(0px, root.height - (root.has-actions ? ComponentMetrics.action-pill-h + 2 * Spacing.sm : 0px));
         if root.builtins-visible: Rectangle {
             clip: true;
             height: PluginState.right-visible ? 50% : 100%;
-
-            VerticalLayout {
-                // Objects
-                if LayoutState.objects-visible: Rectangle {
-                    clip: true;
-                    height: root.builtin-panel-count == 1
-                        ? 100%
-                        : root.builtin-panel-count == 2 ? 50% : 33.333%;
-                    ObjectList {
-                        width: 100%;
-                        height: 100%;
-                    }
-                }
-
-                if LayoutState.objects-visible
-                    && (LayoutState.selections-visible || LayoutState.recent-atoms-visible): Rectangle {
-                    height: Shape.hairline;
-                    background: Theme.border-subtle;
-                }
-
-                // Selections
-                if LayoutState.selections-visible: Rectangle {
-                    clip: true;
-                    height: root.builtin-panel-count == 1
-                        ? 100%
-                        : root.builtin-panel-count == 2 ? 50% : 33.333%;
-                    SelectionList {
-                        width: 100%;
-                        height: 100%;
-                    }
-                }
-
-                if LayoutState.selections-visible && LayoutState.recent-atoms-visible: Rectangle {
-                    height: Shape.hairline;
-                    background: Theme.border-subtle;
-                }
-
-                // Recent atom operands
-                if LayoutState.recent-atoms-visible: Rectangle {
-                    clip: true;
-                    height: root.builtin-panel-count == 1
-                        ? 100%
-                        : root.builtin-panel-count == 2 ? 50% : 33.333%;
-                    RecentAtomsList {
-                        width: 100%;
-                        height: 100%;
-                    }
-                }
+            BuiltinPanels {
+                width: parent.width;
+                height: parent.height;
             }
         }
 
@@ -95,31 +49,9 @@ export component RightDock inherits Surface {
                     padding-left: Spacing.md;
                     spacing: Spacing.md;
 
-                    for tab in PluginState.right-tabs: Rectangle {
-                        width: tab-label.preferred-width;
-                        height: parent.height;
-
-                        tab-label := Text {
-                            text: tab.title;
-                            color: tab.active ? Theme.accent-primary : Theme.text-muted;
-                            font-size: Typography.compact-label.size;
-                            font-weight: 500;
-                            letter-spacing: 1.1px;
-                            vertical-alignment: center;
-                        }
-
-                        TouchArea {
-                            mouse-cursor: pointer;
-                            clicked => { PluginState.activate-panel(tab.id); }
-                        }
-
-                        Rectangle {
-                            y: parent.height - 2px;
-                            height: 2px;
-                            width: 100%;
-                            background: Theme.accent-primary;
-                            opacity: tab.active ? 1.0 : 0.0;
-                        }
+                    for tab in PluginState.right-tabs: DockTab {
+                        label: tab.title; active: tab.active;
+                        clicked => { PluginState.activate-panel(tab.id); }
                     }
                 }
 

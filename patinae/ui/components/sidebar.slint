@@ -1,343 +1,85 @@
-import { ComponentMetrics } from "./metrics.slint";
-import { Theme, Typography, Spacing, Shape, Motion } from "../foundations/foundations.slint";
+import { ComponentMetrics } from "metrics.slint";
+import { Theme, Typography, Spacing, Shape } from "../foundations/foundations.slint";
 import { LayoutState } from "../states/layout-state.slint";
 import { PluginState } from "../states/plugin-state.slint";
 import { PluginListState } from "../states/plugin-list-state.slint";
-import { AtomPickIcon } from "icons.slint";
+import { IconButton, Control } from "../controls/button.slint";
+import { Icons } from "../icons/icons.slint";
+import { UiText } from "../primitives/text.slint";
+import { Surface } from "../primitives/surface.slint";
 
-// A single sidebar icon button (32×32, 7px radius).
-component SidebarButton inherits Rectangle {
-    in property <bool> active: false;
-    callback clicked;
+struct SidebarItem { id: string, title: string, icon: image, active: bool }
 
-    width: ComponentMetrics.icon-size;
-    height: ComponentMetrics.icon-size;
-    border-radius: Shape.radius-md;
+component SidebarButton inherits IconButton {
 
-    @children
-
-    ta := TouchArea {
-        mouse-cursor: pointer;
-        clicked => {
-            root.clicked();
-        }
-    }
-
-    states [
-        active-hover when active && ta.has-hover: {
-            background: Theme.accent-primary.with-alpha(0.22);
-        }
-        active when active: {
-            background: Theme.accent-primary.with-alpha(0.14);
-        }
-        hover when ta.has-hover: {
-            background: Theme.text-placeholder.with-alpha(0.18);
-        }
-    ]
-
-    animate background { duration: Motion.micro; }
 }
 
-export component Sidebar inherits Rectangle {
+export component Sidebar inherits Surface {
+    level: panel;
     width: ComponentMetrics.sidebar-w;
-    background: Theme.surface-panel;
-    property <bool> builtins-enabled: !LayoutState.empty-mode;
-
-    // ── Core icons (top cluster) ───────────────────────────────────
-
+    property <[SidebarItem]> items: [
+        { id: "repl", title: "Command line", icon: Icons.terminal, active: LayoutState.repl-visible },
+        { id: "objects", title: "Objects", icon: Icons.list-tree, active: LayoutState.objects-visible },
+        { id: "selections", title: "Selections", icon: Icons.layers, active: LayoutState.selections-visible },
+        { id: "recent-atoms", title: "Recent atoms", icon: Icons.crosshair, active: LayoutState.recent-atoms-visible },
+        { id: "sequence", title: "Sequence", icon: Icons.text-cursor-input, active: LayoutState.sequence-visible },
+        { id: "movie", title: "Movie", icon: Icons.clapperboard, active: LayoutState.movie-visible }
+    ];
     top := VerticalLayout {
-        x: (parent.width - ComponentMetrics.icon-size) / 2;
-        y: 16px;
-        spacing: Spacing.sm;
-
-        // REPL — prompt chevron → toggles REPL pill
-        SidebarButton {
-            active: root.builtins-enabled && LayoutState.repl-visible;
+        x: Spacing.sm; y: Spacing.md;
+        spacing: Spacing.md;
+        for item in root.items: SidebarButton {
+            label: item.title; icon: item.icon;
+            enabled: !LayoutState.empty-mode;
+            active: !LayoutState.empty-mode && item.active;
             clicked => {
-                if root.builtins-enabled {
-                    if LayoutState.repl-visible {
-                        LayoutState.hide-panel("repl");
-                    } else {
-                        LayoutState.show-panel("repl");
-                    }
-                }
-            }
-
-            Text {
-                width: parent.width;
-                height: parent.height;
-                text: "\u{203a}";
-                color: root.builtins-enabled && LayoutState.repl-visible ? Theme.accent-primary : Theme.text-disabled;
-                font-size: 24px;
-                font-weight: 500;
-                horizontal-alignment: center;
-                vertical-alignment: center;
+                if item.active { LayoutState.hide-panel(item.id); }
+                else { LayoutState.show-panel(item.id); }
             }
         }
-
-        // Objects — three horizontal bars → toggles object list
-        SidebarButton {
-            active: root.builtins-enabled && LayoutState.objects-visible;
-            clicked => {
-                if root.builtins-enabled {
-                    if LayoutState.objects-visible {
-                        LayoutState.hide-panel("objects");
-                    } else {
-                        LayoutState.show-panel("objects");
-                    }
-                }
-            }
-
-            VerticalLayout {
-                alignment: center;
-                spacing: 2px;
-                padding-left: 8px;
-                padding-right: 8px;
-
-                Rectangle {
-                    height: 3px;
-                    border-radius: 1px;
-                    background: root.builtins-enabled && LayoutState.objects-visible ? Theme.accent-primary : Theme.text-disabled;
-                }
-
-                Rectangle {
-                    height: 3px;
-                    border-radius: 1px;
-                    background: root.builtins-enabled && LayoutState.objects-visible ? Theme.accent-primary : Theme.text-disabled;
-                }
-
-                Rectangle {
-                    height: 3px;
-                    border-radius: 1px;
-                    background: root.builtins-enabled && LayoutState.objects-visible ? Theme.accent-primary : Theme.text-disabled;
-                }
-            }
-        }
-
-        // Selections — crosshair/target → toggles selection list
-        SidebarButton {
-            active: root.builtins-enabled && LayoutState.selections-visible;
-            clicked => {
-                if root.builtins-enabled {
-                    if LayoutState.selections-visible {
-                        LayoutState.hide-panel("selections");
-                    } else {
-                        LayoutState.show-panel("selections");
-                    }
-                }
-            }
-
-            Text {
-                width: parent.width;
-                height: parent.height;
-                text: "⊕";
-                color: root.builtins-enabled && LayoutState.selections-visible ? Theme.accent-primary : Theme.text-disabled;
-                font-size: 16px;
-                horizontal-alignment: center;
-                vertical-alignment: center;
-            }
-        }
-
-        // Recent atoms — atom reticle → toggles the recent atom list
-        SidebarButton {
-            active: root.builtins-enabled && LayoutState.recent-atoms-visible;
-            clicked => {
-                if root.builtins-enabled {
-                    if LayoutState.recent-atoms-visible {
-                        LayoutState.hide-panel("recent-atoms");
-                    } else {
-                        LayoutState.show-panel("recent-atoms");
-                    }
-                }
-            }
-
-            AtomPickIcon {
-                x: (parent.width - self.width) / 2;
-                y: (parent.height - self.height) / 2;
-                tint: root.builtins-enabled && LayoutState.recent-atoms-visible
-                    ? Theme.accent-primary
-                    : Theme.text-disabled;
-            }
-        }
-
-        // Sequence — "Aa" → toggles sequence bar
-        SidebarButton {
-            active: root.builtins-enabled && LayoutState.sequence-visible;
-            clicked => {
-                if root.builtins-enabled {
-                    if LayoutState.sequence-visible {
-                        LayoutState.hide-panel("sequence");
-                    } else {
-                        LayoutState.show-panel("sequence");
-                    }
-                }
-            }
-
-            Text {
-                width: parent.width;
-                height: parent.height;
-                text: "Aa";
-                color: root.builtins-enabled && LayoutState.sequence-visible ? Theme.accent-primary : Theme.text-disabled;
-                font-size: Typography.compact-label.size;
-                font-weight: 500;
-                horizontal-alignment: center;
-                vertical-alignment: center;
-            }
-        }
-
-        // Movie — filmstrip → toggles movie panel
-        SidebarButton {
-            active: root.builtins-enabled && LayoutState.movie-visible;
-            clicked => {
-                if root.builtins-enabled {
-                    if LayoutState.movie-visible {
-                        LayoutState.hide-panel("movie");
-                    } else {
-                        LayoutState.show-panel("movie");
-                    }
-                }
-            }
-
-            // Clapperboard: top bar with diagonal stripes + bottom board
-            Rectangle {
-                x: (parent.width - 16px) / 2;
-                y: (parent.height - 14px) / 2;
-                width: 16px;
-                height: 14px;
-
-                // Clapper arm (top bar, slightly open)
-                Rectangle {
-                    y: 0;
-                    width: parent.width;
-                    height: 5px;
-                    border-radius: 1px;
-                    background: root.builtins-enabled && LayoutState.movie-visible ? Theme.accent-primary : Theme.text-disabled;
-                    transform-rotation: -15deg;
-                    transform-origin: {x: 0, y: self.height};
-                }
-
-                // Board body
-                Rectangle {
-                    y: 5px;
-                    width: parent.width;
-                    height: 9px;
-                    border-radius: 1px;
-                    background: root.builtins-enabled && LayoutState.movie-visible ? Theme.accent-primary.with-alpha(0.35) : Theme.text-disabled.with-alpha(0.35);
-                    border-width: 1px;
-                    border-color: root.builtins-enabled && LayoutState.movie-visible ? Theme.accent-primary : Theme.text-disabled;
-                }
-            }
-        }
-
     }
-
-    // ── Hairline separator ─────────────────────────────────────────
-
     separator := Rectangle {
         x: Spacing.sm;
-        y: top.y + top.preferred-height + 16px;
+        y: top.y + top.preferred-height + Spacing.md;
         width: parent.width - 2 * Spacing.sm;
-        height: 0.5px;
+        height: Shape.hairline;
         background: Theme.border-subtle;
     }
-
-    // ── Plugin panel toggles ───────────────────────────────────────
-
-    VerticalLayout {
-        x: (parent.width - ComponentMetrics.icon-size) / 2;
-        y: separator.y + 16px;
-        spacing: Spacing.sm;
-
-        for item in PluginState.toolbar-items: SidebarButton {
-            active: item.active;
-            clicked => {
-                PluginState.toggle-panel(item.id);
-            }
-
-            Text {
-                width: parent.width;
-                height: parent.height;
-                text: item.icon;
-                color: item.active ? Theme.accent-primary : Theme.text-disabled;
-                font-size: Typography.hint.size;
-                font-weight: 600;
-                horizontal-alignment: center;
-                vertical-alignment: center;
+    // Plugin-provided labels remain dynamic; no assumptions about plugin glyphs.
+    Flickable {
+        x: Spacing.sm;
+        y: separator.y + Spacing.md;
+        width: ComponentMetrics.icon-size;
+        height: max(0px, bottom.y - self.y - Spacing.md);
+        viewport-height: plugin-buttons.preferred-height;
+        plugin-buttons := VerticalLayout {
+            spacing: Spacing.sm;
+            for item in PluginState.toolbar-items: Control {
+                width: ComponentMetrics.icon-size;
+                label: item.id;
+                active: item.active;
+                clicked => { PluginState.toggle-panel(item.id); }
+                UiText {
+                    width: parent.width; height: parent.height;
+                    text: item.icon; text-style: Typography.hint;
+                    color: item.active ? Theme.accent-primary : Theme.text-secondary;
+                    horizontal-alignment: center; vertical-alignment: center;
+                }
             }
         }
     }
-
-    // ── Bottom cluster (theme toggle + plugin list) ─────────────────
-
-    VerticalLayout {
-        x: (parent.width - ComponentMetrics.icon-size) / 2;
-        y: parent.height - 2 * ComponentMetrics.icon-size - Spacing.sm - 16px;
+    bottom := VerticalLayout {
+        x: Spacing.sm;
+        y: parent.height - self.preferred-height - Spacing.md;
         spacing: Spacing.sm;
-
-        // Theme toggle — sun/moon
         SidebarButton {
+            label: "Switch theme"; icon: Icons.contrast;
             active: !Theme.dark-mode;
-            clicked => {
-                Theme.toggle-theme();
-            }
-
-            // Circle with half-fill to suggest dark/light
-            Rectangle {
-                x: (parent.width - 14px) / 2;
-                y: (parent.height - 14px) / 2;
-                width: 14px;
-                height: 14px;
-                border-radius: 7px;
-                border-width: 1.5px;
-                border-color: Theme.dark-mode ? Theme.text-disabled : Theme.accent-amber;
-                background: transparent;
-
-                // Filled half (right side)
-                clip: true;
-                Rectangle {
-                    x: parent.width / 2;
-                    y: 0;
-                    width: parent.width / 2;
-                    height: parent.height;
-                    border-radius: 0;
-                    background: Theme.dark-mode ? Theme.text-disabled : Theme.accent-amber;
-                }
-            }
+            clicked => { Theme.toggle-theme(); }
         }
-
-        // Plugin list
-        Rectangle {
-            accessible-role: button;
-            accessible-label: "Plugins";
-            accessible-action-default => { PluginListState.open(); }
-            width: ComponentMetrics.icon-size;
-            height: ComponentMetrics.icon-size;
-            border-radius: Shape.radius-md;
-            border-width: 0.5px;
-            border-color: Theme.border-subtle;
-
-            Text {
-                width: parent.width;
-                height: parent.height;
-                text: "+";
-                color: Theme.text-disabled;
-                font-size: 16px;
-                horizontal-alignment: center;
-                vertical-alignment: center;
-            }
-
-            plugin-ta := TouchArea {
-                mouse-cursor: pointer;
-                clicked => { PluginListState.open(); }
-            }
-
-            states [
-                hover when plugin-ta.has-hover: {
-                    background: Theme.text-placeholder.with-alpha(0.18);
-                }
-            ]
-
-            animate background { duration: Motion.micro; }
+        SidebarButton {
+            label: "Plugins"; icon: Icons.puzzle;
+            clicked => { PluginListState.open(); }
         }
     }
 }

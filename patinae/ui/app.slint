@@ -1,6 +1,10 @@
+import { TooltipLayer } from "controls/tooltip.slint";
+export { TooltipState } from "states/tooltip-state.slint";
+export { ComponentMetrics, SequenceMetrics } from "components/metrics.slint";
 import { Theme, Typography, Spacing, Shape, Motion } from "./foundations/foundations.slint";
 import { MainLayout } from "layout.slint";
 import { LayoutState } from "states/layout-state.slint";
+export { DockRow } from "states/objects-state.slint";
 import { ObjectsState } from "states/objects-state.slint";
 import { ViewportState } from "states/viewport-state.slint";
 import { ReplState, OutputItem, CompletionItem } from "states/repl-state.slint";
@@ -61,7 +65,7 @@ export component StartupErrorWindow inherits Window {
                 Text {
                     text: "!";
                     color: Theme.status-error;
-                    font-size: 22px;
+                    font-size: Typography.body.size;
                     font-weight: 700;
                     horizontal-alignment: center;
                     vertical-alignment: center;
@@ -71,7 +75,7 @@ export component StartupErrorWindow inherits Window {
             Text {
                 text: root.dialog-title;
                 color: Theme.text-primary;
-                font-size: 18px;
+                font-size: Typography.body.size;
                 font-weight: 700;
                 vertical-alignment: center;
             }
@@ -85,7 +89,7 @@ export component StartupErrorWindow inherits Window {
         Text {
             text: root.message-text;
             color: Theme.text-secondary;
-            font-size: 13px;
+            font-size: Typography.body-small.size;
             wrap: word-wrap;
             vertical-stretch: 1;
         }
@@ -108,6 +112,14 @@ export component StartupErrorWindow inherits Window {
 }
 
 export component AppWindow inherits Window {
+    out property <length> scene-x: main-layout.absolute-position.x + main-layout.sidebar-width;
+    out property <length> scene-y: main-layout.absolute-position.y;
+    out property <length> sidebar-width: main-layout.sidebar-width;
+    out property <length> scene-width: main-layout.scene-width;
+    out property <length> scene-height: main-layout.scene-height;
+    public pure function overlay-contains-point(px: length, py: length) -> bool {
+        return main-layout.overlay-contains-point(px, py);
+    }
     default-font-family: Typography.interface-family;
     forward-focus: app-focus;
     title: "Patinae";
@@ -403,6 +415,8 @@ export component AppWindow inherits Window {
             height: parent.height;
         }
     }
+
+    TooltipLayer { width: parent.width; height: parent.height; }
 
     public function focus-repl() {
         main-layout.focus-repl();

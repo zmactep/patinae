@@ -1,0 +1,23 @@
+import { Control } from "button.slint";
+import { Theme, Typography, Spacing, Shape } from "../foundations/foundations.slint";
+import { UiText } from "../primitives/text.slint";
+import { ComponentMetrics } from "../components/metrics.slint";
+export component Toggle inherits Control {
+    height: ComponentMetrics.row-h;
+    width: track.width + Spacing.sm + caption.preferred-width + 2 * Spacing.xs;
+    background: root.hovered ? Theme.surface-raised : transparent;
+    track := Rectangle {
+        x: Spacing.xs; y: (parent.height - self.height) / 2;
+        height: Typography.body.size; width: 2 * self.height;
+        border-radius: self.height / 2;
+        background: root.active ? Theme.accent-primary : Theme.surface-control;
+        border-color: root.active ? Theme.accent-primary : Theme.border-strong; border-width: Shape.hairline;
+        Rectangle {
+            width: parent.height - 2 * Shape.border-stroke; height: self.width;
+            x: root.active ? parent.width - self.width - Shape.border-stroke : Shape.border-stroke;
+            y: Shape.border-stroke; border-radius: self.height / 2;
+            background: root.active ? Theme.text-on-accent : Theme.text-muted;
+        }
+    }
+    caption := UiText { x: track.x + track.width + Spacing.sm; height: parent.height; text: root.label; text-style: Typography.body-small; color: root.tint; vertical-alignment: center; }
+}

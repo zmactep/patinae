@@ -1,0 +1,24 @@
+import { Theme, Shape } from "../foundations/foundations.slint";
+import { ComponentMetrics } from "../components/metrics.slint";
+export component PanelRow inherits Rectangle {
+    in property <bool> selected;
+    in property <bool> hovered;
+    out property <bool> focused: keys.has-focus;
+    callback activated(bool, bool);
+    forward-focus: keys;
+    public function focus-row() { keys.focus(); }
+    keys := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Return || event.text == " " {
+                root.activated(event.modifiers.shift, event.modifiers.control || event.modifiers.meta); return accept;
+            }
+            return reject;
+        }
+    }
+    height: ComponentMetrics.row-h;
+    border-radius: Shape.radius-sm;
+    background: root.selected ? Theme.focus-background : root.hovered ? Theme.surface-raised : transparent;
+    border-width: root.focused ? Shape.border-stroke : root.selected ? Shape.hairline : 0px;
+    border-color: root.focused ? Theme.border-focus : Theme.focus-outline;
+    @children
+}

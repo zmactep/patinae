@@ -1,3 +1,5 @@
+import { UiText } from "./primitives/text.slint";
+import { AnchoredPopover } from "controls/popover.slint";
 import { ComponentMetrics } from "./components/metrics.slint";
 import { Theme, Typography, Spacing, Motion } from "./foundations/foundations.slint";
 import { Button, ScrollView } from "std-widgets.slint";
@@ -33,10 +35,19 @@ export component MainLayout inherits Rectangle {
     forward-focus: focus-shell;
     background: Theme.surface-base;
 
+    out property <length> sidebar-width: root.sw;
+    out property <length> scene-width: repl.width;
+    out property <length> scene-height: repl.height;
+    public pure function overlay-contains-point(px: length, py: length) -> bool {
+        return repl.contains-point(px, py) || (settings-card.visible
+            && px + root.sw >= settings-card.x && px + root.sw < settings-card.x + settings-card.width
+            && py >= settings-card.y && py < settings-card.y + settings-card.height);
+    }
+
     // Shorthand aliases
     property <length> sw: ComponentMetrics.sidebar-w;
-    property <length> rw: LayoutState.effective-right-dock-width;
-    property <length> bh: LayoutState.effective-bottom-dock-height;
+    property <length> rw: min(LayoutState.effective-right-dock-width, max(0px, root.width - root.sw - ComponentMetrics.viewport-min-w));
+    property <length> bh: min(LayoutState.effective-bottom-dock-height, max(0px, root.height - ComponentMetrics.viewport-min-h));
 
     animate rw { duration: Motion.base; easing: ease-in-out; }
     animate bh { duration: Motion.base; easing: ease-in-out; }
@@ -47,6 +58,7 @@ export component MainLayout inherits Rectangle {
 
     // ── Sidebar ────────────────────────────────────────────────────
     Sidebar {
+        z: 1;
         x: 0;
         y: 0;
         height: parent.height;
@@ -169,7 +181,7 @@ export component MainLayout inherits Rectangle {
         width: min(420px, parent.width - root.sw - root.rw - 2 * Spacing.md);
         height: min(notification-content.preferred-height + 2 * Spacing.xs, parent.height / 2);
         x: root.sw + (parent.width - root.sw - root.rw - self.width) / 2;
-        y: Spacing.lg;
+        y: ComponentMetrics.repl-pill-top + ComponentMetrics.repl-pill-h + Spacing.sm;
         border-radius: ComponentMetrics.repl-pill-radius;
         border-width: 1px;
         border-color: Theme.accent-primary-strong.with-alpha(0.45);
@@ -184,10 +196,10 @@ export component MainLayout inherits Rectangle {
                 spacing: Spacing.xs;
                 for task in NotificationState.tasks: HorizontalLayout {
                     spacing: Spacing.sm;
-                    Text {
+                    UiText {
                         text: task.text;
                         color: Theme.text-primary;
-                        font-size: Typography.compact-label.size;
+                        text-style: Typography.label;
                         vertical-alignment: center;
                         wrap: word-wrap;
                         horizontal-stretch: 1;
@@ -198,10 +210,10 @@ export component MainLayout inherits Rectangle {
                         clicked => { NotificationState.cancel-task(task.task-id); }
                     }
                 }
-                if NotificationState.text != "": Text {
+                if NotificationState.text != "": UiText {
                     text: NotificationState.text;
                     color: Theme.text-primary;
-                    font-size: Typography.compact-label.size;
+                    text-style: Typography.label;
                     wrap: word-wrap;
                 }
             }
@@ -253,40 +265,19 @@ export component MainLayout inherits Rectangle {
         }
     }
 
-    if ObjectsState.popover-kind == "C": ColorPopover {
-        x: parent.width - root.rw + Spacing.sm;
-        y: ObjectsState.popover-source == "pill"
-            ? max(0px, min(ObjectsState.popover-anchor-y - self.height - 4px, parent.height - self.height))
-            : min(ObjectsState.popover-anchor-y, parent.height - self.height);
-        width: root.rw - 2 * Spacing.sm;
-    }
-
-    if ObjectsState.popover-kind == "R": RepPopover {
-        x: parent.width - root.rw + Spacing.sm;
-        y: ObjectsState.popover-source == "pill"
-            ? max(0px, min(ObjectsState.popover-anchor-y - self.height - 4px, parent.height - self.height))
-            : min(ObjectsState.popover-anchor-y, parent.height - self.height);
-        width: root.rw - 2 * Spacing.sm;
-    }
-
-    if ObjectsState.popover-kind == "M": OverflowMenu {
-        x: parent.width - root.rw + (root.rw - self.width) / 2;
-        y: max(0px, min(ObjectsState.popover-anchor-y - self.height - 4px, parent.height - self.height));
-    }
-
-    if ObjectsState.popover-kind == "N": NameInputPopup {
-        x: parent.width - root.rw + (root.rw - self.width) / 2;
-        y: max(0px, min(ObjectsState.popover-anchor-y - self.height - 4px, parent.height - self.height));
-    }
-
-    if ObjectsState.popover-kind == "AM": MeasurementTargetPopover {
-        x: parent.width - root.rw + (root.rw - self.width) / 2;
-        y: max(0px, min(ObjectsState.popover-anchor-y - self.height - 4px, parent.height - self.height));
-    }
-
-    if ObjectsState.popover-kind == "AL": LabelPopover {
-        x: parent.width - root.rw + (root.rw - self.width) / 2;
-        y: max(0px, min(ObjectsState.popover-anchor-y - self.height - 4px, parent.height - self.height));
+    settings-card := AnchoredPopover {
+        visible: ObjectsState.popover-kind != "";
+        width: min(ComponentMetrics.popover-w, max(0px, parent.width - root.sw - 2 * Spacing.sm));
+        x: max(root.sw + Spacing.sm, parent.width - root.rw - self.width - Spacing.sm);
+        available-height: parent.height;
+        anchor-top: ObjectsState.popover-anchor-y - ComponentMetrics.row-btn-h;
+        anchor-bottom: ObjectsState.popover-anchor-y;
+        if ObjectsState.popover-kind == "C": ColorPopover { width: parent.width; }
+        if ObjectsState.popover-kind == "R": RepPopover { width: parent.width; }
+        if ObjectsState.popover-kind == "M": OverflowMenu { width: parent.width; }
+        if ObjectsState.popover-kind == "N": NameInputPopup { width: parent.width; }
+        if ObjectsState.popover-kind == "AM": MeasurementTargetPopover { width: parent.width; }
+        if ObjectsState.popover-kind == "AL": LabelPopover { width: parent.width; }
     }
 
     public function focus-repl() {

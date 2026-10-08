@@ -1,0 +1,22 @@
+import { Icons } from "icons.slint";
+import { ObjectsState } from "../states/objects-state.slint";
+export struct Representation { id: string, label: string, icon: image, biopolymer: bool }
+export global Representations {
+    // Asset migration is incomplete: these legacy icons must be replaced with original SVG exports.
+    out property <[Representation]> items: [
+        { id: "lines", label: "lines", icon: Icons.triangle, biopolymer: false },
+        { id: "sticks", label: "sticks", icon: Icons.atom, biopolymer: false },
+        { id: "spheres", label: "spheres", icon: Icons.circle-dot, biopolymer: false },
+        { id: "cartoon", label: "cartoon", icon: Icons.waves, biopolymer: true },
+        { id: "ribbon", label: "ribbon", icon: Icons.waves, biopolymer: true },
+        { id: "surface", label: "surface", icon: Icons.box, biopolymer: false },
+        { id: "mesh", label: "mesh", icon: Icons.grid-3x3, biopolymer: false },
+        { id: "dots", label: "dots", icon: Icons.ellipsis, biopolymer: false }
+    ];
+    public pure function active(id: string) -> bool {
+        return id == "lines" ? ObjectsState.popover-rep-lines : id == "sticks" ? ObjectsState.popover-rep-sticks
+            : id == "spheres" ? ObjectsState.popover-rep-spheres : id == "cartoon" ? ObjectsState.popover-rep-cartoon
+            : id == "ribbon" ? ObjectsState.popover-rep-ribbon : id == "surface" ? ObjectsState.popover-rep-surface
+            : id == "mesh" ? ObjectsState.popover-rep-mesh : ObjectsState.popover-rep-dots;
+    }
+}

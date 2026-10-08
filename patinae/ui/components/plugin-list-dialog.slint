@@ -1,34 +1,10 @@
-import { Theme, Spacing, Shape } from "../foundations/foundations.slint";
+import { TextButton, IconButton } from "../controls/button.slint";
+import { Icons } from "../icons/icons.slint";
+import { Theme, Typography, Spacing, Shape } from "../foundations/foundations.slint";
 import { ScrollView } from "std-widgets.slint";
 import { PluginListState } from "../states/plugin-list-state.slint";
 
-component DialogButton inherits Rectangle {
-    in property <string> label;
-    in property <bool> enabled: true;
-    in property <bool> primary: false;
-    callback clicked();
-    width: label == "×" ? 32px : 104px;
-    height: 32px;
-    border-radius: Shape.radius-sm;
-    border-width: Shape.hairline;
-    border-color: root.primary ? Theme.accent-primary-strong : Theme.border-strong;
-    background: touch.has-hover ? Theme.surface-control : Theme.surface-raised;
-    accessible-role: button;
-    accessible-label: root.label == "×" ? "Close" : root.label;
-    accessible-action-default => { if root.enabled { root.clicked(); } }
-    Text {
-        text: root.label;
-        font-size: root.label == "×" ? 20px : 13px;
-        color: !root.enabled ? Theme.text-disabled : (root.primary ? Theme.accent-primary : Theme.text-primary);
-        horizontal-alignment: center;
-        vertical-alignment: center;
-    }
-    touch := TouchArea {
-        mouse-cursor: pointer;
-        enabled: root.enabled;
-        clicked => { root.clicked(); }
-    }
-}
+component DialogButton inherits TextButton { }
 
 export component PluginListDialog inherits Rectangle {
     visible: PluginListState.visible;
@@ -54,24 +30,24 @@ export component PluginListDialog inherits Rectangle {
                 Text {
                     text: "Plugins";
                     color: Theme.text-primary;
-                    font-size: 22px;
+                    font-size: Typography.body.size;
                     font-weight: 700;
                     vertical-alignment: center;
                 }
                 Rectangle { horizontal-stretch: 1; }
-                DialogButton { label: "×"; clicked => { PluginListState.close(); } }
+                IconButton { icon: Icons.x; label: "Close"; clicked => { PluginListState.close(); } }
             }
             Text {
                 text: PluginListState.source;
                 color: Theme.text-muted;
                 font-family: "monospace";
-                font-size: 10px;
+                font-size: Typography.hint.size;
                 wrap: word-wrap;
             }
             if PluginListState.loading-status != "": Text {
                 text: PluginListState.loading-status;
                 color: Theme.text-muted;
-                font-size: 12px;
+                font-size: Typography.label.size;
             }
             ScrollView {
                 horizontal-stretch: 1;
@@ -82,7 +58,7 @@ export component PluginListDialog inherits Rectangle {
                     if PluginListState.rows.length == 0: Text {
                         text: "No plugins";
                         color: Theme.text-muted;
-                        font-size: 13px;
+                        font-size: Typography.body-small.size;
                     }
                     for row[index] in PluginListState.rows: Rectangle {
                         min-height: row-layout.preferred-height;
@@ -96,14 +72,14 @@ export component PluginListDialog inherits Rectangle {
                                 Text {
                                     text: row.title + (row.missing ? " — Not loaded" : "");
                                     color: row.missing ? Theme.status-error : Theme.text-primary;
-                                    font-size: 13px;
+                                    font-size: Typography.body-small.size;
                                     font-weight: 600;
                                     wrap: word-wrap;
                                 }
                                 if row.description != "": Text {
                                     text: row.description;
                                     color: row.missing ? Theme.status-error : Theme.text-muted;
-                                    font-size: 12px;
+                                    font-size: Typography.label.size;
                                     wrap: word-wrap;
                                 }
                                 if row.description != "": Rectangle {
@@ -112,7 +88,7 @@ export component PluginListDialog inherits Rectangle {
                                 Text {
                                     text: row.path;
                                     font-family: "monospace";
-                                    font-size: 11px;
+                                    font-size: Typography.label.size;
                                     color: row.missing ? Theme.status-error : Theme.text-muted;
                                     wrap: word-wrap;
                                 }
@@ -147,13 +123,13 @@ export component PluginListDialog inherits Rectangle {
             if PluginListState.status != "": Text {
                 text: PluginListState.status;
                 color: PluginListState.damaged ? Theme.status-error : Theme.text-muted;
-                font-size: 12px;
+                font-size: Typography.label.size;
                 wrap: word-wrap;
             }
             if PluginListState.error != "": Text {
                 text: PluginListState.error;
                 color: Theme.status-error;
-                font-size: 12px;
+                font-size: Typography.label.size;
                 wrap: word-wrap;
             }
             HorizontalLayout {
@@ -167,7 +143,7 @@ export component PluginListDialog inherits Rectangle {
                 Text {
                     text: PluginListState.dirty ? "Unsaved changes" : "";
                     color: Theme.text-muted;
-                    font-size: 12px;
+                    font-size: Typography.label.size;
                     vertical-alignment: center;
                 }
                 Rectangle { horizontal-stretch: 1; }

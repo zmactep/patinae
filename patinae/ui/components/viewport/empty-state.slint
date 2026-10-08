@@ -1,3 +1,5 @@
+import { UiIcon } from "../../primitives/icon.slint";
+import { Icons } from "../../icons/icons.slint";
 import { UiText } from "../../primitives/text.slint";
 import { Surface } from "../../primitives/surface.slint";
 import { Theme, Typography, Spacing, Shape } from "../../foundations/foundations.slint";
@@ -18,66 +20,12 @@ component PatinaeMark inherits Rectangle {
     }
 }
 
-component DropFileIcon inherits Rectangle {
-    in property <color> tint: Theme.text-placeholder;
-
-    width: 44px;
-    height: 44px;
-
-    Rectangle {
-        x: 11px;
-        y: 6px;
-        width: 24px;
-        height: 31px;
-        border-radius: 5px;
-        border-width: 1.2px;
-        border-color: tint;
-        background: Theme.surface-control.with-alpha(0.35);
-    }
-
-    Path {
-        x: 23px;
-        y: 6px;
-        width: 12px;
-        height: 12px;
-        viewbox-width: 12;
-        viewbox-height: 12;
-        stroke: tint;
-        stroke-width: 1.2px;
-        fill: Theme.surface-viewport;
-        commands: "M 0 0 L 12 12 L 0 12 Z";
-    }
-
-    Path {
-        x: 16px;
-        y: 17px;
-        width: 15px;
-        height: 14px;
-        viewbox-width: 15;
-        viewbox-height: 14;
-        stroke: Theme.accent-primary-strong;
-        stroke-width: 1.5px;
-        fill: transparent;
-        commands: "M 7.5 1 L 7.5 10 M 3 6 L 7.5 10.5 L 12 6 M 1 13 L 14 13";
-    }
+component DropFileIcon inherits UiIcon {
+    width: Spacing.lg; height: self.width; source: Icons.folder-open;
 }
 
-component DatabaseIcon inherits Rectangle {
-    in property <color> tint: Theme.accent-primary;
-
-    width: 16px;
-    height: 16px;
-
-    Path {
-        width: 100%;
-        height: 100%;
-        viewbox-width: 16;
-        viewbox-height: 16;
-        stroke: tint;
-        stroke-width: 1.3px;
-        fill: transparent;
-        commands: "M 3 4 C 3 2.6 13 2.6 13 4 C 13 5.4 3 5.4 3 4 Z M 3 4 L 3 12 C 3 13.4 13 13.4 13 12 L 13 4 M 3 8 C 3 9.4 13 9.4 13 8";
-    }
+component DatabaseIcon inherits UiIcon {
+    width: Spacing.lg; height: self.width; source: Icons.database;
 }
 
 component PreviewGlyph inherits Rectangle {
@@ -260,19 +208,20 @@ component FetchForm inherits Rectangle {
         background: Theme.accent-primary.with-alpha(0.1);
 
         DatabaseIcon {
-            x: 8px;
-            y: 4px;
+            width: Typography.body.size; height: self.width;
+            tint: Theme.accent-primary;
+            x: Spacing.sm;
+            y: Spacing.xs;
         }
 
-        Text {
+        UiText {
             x: 28px;
             y: 0px;
             width: 22px;
             height: parent.height;
             text: "PDB";
             color: Theme.accent-primary;
-            font-size: Typography.compact-hud.size;
-            font-family: Typography.content-family;
+            text-style: Typography.hud;
             font-weight: 500;
             vertical-alignment: center;
         }
@@ -286,7 +235,7 @@ component FetchForm inherits Rectangle {
         text <=> StartState.fetch-pdb-id;
         color: Theme.text-primary;
         font-family: Typography.content-family;
-        font-size: 15px;
+        font-size: Typography.body.size;
         single-line: true;
         vertical-alignment: center;
         selection-background-color: Theme.accent-primary.with-alpha(0.3);
@@ -309,7 +258,7 @@ component FetchForm inherits Rectangle {
         height: parent.height;
         text: "PDB ID";
         color: Theme.text-placeholder;
-        font-size: Typography.compact-body.size;
+        font-size: Typography.body-small.size;
         font-family: Typography.content-family;
         vertical-alignment: center;
 
@@ -332,13 +281,12 @@ component FetchForm inherits Rectangle {
         border-width: Shape.hairline;
         border-color: StartState.fetch-pdb-valid ? Theme.accent-primary.with-alpha(0.42) : transparent;
 
-        Text {
+        UiText {
             width: parent.width;
             height: parent.height;
             text: "FETCH";
             color: StartState.fetch-pdb-valid ? Theme.accent-primary : Theme.text-disabled;
-            font-size: Typography.compact-hud.size;
-            font-family: Typography.content-family;
+            text-style: Typography.hud;
             font-weight: 500;
             horizontal-alignment: center;
             vertical-alignment: center;
@@ -394,40 +342,37 @@ component RecentCard inherits Rectangle {
         border-color: Theme.accent-primary.with-alpha(0.3);
         background: Theme.surface-control.with-alpha(0.82);
 
-        Text {
+        UiText {
             width: parent.width;
             height: parent.height;
             text: root.extension;
             color: Theme.accent-primary;
-            font-size: Typography.compact-hud.size;
-            font-family: Typography.content-family;
+            text-style: Typography.hud;
             horizontal-alignment: center;
             vertical-alignment: center;
             overflow: elide;
         }
     }
 
-    Text {
+    UiText {
         x: 10px;
         y: 94px;
         width: parent.width - 20px;
         height: 14px;
         text: root.title;
         color: Theme.text-primary;
-        font-size: Typography.hint.size;
-        font-family: Typography.content-family;
+        text-style: Typography.hint;
         overflow: elide;
     }
 
-    Text {
+    UiText {
         x: 10px;
         y: 110px;
         width: parent.width - 20px;
         height: 12px;
         text: root.subtitle;
         color: Theme.text-placeholder;
-        font-size: Typography.compact-hud.size;
-        font-family: Typography.content-family;
+        text-style: Typography.hud;
         overflow: elide;
     }
 
@@ -476,28 +421,26 @@ component ExampleCard inherits Rectangle {
         kind: root.kind;
     }
 
-    Text {
+    UiText {
         x: 46px;
         y: 10px;
         width: parent.width - 56px;
         height: 15px;
         text: root.title;
         color: Theme.text-primary;
-        font-size: Typography.hint.size;
-        font-family: Typography.content-family;
+        text-style: Typography.hint;
         font-weight: 500;
         overflow: elide;
     }
 
-    Text {
+    UiText {
         x: 46px;
         y: 27px;
         width: parent.width - 56px;
         height: 12px;
         text: root.subtitle;
         color: Theme.text-placeholder;
-        font-size: Typography.compact-hud.size;
-        font-family: Typography.content-family;
+        text-style: Typography.hud;
         overflow: elide;
     }
 
@@ -518,6 +461,12 @@ export component EmptyState inherits Surface {
     property <length> recent-y: drop-y + 214px;
     property <length> examples-y: recent-y + (MenuState.has-recent-files ? 172px : 0px);
 
+    Flickable {
+        width: parent.width; height: parent.height;
+        viewport-width: self.width;
+        viewport-height: max(root.height, root.examples-y + 100px + Spacing.lg);
+        Rectangle {
+            width: parent.width; height: parent.height;
     PatinaeMark {
         x: root.content-x + (root.content-w - self.width) / 2;
         y: root.hero-y;
@@ -535,14 +484,14 @@ export component EmptyState inherits Surface {
         vertical-alignment: center;
     }
 
-    Text {
+    UiText {
         x: root.content-x;
         y: root.hero-y + 114px;
         width: root.content-w;
         height: 18px;
         text: "load a structure to start";
         color: Theme.text-disabled;
-        font-size: Typography.compact-body.size;
+        text-style: Typography.body-small;
         horizontal-alignment: center;
         vertical-alignment: center;
     }
@@ -567,28 +516,26 @@ export component EmptyState inherits Surface {
             tint: drop.open-hover ? Theme.text-muted : Theme.text-placeholder;
         }
 
-        Text {
+        UiText {
             x: 0px;
             y: 78px;
             width: parent.width;
             height: 16px;
             text: "drop a .pdb / .cif / .mol2 file here";
             color: Theme.text-muted;
-            font-size: Typography.compact-label.size;
-            font-family: Typography.content-family;
+            text-style: Typography.label;
             horizontal-alignment: center;
             vertical-alignment: center;
         }
 
-        Text {
+        UiText {
             x: 0px;
             y: 102px;
             width: parent.width;
             height: 14px;
             text: "or fetch from PDB";
             color: Theme.text-placeholder;
-            font-size: Typography.hint.size;
-            font-family: Typography.content-family;
+            text-style: Typography.hint;
             horizontal-alignment: center;
             vertical-alignment: center;
         }
@@ -635,14 +582,14 @@ export component EmptyState inherits Surface {
         }
     }
 
-    if StartState.fetch-status != "": Text {
+    if StartState.fetch-status != "": UiText {
         x: root.content-x;
         y: drop.y + drop.height + 8px;
         width: root.content-w;
         height: 16px;
         text: StartState.fetch-status;
         color: Theme.status-warning;
-        font-size: Typography.hint.size;
+        text-style: Typography.hint;
         horizontal-alignment: center;
         vertical-alignment: center;
     }
@@ -654,15 +601,14 @@ export component EmptyState inherits Surface {
         height: 150px;
         background: transparent;
 
-        Text {
+        UiText {
             x: 0px;
             y: 0px;
             width: parent.width;
             height: 14px;
             text: "RECENT";
             color: Theme.text-disabled;
-            font-size: Typography.hint.size;
-            font-family: Typography.content-family;
+            text-style: Typography.hint;
             font-weight: 500;
             letter-spacing: 1.2px;
         }
@@ -700,15 +646,14 @@ export component EmptyState inherits Surface {
         height: 78px;
         background: transparent;
 
-        Text {
+        UiText {
             x: 0px;
             y: 0px;
             width: parent.width;
             height: 14px;
             text: "EXAMPLES";
             color: Theme.text-disabled;
-            font-size: Typography.hint.size;
-            font-family: Typography.content-family;
+            text-style: Typography.hint;
             font-weight: 500;
             letter-spacing: 1.2px;
         }
@@ -755,16 +700,18 @@ export component EmptyState inherits Surface {
         }
     }
 
-    Text {
+    UiText {
         x: 0px;
         y: parent.height - 18px;
         width: parent.width;
         height: 14px;
         text: LayoutState.mod-key + "O open file   " + LayoutState.mod-key + "F fetch PDB";
         color: Theme.text-placeholder;
-        font-size: Typography.hint.size;
-        font-family: Typography.content-family;
+        text-style: Typography.hint;
         horizontal-alignment: center;
         vertical-alignment: center;
+    }
+
+        }
     }
 }

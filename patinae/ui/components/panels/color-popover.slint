@@ -1,16 +1,13 @@
+import { IconTile } from "../../controls/button.slint";
+import { Representations } from "../../icons/representations.slint";
+import { UiText } from "../../primitives/text.slint";
+import { SectionLabel } from "../../primitives/section-label.slint";
 import { Theme, Typography, Spacing, Shape } from "../../foundations/foundations.slint";
 import { ObjectsState } from "../../states/objects-state.slint";
 
 // ── Section label ──────────────────────────────────────────────────
 
-component SectionLabel inherits Text {
-    color: Theme.text-placeholder;
-    font-size: Typography.compact-hud.size;
-    font-weight: 500;
-    letter-spacing: 1.1px;
-    vertical-alignment: center;
-    height: 14px;
-}
+
 
 // ── Scheme card ────────────────────────────────────────────────────
 
@@ -62,14 +59,14 @@ component SchemeCard inherits Rectangle {
         @children
     }
 
-    Text {
+    UiText {
         y: 20px;
         width: 100%;
         height: 18px;
         text: root.label;
         color: root.disabled ? Theme.text-placeholder
             : card-touch.has-hover ? Theme.text-primary : Theme.text-secondary;
-        font-size: Typography.hint.size;
+        text-style: Typography.hint;
         font-weight: 500;
         horizontal-alignment: center;
         vertical-alignment: center;
@@ -137,14 +134,14 @@ component ScopeButton inherits Rectangle {
         : scope-touch.has-hover ? Theme.surface-control : Theme.surface-raised;
     opacity: root.disabled ? 0.4 : 1.0;
 
-    Text {
+    UiText {
         width: 100%;
         height: 100%;
         text: root.label;
         color: root.disabled ? Theme.text-placeholder
             : root.active ? Theme.accent-primary
             : scope-touch.has-hover ? Theme.text-primary : Theme.text-secondary;
-        font-size: Typography.hint.size;
+        text-style: Typography.hint;
         font-weight: root.active ? 600 : 500;
         horizontal-alignment: center;
         vertical-alignment: center;
@@ -160,57 +157,12 @@ component ScopeButton inherits Rectangle {
 
 // ── Scope icon button (rep-toggle style + scope behavior) ─────────
 
-component ScopeIconButton inherits Rectangle {
+component ScopeIconButton inherits IconTile {
     in property <string> scope-id;
-    in property <string> label;
-    in property <bool> disabled: false;
-
-    property <bool> active: !root.disabled && ObjectsState.popover-scope == root.scope-id;
-    out property <color> tint: root.disabled ? Theme.text-placeholder
-        : root.active ? Theme.accent-primary
-        : scope-touch.has-hover ? Theme.text-primary : Theme.text-secondary;
-
-    horizontal-stretch: 1;
-    preferred-width: 0px;
-    min-width: 0px;
-    height: 36px;
-    border-radius: Shape.radius-sm;
-    border-width: root.active ? 1px : Shape.hairline;
-    border-color: root.disabled ? Theme.border-subtle
-        : root.active ? Theme.accent-primary
-        : scope-touch.has-hover ? Theme.border-strong : Theme.border-subtle;
-    background: root.disabled ? transparent
-        : root.active ? Theme.accent-primary.with-alpha(0.12)
-        : scope-touch.has-hover ? Theme.surface-control : Theme.surface-raised;
-    opacity: root.disabled ? 0.4 : 1.0;
-
-    // Icon area (10×10, centered horizontally, top-aligned)
-    Rectangle {
-        x: (parent.width - 10px) / 2;
-        y: 5px;
-        width: 10px;
-        height: 10px;
-        @children
-    }
-
-    Text {
-        y: 18px;
-        width: 100%;
-        height: 16px;
-        text: root.label;
-        color: root.tint;
-        font-size: Typography.hint.size;
-        font-weight: root.active ? 600 : 500;
-        horizontal-alignment: center;
-        vertical-alignment: center;
-    }
-
-    scope-touch := TouchArea {
-        enabled: !root.disabled;
-        clicked => {
-            ObjectsState.popover-scope = root.scope-id;
-        }
-    }
+    in property <bool> disabled;
+    enabled: !root.disabled;
+    active: root.enabled && ObjectsState.popover-scope == root.scope-id;
+    clicked => { ObjectsState.popover-scope = root.scope-id; }
 }
 
 // ── Color popover ──────────────────────────────────────────────────
@@ -261,19 +213,19 @@ export component ColorPopover inherits Rectangle {
             padding-left: Spacing.xs;
             padding-right: Spacing.xs;
 
-            Text {
+            UiText {
                 text: "COLOR";
                 color: Theme.text-muted;
-                font-size: Typography.compact-hud.size;
+                text-style: Typography.hud;
                 font-weight: 500;
                 letter-spacing: 1.1px;
                 vertical-alignment: center;
             }
 
-            Text {
+            UiText {
                 text: ObjectsState.popover-display-label;
                 color: Theme.text-placeholder;
-                font-size: Typography.compact-hud.size;
+                text-style: Typography.hud;
                 vertical-alignment: center;
             }
         }
@@ -290,87 +242,14 @@ export component ColorPopover inherits Rectangle {
                 ScopeButton { scope-id: "all-c"; label: "all C"; disabled: !root.is-bio-or-organic; }
             }
 
-            HorizontalLayout {
-                spacing: 2px;
-
-                // Lines — zigzag wireframe
-                ScopeIconButton {
-                    scope-id: "lines"; label: "lines";
-                    Path {
-                        width: 10px; height: 10px;
-                        commands: "M 1 8 L 5 2 L 9 8";
-                        stroke: parent.tint; stroke-width: 1px;
-                    }
-                }
-
-                // Sticks — thick zigzag
-                ScopeIconButton {
-                    scope-id: "sticks"; label: "sticks";
-                    Path {
-                        width: 10px; height: 10px;
-                        commands: "M 1 8 L 5 2 L 9 8";
-                        stroke: parent.tint; stroke-width: 2.5px;
-                    }
-                }
-
-                // Spheres — filled circle
-                ScopeIconButton {
-                    scope-id: "spheres"; label: "spheres";
-                    Rectangle { x: 1px; y: 1px; width: 8px; height: 8px; border-radius: 4px; background: parent.tint; }
-                }
-
-                // Cartoon — thick S-curve (helix ribbon)
-                ScopeIconButton {
-                    scope-id: "cartoon"; label: "cartoon"; disabled: !root.is-bio;
-                    Path {
-                        width: 10px; height: 10px;
-                        commands: "M 0 7 Q 2.5 0, 5 5 Q 7.5 10, 10 3";
-                        stroke: parent.tint; stroke-width: 2px;
-                    }
-                }
-            }
-
-            HorizontalLayout {
-                spacing: 2px;
-
-                // Ribbon — thin S-curve trace
-                ScopeIconButton {
-                    scope-id: "ribbon"; label: "ribbon"; disabled: !root.is-bio;
-                    Path {
-                        width: 10px; height: 10px;
-                        commands: "M 0 7 Q 2.5 1, 5 5 Q 7.5 9, 10 3";
-                        stroke: parent.tint; stroke-width: 1px;
-                    }
-                }
-
-                // Surface — filled pentagon
-                ScopeIconButton {
-                    scope-id: "surface"; label: "surface";
-                    Path {
-                        width: 10px; height: 10px;
-                        commands: "M 5 0.5 L 9.3 3.6 L 7.6 8.6 L 2.4 8.6 L 0.7 3.6 Z";
-                        fill: parent.tint;
-                    }
-                }
-
-                // Mesh — pentagon with diagonals
-                ScopeIconButton {
-                    scope-id: "mesh"; label: "mesh";
-                    Path {
-                        width: 10px; height: 10px;
-                        commands: "M 5 0.5 L 9.3 3.6 L 7.6 8.6 L 2.4 8.6 L 0.7 3.6 Z M 5 0.5 L 2.4 8.6 M 5 0.5 L 7.6 8.6";
-                        stroke: parent.tint; stroke-width: 0.8px;
-                    }
-                }
-
-                // Dots — pentagon vertices
-                ScopeIconButton {
-                    scope-id: "dots"; label: "dots";
-                    Rectangle { x: 4px;   y: -0.5px; width: 2px; height: 2px; border-radius: 1px; background: parent.tint; }
-                    Rectangle { x: 8.3px; y: 2.6px;  width: 2px; height: 2px; border-radius: 1px; background: parent.tint; }
-                    Rectangle { x: 6.6px; y: 7.6px;  width: 2px; height: 2px; border-radius: 1px; background: parent.tint; }
-                    Rectangle { x: 1.4px; y: 7.6px;  width: 2px; height: 2px; border-radius: 1px; background: parent.tint; }
-                    Rectangle { x: -0.3px; y: 2.6px; width: 2px; height: 2px; border-radius: 1px; background: parent.tint; }
+            for row in 2: HorizontalLayout {
+                spacing: Spacing.xs;
+                for column in 4: ScopeIconButton {
+                    property <int> index: row * 4 + column;
+                    scope-id: Representations.items[self.index].id;
+                    label: Representations.items[self.index].label;
+                    icon: Representations.items[self.index].icon;
+                    disabled: Representations.items[self.index].biopolymer && !root.is-bio;
                 }
             }
         }
@@ -579,12 +458,12 @@ export component ColorPopover inherits Rectangle {
                 border-radius: Shape.radius-sm;
                 background: Theme.surface-raised;
 
-                cmd-label := Text {
+                cmd-label := UiText {
                     width: 100%;
                     height: 100%;
                     text: "CMD";
                     color: Theme.text-placeholder;
-                    font-size: Typography.hint.size;
+                    text-style: Typography.hint;
                     font-weight: 600;
                     letter-spacing: 0.8px;
                     horizontal-alignment: center;
@@ -599,13 +478,13 @@ export component ColorPopover inherits Rectangle {
                 border-radius: Shape.radius-sm;
                 background: Theme.surface-control;
 
-                Text {
+                UiText {
                     x: Spacing.sm;
                     width: parent.width - 2 * Spacing.sm;
                     height: 100%;
                     text: ObjectsState.popover-cmd-preview;
                     color: Theme.text-muted;
-                    font-size: Typography.hint.size;
+                    text-style: Typography.hint;
                     vertical-alignment: center;
                     overflow: elide;
                 }

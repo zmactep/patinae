@@ -1,72 +1,28 @@
+import { IconTile } from "../../controls/button.slint";
+import { Representations } from "../../icons/representations.slint";
+import { UiText } from "../../primitives/text.slint";
+import { SectionLabel } from "../../primitives/section-label.slint";
 import { Theme, Typography, Spacing, Shape } from "../../foundations/foundations.slint";
 import { ObjectsState } from "../../states/objects-state.slint";
 
 // ── Section label ──────────────────────────────────────────────────
 
-component SectionLabel inherits Text {
-    color: Theme.text-placeholder;
-    font-size: Typography.compact-hud.size;
-    font-weight: 500;
-    letter-spacing: 1.1px;
-    vertical-alignment: center;
-    height: 14px;
-}
+
 
 // ── Rep toggle button ──────────────────────────────────────────────
 
-component RepToggle inherits Rectangle {
+component RepToggle inherits IconTile {
     in property <string> rep-id;
     in property <bool> rep-active;
-    in property <string> label;
-    in property <bool> disabled: false;
+    in property <bool> disabled;
     in property <string> target;
-
-    property <bool> active: !root.disabled && root.rep-active;
-    out property <color> tint: root.disabled ? Theme.text-placeholder : root.active ? Theme.accent-primary : rep-touch.has-hover ? Theme.text-primary : Theme.text-secondary;
-
-    horizontal-stretch: 1;
-    preferred-width: 0px;
-    min-width: 0px;
-    height: 36px;
-    border-radius: Shape.radius-sm;
-    border-width: root.active ? 1px : Shape.hairline;
-    border-color: root.disabled ? Theme.border-subtle : root.active ? Theme.accent-primary : rep-touch.has-hover ? Theme.border-strong : Theme.border-subtle;
-    background: root.disabled ? transparent : root.active ? Theme.accent-primary.with-alpha(0.12) : rep-touch.has-hover ? Theme.surface-control : Theme.surface-raised;
-    opacity: root.disabled ? 0.4 : 1.0;
-
-    // Icon area (10×10, centered horizontally, top-aligned)
-    Rectangle {
-        x: (parent.width - 10px) / 2;
-        y: 5px;
-        width: 10px;
-        height: 10px;
-        @children
+    enabled: !root.disabled;
+    active: root.enabled && root.rep-active;
+    function preview() {
+        ObjectsState.popover-cmd-preview = (root.active ? "hide " : "show ") + root.rep-id + ", " + root.target;
     }
-
-    Text {
-        y: 18px;
-        width: 100%;
-        height: 16px;
-        text: root.label;
-        color: root.tint;
-        font-size: Typography.hint.size;
-        font-weight: root.active ? 600 : 500;
-        horizontal-alignment: center;
-        vertical-alignment: center;
-    }
-
-    rep-touch := TouchArea {
-        enabled: !root.disabled;
-        changed has-hover => {
-            if self.has-hover {
-                ObjectsState.popover-cmd-preview = root.active ? "hide " + root.rep-id + ", " + root.target : "show " + root.rep-id + ", " + root.target;
-            }
-        }
-        clicked => {
-            ObjectsState.popover-cmd-preview = root.active ? "hide " + root.rep-id + ", " + root.target : "show " + root.rep-id + ", " + root.target;
-            ObjectsState.popover-execute();
-        }
-    }
+    changed hovered => { if root.hovered { root.preview(); } }
+    clicked => { root.preview(); ObjectsState.popover-execute(); }
 }
 
 // ── Preset card ────────────────────────────────────────────────────
@@ -100,13 +56,13 @@ component PresetCard inherits Rectangle {
         @children
     }
 
-    Text {
+    UiText {
         y: 19px;
         width: 100%;
         height: 16px;
         text: root.label;
         color: root.tint;
-        font-size: Typography.hint.size;
+        text-style: Typography.hint;
         font-weight: root.active ? 600 : 500;
         horizontal-alignment: center;
         vertical-alignment: center;
@@ -143,11 +99,11 @@ component TransparencySlider inherits Rectangle {
     HorizontalLayout {
         spacing: Spacing.sm;
 
-        Text {
+        UiText {
             width: 44px;
             text: root.label;
             color: root.enabled ? Theme.text-secondary : Theme.text-placeholder;
-            font-size: Typography.hint.size;
+            text-style: Typography.hint;
             vertical-alignment: center;
         }
 
@@ -240,11 +196,11 @@ component TransparencySlider inherits Rectangle {
         }
 
         // Value display
-        Text {
+        UiText {
             width: 28px;
             text: root.enabled ? round(root.value * 100) + "%" : "—";
             color: root.enabled ? Theme.accent-primary : Theme.text-placeholder;
-            font-size: Typography.compact-hud.size;
+            text-style: Typography.hud;
             vertical-alignment: center;
             horizontal-alignment: right;
         }
@@ -280,19 +236,19 @@ export component RepPopover inherits Rectangle {
             padding-left: Spacing.xs;
             padding-right: Spacing.xs;
 
-            Text {
+            UiText {
                 text: "SHOW / HIDE";
                 color: Theme.text-muted;
-                font-size: Typography.compact-hud.size;
+                text-style: Typography.hud;
                 font-weight: 500;
                 letter-spacing: 1.1px;
                 vertical-alignment: center;
             }
 
-            Text {
+            UiText {
                 text: ObjectsState.popover-display-label;
                 color: Theme.text-placeholder;
-                font-size: Typography.compact-hud.size;
+                text-style: Typography.hud;
                 vertical-alignment: center;
             }
         }
@@ -303,172 +259,17 @@ export component RepPopover inherits Rectangle {
         }
 
         VerticalLayout {
-            spacing: 2px;
-
-            HorizontalLayout {
-                spacing: 2px;
-
-                // Lines — zigzag wireframe
-                RepToggle {
-                    rep-id: "lines";
-                    rep-active: ObjectsState.popover-rep-lines;
-                    label: "lines";
+            spacing: Spacing.xs;
+            for row in 2: HorizontalLayout {
+                spacing: Spacing.xs;
+                for column in 4: RepToggle {
+                    property <int> index: row * 4 + column;
+                    rep-id: Representations.items[self.index].id;
+                    label: Representations.items[self.index].label;
+                    icon: Representations.items[self.index].icon;
+                    rep-active: Representations.active(self.rep-id);
+                    disabled: Representations.items[self.index].biopolymer && !root.is-bio;
                     target: root.target;
-                    Path {
-                        width: 10px;
-                        height: 10px;
-                        commands: "M 1 8 L 5 2 L 9 8";
-                        stroke: parent.tint;
-                        stroke-width: 1px;
-                    }
-                }
-
-                // Sticks — thick zigzag
-                RepToggle {
-                    rep-id: "sticks";
-                    rep-active: ObjectsState.popover-rep-sticks;
-                    label: "sticks";
-                    target: root.target;
-                    Path {
-                        width: 10px;
-                        height: 10px;
-                        commands: "M 1 8 L 5 2 L 9 8";
-                        stroke: parent.tint;
-                        stroke-width: 2.5px;
-                    }
-                }
-
-                // Spheres — filled circle
-                RepToggle {
-                    rep-id: "spheres";
-                    rep-active: ObjectsState.popover-rep-spheres;
-                    label: "spheres";
-                    target: root.target;
-                    Rectangle {
-                        x: 1px;
-                        y: 1px;
-                        width: 8px;
-                        height: 8px;
-                        border-radius: 4px;
-                        background: parent.tint;
-                    }
-                }
-
-                // Cartoon — thick S-curve (helix ribbon)
-                RepToggle {
-                    rep-id: "cartoon";
-                    rep-active: ObjectsState.popover-rep-cartoon;
-                    label: "cartoon";
-                    target: root.target;
-                    disabled: !root.is-bio;
-                    Path {
-                        width: 10px;
-                        height: 10px;
-                        commands: "M 0 7 Q 2.5 0, 5 5 Q 7.5 10, 10 3";
-                        stroke: parent.tint;
-                        stroke-width: 2px;
-                    }
-                }
-            }
-
-            HorizontalLayout {
-                spacing: 2px;
-
-                // Ribbon — thin S-curve trace
-                RepToggle {
-                    rep-id: "ribbon";
-                    rep-active: ObjectsState.popover-rep-ribbon;
-                    label: "ribbon";
-                    target: root.target;
-                    disabled: !root.is-bio;
-                    Path {
-                        width: 10px;
-                        height: 10px;
-                        commands: "M 0 7 Q 2.5 1, 5 5 Q 7.5 9, 10 3";
-                        stroke: parent.tint;
-                        stroke-width: 1px;
-                    }
-                }
-
-                // Surface — filled pentagon
-                RepToggle {
-                    rep-id: "surface";
-                    rep-active: ObjectsState.popover-rep-surface;
-                    label: "surface";
-                    target: root.target;
-                    Path {
-                        width: 10px;
-                        height: 10px;
-                        commands: "M 5 0.5 L 9.3 3.6 L 7.6 8.6 L 2.4 8.6 L 0.7 3.6 Z";
-                        fill: parent.tint;
-                    }
-                }
-
-                // Mesh — pentagon with diagonals
-                RepToggle {
-                    rep-id: "mesh";
-                    rep-active: ObjectsState.popover-rep-mesh;
-                    label: "mesh";
-                    target: root.target;
-                    Path {
-                        width: 10px;
-                        height: 10px;
-                        commands: "M 5 0.5 L 9.3 3.6 L 7.6 8.6 L 2.4 8.6 L 0.7 3.6 Z M 5 0.5 L 2.4 8.6 M 5 0.5 L 7.6 8.6";
-                        stroke: parent.tint;
-                        stroke-width: 0.8px;
-                    }
-                }
-
-                // Dots — pentagon vertices
-                RepToggle {
-                    rep-id: "dots";
-                    rep-active: ObjectsState.popover-rep-dots;
-                    label: "dots";
-                    target: root.target;
-                    Rectangle {
-                        x: 4px;
-                        y: -0.5px;
-                        width: 2px;
-                        height: 2px;
-                        border-radius: 1px;
-                        background: parent.tint;
-                    }
-
-                    Rectangle {
-                        x: 8.3px;
-                        y: 2.6px;
-                        width: 2px;
-                        height: 2px;
-                        border-radius: 1px;
-                        background: parent.tint;
-                    }
-
-                    Rectangle {
-                        x: 6.6px;
-                        y: 7.6px;
-                        width: 2px;
-                        height: 2px;
-                        border-radius: 1px;
-                        background: parent.tint;
-                    }
-
-                    Rectangle {
-                        x: 1.4px;
-                        y: 7.6px;
-                        width: 2px;
-                        height: 2px;
-                        border-radius: 1px;
-                        background: parent.tint;
-                    }
-
-                    Rectangle {
-                        x: -0.3px;
-                        y: 2.6px;
-                        width: 2px;
-                        height: 2px;
-                        border-radius: 1px;
-                        background: parent.tint;
-                    }
                 }
             }
         }
@@ -712,12 +513,12 @@ export component RepPopover inherits Rectangle {
                 border-radius: Shape.radius-sm;
                 background: Theme.surface-raised;
 
-                cmd-label := Text {
+                cmd-label := UiText {
                     width: 100%;
                     height: 100%;
                     text: "CMD";
                     color: Theme.text-placeholder;
-                    font-size: Typography.hint.size;
+                    text-style: Typography.hint;
                     font-weight: 600;
                     letter-spacing: 0.8px;
                     horizontal-alignment: center;
@@ -732,13 +533,13 @@ export component RepPopover inherits Rectangle {
                 border-radius: Shape.radius-sm;
                 background: Theme.surface-control;
 
-                Text {
+                UiText {
                     x: Spacing.sm;
                     width: parent.width - 2 * Spacing.sm;
                     height: 100%;
                     text: ObjectsState.popover-cmd-preview;
                     color: Theme.text-muted;
-                    font-size: Typography.hint.size;
+                    text-style: Typography.hint;
                     vertical-alignment: center;
                     overflow: elide;
                 }

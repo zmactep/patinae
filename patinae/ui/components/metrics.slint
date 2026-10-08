@@ -1,53 +1,75 @@
+import { Typography, Spacing, Shape } from "../foundations/foundations.slint";
 // Application component geometry; not part of the Foundations scale.
+export struct SequenceMetrics {
+    cell: length, label: length, offset: length, padding: length,
+    height: length, ruler: length, font: length, small-font: length,
+    letter-baseline: length, ruler-baseline: length,
+}
 export global ComponentMetrics {
-    out property <length> row-h: 30px;
-    out property <length> popover-w: 260px;
-    out property <length> tab-bar-h: 36px;
-    out property <length> icon-size: 32px;
+    out property <length> section-header-h: Typography.label.size + 2 * Spacing.sm;
+    out property <length> tree-indent: Spacing.md;
+    out property <length> viewport-min-w: 240px;
+    out property <length> viewport-min-h: 160px;
+    out property <SequenceMetrics> sequence: {
+        cell: Typography.sequence.size * 0.6 + Typography.sequence.tracking,
+        label: Spacing.lg, offset: Spacing.lg + Spacing.sm, padding: Spacing.sm,
+        height: Typography.hint.size + Typography.sequence.size + 3 * Spacing.xs,
+        ruler: Typography.hud.size + Spacing.xs,
+        font: Typography.sequence.size, small-font: Typography.hud.size,
+        letter-baseline: Typography.hint.size + Typography.sequence.size + Spacing.xs,
+        ruler-baseline: Typography.hint.size,
+    };
+    out property <length> row-actions-w: 2 * row-btn-w + row-btn-spacing + 2 * row-btn-group-pad;
+    out property <length> completion-row-h: Typography.input.size + 2 * Spacing.sm;
+    out property <length> row-h: Typography.body-small.size + 2 * Spacing.sm;
+    out property <length> popover-w: 280px;
+    out property <length> tab-bar-h: Typography.label.size + 2 * Spacing.sm;
+    out property <length> icon-size: Typography.body.size + 2 * Spacing.sm;
     out property <length> annotation-field-h: 34px;
     out property <length> annotation-action-h: 32px;
     out property <length> annotation-dropdown-max-h: 196px;
-    out property <length> sidebar-w: 48px;
+    out property <length> sidebar-w: icon-size + 2 * Spacing.sm;
     out property <length> right-dock-default-w: 280px;
     out property <length> right-dock-min-w: 240px;
     out property <length> right-dock-max-w: 420px;
     out property <length> bottom-dock-default-h: 220px;
     out property <length> bottom-dock-min-h: 160px;
     out property <length> bottom-dock-max-h: 400px;
-    out property <length> row-btn-w: 22px;
-    out property <length> row-btn-h: 20px;
-    out property <length> row-btn-group-pad: 8px;
-    out property <length> row-btn-spacing: 2px;
+    out property <length> row-btn-w: Typography.body-small.size + 2 * Spacing.xs;
+    out property <length> row-btn-h: Typography.body-small.size + 2 * Spacing.xs;
+    out property <length> row-action-icon-size: Typography.body.size;
+    out property <length> row-btn-group-pad: Spacing.sm;
+    out property <length> row-btn-spacing: Spacing.sm;
     out property <length> dot-size: 8px;
     out property <length> dot-radius: 4px;
     out property <length> chevron-w: 16px;
     out property <length> chevron-touch-w: 44px;
     out property <length> chain-row-indent: 44px;
-    out property <length> chain-row-h: 26px;
+    out property <length> chain-row-h: Typography.body-small.size + 2 * Spacing.sm;
     out property <length> row-gap: 1px;
     out property <length> chain-indicator-w: 22px;
     out property <length> marker-size: 10px;
     out property <length> marker-inner: 6px;
     out property <length> marker-inner-offset: 2px;
     out property <length> action-pill-h: 48px;
-    out property <length> action-pill-radius: 12px;
-    out property <length> action-pill-pad-h: 10px;
-    out property <length> action-pill-pad-v: 12px;
-    out property <length> action-pill-spacing: 4px;
-    out property <length> action-pill-bottom-gap: 12px;
+    out property <length> action-pill-radius: Shape.radius-lg;
+    out property <length> action-pill-pad-h: Spacing.sm;
+    out property <length> action-pill-pad-v: Spacing.sm;
+    out property <length> action-pill-spacing: Spacing.xs;
+    out property <length> action-pill-bottom-gap: Spacing.sm;
     out property <length> action-btn-h: 24px;
     out property <length> action-btn-min-w: 32px;
-    out property <length> action-btn-radius: 5px;
+    out property <length> action-btn-radius: Shape.radius-sm;
     out property <length> badge-size: 18px;
     out property <length> badge-radius: 9px;
     out property <length> action-pill-glow: 2px;
     out property <length> pill-icon-size: 16px;
     out property <length> pill-icon-stroke: 1.5px;
-    out property <length> repl-pill-w: 380px;
-    out property <length> repl-pill-h: 32px;
-    out property <length> repl-pill-radius: 16px;
-    out property <length> repl-pill-bottom: 24px;
-    out property <length> repl-drawer-gap: 4px;
-    out property <length> repl-output-pad: 8px;
-    out property <length> repl-cmd-echo-pad: 6px;
+    out property <length> repl-pill-w: 480px;
+    out property <length> repl-pill-h: Typography.body.size + 2 * Spacing.sm;
+    out property <length> repl-pill-radius: Shape.radius-md;
+    out property <length> repl-pill-top: Spacing.md;
+    out property <length> repl-drawer-gap: Spacing.xs;
+    out property <length> repl-output-pad: Spacing.sm;
+    out property <length> repl-cmd-echo-pad: Spacing.xs;
 }

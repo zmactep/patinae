@@ -161,7 +161,16 @@ export struct OverflowMenuItem {
 
 // ── Global state ─────────────────────────────────────────────────────
 
+export struct DockRow {
+    kind: string, key: string, depth: int, title: string, count: int,
+    group: TopLevelRow, object: ObjectItem, subchain: SubchainItem,
+    selection: SelectionRow, recent: RecentAtomItem,
+}
+
 export global ObjectsState {
+    in-out property <[DockRow]> dock-rows;
+    in-out property <length> dock-scroll-y;
+
     // ── Models (Rust → Slint) ──
     in-out property <[TopLevelRow]> top-level;
     in-out property <[SelectionRow]> selections;

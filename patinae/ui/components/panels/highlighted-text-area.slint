@@ -7,7 +7,7 @@ export component HighlightedTextArea inherits Rectangle {
     in property <bool> read-only;
     in property <[PluginHighlightLine]> highlight-lines;
     in property <string> font-family: Typography.content-family;
-    in property <length> font-size: Typography.compact-label.size;
+    in property <length> font-size: Typography.label.size;
     in property <string> identity: "";
 
     callback edited(string);

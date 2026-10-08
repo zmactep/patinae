@@ -31,3 +31,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     log::info!("Starting Patinae");
     app::run(started)
 }
+
+#[cfg(test)]
+mod ui_tests;

@@ -1,3 +1,4 @@
+import { UiText } from "../../primitives/text.slint";
 import { Theme, Typography, Spacing, Shape } from "../../foundations/foundations.slint";
 import { ObjectsState } from "../../states/objects-state.slint";
 
@@ -38,7 +39,7 @@ component MenuRow inherits Rectangle {
             : touch.has-hover ? Theme.surface-control : transparent;
         opacity: root.disabled ? 0.4 : 1.0;
 
-        Text {
+        UiText {
             x: Spacing.sm;
             y: 0;
             width: parent.width - 2 * Spacing.sm;
@@ -46,7 +47,7 @@ component MenuRow inherits Rectangle {
             text: root.label;
             color: root.disabled ? Theme.text-placeholder
                 : touch.has-hover ? Theme.text-primary : Theme.text-secondary;
-            font-size: Typography.compact-label.size;
+            text-style: Typography.label;
             font-weight: 500;
             vertical-alignment: center;
         }

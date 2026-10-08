@@ -1,3 +1,5 @@
+import { UiIcon } from "../../primitives/icon.slint";
+import { Icons } from "../../icons/icons.slint";
 import { ComponentMetrics } from "../metrics.slint";
 import { Typography, Theme, Spacing, Shape, Motion } from "../../foundations/foundations.slint";
 import { LayoutState } from "../../states/layout-state.slint";
@@ -7,152 +9,56 @@ import { CompletionPopup } from "completion-popup.slint";
 
 // ── Prompt icon — right-pointing chevron "›" ────────────────────────
 
-component PromptIcon inherits Rectangle {
-    in property <color> tint: Theme.accent-primary;
-
-    width: 12px;
-    height: 14px;
-
-    Path {
-        width: 100%;
-        height: 100%;
-        viewbox-width: 12;
-        viewbox-height: 14;
-        stroke: tint;
-        stroke-width: 2px;
-        fill: transparent;
-        commands: "M 2 1 L 10 7 L 2 13";
-    }
+component PromptIcon inherits UiIcon {
+    width: ComponentMetrics.row-action-icon-size;
+    height: self.width;
+    source: Icons.terminal;
 }
 
 // ── Drawer chevron — up or down arrow ───────────────────────────────
 
-component DrawerChevronUp inherits Rectangle {
-    in property <color> tint;
-
-    width: 12px;
-    height: 8px;
-
-    Path {
-        width: 100%;
-        height: 100%;
-        viewbox-width: 12;
-        viewbox-height: 8;
-        stroke: tint;
-        stroke-width: 1.8px;
-        fill: transparent;
-        commands: "M 1 7 L 6 2 L 11 7";
-    }
+component DrawerChevronUp inherits UiIcon {
+    width: ComponentMetrics.row-action-icon-size;
+    height: self.width;
+    source: Icons.chevron-up;
 }
 
-component DrawerChevronDown inherits Rectangle {
-    in property <color> tint;
-
-    width: 12px;
-    height: 8px;
-
-    Path {
-        width: 100%;
-        height: 100%;
-        viewbox-width: 12;
-        viewbox-height: 8;
-        stroke: tint;
-        stroke-width: 1.8px;
-        fill: transparent;
-        commands: "M 1 1 L 6 6 L 11 1";
-    }
+component DrawerChevronDown inherits UiIcon {
+    width: ComponentMetrics.row-action-icon-size;
+    height: self.width;
+    source: Icons.chevron-down;
 }
 
 // Small clock icon for timing badge lines
-component ClockIcon inherits Rectangle {
-    in property <color> tint;
-    width: 10px;
-    height: 10px;
-
-    Path {
-        width: 100%;
-        height: 100%;
-        viewbox-width: 10;
-        viewbox-height: 10;
-        stroke: tint;
-        stroke-width: 1.4px;
-        fill: transparent;
-        commands: "M 5 1 A 4 4 0 1 1 1 5 A 4 4 0 0 1 5 1 Z M 5 3 L 5 5 L 7 5";
-    }
+component ClockIcon inherits UiIcon {
+    width: ComponentMetrics.row-action-icon-size; height: self.width;
+    source: Icons.clock;
 }
 
 // ── Output line icons ───────────────────────────────────────────────
 
 // Small right-pointing chevron for command echo lines
-component CmdChevronIcon inherits Rectangle {
-    in property <color> tint;
-    width: 10px;
-    height: 12px;
-
-    Path {
-        width: 100%;
-        height: 100%;
-        viewbox-width: 10;
-        viewbox-height: 12;
-        stroke: tint;
-        stroke-width: 1.6px;
-        fill: transparent;
-        commands: "M 2 1 L 8 6 L 2 11";
-    }
+component CmdChevronIcon inherits UiIcon {
+    width: ComponentMetrics.row-action-icon-size; height: self.width;
+    source: Icons.chevron-right;
 }
 
 // Checkmark for info/normal success lines
-component CheckIcon inherits Rectangle {
-    in property <color> tint;
-    width: 10px;
-    height: 10px;
-
-    Path {
-        width: 100%;
-        height: 100%;
-        viewbox-width: 10;
-        viewbox-height: 10;
-        stroke: tint;
-        stroke-width: 1.8px;
-        fill: transparent;
-        commands: "M 1 5.5 L 3.5 8 L 9 2";
-    }
+component CheckIcon inherits UiIcon {
+    width: ComponentMetrics.row-action-icon-size; height: self.width;
+    source: Icons.check;
 }
 
 // Warning triangle with exclamation mark
-component WarningIcon inherits Rectangle {
-    in property <color> tint;
-    width: 12px;
-    height: 11px;
-
-    Path {
-        width: 100%;
-        height: 100%;
-        viewbox-width: 12;
-        viewbox-height: 11;
-        stroke: tint;
-        stroke-width: 1.4px;
-        fill: transparent;
-        commands: "M 6 1 L 11 10 L 1 10 Z M 6 4.5 L 6 7 M 6 8.2 L 6 8.8";
-    }
+component WarningIcon inherits UiIcon {
+    width: ComponentMetrics.row-action-icon-size; height: self.width;
+    source: Icons.warning;
 }
 
 // Red X for error lines
-component ErrorIcon inherits Rectangle {
-    in property <color> tint;
-    width: 10px;
-    height: 10px;
-
-    Path {
-        width: 100%;
-        height: 100%;
-        viewbox-width: 10;
-        viewbox-height: 10;
-        stroke: tint;
-        stroke-width: 1.8px;
-        fill: transparent;
-        commands: "M 2 2 L 8 8 M 8 2 L 2 8";
-    }
+component ErrorIcon inherits UiIcon {
+    width: ComponentMetrics.row-action-icon-size; height: self.width;
+    source: Icons.x;
 }
 
 // ── Single output line ──────────────────────────────────────────────
@@ -171,8 +77,8 @@ component OutputLine inherits Rectangle {
     height: row.preferred-height;
 
     row := HorizontalLayout {
-        padding-top: 5px;
-        padding-bottom: 5px;
+        padding-top: Spacing.xs;
+        padding-bottom: Spacing.xs;
         padding-right: ComponentMetrics.repl-output-pad;
 
         // Icon cell — vertically centered by layout
@@ -254,16 +160,25 @@ export component ReplPill inherits Rectangle {
     }
 
     // Pill geometry
-    property <length> pill-w: ComponentMetrics.repl-pill-w;
+    property <length> pill-w: min(ComponentMetrics.repl-pill-w, max(0px, root.viewport-w - 2 * Spacing.md));
     property <length> pill-h: ComponentMetrics.repl-pill-h;
     property <length> pill-x: (root.viewport-w - pill-w) / 2;
-    property <length> pill-y: root.viewport-h - ComponentMetrics.repl-pill-bottom - pill-h;
+    property <length> pill-y: ComponentMetrics.repl-pill-top;
 
     // Drawer geometry — full height is always computed, clip height animates
-    property <length> drawer-max-h: root.viewport-h * 0.5;
+    property <length> drawer-y: root.pill-y + root.pill-h + ComponentMetrics.repl-drawer-gap;
+    property <length> drawer-max-h: max(0px, min(root.viewport-h * 0.5, root.viewport-h - drawer-y - Spacing.md));
     property <length> drawer-content-h: drawer-layout.preferred-height + 2 * ComponentMetrics.repl-output-pad;
     property <length> drawer-full-h: min(drawer-content-h, drawer-max-h);
     property <length> drawer-h: ReplState.drawer-open ? drawer-full-h : 0px;
+
+    public pure function contains-point(px: length, py: length) -> bool {
+        return root.visible && px >= root.pill-x && px < root.pill-x + root.pill-w
+            && ((py >= root.pill-y && py < root.pill-y + root.pill-h)
+                || (ReplState.drawer-open && py >= root.drawer-y && py < root.drawer-y + root.drawer-h)
+                || (ReplState.completion-visible && ReplState.completion-items.length > 0
+                    && py >= completion.y && py < completion.y + completion.height));
+    }
 
     // ── Click-outside backdrop ──────────────────────────────────
     //
@@ -277,28 +192,8 @@ export component ReplPill inherits Rectangle {
         background: transparent;
 
         TouchArea {
-            property <bool> over-pill:
-                self.mouse-x >= root.pill-x
-                && self.mouse-x < root.pill-x + root.pill-w
-                && self.mouse-y >= root.pill-y
-                && self.mouse-y < root.pill-y + root.pill-h;
-            property <bool> over-drawer:
-                ReplState.drawer-open
-                && self.mouse-x >= root.pill-x
-                && self.mouse-x < root.pill-x + root.pill-w
-                && self.mouse-y >= root.pill-y - root.drawer-h - ComponentMetrics.repl-drawer-gap
-                && self.mouse-y < root.pill-y - ComponentMetrics.repl-drawer-gap;
-            property <length> completion-h:
-                min(ReplState.completion-items.length, 8) * 26px + 2 * Spacing.xs;
-            property <bool> over-completion:
-                ReplState.completion-visible
-                && ReplState.completion-items.length > 0
-                && self.mouse-x >= root.pill-x
-                && self.mouse-x < root.pill-x + root.pill-w
-                && self.mouse-y >= root.pill-y - self.completion-h - 4px
-                && self.mouse-y < root.pill-y - 4px;
             property <bool> over-repl-ui:
-                self.over-pill || self.over-drawer || self.over-completion;
+                root.contains-point(self.mouse-x, self.mouse-y);
             property <bool> forwarding-viewport-input: false;
 
             pointer-event(event) => {
@@ -352,14 +247,10 @@ export component ReplPill inherits Rectangle {
         }
     }
 
-    // ── Output drawer (above pill) ────────────────────────────────
-    //
-    // Bottom edge is anchored to the pill. Both `y` and `height` are animated
-    // so the drawer grows upward from the pill — content is revealed from
-    // the bottom (near the input) rather than from the top.
+    // Output opens below the input; hit testing uses the same geometry.
     drawer := Rectangle {
         x: root.pill-x;
-        y: root.pill-y - root.drawer-h - ComponentMetrics.repl-drawer-gap;
+        y: root.drawer-y;
         width: root.pill-w;
         height: root.drawer-h;
         clip: true;
@@ -370,18 +261,17 @@ export component ReplPill inherits Rectangle {
         visible: ReplState.drawer-open;
 
         animate height { duration: Motion.base; easing: ease-in-out; }
-        animate y      { duration: Motion.base; easing: ease-in-out; }
+
 
         // Block events from passing through
         TouchArea {}
 
-        // Inner wrapper pinned to bottom — gives bottom-up reveal.
-        // As the clip height grows, content appears from the pill side first.
+        // Content stays anchored to the top while the drawer reveals downward.
         Rectangle {
             x: 0;
             width: parent.width;
             height: root.drawer-full-h;
-            y: parent.height - self.height;
+            y: 0px;
 
             flick := Flickable {
                 x: 0;
@@ -414,11 +304,12 @@ export component ReplPill inherits Rectangle {
         }
     }
 
-    // ── Completion popup (between drawer and pill) ─────────────────
+    // ── Completion popup (above the output layer) ─────────────────
     completion := CompletionPopup {
         x: root.pill-x;
         width: root.pill-w;
-        y: root.pill-y - self.height - 4px;
+        y: root.drawer-y;
+        available-height: max(0px, root.viewport-h - root.drawer-y - Spacing.md);
     }
 
     // ── Pill ──────────────────────────────────────────────────────
@@ -476,7 +367,7 @@ export component ReplPill inherits Rectangle {
                     width: max(parent.width, self.preferred-width);
                     height: parent.height;
                     vertical-alignment: center;
-                    font-size: Typography.compact-body.size;
+                    font-size: Typography.body-small.size;
                     color: Theme.text-primary;
                     single-line: true;
                     text <=> ReplState.input-text;
@@ -648,7 +539,7 @@ export component ReplPill inherits Rectangle {
         height: root.pill-h;
         text: LayoutState.mod-key == "⌘" ? "Cmd-L to focus" : LayoutState.mod-key + "-L to focus";
         color: Theme.text-placeholder;
-        font-size: Typography.compact-body.size;
+        font-size: Typography.body-small.size;
         font-italic: true;
         vertical-alignment: center;
         opacity: 0.55;

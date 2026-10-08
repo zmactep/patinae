@@ -1,3 +1,8 @@
+import { UiIcon } from "../../primitives/icon.slint";
+import { Icons } from "../../icons/icons.slint";
+import { Control, TextButton } from "../../controls/button.slint";
+import { ComponentMetrics } from "../metrics.slint";
+import { UiText } from "../../primitives/text.slint";
 import { Theme, Typography, Spacing, Shape } from "../../foundations/foundations.slint";
 import { MovieState, MovieLane } from "../../states/movie-state.slint";
 
@@ -8,150 +13,25 @@ global MovieLayout {
     out property <length> footer-h: 32px;
 }
 
-component TransportIcon {
+component TransportIcon inherits UiIcon {
     in property <string> kind;
-    in property <color> tint;
-
-    width: 16px;
-    height: 16px;
-
-    if root.kind == "first": Path {
-        width: 100%;
-        height: 100%;
-        viewbox-width: 16;
-        viewbox-height: 16;
-        commands: "M 5 3 L 5 13 M 12 4 L 7 8 L 12 12";
-        stroke: root.tint;
-        stroke-width: 1.5px;
-        fill: transparent;
-    }
-
-    if root.kind == "prev": Path {
-        width: 100%;
-        height: 100%;
-        viewbox-width: 16;
-        viewbox-height: 16;
-        commands: "M 11 4 L 6 8 L 11 12";
-        stroke: root.tint;
-        stroke-width: 1.6px;
-        fill: transparent;
-    }
-
-    if root.kind == "play": Path {
-        width: 100%;
-        height: 100%;
-        viewbox-width: 16;
-        viewbox-height: 16;
-        commands: "M 6 4 L 12 8 L 6 12 Z";
-        stroke: transparent;
-        fill: root.tint;
-    }
-
-    if root.kind == "pause": Path {
-        width: 100%;
-        height: 100%;
-        viewbox-width: 16;
-        viewbox-height: 16;
-        commands: "M 5 4 L 7 4 L 7 12 L 5 12 Z M 9 4 L 11 4 L 11 12 L 9 12 Z";
-        stroke: transparent;
-        fill: root.tint;
-    }
-
-    if root.kind == "next": Path {
-        width: 100%;
-        height: 100%;
-        viewbox-width: 16;
-        viewbox-height: 16;
-        commands: "M 5 4 L 10 8 L 5 12";
-        stroke: root.tint;
-        stroke-width: 1.6px;
-        fill: transparent;
-    }
-
-    if root.kind == "last": Path {
-        width: 100%;
-        height: 100%;
-        viewbox-width: 16;
-        viewbox-height: 16;
-        commands: "M 4 4 L 9 8 L 4 12 M 11 3 L 11 13";
-        stroke: root.tint;
-        stroke-width: 1.5px;
-        fill: transparent;
-    }
-
-    if root.kind == "stop": Path {
-        width: 100%;
-        height: 100%;
-        viewbox-width: 16;
-        viewbox-height: 16;
-        commands: "M 5 5 L 11 5 L 11 11 L 5 11 Z";
-        stroke: transparent;
-        fill: root.tint;
-    }
+    width: ComponentMetrics.row-action-icon-size; height: self.width;
+    source: root.kind == "first" ? Icons.skip-back : root.kind == "prev" ? Icons.chevron-left
+        : root.kind == "play" ? Icons.play : root.kind == "pause" ? Icons.pause
+        : root.kind == "next" ? Icons.chevron-right : root.kind == "last" ? Icons.skip-forward : Icons.square;
 }
 
-component MiniButton inherits Rectangle {
+component MiniButton inherits Control {
     in property <string> icon;
-    in property <bool> enabled: true;
-    in property <bool> primary: false;
-    callback clicked;
-
-    width: root.primary ? 34px : 28px;
-    height: 24px;
-    border-radius: Shape.radius-sm;
-    background: !root.enabled
-        ? transparent
-        : root.primary
-            ? Theme.accent-primary.with-alpha(0.16)
-            : touch.has-hover ? Theme.surface-control : transparent;
-    border-width: Shape.hairline;
-    border-color: root.primary && root.enabled
-        ? Theme.accent-primary.with-alpha(0.55)
-        : touch.has-hover && root.enabled ? Theme.border-strong : Theme.border-subtle;
-    opacity: root.enabled ? 1.0 : 0.35;
-
+    width: ComponentMetrics.icon-size;
+    label: root.icon;
     TransportIcon {
-        x: (parent.width - self.width) / 2;
-        y: (parent.height - self.height) / 2;
-        kind: root.icon;
-        tint: root.primary ? Theme.accent-primary : Theme.text-secondary;
-    }
-
-    touch := TouchArea {
-        enabled: root.enabled;
-        mouse-cursor: pointer;
-        clicked => { root.clicked(); }
+        x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
+        kind: root.icon; tint: root.tint;
     }
 }
 
-component ToggleChip inherits Rectangle {
-    in property <string> label;
-    in property <bool> active: false;
-    callback clicked;
-
-    width: chip-label.preferred-width + 16px;
-    height: 24px;
-    border-radius: Shape.radius-sm;
-    background: root.active
-        ? Theme.accent-primary.with-alpha(0.14)
-        : touch.has-hover ? Theme.surface-control : transparent;
-    border-width: Shape.hairline;
-    border-color: root.active ? Theme.accent-primary.with-alpha(0.55) : Theme.border-subtle;
-
-    chip-label := Text {
-        text: root.label;
-        color: root.active ? Theme.accent-primary : Theme.text-muted;
-        font-size: Typography.hint.size;
-        font-weight: 500;
-        horizontal-alignment: center;
-        vertical-alignment: center;
-    }
-
-    touch := TouchArea {
-        mouse-cursor: pointer;
-        clicked => { root.clicked(); }
-    }
-}
+component ToggleChip inherits TextButton { }
 
 component FieldBox inherits Rectangle {
     in-out property <string> value;
@@ -175,7 +55,7 @@ component FieldBox inherits Rectangle {
         single-line: true;
         color: Theme.text-secondary;
         font-family: Typography.content-family;
-        font-size: Typography.compact-label.size;
+        font-size: Typography.label.size;
         horizontal-alignment: center;
         vertical-alignment: center;
         selection-background-color: Theme.accent-primary.with-alpha(0.3);
@@ -192,12 +72,12 @@ component StatusLabel inherits Rectangle {
     width: label-text.preferred-width;
     height: 24px;
 
-    label-text := Text {
+    label-text := UiText {
         width: parent.width;
         height: parent.height;
         text: root.label;
         color: Theme.text-muted;
-        font-size: Typography.compact-label.size;
+        text-style: Typography.label;
         vertical-alignment: center;
     }
 }
@@ -208,13 +88,12 @@ component StatusValue inherits Rectangle {
     width: value-text.preferred-width;
     height: 24px;
 
-    value-text := Text {
+    value-text := UiText {
         width: parent.width;
         height: parent.height;
         text: root.label;
         color: Theme.text-muted;
-        font-family: Typography.content-family;
-        font-size: Typography.hint.size;
+        text-style: Typography.hint;
         vertical-alignment: center;
     }
 }
@@ -225,15 +104,14 @@ component TimelineLaneRow inherits Rectangle {
     height: MovieLayout.lane-h;
     background: transparent;
 
-    Text {
+    UiText {
         x: 0px;
         y: 0px;
         width: MovieLayout.label-w;
         height: parent.height;
         text: root.lane.label;
         color: root.lane.id == "mset" ? Theme.text-muted : Theme.text-disabled;
-        font-family: Typography.content-family;
-        font-size: Typography.hint.size;
+        text-style: Typography.hint;
         horizontal-alignment: right;
         vertical-alignment: center;
     }
@@ -260,13 +138,13 @@ component TimelineLaneRow inherits Rectangle {
                 ? Theme.accent-violet.with-alpha(0.32)
                 : Theme.accent-selection.with-alpha(0.32);
 
-            Text {
+            UiText {
                 x: 6px;
                 width: max(0px, parent.width - 12px);
                 height: parent.height;
                 text: block.label;
                 color: block.kind == "state" ? Theme.text-muted : Theme.accent-selection;
-                font-size: Typography.compact-hud.size;
+                text-style: Typography.hud;
                 overflow: elide;
                 vertical-alignment: center;
             }
@@ -285,13 +163,13 @@ component TimelineLaneRow inherits Rectangle {
             transform-origin: { x: 4px, y: 4px };
         }
 
-        for marker in root.lane.markers: Text {
+        for marker in root.lane.markers: UiText {
             x: min(parent.width - self.width, parent.width * marker.pos + 7px);
             y: 0px;
             height: parent.height;
             text: root.lane.id == "camera" ? "" : marker.label;
             color: marker.kind == "scene" ? Theme.accent-amber : Theme.accent-selection;
-            font-size: Typography.compact-hud.size;
+            text-style: Typography.hud;
             overflow: elide;
             vertical-alignment: center;
         }
@@ -316,13 +194,12 @@ component RulerRow inherits Rectangle {
             background: Theme.border-strong;
         }
 
-        for tick in MovieState.ticks: Text {
+        for tick in MovieState.ticks: UiText {
             x: max(0px, min(parent.width - self.width, parent.width * tick.pos - self.width / 2));
             y: -18px;
             text: tick.label;
             color: Theme.text-placeholder;
-            font-family: Typography.content-family;
-            font-size: Typography.compact-hud.size;
+            text-style: Typography.hud;
         }
     }
 }
@@ -340,10 +217,10 @@ component ActionButton inherits Rectangle {
     border-color: root.enabled && touch.has-hover ? Theme.border-strong : Theme.border-subtle;
     opacity: root.enabled ? 1.0 : 0.35;
 
-    label-text := Text {
+    label-text := UiText {
         text: root.label;
         color: Theme.text-muted;
-        font-size: Typography.hint.size;
+        text-style: Typography.hint;
         font-weight: 500;
         horizontal-alignment: center;
         vertical-alignment: center;
@@ -536,13 +413,12 @@ export component MoviePanel inherits Rectangle {
 
                 Rectangle { horizontal-stretch: 1; }
 
-                Text {
+                UiText {
                     text: MovieState.frame-count <= 1
                         ? "single frame"
                         : "" + MovieState.frame-count + " frames";
                     color: Theme.text-placeholder;
-                    font-family: Typography.content-family;
-                    font-size: Typography.hint.size;
+                    text-style: Typography.hint;
                     vertical-alignment: center;
                 }
             }

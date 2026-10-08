@@ -1,3 +1,4 @@
+import { UiText } from "../../primitives/text.slint";
 import { ComponentMetrics } from "../metrics.slint";
 import { Theme, Typography, Spacing, Shape } from "../../foundations/foundations.slint";
 import { ReplState } from "../../states/repl-state.slint";
@@ -11,7 +12,7 @@ component CompletionRow inherits Rectangle {
     in property <bool> selected;
     in property <int> index;
 
-    height: 26px;
+    height: ComponentMetrics.completion-row-h;
     background: selected ? Theme.surface-raised : transparent;
     border-radius: Shape.radius-sm;
 
@@ -21,10 +22,10 @@ component CompletionRow inherits Rectangle {
         spacing: 6px;
 
         // Command/item name
-        Text {
+        UiText {
             text: root.text;
             color: root.selected ? Theme.text-primary : Theme.text-secondary;
-            font-size: Typography.input.size;
+            text-style: Typography.input;
             font-weight: 500;
             vertical-alignment: center;
             horizontal-stretch: 1;
@@ -32,10 +33,10 @@ component CompletionRow inherits Rectangle {
         }
 
         // Description (dimmed, right side)
-        if root.description != "": Text {
+        if root.description != "": UiText {
             text: root.description;
             color: Theme.text-muted;
-            font-size: Typography.compact-hud.size;
+            text-style: Typography.hud;
             vertical-alignment: center;
             horizontal-stretch: 0;
             max-width: 160px;
@@ -53,10 +54,10 @@ component CompletionRow inherits Rectangle {
                 border-radius: Shape.radius-sm;
                 background: Theme.accent-violet.with-alpha(0.15);
 
-                Text {
+                UiText {
                     text: "plugin";
                     color: Theme.accent-violet;
-                    font-size: Typography.compact-hud.size;
+                    text-style: Typography.hud;
                     horizontal-alignment: center;
                     vertical-alignment: center;
                     width: parent.width;
@@ -79,11 +80,12 @@ component CompletionRow inherits Rectangle {
 export component CompletionPopup inherits Rectangle {
     property <int> max-visible: 8;
     property <int> count: ReplState.completion-items.length;
-    property <length> row-h: 26px;
+    property <length> row-h: ComponentMetrics.completion-row-h;
+    in property <length> available-height: 1000px;
     property <length> pad: Spacing.xs;
 
     visible: ReplState.completion-visible && count > 0;
-    height: min(count, max-visible) * row-h + 2 * pad;
+    height: min(available-height, min(count, max-visible) * row-h + 2 * pad);
     clip: true;
     border-radius: Shape.radius-lg;
     background: Theme.surface-overlay;

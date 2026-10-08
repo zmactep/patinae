@@ -1,0 +1,8 @@
+import { Theme, Typography, Spacing } from "../foundations/foundations.slint";
+import { UiText } from "text.slint";
+export component SectionLabel inherits UiText {
+    text-style: Typography.label;
+    color: Theme.text-muted;
+    vertical-alignment: center;
+    height: Typography.label.size + 2 * Spacing.xs;
+}

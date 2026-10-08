@@ -1,114 +1,51 @@
+import { InlineName } from "../../controls/inline-name.slint";
+import { UiText } from "../../primitives/text.slint";
 import { ComponentMetrics } from "../metrics.slint";
 import { Theme, Typography, Spacing, Shape } from "../../foundations/foundations.slint";
 import { ObjectsState, SelectionRow } from "../../states/objects-state.slint";
-import { RowBtn } from "./row-btn.slint";
+import { RowActions } from "./row-btn.slint";
 
-// ── Selection section header ─────────────────────────────────────────
 
-component SelectionHeader inherits Rectangle {
-    height: ComponentMetrics.tab-bar-h;
-    background: transparent;
-
-    HorizontalLayout {
-        padding-left: Spacing.md;
-        padding-right: Spacing.md;
-        alignment: space-between;
-
-        HorizontalLayout {
-            spacing: Spacing.sm;
-            alignment: start;
-
-            Text {
-                text: "SELECTIONS";
-                color: Theme.accent-selection;
-                font-size: Typography.compact-label.size;
-                font-weight: 500;
-                letter-spacing: 1.1px;
-                vertical-alignment: center;
-            }
-
-            Text {
-                text: ObjectsState.selections.length;
-                color: Theme.text-placeholder;
-                font-size: Typography.compact-label.size;
-                vertical-alignment: center;
-            }
-        }
-
-        // Placeholder for creating a saved selection from the panel.
-        VerticalLayout {
-            alignment: center;
-
-            Rectangle {
-                width: ComponentMetrics.row-btn-w;
-                height: ComponentMetrics.row-btn-h;
-                border-radius: Shape.radius-sm;
-
-                Text {
-                    text: "+";
-                    color: Theme.text-disabled;
-                    font-size: Typography.body.size;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                }
-
-                ta := TouchArea {}
-
-                states [
-                    hover when ta.has-hover: {
-                        background: Theme.surface-control;
-                    }
-                ]
-            }
-        }
-    }
-}
-
-// ── Selection row ────────────────────────────────────────────────────
-
-component SelectionRowItem inherits Rectangle {
+import { PanelRow } from "../../controls/panel-row.slint";
+import { TooltipAnchor } from "../../controls/tooltip.slint";
+export component SelectionRowItem inherits PanelRow {
     in property <SelectionRow> data;
 
     property <bool> click-shift: false;
     property <bool> click-meta:  false;
 
     height: ComponentMetrics.row-h;
-    border-radius: Shape.radius-md;
-    background: root.data.selected
-        ? Theme.accent-primary.with-alpha(0.06)
-        : touch.has-hover
-            ? Theme.surface-control.with-alpha(0.5)
-            : transparent;
-    border-width: root.data.selected ? Shape.hairline : 0px;
-    border-color: root.data.selected
-        ? Theme.accent-primary.with-alpha(0.5)
-        : transparent;
+    selected: root.data.selected;
+    hovered: touch.has-hover;
     accessible-role: list-item;
     accessible-label: root.data.name + ", " + root.data.atom-count + " atoms";
 
+    activated(shift, meta) => { ObjectsState.selection-clicked(root.data.name, shift, meta); }
     // Name in parentheses, magenta
-    Text {
+    name-text := UiText {
         x: Spacing.md + ComponentMetrics.chevron-w + Spacing.sm;
         y: 0;
-        width: parent.width - self.x - 2 * ComponentMetrics.row-h - Spacing.sm;
+        width: max(0px, atom-count.x - self.x - Spacing.sm);
         height: parent.height;
         text: "(" + root.data.name + ")";
         color: root.data.enabled ? Theme.accent-selection : Theme.text-placeholder;
-        font-size: Typography.compact-body.size;
+        text-style: Typography.body-small;
         vertical-alignment: center;
         overflow: elide;
     }
 
-    // Atom count (fades out when R/C buttons visible)
-    Text {
-        x: parent.width - self.width - Spacing.md - 2 * ComponentMetrics.row-h;
+
+
+    // Count occupies a stable column; actions never shift the row content.
+    atom-count := UiText {
+        x: parent.width - self.width - Spacing.md - ComponentMetrics.row-actions-w;
         y: 0;
         height: parent.height;
         text: root.data.atom-count;
         color: Theme.text-placeholder;
-        font-size: Typography.hint.size;
+        text-style: Typography.hint;
         vertical-alignment: center;
-        opacity: touch.has-hover ? 0.0 : 1.0;
+
         visible: root.data.atom-count > 0;
     }
 
@@ -116,7 +53,7 @@ component SelectionRowItem inherits Rectangle {
     touch := TouchArea {
         x: 0;
         y: 0;
-        width: parent.width - 2 * ComponentMetrics.row-h;
+        width: parent.width - ComponentMetrics.row-actions-w;
         height: parent.height;
         mouse-cursor: pointer;
         pointer-event(event) => {
@@ -129,78 +66,19 @@ component SelectionRowItem inherits Rectangle {
             }
         }
         clicked => {
+            root.focus-row();
             ObjectsState.selection-clicked(root.data.name,
                                            root.click-shift, root.click-meta);
         }
     }
 
-    // R button (representations)
-    r-btn := RowBtn {
-        x: parent.width - 2 * ComponentMetrics.row-h + 4px;
-        y: (parent.height - self.height) / 2;
-        letter: "R";
-        source: "selection";
-        obj-name: root.data.name;
-        row-hovered: touch.has-hover;
-        sibling-hovered: c-btn.hovered;
+    RowActions {
+        x: parent.width - self.width; y: (parent.height - self.height) / 2;
+        source: "selection"; obj-name: root.data.name;
+        row-hovered: touch.has-hover || root.focused;
     }
-
-    // C button (color)
-    c-btn := RowBtn {
-        x: parent.width - ComponentMetrics.row-h + 2px;
-        y: (parent.height - self.height) / 2;
-        letter: "C";
-        source: "selection";
-        obj-name: root.data.name;
-        row-hovered: touch.has-hover;
-        sibling-hovered: r-btn.hovered;
-    }
-}
-
-component SelectionRowsList inherits Rectangle {
-    Flickable {
-        TouchArea {
-            width: parent.width;
-            height: parent.height;
-            clicked => { ObjectsState.selection-list-background-clicked(); }
-        }
-
-        VerticalLayout {
-            for item in ObjectsState.selections: Rectangle {
-                height: ComponentMetrics.row-h + ComponentMetrics.row-gap;
-
-                SelectionRowItem {
-                    x: Spacing.xs;
-                    width: parent.width - 2 * Spacing.xs;
-                    data: item;
-                }
-            }
-        }
-    }
-}
-
-export component SelectionList inherits Rectangle {
-    TouchArea {
-        clicked => { ObjectsState.selection-list-background-clicked(); }
-    }
-
-    VerticalLayout {
-        width: root.width;
-
-        SelectionHeader {}
-
-        if ObjectsState.selections.length == 0: Text {
-            text: "no selections yet";
-            color: Theme.text-placeholder;
-            font-size: Typography.hint.size;
-            letter-spacing: 0.6px;
-            horizontal-alignment: left;
-            vertical-alignment: top;
-            x: Spacing.md;
-        }
-
-        if ObjectsState.selections.length > 0: SelectionRowsList {
-            vertical-stretch: 1;
-        }
+    TooltipAnchor { width: parent.width - ComponentMetrics.row-actions-w; height: parent.height; text: root.data.name; active: touch.has-hover; }
+    if ObjectsState.name-input-action == "rename" && ObjectsState.name-input-target == root.data.name: InlineName {
+        x: name-text.x; y: name-text.y; width: name-text.width; height: name-text.height;
     }
 }

@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
 use std::rc::Rc;
 
@@ -20,8 +20,8 @@ use patinae_scene::{
 
 use crate::native_file_actions::quote_command_arg;
 use crate::{
-    AnnotationTargetItem, AppWindow, ObjectItem, ObjectsState, OverflowMenuItem, RecentAtomItem,
-    SelectionRow, SubchainItem, TopLevelRow,
+    AnnotationTargetItem, AppWindow, ComponentMetrics, DockRow, LayoutState, ObjectItem,
+    ObjectsState, OverflowMenuItem, RecentAtomItem, SelectionRow, SubchainItem, TopLevelRow,
 };
 
 /// Annotation objects accept at most four ordered atom operands.
@@ -140,6 +140,9 @@ pub(crate) struct SubchainKey {
 // ---------------------------------------------------------------------------
 
 pub struct ObjectsBridge {
+    dock_model: Rc<VecModel<DockRow>>,
+    dock_dirty: Cell<bool>,
+    dock_visible: [bool; 3],
     top_level_model: Rc<VecModel<TopLevelRow>>,
     selections_model: Rc<VecModel<SelectionRow>>,
     recent_atoms_model: Rc<VecModel<RecentAtomItem>>,
@@ -178,6 +181,9 @@ struct RecentAtomBinding {
 impl ObjectsBridge {
     pub fn new() -> Self {
         Self {
+            dock_model: Rc::new(VecModel::default()),
+            dock_dirty: Cell::new(true),
+            dock_visible: [false; 3],
             top_level_model: Rc::new(VecModel::default()),
             selections_model: Rc::new(VecModel::default()),
             recent_atoms_model: Rc::new(VecModel::default()),
@@ -200,6 +206,7 @@ impl ObjectsBridge {
     /// Attach the VecModels to the Slint global (call once after window creation).
     pub fn attach(&self, window: &AppWindow) {
         let os = window.global::<ObjectsState>();
+        os.set_dock_rows(ModelRc::from(self.dock_model.clone()));
         os.set_top_level(ModelRc::from(self.top_level_model.clone()));
         os.set_selections(ModelRc::from(self.selections_model.clone()));
         os.set_recent_atoms(ModelRc::from(self.recent_atoms_model.clone()));
@@ -256,6 +263,7 @@ impl ObjectsBridge {
         }
 
         let os = window.global::<ObjectsState>();
+        self.sync_dock(window);
         let popover_kind = os.get_popover_kind();
         if recent_changed && matches!(popover_kind.as_str(), "AM" | "AL") {
             os.set_popover_kind("".into());
@@ -276,7 +284,55 @@ impl ObjectsBridge {
         }
     }
 
+    fn sync_dock(&mut self, window: &AppWindow) {
+        let layout = window.global::<LayoutState>();
+        let visible = [
+            layout.get_objects_visible(),
+            layout.get_selections_visible(),
+            layout.get_recent_atoms_visible(),
+        ];
+        if !self.dock_dirty.replace(false) && self.dock_visible == visible {
+            return;
+        }
+        self.dock_visible = visible;
+        let rows = super::dock::rows(
+            self.top_level_model.as_ref(),
+            self.selections_model.as_ref(),
+            self.recent_atoms_model.as_ref(),
+            visible,
+        );
+        let old = self.dock_model.iter().collect::<Vec<_>>();
+        let os = window.global::<ObjectsState>();
+        let metrics = window.global::<ComponentMetrics>();
+        let scroll = super::dock::restored_scroll(
+            &old,
+            &rows,
+            os.get_dock_scroll_y(),
+            metrics.get_section_header_h(),
+            metrics.get_row_h(),
+        );
+        // Preserve row instances (including keyboard focus) on selection-only updates.
+        for (index, row) in rows.iter().enumerate() {
+            if self
+                .dock_model
+                .row_data(index)
+                .is_some_and(|old| old.key == row.key)
+            {
+                if self.dock_model.row_data(index).as_ref() != Some(row) {
+                    self.dock_model.set_row_data(index, row.clone());
+                }
+            } else {
+                self.dock_model.insert(index, row.clone());
+            }
+        }
+        while self.dock_model.row_count() > rows.len() {
+            self.dock_model.remove(rows.len());
+        }
+        os.set_dock_scroll_y(scroll);
+    }
+
     fn rebuild_top_level_model(&self, scene: &SceneModel) {
+        self.dock_dirty.set(true);
         let mut rows: Vec<TopLevelRow> = Vec::new();
 
         for entry in &scene.entries {
@@ -391,6 +447,7 @@ impl ObjectsBridge {
     }
 
     fn rebuild_selections(&mut self, kernel: &AppKernel) -> bool {
+        self.dock_dirty.set(true);
         let sel_mgr = &kernel.session.selections;
         let mut rows: Vec<SelectionRow> = Vec::new();
         let mut surviving_names: Vec<String> = Vec::new();
@@ -444,6 +501,7 @@ impl ObjectsBridge {
     }
 
     fn sync_recent_atoms(&mut self, recent_atoms: &RecentAtoms) -> bool {
+        self.dock_dirty.set(true);
         let observation = (recent_atoms.incarnation(), recent_atoms.generation());
         if self.last_recent_observation == Some(observation) {
             return false;
@@ -852,6 +910,7 @@ impl ObjectsBridge {
     }
 
     fn update_selection_flags_in_model(&self) {
+        self.dock_dirty.set(true);
         let count = self.top_level_model.row_count();
         for i in 0..count {
             let Some(mut row) = self.top_level_model.row_data(i) else {
@@ -929,6 +988,7 @@ impl ObjectsBridge {
 
     /// Update `selected` flags on each `SelectionRow` in the selections model.
     fn update_selection_row_flags(&self) {
+        self.dock_dirty.set(true);
         let count = self.selections_model.row_count();
         for i in 0..count {
             let Some(mut row) = self.selections_model.row_data(i) else {
@@ -1668,9 +1728,13 @@ fn open_name_popup(os: &ObjectsState, action: &str, target: &str, short: &str) {
     };
     os.set_name_input_action(action.into());
     os.set_name_input_target(target.into());
-    os.set_name_input_text(format!("{}{}", short, suffix).into());
+    os.set_name_input_text(if action == "rename" {
+        target.into()
+    } else {
+        format!("{}{}", short, suffix).into()
+    });
     os.set_name_input_title(format!("{} {}", title_label, target).into());
-    os.set_popover_kind("N".into());
+    os.set_popover_kind(if action == "rename" { "" } else { "N" }.into());
 }
 
 /// Join names with ` or `, returning `None` if empty.
@@ -2618,19 +2682,27 @@ pub fn setup_callbacks(app: Rc<RefCell<crate::app::App>>, window: &AppWindow) {
             let target = os.get_name_input_target().to_string();
             let new_name = os.get_name_input_text().to_string();
 
-            if action.is_empty() || target.is_empty() || new_name.is_empty() {
+            if new_name.trim().is_empty() {
+                return;
+            }
+            if action.is_empty() || target.is_empty() {
                 os.set_popover_kind("".into());
                 return;
             }
 
             let cmd = match action.as_str() {
-                "rename" => format!("set_name {}, {}", target, new_name),
+                "rename" => format!(
+                    "set_name {}, {}",
+                    quote_command_arg(&target),
+                    quote_command_arg(&new_name)
+                ),
                 "copy" => format!("copy {}, {}", new_name, target),
                 "extract" => format!("extract {}, {}", new_name, target),
                 _ => return,
             };
             a.kernel.bus.execute_command(&cmd);
 
+            os.set_name_input_action("".into());
             if action == "rename" {
                 a.objects.selected_groups.clear();
                 a.objects.selected_objects.clear();

@@ -1,11 +1,11 @@
+import { Toggle } from "../../controls/toggle.slint";
+import { TooltipAnchor } from "../../controls/tooltip.slint";
+import { TooltipState } from "../../states/tooltip-state.slint";
+import { ComponentMetrics } from "../metrics.slint";
+import { UiText } from "../../primitives/text.slint";
 import { Theme, Typography, Spacing, Shape } from "../../foundations/foundations.slint";
 import { SequenceState, SeqChainRow } from "../../states/sequence-state.slint";
 
-// CSS-pixel offset of the first residue cell inside the strip image.
-// Mirrors `RESIDUE_X_OFFSET` in `patinae/src/bridges/sequence.rs`.
-global SeqLayout {
-    out property <length> residues-x: 28px;
-}
 
 // ─── One chain row ──────────────────────────────────────────────────
 // One Image carries everything visible: chain-id label, ruler ticks,
@@ -19,7 +19,7 @@ component SeqChainRowView {
     in property <length> panel-x-origin;
     in property <length> panel-y-origin;
 
-    height: 28px;
+    height: ComponentMetrics.sequence.height;
     // Stretch to the global max row width so the row aligns with siblings
     // (the strip itself is no wider than the chain content).
     width: row-width;
@@ -33,7 +33,7 @@ component SeqChainRowView {
         strip := Rectangle {
             x: 0px;
             width: chain-data.strip-width-px;
-            height: 28px;
+            height: ComponentMetrics.sequence.height;
 
             // Static strip (label + ruler ticks + letters).
             Image {
@@ -57,14 +57,23 @@ component SeqChainRowView {
                 image-rendering: smooth;
             }
 
+            if SequenceState.hover-active && SequenceState.hover-chain == chain-index && !SequenceState.drag-active: Rectangle {
+                x: ComponentMetrics.sequence.offset + SequenceState.hover-px-start;
+                y: ComponentMetrics.sequence.ruler;
+                width: SequenceState.hover-px-end - SequenceState.hover-px-start;
+                height: ComponentMetrics.sequence.height - ComponentMetrics.sequence.ruler;
+                background: Theme.focus-background;
+                border-width: Shape.hairline; border-color: Theme.focus-outline;
+            }
+
             // Drag-preview band — only materialises for the chain being
             // dragged. `drag-px-start`/`drag-px-end` are strip-relative so
             // the rectangle lands exactly on the residue cells.
             if SequenceState.drag-active && SequenceState.drag-chain == chain-index: Rectangle {
                 x: SequenceState.drag-px-start;
-                y: 10px;
+                y: ComponentMetrics.sequence.ruler;
                 width: SequenceState.drag-px-end - SequenceState.drag-px-start;
-                height: 18px;
+                height: ComponentMetrics.sequence.height - ComponentMetrics.sequence.ruler;
                 background: SequenceState.ctrl-held
                     ? Theme.status-warning.with-alpha(0.45)
                     : Theme.accent-selection.with-alpha(0.45);
@@ -73,14 +82,12 @@ component SeqChainRowView {
             label-context-touch := TouchArea {
                 x: 0px;
                 y: 0px;
-                width: SeqLayout.residues-x;
+                width: ComponentMetrics.sequence.offset;
                 height: parent.height;
 
                 pointer-event(event) => {
                     if event.kind == PointerEventKind.down && event.button == PointerEventButton.right {
-                        SequenceState.hover-active = false;
-                        SequenceState.hover-chain = -1;
-                        SequenceState.hover-residue = -1;
+                        SequenceState.clear-hover();
                         SequenceState.context-menu-chain = chain-index;
                         SequenceState.context-menu-chain-copy-enabled = chain-data.polymer-length > 0;
                         SequenceState.context-menu-x = self.absolute-position.x + self.mouse-x - root.panel-x-origin;
@@ -94,9 +101,9 @@ component SeqChainRowView {
             // TouchArea covers only the residue strip — the label zone is
             // visual-only. `mouse-x` is therefore zero at the first residue.
             touch := TouchArea {
-                x: SeqLayout.residues-x;
+                x: ComponentMetrics.sequence.offset;
                 y: 0px;
-                width: parent.width - SeqLayout.residues-x;
+                width: parent.width - ComponentMetrics.sequence.offset;
                 height: parent.height;
                 mouse-cursor: text;
 
@@ -104,9 +111,7 @@ component SeqChainRowView {
                     SequenceState.ctrl-held = event.modifiers.meta || event.modifiers.control;
 
                     if event.kind == PointerEventKind.down && event.button == PointerEventButton.right {
-                        SequenceState.hover-active = false;
-                        SequenceState.hover-chain = -1;
-                        SequenceState.hover-residue = -1;
+                        SequenceState.clear-hover();
                         SequenceState.context-menu-chain = chain-index;
                         SequenceState.context-menu-chain-copy-enabled = chain-data.polymer-length > 0;
                         SequenceState.context-menu-x = self.absolute-position.x + self.mouse-x - root.panel-x-origin;
@@ -116,6 +121,7 @@ component SeqChainRowView {
                     }
 
                     if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
+                        SequenceState.clear-hover();
                         SequenceState.drag-chain = chain-index;
                         SequenceState.drag-active = true;
                         SequenceState.drag-start = -1;
@@ -128,12 +134,13 @@ component SeqChainRowView {
                             SequenceState.row-drag-move(chain-index, self.mouse-x / 1px);
                         } else if !SequenceState.drag-active && !SequenceState.context-menu-open {
                             // Keep the tooltip anchored to the cursor in panel-local coordinates.
-                            SequenceState.hover-x = self.absolute-position.x + self.mouse-x - root.panel-x-origin;
-                            SequenceState.hover-y = self.absolute-position.y + self.mouse-y - root.panel-y-origin;
+                            SequenceState.hover-x = self.absolute-position.x + self.mouse-x;
+                            SequenceState.hover-y = self.absolute-position.y + self.mouse-y;
                             SequenceState.row-hover(chain-index, self.mouse-x / 1px);
                         }
                         return;
                     }
+                    if event.kind == PointerEventKind.cancel { SequenceState.drag-active = false; SequenceState.clear-hover(); }
                     if event.kind == PointerEventKind.up
                         && event.button == PointerEventButton.left
                         && SequenceState.drag-active
@@ -151,9 +158,7 @@ component SeqChainRowView {
                 changed has-hover => {
                     if !self.has-hover && !SequenceState.drag-active {
                         if SequenceState.hover-chain == chain-index {
-                            SequenceState.hover-active = false;
-                            SequenceState.hover-chain = -1;
-                            SequenceState.hover-residue = -1;
+                            SequenceState.clear-hover();
                         }
                     }
                 }
@@ -168,9 +173,7 @@ component SeqChainRowView {
 
             pointer-event(event) => {
                 if event.kind == PointerEventKind.down && event.button == PointerEventButton.right {
-                    SequenceState.hover-active = false;
-                    SequenceState.hover-chain = -1;
-                    SequenceState.hover-residue = -1;
+                    SequenceState.clear-hover();
                     SequenceState.context-menu-chain = chain-index;
                     SequenceState.context-menu-chain-copy-enabled = chain-data.polymer-length > 0;
                     SequenceState.context-menu-x = self.absolute-position.x + self.mouse-x - root.panel-x-origin;
@@ -189,21 +192,20 @@ component SeqMenuRow inherits Rectangle {
     callback activated();
 
     width: 100%;
-    height: 28px;
+    height: ComponentMetrics.sequence.height;
     border-radius: Shape.radius-sm;
     background: root.disabled ? transparent
         : touch.has-hover ? Theme.surface-control : transparent;
     opacity: root.disabled ? 0.4 : 1.0;
 
-    Text {
+    UiText {
         x: Spacing.sm;
         width: parent.width - 2 * Spacing.sm;
         height: parent.height;
         text: root.label;
         color: root.disabled ? Theme.text-placeholder
             : touch.has-hover ? Theme.text-primary : Theme.text-secondary;
-        font-size: Typography.compact-label.size;
-        font-weight: 500;
+        text-style: Typography.label;
         vertical-alignment: center;
     }
 
@@ -262,10 +264,10 @@ component SeqContextMenu inherits Rectangle {
 component SeqEmptyState inherits Rectangle {
     vertical-stretch: 1;
 
-    Text {
+    UiText {
         text: "No sequences to display.\nLoad a structure to see its residue sequence here.";
         color: Theme.text-muted;
-        font-size: Typography.compact-label.size;
+        text-style: Typography.label;
         horizontal-alignment: center;
         vertical-alignment: center;
     }
@@ -276,7 +278,7 @@ component SeqEmptyState inherits Rectangle {
 component SeqObjectHeader inherits Rectangle {
     in property <string> object-name;
 
-    height: 22px;
+    height: Typography.body-small.size + 2 * Spacing.xs;
     background: transparent;
 
     HorizontalLayout {
@@ -284,12 +286,12 @@ component SeqObjectHeader inherits Rectangle {
         padding-top: Spacing.xs;
         alignment: start;
 
-        Text {
+        UiText {
             text: object-name;
+            overflow: elide;
+            horizontal-stretch: 1;
             color: Theme.text-secondary;
-            font-family: Typography.content-family;
-            font-size: Typography.hint.size;
-            letter-spacing: 0.6px;
+            text-style: Typography.body-small;
             vertical-alignment: center;
         }
     }
@@ -301,6 +303,7 @@ export component SequenceBar inherits Rectangle {
     // Use a Rectangle root so the floating tooltip can be positioned
     // absolutely on top of the layout.
 
+    changed visible => { if !root.visible { SequenceState.clear-hover(); } }
     property <length> content-width: max(SequenceState.max-row-width, max(0px, root.width - 2 * Spacing.xs));
 
     panel-context-touch := TouchArea {
@@ -310,9 +313,7 @@ export component SequenceBar inherits Rectangle {
 
         pointer-event(event) => {
             if event.kind == PointerEventKind.down && event.button == PointerEventButton.right {
-                SequenceState.hover-active = false;
-                SequenceState.hover-chain = -1;
-                SequenceState.hover-residue = -1;
+                SequenceState.clear-hover();
                 SequenceState.context-menu-chain = -1;
                 SequenceState.context-menu-chain-copy-enabled = false;
                 SequenceState.context-menu-x = self.mouse-x;
@@ -326,6 +327,19 @@ export component SequenceBar inherits Rectangle {
     VerticalLayout {
         spacing: 0px;
 
+        Rectangle {
+            height: ComponentMetrics.row-h;
+            HorizontalLayout {
+                padding-left: Spacing.sm; padding-right: Spacing.sm; spacing: Spacing.sm;
+                Toggle { label: "Viewer colors"; active: SequenceState.viewer-colors; clicked => { SequenceState.viewer-colors-toggled(); } }
+                instruction := Rectangle {
+                    horizontal-stretch: 1;
+                    UiText { text: SequenceState.footer-text; text-style: Typography.hint; color: Theme.text-placeholder; width: parent.width; height: parent.height; overflow: elide; vertical-alignment: center; }
+                    help-touch := TouchArea {}
+                    TooltipAnchor { width: parent.width; height: parent.height; text: SequenceState.footer-text; active: help-touch.has-hover; }
+                }
+            }
+        }
         if !SequenceState.has-data: SeqEmptyState {}
 
         if SequenceState.has-data: Flickable {
@@ -333,6 +347,8 @@ export component SequenceBar inherits Rectangle {
             // Keep the inner TouchArea in charge of pointer events; we still
             // get mouse-wheel + keyboard scrolling.
             interactive: false;
+            changed content-x => { SequenceState.clear-hover(); TooltipState.dismiss(); }
+            changed content-y => { SequenceState.clear-hover(); TooltipState.dismiss(); }
             content-width: root.content-width;
 
             VerticalLayout {
@@ -360,53 +376,7 @@ export component SequenceBar inherits Rectangle {
             }
         }
 
-        Rectangle {
-            height: 24px;
-            background: transparent;
 
-            HorizontalLayout {
-                padding-left: Spacing.md;
-                padding-right: Spacing.sm;
-                spacing: Spacing.sm;
-                alignment: space-between;
-
-                Text {
-                    text: SequenceState.footer-text;
-                    color: Theme.text-placeholder;
-                    font-size: Typography.hint.size;
-                    letter-spacing: 0.6px;
-                    horizontal-alignment: left;
-                    vertical-alignment: center;
-                }
-
-                Rectangle {
-                    width: 110px;
-                    height: 18px;
-                    border-radius: Shape.radius-sm;
-                    background: SequenceState.viewer-colors
-                        ? Theme.accent-primary.with-alpha(0.18)
-                        : (vc-touch.has-hover ? Theme.surface-control : transparent);
-                    border-width: Shape.hairline;
-                    border-color: SequenceState.viewer-colors
-                        ? Theme.accent-primary.with-alpha(0.5)
-                        : Theme.border-subtle;
-
-                    Text {
-                        text: SequenceState.viewer-colors ? "✓ Viewer colors" : "Viewer colors";
-                        color: SequenceState.viewer-colors ? Theme.accent-primary : Theme.text-muted;
-                        font-size: Typography.hint.size;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                    }
-
-                    vc-touch := TouchArea {
-                        clicked => {
-                            SequenceState.viewer-colors-toggled();
-                        }
-                    }
-                }
-            }
-        }
     }
 
     if SequenceState.context-menu-open: TouchArea {
@@ -425,28 +395,4 @@ export component SequenceBar inherits Rectangle {
         y: max(0px, min(root.height - self.height - 4px, SequenceState.context-menu-y));
     }
 
-    // Floating tooltip overlay (inlined so we can reference `root.width`).
-    Rectangle {
-        visible: SequenceState.hover-active && SequenceState.hover-tooltip != "";
-        x: max(0px, min(root.width - self.width - 4px, SequenceState.hover-x + 8px));
-        y: max(0px, min(root.height - self.height - 4px, SequenceState.hover-y + 8px));
-        width: tooltip-text.preferred-width + 12px;
-        height: 22px;
-        background: Theme.surface-overlay;
-        border-color: Theme.border-strong;
-        border-width: Shape.hairline;
-        border-radius: Shape.radius-sm;
-        drop-shadow-color: #00000080;
-        drop-shadow-blur: 4px;
-        drop-shadow-offset-y: 2px;
-
-        tooltip-text := Text {
-            text: SequenceState.hover-tooltip;
-            color: Theme.text-primary;
-            font-family: Typography.content-family;
-            font-size: Typography.compact-label.size;
-            horizontal-alignment: center;
-            vertical-alignment: center;
-        }
-    }
 }

@@ -1,3 +1,4 @@
+import { TooltipState } from "tooltip-state.slint";
 // ── One chain row ──────────────────────────────────────────────────
 //
 // The strip and highlight images are pre-rendered in Rust (CPU
@@ -44,6 +45,14 @@ export global SequenceState {
     // Held while pointer is down or hovered to reflect modifier state for
     // drag preview / hover tinting.
     in-out property <bool> ctrl-held: false;
+
+    in-out property <length> hover-px-start;
+    in-out property <length> hover-px-end;
+    in-out property <int> hover-ticket: -1;
+    public function clear-hover() {
+        self.hover-active = false; self.hover-chain = -1; self.hover-residue = -1;
+        self.hover-tooltip = ""; TooltipState.release(self.hover-ticket);
+    }
 
     // Hover state (only valid when not actively dragging)
     in-out property <int> hover-chain: -1;

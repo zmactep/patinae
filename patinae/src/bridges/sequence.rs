@@ -13,34 +13,15 @@ use patinae_framework::model::sequence::{
 };
 use patinae_select::{build_sele_command, format_exact_selector_value};
 
-use crate::{AppWindow, SeqChainRow, SequenceState, Theme as ThemeGlobal};
+use crate::{
+    AppWindow, ComponentMetrics, SeqChainRow, SequenceMetrics, SequenceState, Theme as ThemeGlobal,
+};
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-/// Approximate pixel width of a single monospace character at the strip
-/// font size (JetBrains Mono). Drives multi-char ligand label cells and
-/// drag x → residue index mapping.
-const CHAR_PX: f32 = 7.5;
-/// Minimum cell width for single-letter residues. Matches `CHAR_PX` so
-/// letters sit nearly edge-to-edge, like classic sequence viewers.
-const MIN_CELL_PX: f32 = 7.5;
-/// Chain-label zone (CSS px) at the start of every strip image.
-const LABEL_AREA_PX: f32 = 24.0;
-/// Gap between the chain-label glyphs and the first residue cell.
-const LABEL_SPACER_PX: f32 = 4.0;
-/// CSS x offset of the first residue cell within the strip image.
-const RESIDUE_X_OFFSET: f32 = LABEL_AREA_PX + LABEL_SPACER_PX;
-/// Padding added to max-row-width so the last cell isn't flush against the
-/// scroll edge.
-const MAX_ROW_PADDING_PX: f32 = 8.0;
-/// Strip height in CSS pixels: 10 px ruler + 18 px letter row.
-const STRIP_H_CSS: f32 = 28.0;
-const RULER_H_CSS: f32 = 10.0;
-/// Font sizes — strip font exceeds the compact UI label size for readability.
-const FONT_MD_PX: f32 = 12.0;
-const FONT_XS_PX: f32 = 9.0;
+// Geometry and font sizes are supplied by the shared Slint component metrics.
 
 /// Bundled font (also imported by Foundations typography for the Slint side).
 const FONT_BYTES: &[u8] = include_bytes!("../../ui/fonts/JetBrainsMono-Regular.ttf");
@@ -73,10 +54,10 @@ struct GlyphAtlas {
 }
 
 impl GlyphAtlas {
-    fn new(dpr: f32) -> Option<Self> {
+    fn new(dpr: f32, metrics: &SequenceMetrics) -> Option<Self> {
         let font = FontRef::try_from_slice(FONT_BYTES).ok()?;
-        let md_scale = FONT_MD_PX * dpr;
-        let xs_scale = FONT_XS_PX * dpr;
+        let md_scale = metrics.font * dpr;
+        let xs_scale = metrics.small_font * dpr;
         let mut atlas = Self {
             font,
             md_scale,
@@ -165,7 +146,7 @@ struct ChainSlot {
     /// and strip image layout).
     cell_widths: Vec<f32>,
     /// Cumulative CSS-pixel offsets relative to the first residue cell
-    /// (length = residues + 1). Add `RESIDUE_X_OFFSET` to get strip-image
+    /// (length = residues + 1). Add `self.metrics.offset` to get strip-image
     /// coordinates.
     cell_prefix: Vec<f32>,
     /// Physical-pixel buffer width used to build the strip image (kept so
@@ -192,6 +173,7 @@ pub struct SequenceBridge {
     /// Lazily built glyph atlas, regenerated when DPR changes.
     atlas: Option<GlyphAtlas>,
     last_dpr: f32,
+    metrics: SequenceMetrics,
     last_dark_mode: Option<bool>,
 }
 
@@ -205,6 +187,7 @@ impl SequenceBridge {
             last_sele_generation: None,
             atlas: None,
             last_dpr: 0.0,
+            metrics: SequenceMetrics::default(),
             last_dark_mode: None,
         }
     }
@@ -220,9 +203,12 @@ impl SequenceBridge {
         let dpr = window.window().scale_factor().max(1.0);
         let dark_mode = window.global::<ThemeGlobal>().get_dark_mode();
 
-        // DPR or theme change → regenerate atlas / strip images.
-        if (dpr - self.last_dpr).abs() > 0.001 {
-            self.atlas = GlyphAtlas::new(dpr);
+        let metrics = window.global::<ComponentMetrics>().get_sequence();
+
+        // DPR or Foundations geometry change regenerates both glyphs and hit regions.
+        if (dpr - self.last_dpr).abs() > 0.001 || self.metrics != metrics {
+            self.atlas = GlyphAtlas::new(dpr, &metrics);
+            self.metrics = metrics;
             self.last_dpr = dpr;
             self.cache_dirty = true;
         }
@@ -235,6 +221,7 @@ impl SequenceBridge {
         self.cache_dirty = false;
 
         if rebuild {
+            window.global::<SequenceState>().invoke_clear_hover();
             let color_ctx = SequenceColorContext {
                 named_palette: &kernel.session.named_palette,
                 palette: &kernel.session.palette,
@@ -307,6 +294,23 @@ impl SequenceBridge {
         (lo as i32, true)
     }
 
+    /// Strict hover hit testing; drag intentionally clamps to the closest cell.
+    pub fn hit_residue(&self, chain_idx: i32, x_px: f32) -> Option<(i32, f32, f32)> {
+        let slot = self.slots.get(usize::try_from(chain_idx).ok()?)?;
+        let end = *slot.cell_prefix.last()?;
+        if !x_px.is_finite() || x_px < 0.0 || x_px >= end {
+            return None;
+        }
+        let (index, valid) = self.x_to_residue(chain_idx, x_px);
+        valid.then(|| {
+            (
+                index,
+                slot.cell_prefix[index as usize],
+                slot.cell_prefix[index as usize + 1],
+            )
+        })
+    }
+
     /// Resolve `(chain_index, residue_index)` to a tooltip string and the
     /// residue's identifying triple. Returns `None` when out of bounds.
     pub fn resolve_residue(&self, chain_idx: i32, res_idx: i32) -> Option<(String, ResidueRef)> {
@@ -361,7 +365,7 @@ impl SequenceBridge {
         } else {
             [190, 24, 93]
         };
-        let strip_h_phys = (STRIP_H_CSS * dpr).ceil() as u32;
+        let strip_h_phys = (self.metrics.height * dpr).ceil() as u32;
 
         let mut tmp_slots: Vec<ChainSlot> = Vec::new();
 
@@ -373,13 +377,14 @@ impl SequenceBridge {
                 let mut sum = 0.0_f32;
 
                 for r in &chain.residues {
-                    let w = (r.display_label.len() as f32 * CHAR_PX).max(MIN_CELL_PX);
+                    let w =
+                        (r.display_label.len() as f32 * self.metrics.cell).max(self.metrics.cell);
                     cell_widths.push(w);
                     sum += w;
                     cell_prefix.push(sum);
                 }
 
-                let strip_w_css = RESIDUE_X_OFFSET + sum;
+                let strip_w_css = self.metrics.offset + sum;
                 let strip_w_phys = (strip_w_css * dpr).ceil().max(1.0) as u32;
                 let chain_rgb = resolve_chain_rgb(&chain.chain_id, palette);
 
@@ -430,7 +435,7 @@ impl SequenceBridge {
         self.slots = tmp_slots;
         ss.set_chains(ModelRc::from(Rc::new(VecModel::from(chains))));
         ss.set_has_data(!self.model.sequences.is_empty());
-        ss.set_max_row_width((max_row_w + MAX_ROW_PADDING_PX).max(1.0));
+        ss.set_max_row_width((max_row_w + self.metrics.padding).max(1.0));
         ss.set_footer_text("drag to add \u{00b7} \u{2318}+drag to exclude".into());
         ss.set_viewer_colors(self.viewer_colors);
     }
@@ -453,16 +458,12 @@ impl SequenceBridge {
             None => return Image::default(),
         };
 
-        // Baselines are derived from a single anchor — centring 12-pt
-        // glyphs in the 28-px row. The chain-label and residue letters
-        // share this baseline because both are rasterised here.
-        let letter_baseline_y = 20.0 * dpr;
-        // Ticks live in the top 10 CSS px; smaller font, raised baseline.
-        let ruler_baseline_y = 7.0 * dpr;
+        let letter_baseline_y = self.metrics.letter_baseline * dpr;
+        let ruler_baseline_y = self.metrics.ruler_baseline * dpr;
 
         // ── Chain label (left edge of the strip) ─────────────────────
         let label_x0 = 2.0 * dpr;
-        let label_x1 = LABEL_AREA_PX * dpr;
+        let label_x1 = self.metrics.label * dpr;
         draw_text_left(
             &mut buf,
             w,
@@ -477,7 +478,7 @@ impl SequenceBridge {
         );
 
         // ── Residue cells ────────────────────────────────────────────
-        let res_x_off = RESIDUE_X_OFFSET * dpr;
+        let res_x_off = self.metrics.offset * dpr;
         for (i, r) in slot.chain.residues.iter().enumerate() {
             let cell_x0 = res_x_off + slot.cell_prefix[i] * dpr;
             let cell_x1 = res_x_off + slot.cell_prefix[i + 1] * dpr;
@@ -593,7 +594,7 @@ impl SequenceBridge {
         let mut buf = vec![0u8; (w * h * 4) as usize];
 
         // Highlight band sits in the letter row (10 CSS px → STRIP_H CSS px).
-        let y0 = (RULER_H_CSS * dpr) as u32;
+        let y0 = (self.metrics.ruler * dpr) as u32;
         let y1 = h;
 
         let highlights = &self.model.highlighted;
@@ -602,7 +603,7 @@ impl SequenceBridge {
         }
 
         // Walk residues, painting magenta bands for hits.
-        let res_x_off = RESIDUE_X_OFFSET * dpr;
+        let res_x_off = self.metrics.offset * dpr;
         for (i, r) in slot.chain.residues.iter().enumerate() {
             let key = ResidueRef {
                 object_name: slot.object_name.clone(),
@@ -673,8 +674,8 @@ impl SequenceBridge {
         // Strip-relative pixel band — includes the label/spacer offset so
         // the Slint preview Rectangle (positioned inside the strip Rect)
         // lands exactly on the residue cells.
-        let x0 = RESIDUE_X_OFFSET + slot.cell_prefix[a];
-        let x1 = RESIDUE_X_OFFSET + slot.cell_prefix[b + 1];
+        let x0 = self.metrics.offset + slot.cell_prefix[a];
+        let x1 = self.metrics.offset + slot.cell_prefix[b + 1];
         let ss = window.global::<SequenceState>();
         ss.set_drag_px_start(x0);
         ss.set_drag_px_end(x1);
@@ -918,22 +919,32 @@ pub fn setup_callbacks(app: Rc<RefCell<crate::app::App>>, window: &AppWindow) {
         let weak = window.as_weak();
         ss.on_row_hover(move |chain, x_px| {
             let a = app.borrow();
-            let (idx, ok) = a.sequence.x_to_residue(chain, x_px);
-            let resolved = if ok {
-                a.sequence.resolve_residue(chain, idx)
-            } else {
-                None
-            };
+            let hit = a.sequence.hit_residue(chain, x_px);
+            let resolved = hit.and_then(|(idx, start, end)| {
+                a.sequence
+                    .resolve_residue(chain, idx)
+                    .map(|(text, _)| (idx, start, end, text))
+            });
             drop(a);
             let Some(w) = weak.upgrade() else { return };
             let ss = w.global::<SequenceState>();
-            if let Some((tooltip, _id)) = resolved {
+            if let Some((idx, start, end, tooltip)) = resolved {
+                ss.set_hover_px_start(start);
+                ss.set_hover_px_end(end);
                 ss.set_hover_chain(chain);
                 ss.set_hover_residue(idx);
-                ss.set_hover_tooltip(tooltip.into());
+                ss.set_hover_tooltip(tooltip.clone().into());
+                let ticket = w.global::<crate::TooltipState>().invoke_show(
+                    tooltip.into(),
+                    ss.get_hover_x(),
+                    ss.get_hover_y(),
+                    ss.get_hover_y(),
+                    true,
+                );
+                ss.set_hover_ticket(ticket);
                 ss.set_hover_active(true);
             } else {
-                ss.set_hover_active(false);
+                ss.invoke_clear_hover();
             }
         });
     }
@@ -1069,6 +1080,43 @@ mod tests {
         bridge.cache_dirty = false;
         bridge.invalidate();
         assert!(bridge.cache_dirty);
+    }
+
+    #[test]
+    fn hover_rejects_outside_cells_while_drag_clamps() {
+        let mut bridge = SequenceBridge::new();
+        let mut slot = test_slot("A", vec![test_residue(1), test_residue(2)]);
+        slot.cell_widths = vec![11.0, 55.0];
+        slot.cell_prefix = vec![0.0, 11.0, 66.0];
+        bridge.slots.push(slot);
+        assert_eq!(bridge.hit_residue(0, 0.0), Some((0, 0.0, 11.0)));
+        assert_eq!(bridge.hit_residue(0, 11.0), Some((1, 11.0, 66.0)));
+        assert_eq!(bridge.hit_residue(0, 65.9), Some((1, 11.0, 66.0)));
+        for x in [-1.0, 66.0, f32::NAN, f32::INFINITY] {
+            assert_eq!(bridge.hit_residue(0, x), None);
+        }
+        assert_eq!(bridge.hit_residue(-1, 0.0), None);
+        assert_eq!(bridge.hit_residue(1, 0.0), None);
+        assert_eq!(bridge.x_to_residue(0, -1.0), (0, true));
+        assert_eq!(bridge.x_to_residue(0, 66.0), (1, true));
+    }
+
+    #[test]
+    fn hit_testing_uses_actual_variable_width_cells() {
+        let mut bridge = SequenceBridge::new();
+        let mut slot = test_slot("A", vec![test_residue(1), test_residue(2), test_residue(3)]);
+        // Mixed polymer and bracketed ligand labels have different widths.
+        slot.cell_prefix = vec![0.0, 11.0, 66.0, 77.0];
+        slot.cell_widths = vec![11.0, 55.0, 11.0];
+        bridge.slots.push(slot);
+
+        assert_eq!(bridge.x_to_residue(0, -5.0), (0, true));
+        assert_eq!(bridge.x_to_residue(0, 10.9), (0, true));
+        assert_eq!(bridge.x_to_residue(0, 11.0), (1, true));
+        assert_eq!(bridge.x_to_residue(0, 65.9), (1, true));
+        assert_eq!(bridge.x_to_residue(0, 66.0), (2, true));
+        assert_eq!(bridge.x_to_residue(0, 100.0), (2, true));
+        assert_eq!(bridge.x_to_residue(1, 0.0), (0, false));
     }
 
     #[test]

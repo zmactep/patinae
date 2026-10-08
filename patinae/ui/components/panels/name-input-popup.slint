@@ -1,38 +1,11 @@
+import { TextButton } from "../../controls/button.slint";
+import { UiText } from "../../primitives/text.slint";
 import { Theme, Typography, Spacing, Shape } from "../../foundations/foundations.slint";
 import { ObjectsState } from "../../states/objects-state.slint";
 
 // ── Button row (OK / Cancel) ────────────────────────────────────────
 
-component NameInputButton inherits Rectangle {
-    in property <string> label;
-    in property <bool> primary: false;
-    callback clicked();
-
-    height: 32px;
-    horizontal-stretch: 1;
-    border-radius: Shape.radius-sm;
-    background: root.primary
-        ? (touch.has-hover ? Theme.accent-primary.with-alpha(0.3) : Theme.accent-primary.with-alpha(0.15))
-        : (touch.has-hover ? Theme.surface-control : transparent);
-    border-width: root.primary ? Shape.hairline : 0px;
-    border-color: root.primary ? Theme.accent-primary.with-alpha(0.4) : transparent;
-
-    Text {
-        width: 100%;
-        height: 100%;
-        text: root.label;
-        color: root.primary ? Theme.accent-primary : Theme.text-secondary;
-        font-size: Typography.compact-body.size;
-        font-weight: 500;
-        horizontal-alignment: center;
-        vertical-alignment: center;
-    }
-
-    touch := TouchArea {
-        mouse-cursor: pointer;
-        clicked => { root.clicked(); }
-    }
-}
+component NameInputButton inherits TextButton { horizontal-stretch: 1; }
 
 // ── Name input popup (rename / copy / extract) ──────────────────────
 
@@ -57,12 +30,12 @@ export component NameInputPopup inherits Rectangle {
             height: 20px;
             background: transparent;
 
-            Text {
+            UiText {
                 width: parent.width;
                 height: 20px;
                 text: ObjectsState.name-input-title;
                 color: Theme.text-secondary;
-                font-size: Typography.hint.size;
+                text-style: Typography.hint;
                 font-weight: 500;
                 overflow: elide;
                 vertical-alignment: center;
@@ -81,7 +54,7 @@ export component NameInputPopup inherits Rectangle {
             horizontal-stretch: 1;
             min-width: 0px;
             height: 30px;
-            font-size: Typography.compact-body.size;
+            font-size: Typography.body-small.size;
             color: Theme.text-primary;
             single-line: true;
             text <=> ObjectsState.name-input-text;

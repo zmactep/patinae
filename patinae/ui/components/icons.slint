@@ -1,6 +1,9 @@
+import { UiText } from "../primitives/text.slint";
+import { UiIcon } from "../primitives/icon.slint";
+import { Icons } from "../icons/icons.slint";
 import { ComponentMetrics } from "./metrics.slint";
 import { Theme, Typography } from "../foundations/foundations.slint";
-// Custom-drawn UI icons — Rectangle and Path primitives only. No Unicode.
+// Semantic wrappers over the shared icon catalog and scientific indicators.
 //
 // Used by the action pill (ZoomIcon / OrientIcon / CenterIcon / ToggleIcon /
 // OverflowIcon) and by the object-list chain rows (BioGlyph / SolventGlyph /
@@ -10,213 +13,78 @@ import { Theme, Typography } from "../foundations/foundations.slint";
 // ── Chevron icons (object-list expand/collapse) ─────────────────────
 
 // Right-pointing chevron (collapsed state). 8×8 box, stroke only.
-export component ChevronRight {
-    in property <color> tint;
-
-    width: 8px;
-    height: 8px;
-
-    Path {
-        width: 100%;
-        height: 100%;
-        viewbox-width: 8;
-        viewbox-height: 8;
-        stroke: tint;
-        stroke-width: 1.2px;
-        fill: transparent;
-        commands: "M 2 1 L 6 4 L 2 7";
-    }
+export component ChevronRight inherits UiIcon {
+    tint: Theme.text-muted;
+    width: ComponentMetrics.row-action-icon-size;
+    height: self.width;
+    source: Icons.chevron-right;
 }
 
 // Down-pointing chevron (expanded state). 8×8 box, stroke only.
-export component ChevronDown {
-    in property <color> tint;
-
-    width: 8px;
-    height: 8px;
-
-    Path {
-        width: 100%;
-        height: 100%;
-        viewbox-width: 8;
-        viewbox-height: 8;
-        stroke: tint;
-        stroke-width: 1.2px;
-        fill: transparent;
-        commands: "M 1 2 L 4 6 L 7 2";
-    }
+export component ChevronDown inherits UiIcon {
+    tint: Theme.text-muted;
+    width: ComponentMetrics.row-action-icon-size;
+    height: self.width;
+    source: Icons.chevron-down;
 }
 
 // ── Action pill icons ────────────────────────────────────────────────
 
 // Viewfinder — 4 L-shaped corner brackets inside a centered 12×12 box.
-export component ZoomIcon {
-    in property <color> tint;
-    property <length> s: ComponentMetrics.pill-icon-size;
-    property <length> t: ComponentMetrics.pill-icon-stroke;
-    // Inner frame: centered 12×12 so icon visually matches other 12×12 icons.
-    property <length> inset: (s - 12px) / 2;
-    property <length> b: 4px;  // bracket arm length
-
-    width: s;
-    height: s;
-
-    Rectangle { x: inset;           y: inset;           width: b; height: t; background: tint; }
-    Rectangle { x: inset;           y: inset;           width: t; height: b; background: tint; }
-    Rectangle { x: s - inset - b;   y: inset;           width: b; height: t; background: tint; }
-    Rectangle { x: s - inset - t;   y: inset;           width: t; height: b; background: tint; }
-    Rectangle { x: inset;           y: s - inset - t;   width: b; height: t; background: tint; }
-    Rectangle { x: inset;           y: s - inset - b;   width: t; height: b; background: tint; }
-    Rectangle { x: s - inset - b;   y: s - inset - t;   width: b; height: t; background: tint; }
-    Rectangle { x: s - inset - t;   y: s - inset - b;   width: t; height: b; background: tint; }
+export component ZoomIcon inherits UiIcon {
+    tint: Theme.text-muted;
+    width: ComponentMetrics.row-action-icon-size;
+    height: self.width;
+    source: Icons.zoom-in;
 }
 
 // 270° arc + arrowhead — rotation/orient affordance.
 // Uses a smaller 5px radius arc centered at (8,8) to keep proportions square.
-export component OrientIcon {
-    in property <color> tint;
-
-    width: ComponentMetrics.pill-icon-size;
-    height: ComponentMetrics.pill-icon-size;
-
-    Path {
-        width: 100%;
-        height: 100%;
-        viewbox-width: 16;
-        viewbox-height: 16;
-        stroke: tint;
-        stroke-width: ComponentMetrics.pill-icon-stroke;
-        fill: transparent;
-        // 270° arc (r=5) from 3 o'clock CW around to 12 o'clock, with arrowhead.
-        commands: "M 13 8 A 5 5 0 1 1 8 3 M 8 3 L 6 1 M 8 3 L 6 5";
-    }
+export component OrientIcon inherits UiIcon {
+    tint: Theme.text-muted;
+    width: ComponentMetrics.row-action-icon-size;
+    height: self.width;
+    source: Icons.rotate-3d;
 }
 
 // Crosshair in a ring — center / recenter action. 12×12 target centered in 16×16.
-export component CenterIcon {
-    in property <color> tint;
-    property <length> s: ComponentMetrics.pill-icon-size;
-    property <length> t: ComponentMetrics.pill-icon-stroke;
-    property <length> d: 8px;        // ring diameter
-    property <length> r: d / 2;
-    property <length> arm: 2px;      // crosshair protrusion beyond ring
-    property <length> span: d + 2 * arm;  // 12px — matches other icons' 12×12 frame
-
-    width: s;
-    height: s;
-
-    // Ring
-    Rectangle {
-        x: (s - d) / 2;
-        y: (s - d) / 2;
-        width: d;
-        height: d;
-        border-radius: r;
-        border-width: t;
-        border-color: tint;
-        background: transparent;
-    }
-    // Crosshair arms — 4 short stubs at ring edges
-    Rectangle { x: (s - t) / 2;     y: (s - span) / 2;           width: t;   height: arm; background: tint; }
-    Rectangle { x: (s - t) / 2;     y: (s + span) / 2 - arm;     width: t;   height: arm; background: tint; }
-    Rectangle { x: (s - span) / 2;  y: (s - t) / 2;              width: arm; height: t;   background: tint; }
-    Rectangle { x: (s + span) / 2 - arm; y: (s - t) / 2;         width: arm; height: t;   background: tint; }
-    // Center dot
-    Rectangle {
-        x: (s - t * 2) / 2;
-        y: (s - t * 2) / 2;
-        width: t * 2;
-        height: t * 2;
-        border-radius: t;
-        background: tint;
-    }
+export component CenterIcon inherits UiIcon {
+    tint: Theme.text-muted;
+    width: ComponentMetrics.row-action-icon-size;
+    height: self.width;
+    source: Icons.focus;
 }
 
 // Power — circle with a gap at top and a vertical stroke through the gap.
-export component ToggleIcon {
-    in property <color> tint;
-
-    width: ComponentMetrics.pill-icon-size;
-    height: ComponentMetrics.pill-icon-size;
-
-    Path {
-        width: 100%;
-        height: 100%;
-        viewbox-width: 16;
-        viewbox-height: 16;
-        stroke: tint;
-        stroke-width: ComponentMetrics.pill-icon-stroke;
-        fill: transparent;
-        // Arc with gap at top (from ~30° to ~330°), plus vertical bar.
-        commands: "M 10 4 A 5 5 0 1 1 6 4 M 8 3 L 8 8";
-    }
+export component ToggleIcon inherits UiIcon {
+    tint: Theme.text-muted;
+    width: ComponentMetrics.row-action-icon-size;
+    height: self.width;
+    source: Icons.eye;
 }
 
 // Three horizontal dots — overflow / more-actions affordance.
-export component OverflowIcon {
-    in property <color> tint;
-    property <length> dot: 3px;
-
-    width: ComponentMetrics.pill-icon-size;
-    height: ComponentMetrics.pill-icon-size;
-
-    HorizontalLayout {
-        spacing: 2px;
-        alignment: center;
-        padding-top: (parent.height - dot) / 2;
-        padding-bottom: (parent.height - dot) / 2;
-
-        Rectangle { width: dot; height: dot; border-radius: dot / 2; background: tint; }
-        Rectangle { width: dot; height: dot; border-radius: dot / 2; background: tint; }
-        Rectangle { width: dot; height: dot; border-radius: dot / 2; background: tint; }
-    }
+export component OverflowIcon inherits UiIcon {
+    tint: Theme.text-muted;
+    width: ComponentMetrics.row-action-icon-size;
+    height: self.width;
+    source: Icons.ellipsis;
 }
 
 // Atom centered in a four-corner picking reticle.
-export component AtomPickIcon {
-    in property <color> tint: Theme.accent-selection;
-
-    width: 14px;
-    height: 14px;
-
-    Rectangle {
-        x: 5px;
-        y: 5px;
-        width: 4px;
-        height: 4px;
-        border-radius: 2px;
-        background: tint;
-    }
-
-    Path {
-        width: 100%;
-        height: 100%;
-        viewbox-width: 14;
-        viewbox-height: 14;
-        stroke: tint;
-        stroke-width: 1px;
-        fill: transparent;
-        commands: "M 1 5 L 1 1 L 5 1 M 9 1 L 13 1 L 13 5 M 13 9 L 13 13 L 9 13 M 5 13 L 1 13 L 1 9";
-    }
+export component AtomPickIcon inherits UiIcon {
+    tint: Theme.accent-selection;
+    width: ComponentMetrics.row-action-icon-size;
+    height: self.width;
+    source: Icons.crosshair;
 }
 
 // Small close/remove glyph for row-local destructive actions.
-export component RemoveIcon {
-    in property <color> tint: Theme.text-disabled;
-
-    width: 10px;
-    height: 10px;
-
-    Path {
-        width: 100%;
-        height: 100%;
-        viewbox-width: 10;
-        viewbox-height: 10;
-        stroke: tint;
-        stroke-width: 1.2px;
-        fill: transparent;
-        commands: "M 2 2 L 8 8 M 8 2 L 2 8";
-    }
+export component RemoveIcon inherits UiIcon {
+    tint: Theme.text-disabled;
+    width: ComponentMetrics.row-action-icon-size;
+    height: self.width;
+    source: Icons.x;
 }
 
 // ── Chain kind indicators (object-list chain sub-rows) ──────────────
@@ -246,12 +114,12 @@ export component SolventGlyph {
     width: ComponentMetrics.chain-indicator-w;
     height: 12px;
 
-    Text {
+    UiText {
         width: 100%;
         height: 100%;
         text: "SOL";
         color: tint;
-        font-size: Typography.compact-hud.size;
+        text-style: Typography.hud;
         font-weight: 500;
         horizontal-alignment: center;
         vertical-alignment: center;
@@ -259,137 +127,54 @@ export component SolventGlyph {
 }
 
 // Organic — three gray dots in a water-like triangle, connected by lines.
-export component OrganicGlyph {
-    in property <color> tint: Theme.text-muted;
-
-    width: 12px;
-    height: 11px;
-
-    Path {
-        width: 100%;
-        height: 100%;
-        viewbox-width: 12;
-        viewbox-height: 11;
-        stroke: tint;
-        stroke-width: 1px;
-        fill: transparent;
-        commands: "M 2 9 L 6 2 L 10 9";
-    }
-
-    // Filled dots at the three vertices
-    Rectangle { x: 4.5px; y: 0.5px; width: 3px; height: 3px; border-radius: 1.5px; background: tint; }
-    Rectangle { x: 0.5px; y: 7.5px; width: 3px; height: 3px; border-radius: 1.5px; background: tint; }
-    Rectangle { x: 8.5px; y: 7.5px; width: 3px; height: 3px; border-radius: 1.5px; background: tint; }
+export component OrganicGlyph inherits UiIcon {
+    tint: Theme.text-muted;
+    width: ComponentMetrics.row-action-icon-size;
+    height: self.width;
+    source: Icons.atom;
 }
 
 // Inorganic — rotated magenta square (diamond), suggesting crystalline/ion.
-export component InorganicGlyph {
-    in property <color> tint: Theme.accent-selection;
-
-    width: 10px;
-    height: 10px;
-
-    Rectangle {
-        x: (parent.width - 7px) / 2;
-        y: (parent.height - 7px) / 2;
-        width: 7px;
-        height: 7px;
-        background: tint;
-        transform-rotation: 45deg;
-        transform-origin: { x: 3.5px, y: 3.5px };
-    }
+export component InorganicGlyph inherits UiIcon {
+    tint: Theme.accent-selection;
+    width: ComponentMetrics.row-action-icon-size;
+    height: self.width;
+    source: Icons.diamond;
 }
 
 // Source map — small volume/grid square.
-export component MapSourceGlyph {
-    in property <color> tint: Theme.accent-primary;
-
-    width: 14px;
-    height: 14px;
-
-    Rectangle {
-        x: 2px;
-        y: 2px;
-        width: 10px;
-        height: 10px;
-        border-radius: 2px;
-        border-width: 1px;
-        border-color: tint;
-        background: transparent;
-    }
-
-    Path {
-        width: 100%;
-        height: 100%;
-        viewbox-width: 14;
-        viewbox-height: 14;
-        stroke: tint.with-alpha(0.7);
-        stroke-width: 1px;
-        fill: transparent;
-        commands: "M 5 2 L 5 12 M 9 2 L 9 12 M 2 5 L 12 5 M 2 9 L 12 9";
-    }
+export component MapSourceGlyph inherits UiIcon {
+    tint: Theme.accent-primary;
+    width: ComponentMetrics.row-action-icon-size;
+    height: self.width;
+    source: Icons.grid-3x3;
 }
 
 // Isomesh — contour wire.
-export component MapIsomeshGlyph {
-    in property <color> tint: Theme.accent-primary;
-
-    width: 14px;
-    height: 14px;
-
-    Path {
-        width: 100%;
-        height: 100%;
-        viewbox-width: 14;
-        viewbox-height: 14;
-        stroke: tint;
-        stroke-width: 1.2px;
-        fill: transparent;
-        commands: "M 2 8 C 3 3 7 3 8 6 C 9 9 12 7 12 3 M 3 11 C 5 8 8 10 10 12";
-    }
+export component MapIsomeshGlyph inherits UiIcon {
+    tint: Theme.accent-primary;
+    width: ComponentMetrics.row-action-icon-size;
+    height: self.width;
+    source: Icons.waves;
 }
 
 // Isosurface — filled contour surface.
-export component MapIsosurfaceGlyph {
-    in property <color> tint: Theme.accent-primary;
-
-    width: 14px;
-    height: 14px;
-
-    Path {
-        width: 100%;
-        height: 100%;
-        viewbox-width: 14;
-        viewbox-height: 14;
-        stroke: tint;
-        stroke-width: 1px;
-        fill: tint.with-alpha(0.22);
-        commands: "M 2 8 C 2 4 5 2 8 3 C 12 4 13 8 11 11 C 9 13 5 12 3 10 C 2 9 2 8 2 8 Z";
-    }
+export component MapIsosurfaceGlyph inherits UiIcon {
+    tint: Theme.accent-primary;
+    width: ComponentMetrics.row-action-icon-size;
+    height: self.width;
+    source: Icons.box;
 }
 
 // Distance measurement — dashed segment with endpoint dots.
 export component MeasurementDistanceGlyph {
     in property <color> tint: Theme.accent-primary;
     in property <bool> multicolor: false;
-
-    width: 14px;
-    height: 14px;
-
-    Path {
-        width: 100%;
-        height: 100%;
-        viewbox-width: 14;
-        viewbox-height: 14;
-        stroke: tint;
-        stroke-width: 1.2px;
-        fill: transparent;
-        commands: "M 2 10 L 5 8 M 7 7 L 9 5 M 11 4 L 12 3";
-    }
-    Rectangle { x: 0.5px; y: 8.5px; width: 3px; height: 3px; border-radius: 1.5px; background: tint; }
-    Rectangle { x: 10.5px; y: 1.5px; width: 3px; height: 3px; border-radius: 1.5px; background: tint; }
+    width: ComponentMetrics.row-action-icon-size; height: self.width;
+    UiIcon { width: parent.width; height: parent.height; source: Icons.ruler; tint: root.tint; }
     if root.multicolor: Rectangle {
-        x: 9px; y: 9px; width: 5px; height: 5px; border-radius: 2.5px;
+        x: parent.width - self.width; y: parent.height - self.height;
+        width: ComponentMetrics.marker-inner; height: self.width; border-radius: self.width / 2;
         background: @linear-gradient(90deg, Theme.accent-primary 0%, Theme.accent-selection 100%);
     }
 }
@@ -398,22 +183,11 @@ export component MeasurementDistanceGlyph {
 export component MeasurementAngleGlyph {
     in property <color> tint: Theme.accent-primary;
     in property <bool> multicolor: false;
-
-    width: 14px;
-    height: 14px;
-
-    Path {
-        width: 100%;
-        height: 100%;
-        viewbox-width: 14;
-        viewbox-height: 14;
-        stroke: tint;
-        stroke-width: 1.2px;
-        fill: transparent;
-        commands: "M 2 3 L 7 11 L 12 3 M 5 8 A 3 3 0 0 1 9 8";
-    }
+    width: ComponentMetrics.row-action-icon-size; height: self.width;
+    UiIcon { width: parent.width; height: parent.height; source: Icons.triangle; tint: root.tint; }
     if root.multicolor: Rectangle {
-        x: 9px; y: 9px; width: 5px; height: 5px; border-radius: 2.5px;
+        x: parent.width - self.width; y: parent.height - self.height;
+        width: ComponentMetrics.marker-inner; height: self.width; border-radius: self.width / 2;
         background: @linear-gradient(90deg, Theme.accent-primary 0%, Theme.accent-selection 100%);
     }
 }
@@ -422,22 +196,11 @@ export component MeasurementAngleGlyph {
 export component MeasurementDihedralGlyph {
     in property <color> tint: Theme.accent-primary;
     in property <bool> multicolor: false;
-
-    width: 14px;
-    height: 14px;
-
-    Path {
-        width: 100%;
-        height: 100%;
-        viewbox-width: 14;
-        viewbox-height: 14;
-        stroke: tint;
-        stroke-width: 1.2px;
-        fill: transparent;
-        commands: "M 1 10 L 5 4 L 9 10 L 13 4 M 5 7 A 3 3 0 0 1 9 7";
-    }
+    width: ComponentMetrics.row-action-icon-size; height: self.width;
+    UiIcon { width: parent.width; height: parent.height; source: Icons.rotate-3d; tint: root.tint; }
     if root.multicolor: Rectangle {
-        x: 9px; y: 9px; width: 5px; height: 5px; border-radius: 2.5px;
+        x: parent.width - self.width; y: parent.height - self.height;
+        width: ComponentMetrics.marker-inner; height: self.width; border-radius: self.width / 2;
         background: @linear-gradient(90deg, Theme.accent-primary 0%, Theme.accent-selection 100%);
     }
 }
@@ -446,29 +209,11 @@ export component MeasurementDihedralGlyph {
 export component LabelGlyph {
     in property <color> tint: Theme.accent-primary;
     in property <bool> multicolor: false;
-
-    width: 14px;
-    height: 14px;
-
-    Rectangle {
-        x: 1px; y: 2px; width: 12px; height: 10px;
-        border-width: 1px;
-        border-color: tint;
-        border-radius: 2px;
-        background: tint.with-alpha(0.12);
-    }
-    Path {
-        width: 100%;
-        height: 100%;
-        viewbox-width: 14;
-        viewbox-height: 14;
-        stroke: tint;
-        stroke-width: 1px;
-        fill: transparent;
-        commands: "M 3 5 L 11 5 M 3 8 L 9 8";
-    }
+    width: ComponentMetrics.row-action-icon-size; height: self.width;
+    UiIcon { width: parent.width; height: parent.height; source: Icons.tags; tint: root.tint; }
     if root.multicolor: Rectangle {
-        x: 9px; y: 9px; width: 5px; height: 5px; border-radius: 2.5px;
+        x: parent.width - self.width; y: parent.height - self.height;
+        width: ComponentMetrics.marker-inner; height: self.width; border-radius: self.width / 2;
         background: @linear-gradient(90deg, Theme.accent-primary 0%, Theme.accent-selection 100%);
     }
 }

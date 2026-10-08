@@ -52,12 +52,6 @@ use crate::{
     AppWindow, LayoutState, MenuState, NotificationState, Theme, ViewportLabel, ViewportState,
 };
 
-const SIDEBAR_WIDTH_LP: f32 = 48.0;
-// Keep these in sync with `patinae/ui/components/metrics.slint`; raw winit input is
-// filtered before Slint hit-testing can tell Rust which overlay consumed it.
-const REPL_PILL_WIDTH_LP: f32 = 380.0;
-const REPL_PILL_HEIGHT_LP: f32 = 32.0;
-const REPL_PILL_BOTTOM_LP: f32 = 24.0;
 const TRANSIENT_NOTIFICATION_SECS: u64 = 2;
 
 fn format_mib(bytes: u64) -> String {
@@ -160,6 +154,7 @@ pub struct App {
     /// Window-relative press position for the currently-active raw drag.
     pub(crate) raw_press_pos: Rc<Cell<(f32, f32)>>,
     pub(crate) raw_press_known: Rc<Cell<bool>>,
+    raw_press_consumed: Rc<Cell<bool>>,
     /// `true` when `PATINAE_PERF=1` was set at construct time. Drives the
     /// HUD overlay populated by `update_perf_hud`. Plain frame-time
     /// history (no GPU stats) is collected unconditionally so a future
@@ -246,6 +241,7 @@ impl App {
             raw_mouse_buttons: Rc::new(Cell::new((false, false, false))),
             raw_press_pos: Rc::new(Cell::new((0.0, 0.0))),
             raw_press_known: Rc::new(Cell::new(false)),
+            raw_press_consumed: Rc::new(Cell::new(false)),
             perf_enabled,
             last_frame_instant: Cell::new(None),
             last_animation_instant: Cell::new(None),
@@ -584,14 +580,7 @@ impl App {
             self.window_focus_lost.set(false);
         }
 
-        let pointer = self.pointer_snapshot(
-            &vp,
-            vw,
-            vh,
-            sf,
-            app.global::<LayoutState>().get_repl_visible(),
-            fetch_dialog_visible,
-        );
+        let pointer = self.pointer_snapshot(&vp, vw, vh, sf, app, fetch_dialog_visible);
         let was_left = self.kernel.viewport.input.left_pressed();
         self.input.sync(
             &mut self.kernel.viewport.input,
@@ -696,7 +685,7 @@ impl App {
                     self.clear_hover_indicators();
                 }
             } else if !hover_disabled && !consumed_manipulation {
-                self.process_hover(vw, vh, sf);
+                self.process_hover(vw, vh, sf, (app.get_scene_x(), app.get_scene_y()));
             }
         }
         if consumed_manipulation {
@@ -1300,7 +1289,7 @@ impl App {
     }
 
     /// Process hover indicators: ray-cast each frame when no button is pressed.
-    fn process_hover(&mut self, vw: u32, vh: u32, sf: f32) {
+    fn process_hover(&mut self, vw: u32, vh: u32, sf: f32, scene_origin: (f32, f32)) {
         if self.kernel.viewport.input.any_button_pressed() {
             return;
         }
@@ -1314,8 +1303,8 @@ impl App {
         // Cursor position from winit (physical pixels, window-relative).
         // Convert to viewport-relative by subtracting sidebar.
         let (wx, wy) = self.cursor_pos.get();
-        let mx = wx - SIDEBAR_WIDTH_LP * sf;
-        let my = wy;
+        let mx = wx - scene_origin.0 * sf;
+        let my = wy - scene_origin.1 * sf;
         if mx < 0.0 || mx > vw as f32 || my < 0.0 || my > vh as f32 {
             // Cursor is outside the viewport (over sidebar, dock, etc.)
             if self.kernel.viewport.hover_hit.is_some() {
@@ -1509,15 +1498,10 @@ impl App {
     }
 
     fn viewport_size(app: &AppWindow) -> (u32, u32) {
-        let ws = app.window().size();
-        let sf = app.window().scale_factor();
-        let layout = app.global::<LayoutState>();
         viewport_size_from_parts(
-            ws.width,
-            ws.height,
-            sf,
-            layout.get_effective_right_dock_width(),
-            layout.get_effective_bottom_dock_height(),
+            app.get_scene_width(),
+            app.get_scene_height(),
+            app.window().scale_factor(),
         )
     }
 
@@ -1527,21 +1511,22 @@ impl App {
         vw: u32,
         vh: u32,
         sf: f32,
-        repl_visible: bool,
+        app: &AppWindow,
         modal_visible: bool,
     ) -> PointerSnapshot {
-        let sidebar = SIDEBAR_WIDTH_LP * sf;
+        let sidebar = app.get_scene_x() * sf;
+        let top = app.get_scene_y() * sf;
         let raw_cursor_known = self.cursor_known.get();
         let raw_press_known = self.raw_press_known.get();
         let mouse_logical = if raw_cursor_known {
             let (wx, wy) = self.cursor_pos.get();
-            ((wx - sidebar) / sf, wy / sf)
+            ((wx - sidebar) / sf, (wy - top) / sf)
         } else {
             (vp.get_mouse_x(), vp.get_mouse_y())
         };
         let press_logical = if raw_press_known {
             let (px, py) = self.raw_press_pos.get();
-            ((px - sidebar) / sf, py / sf)
+            ((px - sidebar) / sf, (py - top) / sf)
         } else {
             (vp.get_press_x(), vp.get_press_y())
         };
@@ -1552,7 +1537,8 @@ impl App {
             && press_phys.1 >= 0.0
             && press_phys.1 < vh as f32
             && !modal_visible
-            && !Self::point_over_repl_pill(press_logical, vw, vh, sf, repl_visible);
+            && !self.raw_press_consumed.get()
+            && !app.invoke_overlay_contains_point(press_logical.0, press_logical.1);
         let raw_buttons = self.raw_mouse_buttons.get();
         let slint_buttons = (
             vp.get_left_pressed(),
@@ -1573,47 +1559,19 @@ impl App {
             left_pressed: left && press_inside,
             middle_pressed: middle && press_inside,
             right_pressed: right && press_inside,
-            suppress_click: modal_visible || vp.get_suppress_click(),
+            suppress_click: modal_visible
+                || self.raw_press_consumed.get()
+                || vp.get_suppress_click(),
         }
-    }
-
-    fn point_over_repl_pill(
-        point_logical: (f32, f32),
-        vw: u32,
-        vh: u32,
-        sf: f32,
-        repl_visible: bool,
-    ) -> bool {
-        if !repl_visible {
-            return false;
-        }
-
-        let viewport_w_lp = vw as f32 / sf;
-        let viewport_h_lp = vh as f32 / sf;
-        let pill_x = (viewport_w_lp - REPL_PILL_WIDTH_LP) * 0.5;
-        let pill_y = viewport_h_lp - REPL_PILL_BOTTOM_LP - REPL_PILL_HEIGHT_LP;
-
-        point_logical.0 >= pill_x
-            && point_logical.0 < pill_x + REPL_PILL_WIDTH_LP
-            && point_logical.1 >= pill_y
-            && point_logical.1 < pill_y + REPL_PILL_HEIGHT_LP
     }
 }
 
-fn viewport_size_from_parts(
-    window_width_px: u32,
-    window_height_px: u32,
-    scale_factor: f32,
-    right_dock_width_lp: f32,
-    bottom_dock_height_lp: f32,
-) -> (u32, u32) {
+fn viewport_size_from_parts(width_lp: f32, height_lp: f32, scale_factor: f32) -> (u32, u32) {
     let scale_factor = scale_factor.max(0.0);
-    let sidebar = SIDEBAR_WIDTH_LP * scale_factor;
-    let right = right_dock_width_lp * scale_factor;
-    let bottom = bottom_dock_height_lp * scale_factor;
-    let width = (window_width_px as f32 - sidebar - right).max(1.0) as u32;
-    let height = (window_height_px as f32 - bottom).max(1.0) as u32;
-    (width, height)
+    (
+        (width_lp * scale_factor).max(1.0) as u32,
+        (height_lp * scale_factor).max(1.0) as u32,
+    )
 }
 
 fn viewport_label_from_projected(
@@ -1974,6 +1932,7 @@ pub fn run(started: Instant) -> Result<(), Box<dyn std::error::Error>> {
         let buttons = app.borrow().raw_mouse_buttons.clone();
         let press_pos = app.borrow().raw_press_pos.clone();
         let press_known = app.borrow().raw_press_known.clone();
+        let press_consumed = app.borrow().raw_press_consumed.clone();
         let app_for_drop = app.clone();
         let app_for_keys = app.clone();
         let modal_window = window.as_weak();
@@ -2021,6 +1980,23 @@ pub fn run(started: Instant) -> Result<(), Box<dyn std::error::Error>> {
                             _ => {}
                         }
                         if pressed {
+                            // Capture ownership before Slint may close the overlay. Keep it through release.
+                            if let Some(window) = modal_window.upgrade() {
+                                let sf = window.window().scale_factor().max(f32::EPSILON);
+                                let (x, y) = cursor.get();
+                                let x = x / sf - window.get_scene_x();
+                                let y = y / sf - window.get_scene_y();
+                                press_consumed.set(
+                                    window.global::<MenuState>().get_fetch_visible()
+                                        || window.global::<crate::PluginListState>().get_visible()
+                                        || x < 0.0
+                                        || y < 0.0
+                                        || x >= window.get_scene_width()
+                                        || y >= window.get_scene_height()
+                                        || window.invoke_overlay_contains_point(x, y),
+                                );
+                                window.global::<crate::TooltipState>().invoke_dismiss();
+                            }
                             if cursor_known.get() {
                                 press_pos.set(cursor.get());
                                 press_known.set(true);
@@ -3052,24 +3028,15 @@ mod tests {
     }
 
     #[test]
-    fn viewport_size_subtracts_logical_panels_at_current_scale() {
-        assert_eq!(
-            viewport_size_from_parts(1000, 600, 1.0, 200.0, 100.0),
-            (752, 500)
-        );
-        assert_eq!(
-            viewport_size_from_parts(1500, 900, 1.5, 200.0, 100.0),
-            (1128, 750)
-        );
-        assert_eq!(
-            viewport_size_from_parts(2000, 1200, 2.0, 200.0, 100.0),
-            (1504, 1000)
-        );
+    fn viewport_size_scales_actual_slint_bounds() {
+        assert_eq!(viewport_size_from_parts(752.0, 500.0, 1.0), (752, 500));
+        assert_eq!(viewport_size_from_parts(752.0, 500.0, 1.5), (1128, 750));
+        assert_eq!(viewport_size_from_parts(752.0, 500.0, 2.0), (1504, 1000));
     }
 
     #[test]
     fn viewport_size_clamps_to_one_physical_pixel() {
-        assert_eq!(viewport_size_from_parts(10, 10, 2.0, 200.0, 100.0), (1, 1));
+        assert_eq!(viewport_size_from_parts(0.0, -10.0, 2.0), (1, 1));
     }
 
     #[test]
@@ -3337,39 +3304,6 @@ mod tests {
         assert!(!should_apply_standard_panel_preset(true, true));
         assert!(!should_apply_standard_panel_preset(false, false));
         assert!(!should_apply_standard_panel_preset(false, true));
-    }
-
-    #[test]
-    fn repl_pill_hit_test_blocks_only_the_floating_pill() {
-        assert!(App::point_over_repl_pill(
-            (400.0, 460.0),
-            800,
-            500,
-            1.0,
-            true
-        ));
-        assert!(!App::point_over_repl_pill(
-            (400.0, 430.0),
-            800,
-            500,
-            1.0,
-            true
-        ));
-        assert!(!App::point_over_repl_pill(
-            (400.0, 460.0),
-            800,
-            500,
-            1.0,
-            false
-        ));
-
-        assert!(App::point_over_repl_pill(
-            (400.0, 460.0),
-            1600,
-            1000,
-            2.0,
-            true
-        ));
     }
 
     fn platform_modifiers() -> (bool, bool) {

@@ -1,73 +1,11 @@
+import { TextButton, IconButton } from "../controls/button.slint";
+import { Icons } from "../icons/icons.slint";
 import { Theme, Typography, Spacing, Shape } from "../foundations/foundations.slint";
 import { MenuState } from "../states/menu-state.slint";
 
-component DialogButton inherits Rectangle {
-    in property <string> label;
-    in property <bool> primary: false;
-    in property <bool> enabled: true;
-    callback clicked();
+component DialogButton inherits TextButton { }
 
-    horizontal-stretch: 0;
-    width: max(104px, label-text.preferred-width + 32px);
-    height: 36px;
-    border-radius: Shape.radius-sm;
-    border-width: Shape.hairline;
-    border-color: !enabled
-        ? Theme.border-subtle
-        : (primary ? Theme.accent-primary-strong : Theme.border-strong);
-    background: !enabled
-        ? Theme.surface-control.with-alpha(0.32)
-        : (touch.has-hover
-            ? (primary ? Theme.accent-primary.with-alpha(0.14) : Theme.surface-control)
-            : Theme.surface-raised.with-alpha(primary ? 0.18 : 0.62));
-
-    label-text := Text {
-        text: root.label;
-        color: !root.enabled ? Theme.text-disabled : (root.primary ? Theme.accent-primary : Theme.text-primary);
-        font-size: 13px;
-        horizontal-alignment: center;
-        vertical-alignment: center;
-    }
-
-    touch := TouchArea {
-        enabled: root.enabled;
-        clicked => { root.clicked(); }
-    }
-}
-
-component CloseButton inherits Rectangle {
-    callback clicked();
-
-    horizontal-stretch: 0;
-    width: 32px;
-    height: 32px;
-    border-radius: Shape.radius-sm;
-    background: touch.has-hover ? Theme.surface-control : Theme.surface-raised.with-alpha(0.38);
-    border-width: Shape.hairline;
-    border-color: touch.has-hover ? Theme.border-strong : Theme.border-subtle;
-
-    icon := Rectangle {
-        x: (parent.width - 18px) / 2;
-        y: (parent.height - 18px) / 2;
-        width: 18px;
-        height: 18px;
-
-        Path {
-            width: 100%;
-            height: 100%;
-            viewbox-width: 18;
-            viewbox-height: 18;
-            stroke: touch.has-hover ? Theme.text-primary : Theme.text-muted;
-            stroke-width: 2px;
-            fill: transparent;
-            commands: "M 5 5 L 13 13 M 13 5 L 5 13";
-        }
-    }
-
-    touch := TouchArea {
-        clicked => { root.clicked(); }
-    }
-}
+component CloseButton inherits IconButton { icon: Icons.x; label: "Close"; }
 
 component FieldBox inherits Rectangle {
     in property <string> label;
@@ -91,7 +29,7 @@ component FieldBox inherits Rectangle {
             Text {
                 text: root.label;
                 color: Theme.text-muted;
-                font-size: 11px;
+                font-size: Typography.label.size;
                 vertical-alignment: center;
             }
 
@@ -102,7 +40,7 @@ component FieldBox inherits Rectangle {
             Text {
                 text: root.helper;
                 color: Theme.text-disabled;
-                font-size: 10px;
+                font-size: Typography.hint.size;
                 vertical-alignment: center;
             }
         }
@@ -151,7 +89,7 @@ component FormatSegment inherits Rectangle {
     Text {
         text: root.label;
         color: root.active ? Theme.accent-primary : Theme.text-muted;
-        font-size: 13px;
+        font-size: Typography.body-small.size;
         horizontal-alignment: center;
         vertical-alignment: center;
     }
@@ -173,7 +111,7 @@ component FormatBox inherits Rectangle {
             height: 18px;
             text: "Format";
             color: Theme.text-muted;
-            font-size: 11px;
+            font-size: Typography.label.size;
             vertical-alignment: center;
         }
 
@@ -219,7 +157,7 @@ component MetadataRow inherits Rectangle {
             horizontal-stretch: 0;
             text: root.label;
             color: Theme.text-disabled;
-            font-size: 11px;
+            font-size: Typography.label.size;
             vertical-alignment: center;
         }
 
@@ -227,7 +165,7 @@ component MetadataRow inherits Rectangle {
             horizontal-stretch: 1;
             text: root.value;
             color: Theme.text-muted;
-            font-size: 12px;
+            font-size: Typography.label.size;
             wrap: word-wrap;
             vertical-alignment: center;
         }
@@ -241,7 +179,7 @@ component MetadataRow inherits Rectangle {
             link-text := Text {
                 text: root.value;
                 color: link-touch.has-hover ? Theme.accent-primary : Theme.accent-primary-strong;
-                font-size: 12px;
+                font-size: Typography.label.size;
                 vertical-alignment: center;
             }
 
@@ -296,7 +234,7 @@ component MetadataPreview inherits Rectangle {
             color: root.status != ""
                 ? Theme.status-warning
                 : (root.title == "" && !root.loading ? Theme.text-muted : Theme.text-primary);
-            font-size: 14px;
+            font-size: Typography.body-small.size;
             font-weight: root.title != "" ? 600 : 400;
             wrap: word-wrap;
             height: 42px;
@@ -305,19 +243,19 @@ component MetadataPreview inherits Rectangle {
         if root.loading: Text {
             text: "RCSB metadata request in progress";
             color: Theme.text-disabled;
-            font-size: 12px;
+            font-size: Typography.label.size;
         }
 
         if !root.loading && root.status != "": Text {
             text: "Fetch remains available.";
             color: Theme.text-disabled;
-            font-size: 12px;
+            font-size: Typography.label.size;
         }
 
         if !root.loading && root.status == "" && root.title == "": Text {
             text: "Enter a PDB ID and preview metadata.";
             color: Theme.text-disabled;
-            font-size: 12px;
+            font-size: Typography.label.size;
         }
 
         if !root.loading && root.status == "" && root.method != "": MetadataRow {
@@ -373,7 +311,7 @@ component FooterStatus inherits Rectangle {
                 ? "Looking up metadata"
                 : (root.title != "" ? "RCSB metadata loaded" : "Ready to fetch by PDB ID"));
         color: root.status != "" ? Theme.status-warning : Theme.text-muted;
-        font-size: 11px;
+        font-size: Typography.label.size;
         vertical-alignment: center;
     }
 }
@@ -408,7 +346,7 @@ export component FetchDialog inherits Rectangle {
                 Text {
                     text: "Fetch PDB";
                     color: Theme.text-primary;
-                    font-size: 22px;
+                    font-size: Typography.body.size;
                     font-weight: 700;
                     vertical-alignment: center;
                 }

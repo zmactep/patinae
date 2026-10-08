@@ -1,3 +1,5 @@
+import { TextButton } from "../../controls/button.slint";
+import { UiText } from "../../primitives/text.slint";
 import { ComponentMetrics } from "../metrics.slint";
 import { Theme, Typography, Spacing, Shape } from "../../foundations/foundations.slint";
 import { AnnotationTargetItem } from "../../states/objects-state.slint";
@@ -31,7 +33,7 @@ component DropdownOptionRow inherits Rectangle {
         background: Theme.accent-primary;
     }
 
-    Text {
+    UiText {
         x: Spacing.sm;
         width: parent.width - 2 * Spacing.sm;
         height: parent.height;
@@ -39,7 +41,7 @@ component DropdownOptionRow inherits Rectangle {
         color: root.selected
             ? Theme.accent-primary
             : option-touch.has-hover ? Theme.text-primary : Theme.text-secondary;
-        font-size: Typography.compact-body.size;
+        text-style: Typography.body-small;
         font-weight: root.selected ? 500 : 400;
         vertical-alignment: center;
         overflow: elide;
@@ -70,13 +72,13 @@ component DropdownField inherits Rectangle {
     accessible-role: button;
     accessible-label: root.label;
 
-    Text {
+    UiText {
         x: Spacing.sm;
         width: parent.width - 2 * Spacing.sm - ComponentMetrics.chevron-w;
         height: parent.height;
         text: root.label;
         color: Theme.text-primary;
-        font-size: Typography.compact-body.size;
+        text-style: Typography.body-small;
         font-weight: 500;
         vertical-alignment: center;
         overflow: elide;
@@ -273,20 +275,20 @@ export component AnnotationPopoverFrame inherits Rectangle {
         VerticalLayout {
             spacing: Spacing.xs;
 
-            Text {
+            UiText {
                 height: 18px;
                 text: root.title;
                 color: Theme.text-primary;
-                font-size: Typography.compact-body.size;
+                text-style: Typography.body-small;
                 font-weight: 500;
                 vertical-alignment: center;
                 overflow: elide;
             }
 
-            Text {
+            UiText {
                 text: root.description;
                 color: Theme.text-muted;
-                font-size: Typography.compact-label.size;
+                text-style: Typography.label;
                 wrap: word-wrap;
             }
         }
@@ -295,10 +297,10 @@ export component AnnotationPopoverFrame inherits Rectangle {
     }
 }
 
-export component AnnotationFieldLabel inherits Text {
+export component AnnotationFieldLabel inherits UiText {
     height: 14px;
     color: Theme.text-muted;
-    font-size: Typography.compact-label.size;
+    text-style: Typography.label;
     font-weight: 500;
     vertical-alignment: center;
 }
@@ -323,7 +325,7 @@ export component AnnotationTextField inherits Rectangle {
         single-line: true;
         text <=> root.text;
         color: Theme.text-primary;
-        font-size: Typography.compact-body.size;
+        font-size: Typography.body-small.size;
         selection-background-color: Theme.accent-primary.with-alpha(0.3);
         selection-foreground-color: Theme.text-primary;
         accessible-role: text-input;
@@ -343,38 +345,4 @@ export component AnnotationTextField inherits Rectangle {
     }
 }
 
-export component AnnotationActionButton inherits Rectangle {
-    in property <string> label;
-    in property <bool> enabled: true;
-    in property <bool> primary: false;
-    callback clicked();
-
-    height: ComponentMetrics.annotation-action-h;
-    horizontal-stretch: 1;
-    border-radius: Shape.radius-md;
-    opacity: root.enabled ? 1.0 : 0.4;
-    background: root.primary
-        ? Theme.accent-primary.with-alpha(action-touch.pressed ? 0.32 : action-touch.has-hover ? 0.24 : 0.14)
-        : action-touch.pressed ? Theme.surface-control : action-touch.has-hover ? Theme.surface-raised : transparent;
-    border-width: root.primary ? Shape.hairline : 0px;
-    border-color: root.primary ? Theme.accent-primary.with-alpha(0.5) : transparent;
-    accessible-role: button;
-    accessible-label: root.label;
-
-    Text {
-        width: parent.width;
-        height: parent.height;
-        text: root.label;
-        color: root.primary ? Theme.accent-primary : Theme.text-secondary;
-        font-size: Typography.compact-body.size;
-        font-weight: 500;
-        horizontal-alignment: center;
-        vertical-alignment: center;
-    }
-
-    action-touch := TouchArea {
-        enabled: root.enabled;
-        mouse-cursor: pointer;
-        clicked => { root.clicked(); }
-    }
-}
+export component AnnotationActionButton inherits TextButton { horizontal-stretch: 1; }

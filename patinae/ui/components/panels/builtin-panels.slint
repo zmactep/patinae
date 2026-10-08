@@ -1,0 +1,42 @@
+import { ListView } from "std-widgets.slint";
+import { ObjectsState } from "../../states/objects-state.slint";
+import { TooltipState } from "../../states/tooltip-state.slint";
+import { Theme, Typography, Spacing, Shape } from "../../foundations/foundations.slint";
+import { ComponentMetrics } from "../metrics.slint";
+import { SectionHeader } from "../../controls/section-header.slint";
+import { UiText } from "../../primitives/text.slint";
+import { ObjectRow, GroupRow, SubchainRow } from "object-list.slint";
+import { SelectionRowItem } from "selection-list.slint";
+import { RecentAtomRowItem } from "recent-atoms-list.slint";
+
+export component BuiltinPanels inherits Rectangle {
+    TouchArea { clicked => { ObjectsState.object-list-background-clicked(); ObjectsState.selection-list-background-clicked(); ObjectsState.recent-atoms-background-clicked(); } }
+    ListView {
+        width: parent.width; height: parent.height;
+        viewport-y <=> ObjectsState.dock-scroll-y;
+        viewport-width: self.width;
+        changed viewport-y => { TooltipState.dismiss(); }
+        for row[index] in ObjectsState.dock-rows: Rectangle {
+            height: row.kind == "header" ? ComponentMetrics.section-header-h : ComponentMetrics.row-h;
+            if row.kind == "header": SectionHeader {
+                width: parent.width; title: row.title; count: row.count;
+                separator: index > 0; selection: row.key != "objects";
+                action: row.key == "recent" && row.count > 0 ? "Clear" : "";
+                action-clicked => { ObjectsState.recent-atoms-clear(); }
+            }
+            if row.kind == "empty": UiText {
+                x: Spacing.md; width: parent.width - 2 * Spacing.md; height: parent.height;
+                text: row.title; text-style: Typography.hint; color: Theme.text-placeholder; vertical-alignment: center;
+            }
+            if row.kind == "object": ObjectRow { width: parent.width; obj: row.object; in-group: row.depth > 0; }
+            if row.kind == "group": GroupRow { width: parent.width; data: row.group; }
+            if row.kind == "subchain": SubchainRow {
+                width: parent.width; subchain: row.subchain; obj-name: row.object.name;
+                obj-enabled: row.object.enabled;
+                base-indent: Spacing.md + ComponentMetrics.chevron-w + row.depth * ComponentMetrics.tree-indent;
+            }
+            if row.kind == "selection": SelectionRowItem { width: parent.width; data: row.selection; }
+            if row.kind == "recent": RecentAtomRowItem { width: parent.width; data: row.recent; }
+        }
+    }
+}

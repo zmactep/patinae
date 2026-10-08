@@ -1,129 +1,44 @@
 import { ComponentMetrics } from "../metrics.slint";
-import { Theme, Typography, Spacing, Motion } from "../../foundations/foundations.slint";
+import { Theme, Typography, Spacing, Shape } from "../../foundations/foundations.slint";
 import { LayoutState } from "../../states/layout-state.slint";
 import { PluginState } from "../../states/plugin-state.slint";
+import { Control } from "../../controls/button.slint";
+import { UiText } from "../../primitives/text.slint";
 
-// Tab switcher for the bottom dock (Sequence | Movie).
-// Tabs appear only when their panel is toggled on via sidebar.
+export component DockTab inherits Control {
+    background: root.hovered ? Theme.surface-raised : transparent;
+    width: caption.preferred-width + 2 * Spacing.sm;
+    height: ComponentMetrics.tab-bar-h;
+    caption := UiText {
+        x: Spacing.sm; height: parent.height;
+        text: root.label; text-style: Typography.label;
+        color: root.tint; vertical-alignment: center;
+    }
+    Rectangle {
+        y: parent.height - Shape.border-stroke;
+        height: Shape.border-stroke; width: parent.width;
+        background: root.active ? Theme.accent-primary : transparent;
+    }
+}
 export component DockTabBar inherits Rectangle {
     height: ComponentMetrics.tab-bar-h;
-    background: transparent;
-
     HorizontalLayout {
-        padding-left: Spacing.md;
-        alignment: start;
-        spacing: Spacing.md;
-
-        // ── Sequence tab ──────────────────────────────────────────
-        if LayoutState.sequence-visible: Rectangle {
-            height: parent.height;
-            width: seq-text.preferred-width;
-
-            seq-text := Text {
-                text: "SEQUENCE";
-                color: LayoutState.bottom-active-tab == 0
-                    ? Theme.accent-primary : Theme.text-muted;
-                font-size: Typography.compact-label.size;
-                font-weight: 500;
-                letter-spacing: 1.1px;
-                vertical-alignment: center;
-
-                animate color { duration: Motion.micro; }
-            }
-
-            TouchArea {
-                mouse-cursor: pointer;
-                clicked => {
-                    PluginState.deactivate-placement("bottom");
-                    LayoutState.bottom-active-tab = 0;
-                }
-            }
-
-            // Underline
-            Rectangle {
-                y: parent.height - 2px;
-                height: 2px;
-                width: 100%;
-                background: Theme.accent-primary;
-                opacity: LayoutState.bottom-active-tab == 0 ? 1.0 : 0.0;
-
-                animate opacity { duration: Motion.micro; }
-            }
+        padding-left: Spacing.sm; spacing: Spacing.xs; alignment: start;
+        if LayoutState.sequence-visible: DockTab {
+            label: "SEQUENCE"; active: LayoutState.bottom-active-tab == 0;
+            clicked => { PluginState.deactivate-placement("bottom"); LayoutState.bottom-active-tab = 0; }
         }
-
-        // ── Movie tab ─────────────────────────────────────────────
-        if LayoutState.movie-visible: Rectangle {
-            height: parent.height;
-            width: mov-text.preferred-width;
-
-            mov-text := Text {
-                text: "MOVIE";
-                color: LayoutState.bottom-active-tab == 1
-                    ? Theme.accent-primary : Theme.text-muted;
-                font-size: Typography.compact-label.size;
-                font-weight: 500;
-                letter-spacing: 1.1px;
-                vertical-alignment: center;
-
-                animate color { duration: Motion.micro; }
-            }
-
-            TouchArea {
-                mouse-cursor: pointer;
-                clicked => {
-                    PluginState.deactivate-placement("bottom");
-                    LayoutState.bottom-active-tab = 1;
-                }
-            }
-
-            // Underline
-            Rectangle {
-                y: parent.height - 2px;
-                height: 2px;
-                width: 100%;
-                background: Theme.accent-primary;
-                opacity: LayoutState.bottom-active-tab == 1 ? 1.0 : 0.0;
-
-                animate opacity { duration: Motion.micro; }
-            }
+        if LayoutState.movie-visible: DockTab {
+            label: "MOVIE"; active: LayoutState.bottom-active-tab == 1;
+            clicked => { PluginState.deactivate-placement("bottom"); LayoutState.bottom-active-tab = 1; }
         }
-
-        for tab in PluginState.bottom-tabs: Rectangle {
-            height: parent.height;
-            width: plug-text.preferred-width;
-
-            plug-text := Text {
-                text: tab.title;
-                color: tab.active ? Theme.accent-primary : Theme.text-muted;
-                font-size: Typography.compact-label.size;
-                font-weight: 500;
-                letter-spacing: 1.1px;
-                vertical-alignment: center;
-            }
-
-            TouchArea {
-                mouse-cursor: pointer;
-                clicked => {
-                    LayoutState.bottom-active-tab = -1;
-                    PluginState.activate-panel(tab.id);
-                }
-            }
-
-            Rectangle {
-                y: parent.height - 2px;
-                height: 2px;
-                width: 100%;
-                background: Theme.accent-primary;
-                opacity: tab.active ? 1.0 : 0.0;
-            }
+        for tab in PluginState.bottom-tabs: DockTab {
+            label: tab.title; active: tab.active;
+            clicked => { LayoutState.bottom-active-tab = -1; PluginState.activate-panel(tab.id); }
         }
     }
-
-    // ── Bottom hairline ───────────────────────────────────────────
     Rectangle {
-        y: parent.height - 0.5px;
-        height: 0.5px;
-        width: 100%;
-        background: Theme.border-subtle;
+        y: parent.height - Shape.hairline;
+        height: Shape.hairline; width: parent.width; background: Theme.border-subtle;
     }
 }

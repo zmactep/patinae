@@ -1,0 +1,21 @@
+import { Theme, Typography, Spacing, Shape } from "../foundations/foundations.slint";
+import { ComponentMetrics } from "../components/metrics.slint";
+import { UiText } from "../primitives/text.slint";
+import { TextButton } from "button.slint";
+export component SectionHeader inherits Rectangle {
+    in property <string> title;
+    in property <int> count;
+    in property <bool> selection;
+    in property <bool> separator;
+    in property <string> action;
+    callback action-clicked;
+    height: ComponentMetrics.section-header-h;
+    if root.separator: Rectangle { height: Shape.hairline; width: parent.width; background: Theme.border-subtle; }
+    HorizontalLayout {
+        padding-left: Spacing.md; padding-right: Spacing.md; spacing: Spacing.sm;
+        UiText { text: root.title; text-style: Typography.label; color: root.selection ? Theme.accent-selection : Theme.accent-primary; vertical-alignment: center; }
+        UiText { text: root.count; text-style: Typography.hint; color: Theme.text-placeholder; vertical-alignment: center; }
+        Rectangle { horizontal-stretch: 1; }
+        if root.action != "": TextButton { label: root.action; height: ComponentMetrics.row-btn-h; clicked => { root.action-clicked(); } }
+    }
+}

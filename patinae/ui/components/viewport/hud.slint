@@ -1,3 +1,4 @@
+import { UiText } from "../../primitives/text.slint";
 import { Theme, Typography, Spacing, Shape } from "../../foundations/foundations.slint";
 import { ViewportState } from "../../states/viewport-state.slint";
 
@@ -15,15 +16,15 @@ component StatRow inherits HorizontalLayout {
     alignment: space-between;
     spacing: Spacing.md;
 
-    Text {
+    UiText {
         text: root.stat-label;
         color: Theme.text-disabled;
-        font-size: Typography.compact-hud.size;
+        text-style: Typography.hud;
     }
-    Text {
+    UiText {
         text: root.stat-value;
         color: Theme.text-secondary;
-        font-size: Typography.compact-hud.size;
+        text-style: Typography.hud;
     }
 }
 
@@ -50,20 +51,20 @@ component MemoryPanel inherits VerticalLayout {
             border-width: Shape.hairline;
             border-color: root.badge-color.with-alpha(0.42);
 
-            badge-label := Text {
+            badge-label := UiText {
                 text: ViewportState.perf-memory-profile-label;
                 color: root.badge-color;
-                font-size: Typography.compact-hud.size;
+                text-style: Typography.hud;
                 font-weight: 600;
                 horizontal-alignment: center;
                 vertical-alignment: center;
             }
         }
-        Text {
+        UiText {
             y: (parent.height - self.height) / 2;
             text: ViewportState.perf-memory-total-text;
             color: Theme.text-secondary;
-            font-size: Typography.compact-hud.size;
+            text-style: Typography.hud;
         }
     }
 
@@ -107,16 +108,16 @@ export component Hud inherits Rectangle {
         spacing: Spacing.xs;
 
         // Device + engine header — unchanged.
-        Text {
+        UiText {
             text: ViewportState.device-name;
             color: Theme.text-muted;
-            font-size: Typography.compact-hud.size;
+            text-style: Typography.hud;
             horizontal-alignment: right;
         }
-        Text {
+        UiText {
             text: ViewportState.engine-name;
             color: Theme.text-disabled;
-            font-size: Typography.compact-hud.size;
+            text-style: Typography.hud;
             horizontal-alignment: right;
         }
 
@@ -131,10 +132,10 @@ export component Hud inherits Rectangle {
                 background: root.indicator-color;
                 y: (parent.height - self.height) / 2;
             }
-            Text {
+            UiText {
                 text: ViewportState.fps-text;
                 color: Theme.text-muted;
-                font-size: Typography.compact-hud.size;
+                text-style: Typography.hud;
             }
         }
 
@@ -157,10 +158,10 @@ export component Hud inherits Rectangle {
             badge-color: root.memory-profile-color;
         }
         if ViewportState.perf-visible && ViewportState.perf-gpu-text != "": HudRule {}
-        if ViewportState.perf-visible && ViewportState.perf-gpu-text != "": Text {
+        if ViewportState.perf-visible && ViewportState.perf-gpu-text != "": UiText {
             text: ViewportState.perf-gpu-text;
             color: Theme.text-placeholder;
-            font-size: Typography.compact-hud.size;
+            text-style: Typography.hud;
             horizontal-alignment: right;
             wrap: word-wrap;
         }

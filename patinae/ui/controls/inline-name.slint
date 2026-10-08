@@ -1,0 +1,22 @@
+import { ObjectsState } from "../states/objects-state.slint";
+import { Theme, Typography, Spacing, Shape } from "../foundations/foundations.slint";
+export component InlineName inherits Rectangle {
+    background: Theme.surface-control;
+    border-width: Shape.border-stroke; border-color: Theme.border-focus;
+    border-radius: Shape.radius-sm;
+    forward-focus: field;
+    init => { field.focus(); }
+    field := TextInput {
+        x: Spacing.xs; width: max(0px, parent.width - 2 * Spacing.xs); height: parent.height;
+        text <=> ObjectsState.name-input-text;
+        font-family: Typography.body-small.family; font-size: Typography.body-small.size;
+        font-weight: Typography.body-small.weight; letter-spacing: Typography.body-small.tracking;
+        color: Theme.text-primary; vertical-alignment: center;
+        single-line: true;
+        accepted => { ObjectsState.name-input-confirm(); }
+        key-pressed(event) => {
+            if event.text == Key.Escape { ObjectsState.name-input-action = ""; return accept; }
+            return reject;
+        }
+    }
+}
