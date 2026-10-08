@@ -26,14 +26,14 @@ jobs:
         with:
           components: rustfmt, clippy
 
-      - name: Cache APT packages
-        uses: awalsh128/cache-apt-pkgs-action@latest
-        with:
-          packages: >-
-            libxkbcommon-dev libwayland-dev libxrandr-dev libxi-dev
-            libx11-dev libx11-xcb-dev libxcb-randr0-dev libxcb-xfixes0-dev
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev libwayland-dev libxrandr-dev libxi-dev \
+            libx11-dev libx11-xcb-dev libxcb-randr0-dev libxcb-xfixes0-dev \
             libasound2-dev libfontconfig1-dev libgtk-3-dev libxdo-dev
-          version: 1.0
+          pkg-config --exists fontconfig
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
