@@ -1,3 +1,4 @@
+mod allocator_startup;
 mod app;
 mod bridges;
 mod clipboard;
@@ -19,6 +20,7 @@ mod startup_alert;
 slint::include_modules!();
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    allocator_startup::initialize();
     let started = std::time::Instant::now();
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .filter_module("wgpu_core", log::LevelFilter::Warn)

@@ -193,10 +193,10 @@ panels, mouse picking, native file workflows, and a GPU viewport.
 
 ### Renderer Memory Profiles
 
-Patinae chooses a renderer memory profile when the GPU device and viewport
-renderer are created. This is intentionally a startup-time decision: memory
-profiles are not runtime settings, and changing one requires recreating the
-renderer, normally by restarting the app, web viewer, or benchmark process.
+Patinae chooses an initial renderer memory profile when the GPU device and
+viewport renderer are created. The desktop command `set render_memory_profile,
+balanced` can also rebuild the renderer during a session, subject to the limits
+of the existing GPU device.
 
 The desktop app accepts `PATINAE_RENDER_MEMORY_PROFILE`:
 
@@ -223,6 +223,20 @@ Supported profile values are:
 When no override is provided, Patinae selects a profile from the adapter type,
 backend, platform, and GPU limits. Requested WGPU limits are still clamped to
 the adapter capabilities before device creation.
+
+On macOS, desktop startup in `balanced` or `lite` also disables the system
+allocator's cache of freed large blocks (`MallocLargeCache=0`). This applies to
+automatically selected profiles too. Before opening a window or loading files,
+the app re-executes itself once with this environment variable; arguments and
+the working directory are preserved. `performance` and `manual` leave the
+allocator environment unchanged. An explicitly supplied `MallocLargeCache`
+value takes precedence over the profile default.
+
+This reduces retained CPU memory after loading or deleting structures, at the
+cost of some repeated-load speed. Unlike GPU policy, the allocator setting
+cannot change during a session. When switching between `performance` and an
+economical profile, the desktop reports if a restart with the corresponding
+startup environment is needed. Windows, Linux, and the web viewer are unchanged.
 
 ## Python And Notebooks
 

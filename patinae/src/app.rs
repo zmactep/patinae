@@ -1732,6 +1732,10 @@ fn patinae_wgpu_configuration(
         "PATINAE_RENDER_MEMORY_PROFILE",
         false,
     );
+    crate::allocator_startup::apply(memory_policy.profile)?;
+    if let Some(notice) = crate::allocator_startup::restart_notice(memory_policy.profile) {
+        log::info!("{notice}");
+    }
     settings.device_memory_hints = memory_policy.wgpu_memory_hints();
     let binding_array_features = slint::wgpu_29::wgpu::Features::BUFFER_BINDING_ARRAY
         | slint::wgpu_29::wgpu::Features::STORAGE_RESOURCE_BINDING_ARRAY;

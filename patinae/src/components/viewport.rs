@@ -516,10 +516,15 @@ impl ViewportRenderer {
         self.recovery.reset(requested.profile);
         self.rebuild_for_policy(requested);
         session.registry.mark_all_dirty();
-        Some(format!(
+        let mut message = format!(
             "Renderer memory profile switched to {} by user setting.",
             requested.profile
-        ))
+        );
+        if let Some(notice) = crate::allocator_startup::restart_notice(requested.profile) {
+            message.push(' ');
+            message.push_str(&notice);
+        }
+        Some(message)
     }
 
     fn rebuild_for_profile(&mut self, profile: RenderMemoryProfile) {
