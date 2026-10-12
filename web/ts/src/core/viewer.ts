@@ -46,6 +46,8 @@ export class ViewerCore {
   private _deferred = false;
   private _revealDuration = 150;
   private dpr = 1;
+  private readonly eventAbort = new AbortController();
+  private readonly macos = /Mac|iPhone|iPad/.test(navigator.platform);
   /** `MouseEvent.buttons` bitmask the WASM side currently believes is pressed. */
   private buttonMask = 0;
   private clickStart: { x: number; y: number } | null = null;
@@ -230,6 +232,7 @@ export class ViewerCore {
       cancelAnimationFrame(this.animFrameId);
       this.animFrameId = 0;
     }
+    this.eventAbort.abort();
     this.resizeObserver?.disconnect();
     this.labelOverlay.destroy();
     this.canvas.remove();
@@ -303,6 +306,7 @@ export class ViewerCore {
     const loop = (now: number) => {
       this.animFrameId = requestAnimationFrame(loop);
       if (!this.wasm || this.isFailed) return;
+      if (this.dpr !== (window.devicePixelRatio || 1)) this.resizeViewport();
 
       const dt = Math.min((now - lastTime) / 1000.0, 0.1);
       this.lastFrameMs = now - lastTime;
@@ -346,8 +350,11 @@ export class ViewerCore {
           (wasm) => wasm.get_labels() as LabelInfo[] | null,
         );
         if (this.isFailed) return;
-        this.labelOverlay.update(labels ?? [], window.devicePixelRatio || 1);
+        const bounds = this.labelOverlay.update(labels ?? [], this.dpr);
+        this.callWasm("set_label_bounds", (wasm) => wasm.set_label_bounds(bounds));
       }
+
+      this.updateManipulationAffordance();
 
       // GPU-mode click picks complete asynchronously. Drain the latest
       // result here and forward it to onPick exactly like the CPU path.
@@ -390,18 +397,61 @@ export class ViewerCore {
   private reconcileButtons(e: PointerEvent): void {
     for (const button of MOUSE_BUTTONS) {
       const bit = buttonBit(button);
-      if (!(this.buttonMask & bit) || e.buttons & bit) continue;
+      if (!(this.buttonMask & bit) || (e.buttons & bit)) continue;
+      if (button === 0) {
+        this.cancelPointer();
+        return;
+      }
       this.buttonMask &= ~bit;
       this.callWasm("on_mouse_up", (wasm) =>
         wasm.on_mouse_up(e.offsetX, e.offsetY, button),
       );
-      if (button === 0) this.clickStart = null;
     }
+  }
+
+  private updateManipulationAffordance(): void {
+    const states = this.callWasm("label_highlights", (wasm) =>
+      wasm.label_highlights(),
+    );
+    this.labelOverlay.highlight(states ?? []);
+    this.canvas.style.cursor = this.callWasm("manipulation_cursor", (wasm) =>
+      wasm.manipulation_cursor(),
+    ) ?? "default";
+  }
+
+  private cancelPointer(): void {
+    this.callWasm("cancel_pointer", (wasm) => wasm.cancel_pointer());
+    this.buttonMask = 0;
+    this.clickStart = null;
+    this.queuedHover = { x: -1, y: -1 };
+    this.updateManipulationAffordance();
   }
 
   private bindEvents(): void {
     const c = this.canvas;
     this.dpr = window.devicePixelRatio || 1;
+    this.callWasm("configure_interaction", (wasm) =>
+      wasm.configure_interaction(this.macos, this.dpr),
+    );
+    const signal = this.eventAbort.signal;
+    const modifiers = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        this.cancelPointer();
+        return;
+      }
+      this.callWasm("on_modifiers", (wasm) => wasm.on_modifiers(modBits(e)));
+      this.updateManipulationAffordance();
+    };
+    window.addEventListener("keydown", modifiers, { signal });
+    window.addEventListener("keyup", modifiers, { signal });
+    window.addEventListener("blur", () => this.cancelPointer(), { signal });
+    document.addEventListener(
+      "visibilitychange",
+      () => {
+        if (document.hidden) this.cancelPointer();
+      },
+      { signal },
+    );
 
     c.addEventListener("pointerdown", (e) => {
       e.preventDefault();
@@ -442,16 +492,17 @@ export class ViewerCore {
     c.addEventListener("pointerenter", (e) => this.reconcileButtons(e));
 
     c.addEventListener("pointerup", (e) => {
+      this.buttonMask &= ~buttonBit(e.button);
       if (c.hasPointerCapture(e.pointerId)) {
         c.releasePointerCapture(e.pointerId);
       }
-      this.buttonMask &= ~buttonBit(e.button);
-      this.callWasm("on_mouse_up", (wasm) =>
+      this.callWasm("on_modifiers", (wasm) => wasm.on_modifiers(modBits(e)));
+      const consumed = this.callWasm("on_mouse_up", (wasm) =>
         wasm.on_mouse_up(e.offsetX, e.offsetY, e.button),
       );
       if (this.isFailed) return;
       // Detect click (left button, short drag).
-      if (e.button === 0 && this.clickStart !== null) {
+      if (!consumed && e.button === 0 && this.clickStart !== null) {
         const dx = e.offsetX - this.clickStart.x;
         const dy = e.offsetY - this.clickStart.y;
         if (dx * dx + dy * dy < CLICK_THRESHOLD_SQ) {
@@ -460,28 +511,20 @@ export class ViewerCore {
           );
           if (this.isFailed) return;
         }
-        this.clickStart = null;
       }
+      if (e.button === 0) this.clickStart = null;
     });
 
     // The browser took the pointer away (touch gesture, OS-level drag, ...):
     // no pointerup is coming, so release everything we still hold.
-    c.addEventListener("pointercancel", (e) => {
-      if (c.hasPointerCapture(e.pointerId)) {
-        c.releasePointerCapture(e.pointerId);
-      }
-      for (const button of MOUSE_BUTTONS) {
-        if (!(this.buttonMask & buttonBit(button))) continue;
-        this.callWasm("on_mouse_up", (wasm) =>
-          wasm.on_mouse_up(e.offsetX, e.offsetY, button),
-        );
-      }
-      this.buttonMask = 0;
-      this.clickStart = null;
-      this.queuedHover = { x: -1, y: -1 };
+    c.addEventListener("pointercancel", () => this.cancelPointer());
+    c.addEventListener("lostpointercapture", () => {
+      if (this.buttonMask !== 0) this.cancelPointer();
     });
 
     c.addEventListener("mouseleave", () => {
+      this.callWasm("leave_pointer", (wasm) => wasm.leave_pointer());
+      this.updateManipulationAffordance();
       this.clickStart = null;
       this.queuedHover = { x: -1, y: -1 }; // guaranteed miss clears hover indicators
     });
@@ -500,14 +543,20 @@ export class ViewerCore {
     c.addEventListener("contextmenu", (e) => e.preventDefault());
 
     // Resize
-    this.resizeObserver = new ResizeObserver(() => {
-      this.dpr = window.devicePixelRatio || 1;
-      this.syncCanvasSize();
-      this.callWasm("resize", (wasm) =>
-        wasm.resize(this.canvas.width, this.canvas.height),
-      );
-    });
+    this.resizeObserver = new ResizeObserver(() => this.resizeViewport());
     this.resizeObserver.observe(this.container);
+  }
+
+  private resizeViewport(): void {
+    this.cancelPointer();
+    this.dpr = window.devicePixelRatio || 1;
+    this.callWasm("configure_interaction", (wasm) =>
+      wasm.configure_interaction(this.macos, this.dpr),
+    );
+    this.syncCanvasSize();
+    this.callWasm("resize", (wasm) =>
+      wasm.resize(this.canvas.width, this.canvas.height),
+    );
   }
 
   private syncCanvasSize(): void {
@@ -533,7 +582,7 @@ function buttonBit(button: number): number {
 }
 
 /** Convert MouseEvent/WheelEvent modifiers to bitmask. */
-function modBits(e: MouseEvent | WheelEvent): number {
+function modBits(e: MouseEvent | WheelEvent | KeyboardEvent): number {
   let bits = 0;
   if (e.shiftKey) bits |= MOD_SHIFT;
   if (e.ctrlKey) bits |= MOD_CTRL;

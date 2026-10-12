@@ -44,6 +44,11 @@ pub struct Modifiers {
 }
 
 impl Modifiers {
+    /// Tests the platform-specific viewport manipulation chord.
+    pub fn manipulation_chord(self, macos: bool) -> bool {
+        self.shift && if macos { self.logo } else { self.ctrl }
+    }
+
     pub const EMPTY: Self = Self {
         shift: false,
         ctrl: false,
@@ -98,6 +103,8 @@ const MIDDLE: usize = 2;
 pub struct InputState {
     /// Mouse button states (left, right, middle)
     mouse_buttons: [bool; 3],
+    manipulation_gesture: bool,
+    macos: bool,
     /// Current mouse position (physical pixels)
     mouse_pos: (f32, f32),
     /// Previous mouse position (for delta calculation)
@@ -126,6 +133,8 @@ impl Default for InputState {
     fn default() -> Self {
         Self {
             mouse_buttons: [false; 3],
+            manipulation_gesture: false,
+            macos: cfg!(target_os = "macos"),
             mouse_pos: (0.0, 0.0),
             prev_mouse_pos: (0.0, 0.0),
             mouse_delta: (0.0, 0.0),
@@ -154,6 +163,16 @@ impl InputState {
         // passive mouse movement from being applied
         if pressed {
             self.mouse_delta = (0.0, 0.0);
+        }
+
+        if pressed {
+            // A completed reserved gesture may not have reached a render frame
+            // yet. Its reservation must not leak into the next ordinary drag.
+            if !self.any_button_pressed() {
+                self.manipulation_gesture = self.manipulation_chord();
+            } else {
+                self.manipulation_gesture |= self.manipulation_chord();
+            }
         }
 
         match button {
@@ -195,6 +214,30 @@ impl InputState {
     /// Handle modifier key changes
     pub fn handle_modifiers(&mut self, modifiers: Modifiers) {
         self.modifiers = modifiers;
+        if self.any_button_pressed() && self.manipulation_chord() {
+            self.manipulation_gesture = true;
+            self.mouse_delta = (0.0, 0.0);
+        }
+    }
+
+    /// Selects the host platform, including macOS browsers compiled as WASM.
+    pub fn set_macos(&mut self, macos: bool) {
+        self.macos = macos;
+    }
+
+    /// Whether the current modifiers reserve viewport manipulation.
+    pub fn manipulation_chord(&self) -> bool {
+        self.modifiers.manipulation_chord(self.macos)
+    }
+
+    /// Reconciles reservation when a frontend replays events between snapshots.
+    pub fn set_pointer_gesture_reserved(&mut self, reserved: bool) {
+        self.manipulation_gesture = reserved;
+    }
+
+    /// Whether camera input belongs to a reserved manipulation gesture.
+    pub fn manipulation_reserved(&self) -> bool {
+        self.manipulation_chord() || self.manipulation_gesture
     }
 
     /// Check if left mouse button is pressed
@@ -256,6 +299,15 @@ impl InputState {
     /// - Ctrl+Right drag:       Slab (both clip planes)
     /// - Scroll:                Slab scale (or Zoom while button held)
     pub fn take_camera_deltas(&mut self) -> Vec<CameraDelta> {
+        if self.manipulation_reserved() {
+            self.mouse_delta = (0.0, 0.0);
+            self.scroll_delta = 0.0;
+            self.pinch_zoom_delta = 0.0;
+            if !self.any_button_pressed() {
+                self.manipulation_gesture = false;
+            }
+            return Vec::new();
+        }
         let mut deltas = Vec::new();
         let (dx, dy) = self.mouse_delta;
 
@@ -323,6 +375,7 @@ impl InputState {
     /// Reset all state
     pub fn reset(&mut self) {
         self.mouse_buttons = [false; 3];
+        self.manipulation_gesture = false;
         self.mouse_delta = (0.0, 0.0);
         self.scroll_delta = 0.0;
         self.pinch_zoom_delta = 0.0;
@@ -338,6 +391,88 @@ impl InputState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn consecutive_gestures_between_frames_do_not_share_reservation() {
+        for macos in [false, true] {
+            let mut input = InputState::new();
+            input.set_macos(macos);
+            input.handle_modifiers(Modifiers {
+                shift: true,
+                ctrl: !macos,
+                logo: macos,
+                ..Modifiers::EMPTY
+            });
+            input.handle_mouse_motion((10.0, 10.0));
+            input.handle_mouse_button(ButtonState::Pressed, MouseButton::Left);
+            input.handle_mouse_motion((30.0, 20.0));
+            input.handle_mouse_button(ButtonState::Released, MouseButton::Left);
+            input.handle_modifiers(Modifiers::EMPTY);
+
+            // No take_camera_deltas between the reserved and ordinary gestures.
+            input.handle_mouse_button(ButtonState::Pressed, MouseButton::Left);
+            input.handle_mouse_motion((40.0, 25.0));
+            assert!(!input.manipulation_reserved());
+            let deltas = input.take_camera_deltas();
+            assert!(matches!(deltas.as_slice(), [CameraDelta::Rotate { x, y }]
+                if *x == 5.0 * input.rotate_sensitivity && *y == 10.0 * input.rotate_sensitivity));
+        }
+    }
+
+    #[test]
+    fn platform_chords_reserve_gestures_and_single_modifiers_keep_camera_controls() {
+        for macos in [false, true] {
+            let primary = if macos {
+                Modifiers::SUPER
+            } else {
+                Modifiers::CONTROL
+            };
+            for (modifiers, reserved, pan) in [
+                (Modifiers::EMPTY, false, false),
+                (Modifiers::SHIFT, false, true),
+                (primary, false, true),
+                (
+                    Modifiers {
+                        shift: true,
+                        ..primary
+                    },
+                    true,
+                    false,
+                ),
+            ] {
+                let mut input = InputState::new();
+                input.set_macos(macos);
+                input.handle_modifiers(modifiers);
+                input.handle_mouse_motion((10.0, 10.0));
+                input.handle_mouse_button(ButtonState::Pressed, MouseButton::Left);
+                input.handle_mouse_motion((20.0, 20.0));
+                let deltas = input.take_camera_deltas();
+                if reserved {
+                    assert!(deltas.is_empty());
+                    input.handle_modifiers(Modifiers::EMPTY);
+                    input.handle_mouse_motion((30.0, 30.0));
+                    assert!(input.take_camera_deltas().is_empty());
+                    input.handle_mouse_button(ButtonState::Released, MouseButton::Left);
+                    assert!(input.take_camera_deltas().is_empty());
+                    assert!(!input.manipulation_reserved());
+                } else if pan {
+                    assert!(matches!(deltas.as_slice(), [CameraDelta::Translate(_)]));
+                } else {
+                    assert!(matches!(deltas.as_slice(), [CameraDelta::Rotate { .. }]));
+                }
+            }
+            let other = if macos {
+                Modifiers::CONTROL
+            } else {
+                Modifiers::SUPER
+            };
+            assert!(!Modifiers {
+                shift: true,
+                ..other
+            }
+            .manipulation_chord(macos));
+        }
+    }
 
     #[test]
     fn test_input_state_default() {

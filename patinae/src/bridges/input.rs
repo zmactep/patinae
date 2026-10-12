@@ -11,6 +11,23 @@ use crate::ViewportState;
 /// Click detection threshold in logical pixels (scale-independent).
 const CLICK_THRESHOLD_LP: f32 = 5.0;
 
+/// Slint uses shortcut semantics: on macOS Control means Cmd and Meta means Ctrl.
+/// Convert its durable event snapshot to the physical flags used by scene input.
+fn physical_slint_modifiers(
+    shift: bool,
+    control: bool,
+    alt: bool,
+    meta: bool,
+    macos: bool,
+) -> Modifiers {
+    Modifiers {
+        shift,
+        ctrl: if macos { meta } else { control },
+        alt,
+        logo: if macos { control } else { meta },
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct PointerSnapshot {
     pub mouse_logical: (f32, f32),
@@ -113,6 +130,16 @@ impl InputBridge {
             None
         };
 
+        // Modifiers: use winit state (always current, even mid-drag)
+        let (shift, ctrl, alt, logo) = winit_modifiers;
+        let modifiers = Modifiers {
+            shift,
+            ctrl,
+            alt,
+            logo,
+        };
+        input.handle_modifiers(modifiers);
+
         // Button transitions
         let left_started = !self.prev_left && left_now;
         let left_released = self.prev_left && !left_now;
@@ -140,11 +167,12 @@ impl InputBridge {
             self.click_start_pos = None;
             // Slint records these modifiers on the pointer-up event. Use that
             // durable snapshot even if winit has observed a later key release.
-            let click_modifiers = (
+            let click_modifiers = physical_slint_modifiers(
                 vp.get_shift_held(),
                 vp.get_control_held(),
                 vp.get_alt_held(),
                 vp.get_meta_held(),
+                cfg!(target_os = "macos"),
             );
             self.queue_click_if_qualified(
                 press_logical,
@@ -165,7 +193,7 @@ impl InputBridge {
                     mouse_logical,
                     scale_factor,
                     suppress_click,
-                    winit_modifiers,
+                    modifiers,
                 );
             }
             if suppress_click {
@@ -177,15 +205,6 @@ impl InputBridge {
                 vp.set_suppress_click(false);
             }
         }
-
-        // Modifiers: use winit state (always current, even mid-drag)
-        let (shift, ctrl, alt, logo) = winit_modifiers;
-        input.handle_modifiers(Modifiers {
-            shift,
-            ctrl,
-            alt,
-            logo,
-        });
 
         // Scroll (accumulated by Slint, consumed here)
         let scroll = vp.get_scroll_delta();
@@ -201,7 +220,7 @@ impl InputBridge {
         end_logical: (f32, f32),
         scale_factor: f32,
         suppress_click: bool,
-        winit_modifiers: (bool, bool, bool, bool),
+        modifiers: Modifiers,
     ) {
         let dx = end_logical.0 - start_logical.0;
         let dy = end_logical.1 - start_logical.1;
@@ -209,10 +228,12 @@ impl InputBridge {
             return;
         }
 
-        let (_, ctrl, _, logo) = winit_modifiers;
+        if modifiers.manipulation_chord(cfg!(target_os = "macos")) {
+            return;
+        }
         self.pending_click = Some(PendingClick {
             position: (end_logical.0 * scale_factor, end_logical.1 * scale_factor),
-            ctrl_or_cmd: ctrl || logo,
+            ctrl_or_cmd: modifiers.ctrl || modifiers.logo,
         });
     }
 
@@ -239,18 +260,57 @@ mod tests {
     use super::*;
 
     #[test]
+    fn slint_shortcut_modifiers_are_converted_to_physical_keys() {
+        for macos in [false, true] {
+            let primary = physical_slint_modifiers(true, true, false, false, macos);
+            assert!(primary.manipulation_chord(macos));
+            let secondary = physical_slint_modifiers(true, false, false, true, macos);
+            assert!(!secondary.manipulation_chord(macos));
+            assert_eq!(primary.ctrl, !macos);
+            assert_eq!(primary.logo, macos);
+            assert_eq!(secondary.ctrl, macos);
+            assert_eq!(secondary.logo, !macos);
+        }
+
+        let mut bridge = InputBridge::new();
+        bridge.queue_click_if_qualified(
+            (10.0, 10.0),
+            (11.0, 11.0),
+            1.0,
+            false,
+            physical_slint_modifiers(true, false, false, true, cfg!(target_os = "macos")),
+        );
+        assert!(bridge.take_pending_click().unwrap().ctrl_or_cmd);
+    }
+
+    #[test]
+    fn manipulation_click_never_queues_atom_picking_at_any_scale() {
+        for scale in [1.0, 1.5, 2.0] {
+            let mut bridge = InputBridge::new();
+            let macos = cfg!(target_os = "macos");
+            bridge.queue_click_if_qualified(
+                (10.0, 10.0),
+                (11.0, 11.0),
+                scale,
+                false,
+                Modifiers {
+                    shift: true,
+                    ctrl: !macos,
+                    logo: macos,
+                    ..Modifiers::EMPTY
+                },
+            );
+            assert_eq!(bridge.take_pending_click(), None);
+        }
+    }
+
+    #[test]
     fn qualified_click_retains_modifier_captured_at_release() {
         let mut bridge = InputBridge::new();
         let mut input = InputState::new();
         input.handle_modifiers(Modifiers::CONTROL);
 
-        bridge.queue_click_if_qualified(
-            (10.0, 10.0),
-            (12.0, 12.0),
-            2.0,
-            false,
-            (false, true, false, false),
-        );
+        bridge.queue_click_if_qualified((10.0, 10.0), (12.0, 12.0), 2.0, false, Modifiers::CONTROL);
         input.handle_modifiers(Modifiers::EMPTY);
         assert!(!input.ctrl_or_cmd_held());
 
@@ -261,11 +321,7 @@ mod tests {
 
     #[test]
     fn drag_never_queues_click_with_or_without_modifier() {
-        for modifiers in [
-            (false, false, false, false),
-            (false, true, false, false),
-            (false, false, false, true),
-        ] {
+        for modifiers in [Modifiers::EMPTY, Modifiers::CONTROL, Modifiers::SUPER] {
             let mut bridge = InputBridge::new();
 
             bridge.queue_click_if_qualified(

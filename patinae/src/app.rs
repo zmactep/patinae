@@ -1,3 +1,4 @@
+use patinae_scene::manipulation::{ViewportCursor, ViewportManipulation, ViewportTargetId};
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::path::PathBuf;
@@ -117,6 +118,7 @@ pub struct App {
         crate::renderer_startup::RendererStartup<crate::components::viewport::PreparedViewport>,
     >,
     input: InputBridge,
+    manipulation: ViewportManipulation,
     /// Hover granularity used to expand the cached pick hit.
     last_hover_mode: Option<MouseSelectionMode>,
     pub(crate) objects: ObjectsBridge,
@@ -216,6 +218,7 @@ impl App {
             renderer: None,
             renderer_startup: None,
             input: InputBridge::new(),
+            manipulation: ViewportManipulation::default(),
             last_hover_mode: None,
             objects: ObjectsBridge::new(),
             movie: MovieBridge::new(),
@@ -569,6 +572,14 @@ impl App {
         // Reset all input on window focus loss (OS may swallow mouse-up events)
         if self.window_focus_lost.get() {
             self.kernel.viewport.input.reset();
+            self.manipulation.cancel();
+            self.raw_mouse_buttons.set((false, false, false));
+            self.raw_press_known.set(false);
+            vp.set_left_pressed(false);
+            vp.set_middle_pressed(false);
+            vp.set_right_pressed(false);
+            vp.set_suppress_click(true);
+            self.viewport.take_pointer_events();
             self.input = InputBridge::new();
             self.window_focus_lost.set(false);
         }
@@ -581,6 +592,7 @@ impl App {
             app.global::<LayoutState>().get_repl_visible(),
             fetch_dialog_visible,
         );
+        let was_left = self.kernel.viewport.input.left_pressed();
         self.input.sync(
             &mut self.kernel.viewport.input,
             &vp,
@@ -588,6 +600,69 @@ impl App {
             self.winit_modifiers.get(),
             Some(pointer),
         );
+
+        self.manipulation.set_targets(
+            self.viewport
+                .manipulation_targets(&self.kernel.session.registry),
+        );
+        let (shift, ctrl, alt, logo) = self.winit_modifiers.get();
+        let current_modifiers = patinae_scene::Modifiers {
+            shift,
+            ctrl,
+            alt,
+            logo,
+        };
+        let dispatch = self
+            .viewport
+            .dispatch_pointer_events(&mut self.manipulation, &mut self.kernel.session.registry);
+        dispatch.reconcile_camera_input(&mut self.kernel.viewport.input, sf);
+        let mut suppress_click = dispatch.suppress_click;
+        self.manipulation
+            .set_modifiers(current_modifiers, cfg!(target_os = "macos"));
+        // Raw winit coordinates also update hover when Slint emits no moved event.
+        self.manipulation.motion(
+            [pointer.mouse_logical.0, pointer.mouse_logical.1],
+            &mut self.kernel.session.registry,
+        );
+        if was_left && !pointer.left_pressed {
+            let consumed = self.manipulation.release();
+            suppress_click |= consumed;
+            if consumed {
+                self.kernel
+                    .viewport
+                    .input
+                    .set_pointer_gesture_reserved(true);
+            }
+        }
+        let inside = pointer.mouse_logical.0 >= 0.0
+            && pointer.mouse_logical.1 >= 0.0
+            && pointer.mouse_logical.0 < vw as f32 / sf
+            && pointer.mouse_logical.1 < vh as f32 / sf
+            && !Self::point_over_repl_pill(
+                pointer.mouse_logical,
+                vw,
+                vh,
+                sf,
+                app.global::<LayoutState>().get_repl_visible(),
+            );
+        if !inside || !self.cursor_known.get() {
+            self.manipulation.leave();
+        }
+        if fetch_dialog_visible {
+            self.manipulation.cancel();
+        }
+        if self.manipulation.is_reserved() {
+            self.kernel
+                .viewport
+                .input
+                .set_pointer_gesture_reserved(true);
+            suppress_click = true;
+        }
+        let consumed_manipulation =
+            suppress_click || self.kernel.viewport.input.manipulation_reserved();
+        if consumed_manipulation {
+            self.input.take_pending_click();
+        }
 
         // Consume accumulated pinch-zoom gesture (macOS trackpad)
         let pinch = self.pinch_accumulator.get();
@@ -620,9 +695,12 @@ impl App {
                     // Ordinary selection clicks re-evaluate hover next frame.
                     self.clear_hover_indicators();
                 }
-            } else if !hover_disabled {
+            } else if !hover_disabled && !consumed_manipulation {
                 self.process_hover(vw, vh, sf);
             }
+        }
+        if consumed_manipulation {
+            self.clear_hover_indicators();
         }
         mark("input+pick", &mut t_section);
 
@@ -673,12 +751,31 @@ impl App {
         } else {
             let viewport = (0.0, 0.0, vw as f32, vh as f32);
             renderer
-                .annotation_labels(&self.kernel.session.camera, viewport)
+                .annotation_labels(&self.kernel.session.camera, viewport, sf)
                 .iter()
                 .map(|label| viewport_label_from_projected(label, sf))
                 .collect()
         };
         self.viewport.set_labels(annotation_labels);
+        self.manipulation.set_targets(
+            self.viewport
+                .manipulation_targets(&self.kernel.session.registry),
+        );
+        let feedback = self.manipulation.feedback();
+        vp.set_manipulation_visible(feedback.highlights_visible);
+        if let Some(ViewportTargetId::Label { owner, entity }) = feedback.active_target {
+            vp.set_manipulation_owner(owner.get().to_string().into());
+            vp.set_manipulation_entity(entity as i32);
+        } else {
+            vp.set_manipulation_owner("".into());
+            vp.set_manipulation_entity(-1);
+        }
+        vp.set_manipulation_cursor(match feedback.cursor {
+            ViewportCursor::Grabbing => 2,
+            ViewportCursor::Grab => 1,
+            ViewportCursor::Default => 0,
+        });
+
         if render_outcome.request_redraw {
             self.kernel.bus.request_redraw();
             app.window().request_redraw();
@@ -1905,6 +2002,12 @@ pub fn run(started: Instant) -> Result<(), Box<dyn std::error::Error>> {
                         cursor.set((position.x as f32, position.y as f32));
                         cursor_known.set(true);
                     }
+                    WindowEvent::CursorLeft { .. } => {
+                        cursor_known.set(false);
+                        focus_lost.set(true);
+                        buttons.set((false, false, false));
+                        slint_window.request_redraw();
+                    }
                     WindowEvent::MouseInput { state, button, .. } => {
                         use slint::winit_030::winit::event::{ElementState, MouseButton};
 
@@ -1933,6 +2036,7 @@ pub fn run(started: Instant) -> Result<(), Box<dyn std::error::Error>> {
                         slint_window.request_redraw();
                     }
                     WindowEvent::Resized(size) => {
+                        focus_lost.set(true);
                         log_window_event(
                             slint_window,
                             "resized",
@@ -1941,6 +2045,7 @@ pub fn run(started: Instant) -> Result<(), Box<dyn std::error::Error>> {
                         mark_display_transition_and_redraw(&display_recovery, slint_window);
                     }
                     WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+                        focus_lost.set(true);
                         log_window_event(
                             slint_window,
                             "scale-factor-changed",
@@ -1959,6 +2064,7 @@ pub fn run(started: Instant) -> Result<(), Box<dyn std::error::Error>> {
                         }
                     }
                     WindowEvent::ModifiersChanged(modifiers) => {
+                        slint_window.request_redraw();
                         let state = modifiers.state();
                         winit_mods.set((
                             state.shift_key(),
@@ -1971,6 +2077,14 @@ pub fn run(started: Instant) -> Result<(), Box<dyn std::error::Error>> {
                         use slint::winit_030::winit::event::ElementState;
                         use slint::winit_030::winit::keyboard::PhysicalKey;
 
+                        if event.logical_key
+                            == slint::winit_030::winit::keyboard::Key::Named(
+                                slint::winit_030::winit::keyboard::NamedKey::Escape,
+                            )
+                        {
+                            focus_lost.set(true);
+                            buttons.set((false, false, false));
+                        }
                         if let PhysicalKey::Code(code) = event.physical_key {
                             if let Some(key) = map_winit_key(code) {
                                 let (shift, ctrl, alt, super_key) = winit_mods.get();
@@ -2036,7 +2150,9 @@ pub fn run(started: Instant) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Attach viewport and objects bridge models to Slint globals + wire callbacks
-    app.borrow().viewport.attach(&window);
+    app.borrow()
+        .viewport
+        .attach(&window, app.borrow().winit_modifiers.clone());
     app.borrow().objects.attach(&window);
     crate::bridges::objects::setup_callbacks(app.clone(), &window);
 

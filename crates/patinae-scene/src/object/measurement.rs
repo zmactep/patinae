@@ -41,12 +41,18 @@ pub type MeasurementType = MeasurementKind;
 pub type MeasurementAnchor = AtomAnchor;
 
 /// Stores one dynamic measurement and sparse presentation overrides.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MeasurementEntity {
     /// Ordered anchors defining the measurement.
     pub anchors: Vec<AtomAnchor>,
     #[serde(default)]
     presentation: MeasurementEntityPresentation,
+    /// Screen-space displacement in device-independent pixels.
+    #[serde(
+        default,
+        deserialize_with = "super::annotation::deserialize_label_offset"
+    )]
+    label_offset: [f32; 2],
 }
 
 impl MeasurementEntity {
@@ -58,6 +64,7 @@ impl MeasurementEntity {
         Self {
             anchors,
             presentation: MeasurementEntityPresentation::default(),
+            label_offset: [0.0; 2],
         }
     }
 
@@ -69,7 +76,13 @@ impl MeasurementEntity {
         Self {
             anchors,
             presentation,
+            label_offset: [0.0; 2],
         }
+    }
+
+    /// Returns the label displacement in device-independent pixels.
+    pub fn label_offset(&self) -> [f32; 2] {
+        self.label_offset
     }
 
     /// Returns sparse entity presentation overrides.
@@ -404,6 +417,25 @@ fn validate_entries(
 }
 
 impl MeasurementObject {
+    /// Sets one label displacement without changing anchors or geometry.
+    ///
+    /// Returns false for missing entities, nonfinite values, or unchanged offsets.
+    pub fn set_label_offset(&mut self, index: usize, offset: [f32; 2]) -> bool {
+        if !offset.iter().all(|value| value.is_finite()) {
+            return false;
+        }
+        let Some(entity) = self.entries.get_mut(index) else {
+            return false;
+        };
+        if entity.label_offset == offset {
+            return false;
+        }
+        entity.label_offset = offset;
+        self.revisions.labels = self.revisions.labels.saturating_add(1);
+        self.dirty = true;
+        true
+    }
+
     /// Creates an empty measurement object of one immutable kind.
     pub fn new(name: impl Into<String>, kind: MeasurementKind) -> Self {
         Self {

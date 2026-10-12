@@ -12,7 +12,9 @@ use rmpv::Value;
 use serde::{Deserialize, Serialize};
 
 /// Current native PRS document format version.
-pub const PRS_FORMAT_VERSION: u32 = 5;
+///
+/// Version 6 appends logical-pixel label offsets to annotation entities.
+pub const PRS_FORMAT_VERSION: u32 = 6;
 
 /// Format version assigned to legacy raw [`Session`] files.
 pub const PRS_LEGACY_FORMAT_VERSION: u32 = 1;
@@ -361,7 +363,7 @@ fn session_value_mut(root: &mut Value) -> Result<&mut Value, PrsError> {
 fn validate_registry(registry: &Value, format_version: Option<u64>) -> Result<(), PrsError> {
     let field_count = struct_field_count(registry, "ObjectRegistrySnapshot")?;
     let valid_arity = match format_version {
-        Some(3..=5) => field_count == 11,
+        Some(3..=6) => field_count == 11,
         Some(2) => matches!(field_count, 8 | 9),
         Some(1) => (7..=9).contains(&field_count),
         Some(version) => return Err(invalid(format!("unsupported PRS format version {version}"))),
@@ -520,10 +522,10 @@ fn validate_measurements(measurements: &Value) -> Result<(), PrsError> {
             .iter()
             .enumerate()
         {
-            validate_struct_arity(entity, &[1, 2], "MeasurementEntity")?;
+            validate_struct_arity(entity, &[1, 2, 3], "MeasurementEntity")?;
             validate_named_fields(
                 entity,
-                &["anchors", "presentation"],
+                &["anchors", "presentation", "label_offset"],
                 &["anchors"],
                 "MeasurementEntity",
             )?;
@@ -555,10 +557,10 @@ fn validate_labels(labels: &Value) -> Result<(), PrsError> {
         )?;
         let entities = struct_field(snapshot, "entities", 1, "LabelObjectSnapshot")?;
         for (entity_index, entity) in value_array(entities, "label entities")?.iter().enumerate() {
-            validate_struct_arity(entity, &[3], "LabelEntity")?;
+            validate_struct_arity(entity, &[3, 4], "LabelEntity")?;
             validate_named_fields(
                 entity,
-                &["anchor", "text", "presentation"],
+                &["anchor", "text", "presentation", "label_offset"],
                 &["anchor", "text"],
                 "LabelEntity",
             )?;
@@ -869,6 +871,101 @@ mod tests {
             .unwrap(),
         );
         session
+    }
+
+    #[test]
+    fn label_offsets_round_trip_and_old_named_and_positional_sessions_default_to_zero() {
+        let mut session = cartoon_session_with_restore();
+        let anchor = AtomAnchor::new("mol", patinae_mol::AtomIndex(0));
+        let mut labels = LabelObject::with_entities(
+            "labels",
+            vec![
+                LabelEntity::new(anchor.clone(), "first"),
+                LabelEntity::new(anchor.clone(), "second"),
+            ],
+        );
+        labels.set_label_offset(1, [25.0, -12.5]);
+        session.registry.add(labels);
+        for (name, kind) in [
+            ("distance", MeasurementKind::Distance),
+            ("angle", MeasurementKind::Angle),
+            ("dihedral", MeasurementKind::Dihedral),
+        ] {
+            let mut object = MeasurementObject::new(name, kind);
+            object
+                .add_entries(vec![
+                    MeasurementEntry::new(vec![anchor.clone(); kind.anchor_count()]),
+                    MeasurementEntry::new(vec![anchor.clone(); kind.anchor_count()]),
+                ])
+                .unwrap();
+            object.set_label_offset(1, [-30.0, 18.0]);
+            session.registry.add(object);
+        }
+        fn strip_offsets(value: &mut Value) {
+            match value {
+                Value::Map(fields) => {
+                    fields.retain(|(name, _)| name.as_str() != Some("label_offset"));
+                    for (_, child) in fields {
+                        strip_offsets(child);
+                    }
+                }
+                Value::Array(values) => {
+                    for child in values {
+                        strip_offsets(child);
+                    }
+                }
+                _ => {}
+            }
+        }
+        for named in [false, true] {
+            for legacy in [false, true] {
+                let mut document = if named {
+                    named_test_document(&session)
+                } else {
+                    positional_test_document(&session)
+                };
+                if legacy {
+                    if named {
+                        *test_map_field_mut(&mut document, "prs_format_version") = Value::from(5);
+                        strip_offsets(&mut document);
+                    } else {
+                        document.as_array_mut_for_test()[0] = Value::from(5);
+                        let registry = document.as_array_mut_for_test()[3].as_array_mut_for_test()
+                            [0]
+                        .as_array_mut_for_test();
+                        for (collection, entities_index) in
+                            [(REGISTRY_LABELS_INDEX, 1), (REGISTRY_MEASUREMENTS_INDEX, 1)]
+                        {
+                            for owner in registry[collection].as_array_mut_for_test() {
+                                for entity in owner.as_array_mut_for_test()[1]
+                                    .as_array_mut_for_test()[entities_index]
+                                    .as_array_mut_for_test()
+                                {
+                                    entity.as_array_mut_for_test().pop();
+                                }
+                            }
+                        }
+                    }
+                }
+                let restored = decode_prs_document(encode_test_value(&document))
+                    .unwrap()
+                    .session;
+                let labels = restored.registry.get_label("labels").unwrap();
+                assert_eq!(labels.entities()[0].label_offset(), [0.0; 2]);
+                assert_eq!(
+                    labels.entities()[1].label_offset(),
+                    if legacy { [0.0; 2] } else { [25.0, -12.5] }
+                );
+                for name in ["distance", "angle", "dihedral"] {
+                    let entries = restored.registry.get_measurement(name).unwrap().entries();
+                    assert_eq!(entries[0].label_offset(), [0.0; 2]);
+                    assert_eq!(
+                        entries[1].label_offset(),
+                        if legacy { [0.0; 2] } else { [-30.0, 18.0] }
+                    );
+                }
+            }
+        }
     }
 
     #[test]

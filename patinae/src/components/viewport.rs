@@ -165,9 +165,14 @@ impl ViewportRenderer {
         &mut self,
         camera: &Camera,
         viewport: (f32, f32, f32, f32),
+        scale: f32,
     ) -> &[ProjectedAnnotationLabel] {
-        self.projected_labels
-            .rebuild(camera, viewport, self.render_scene.annotation_bundles());
+        self.projected_labels.rebuild_with_scale(
+            camera,
+            viewport,
+            self.render_scene.annotation_bundles(),
+            scale,
+        );
         self.projected_labels.labels()
     }
 

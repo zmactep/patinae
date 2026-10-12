@@ -785,6 +785,18 @@ impl LabelPresentation {
     }
 }
 
+/// Deserializes finite entity offsets from current named and positional sessions.
+pub(super) fn deserialize_label_offset<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<[f32; 2], D::Error> {
+    let offset = <[f32; 2] as serde::Deserialize>::deserialize(deserializer)?;
+    if offset.iter().all(|value| value.is_finite()) {
+        Ok(offset)
+    } else {
+        Err(serde::de::Error::custom("label offsets must be finite"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use patinae_color::ColorIndex;

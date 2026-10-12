@@ -6,10 +6,18 @@
 
 import type { LabelInfo } from "./types.js";
 
+interface LabelBounds {
+  owner_id: number;
+  insertion_ordinal: number;
+  width: number;
+  height: number;
+}
+
 export class LabelOverlay {
   private container: HTMLDivElement;
   private pool: HTMLSpanElement[] = [];
   private activeCount = 0;
+  private highlights: number[] = [];
 
   constructor(parent: HTMLElement) {
     this.container = document.createElement("div");
@@ -23,7 +31,7 @@ export class LabelOverlay {
     parent.appendChild(this.container);
   }
 
-  update(labels: LabelInfo[], dpr: number): void {
+  update(labels: LabelInfo[], dpr: number): LabelBounds[] {
     // Grow pool if needed
     while (this.pool.length < labels.length) {
       const el = document.createElement("span");
@@ -65,6 +73,33 @@ export class LabelOverlay {
     }
 
     this.activeCount = labels.length;
+    return labels.map((label, i) => {
+      const rect = this.pool[i].getBoundingClientRect();
+      return {
+        owner_id: label.owner_id,
+        insertion_ordinal: label.insertion_ordinal,
+        width: rect.width,
+        height: rect.height,
+      };
+    });
+  }
+
+  highlight(states: Uint8Array | number[]): void {
+    for (let i = 0; i < this.activeCount; i++) {
+      const el = this.pool[i];
+      const state = states[i] ?? 0;
+      if (this.highlights[i] === state) continue;
+      this.highlights[i] = state;
+      // Outline and shadow never change layout or the measured hit area.
+      el.style.outline = state === 2
+        ? "2px solid #67e8f9"
+        : state === 1 ? "1px solid #67e8f980" : "none";
+      el.style.outlineOffset = "2px";
+      el.style.borderRadius = "3px";
+      el.style.background = state === 2
+        ? "#164e6380"
+        : state === 1 ? "#164e6330" : "transparent";
+    }
   }
 
   destroy(): void {

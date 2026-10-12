@@ -25,6 +25,7 @@ mod gpu_runtime;
 pub mod highlight_state;
 mod input;
 mod keybindings;
+pub mod manipulation;
 mod movie;
 mod object;
 mod pick;

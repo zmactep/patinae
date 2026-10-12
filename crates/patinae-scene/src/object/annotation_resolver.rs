@@ -57,6 +57,8 @@ pub struct ResolvedLabelPrimitive {
     pub text: String,
     /// World-space anchor used by host projection.
     pub position: Vec3,
+    /// Screen-space displacement in device-independent pixels.
+    pub label_offset: [f32; 2],
     /// Resolved RGBA color.
     pub color: [f32; 4],
     /// Resolved font size in device-independent UI pixels.
@@ -203,6 +205,7 @@ pub fn resolve_annotation_bundles(
                             .unwrap_or(global_size),
                     );
                     labels.push(ResolvedLabelPrimitive {
+                        label_offset: entity.label_offset(),
                         text: entity.text().to_string(),
                         position,
                         color,
@@ -367,6 +370,7 @@ fn resolve_measurement_bundle(
             .unwrap_or(true);
         if label_visible {
             labels.push(ResolvedLabelPrimitive {
+                label_offset: entity.label_offset(),
                 text: format_measurement_label(measurement.kind(), geometry.value, options),
                 position: geometry.label_position,
                 color,
@@ -891,6 +895,7 @@ fn label_revision(labels: &[ResolvedLabelPrimitive]) -> u64 {
     for label in labels {
         label.text.hash(&mut hasher);
         hash_vec3(label.position, &mut hasher);
+        hash_f32_slice(&label.label_offset, &mut hasher);
         hash_f32_slice(&label.color, &mut hasher);
         hash_f32(label.size, &mut hasher);
         label.alignment.hash(&mut hasher);

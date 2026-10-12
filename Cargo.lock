@@ -4107,6 +4107,7 @@ dependencies = [
  "ab_glyph",
  "copypasta",
  "env_logger",
+ "i-slint-backend-testing",
  "image",
  "lin_alg",
  "log",

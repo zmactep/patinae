@@ -19,13 +19,35 @@ export component Viewport inherits Rectangle {
         height: parent.height;
         background: transparent;
 
-        for label in ViewportState.labels: Text {
+        clip: true;
+        for label in ViewportState.labels: Rectangle {
             x: label.x * 1px - self.width * label.anchor-x;
             y: label.y * 1px - self.height * label.anchor-y;
-            text: label.text;
-            color: label.color;
-            font-size: label.size * 1px;
+            width: label-text.preferred-width;
+            height: label-text.preferred-height;
+            background: transparent;
+            property <bool> active: ViewportState.manipulation-owner == label.owner-id
+                && ViewportState.manipulation-entity == label.insertion-ordinal;
+            init => { ViewportState.label-size(label.owner-id, label.insertion-ordinal, self.width / 1px, self.height / 1px); }
+            changed width => { ViewportState.label-size(label.owner-id, label.insertion-ordinal, self.width / 1px, self.height / 1px); }
+            changed height => { ViewportState.label-size(label.owner-id, label.insertion-ordinal, self.width / 1px, self.height / 1px); }
+            property <string> identity: label.owner-id + "/" + label.insertion-ordinal;
+            changed identity => { ViewportState.label-size(label.owner-id, label.insertion-ordinal, self.width / 1px, self.height / 1px); }
+            if ViewportState.manipulation-visible: Rectangle {
+                x: -3px; y: -2px;
+                width: parent.width + 6px; height: parent.height + 4px;
+                border-radius: 3px;
+                border-width: parent.active ? 2px : 1px;
+                border-color: parent.active ? #67e8f9 : #67e8f980;
+                background: parent.active ? #164e6380 : #164e6330;
+            }
+            label-text := Text {
+                text: label.text;
+                color: label.color;
+                font-size: label.size * 1px;
+            }
         }
+
     }
 
     if !LayoutState.empty-mode: Hud {
@@ -41,9 +63,15 @@ export component Viewport inherits Rectangle {
     if !LayoutState.empty-mode: TouchArea {
         width: 100%;
         height: 100%;
+        mouse-cursor: ViewportState.manipulation-cursor == 2 ? grabbing : ViewportState.manipulation-cursor == 1 ? grab : default;
         property <bool> left-press-started: false;
 
         pointer-event(event) => {
+            if event.button == PointerEventButton.left || event.kind == PointerEventKind.cancel {
+                ViewportState.manipulation-pointer(event.kind == PointerEventKind.down ? 0 : event.kind == PointerEventKind.up ? 2 : 3,
+                    self.mouse-x / 1px, self.mouse-y / 1px);
+            }
+
             if event.kind == PointerEventKind.down {
                 ViewportState.mouse-x = self.mouse-x / 1px;
                 ViewportState.mouse-y = self.mouse-y / 1px;
@@ -80,6 +108,7 @@ export component Viewport inherits Rectangle {
         }
 
         moved => {
+            ViewportState.manipulation-pointer(1, self.mouse-x / 1px, self.mouse-y / 1px);
             ViewportState.mouse-x = self.mouse-x / 1px;
             ViewportState.mouse-y = self.mouse-y / 1px;
         }

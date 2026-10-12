@@ -3,6 +3,10 @@
 //! Mirrors patinae's viewport: owns a `Session` + `CommandExecutor` and a
 //! `patinae_render::RenderState` (held by `GpuState`).
 
+use patinae_scene::manipulation::{
+    label_target, TargetHighlight, ViewportBounds, ViewportCursor, ViewportManipulation,
+    ViewportTargetId,
+};
 use std::cell::RefCell;
 use std::collections::HashMap;
 
@@ -98,6 +102,14 @@ struct SelectionInfo {
     name: String,
     expression: String,
     visible: bool,
+}
+
+#[derive(serde::Deserialize)]
+struct LabelBoundsInfo {
+    owner_id: u32,
+    insertion_ordinal: usize,
+    width: f32,
+    height: f32,
 }
 
 #[derive(Serialize)]
@@ -282,6 +294,9 @@ async fn create_web_viewer(
             render_scene: CachedRenderScene::default(),
             projected_labels: RefCell::new(ProjectedSceneLabels::default()),
             input: InputState::new(),
+            manipulation: ViewportManipulation::default(),
+            interaction_macos: false,
+            display_scale: 1.0,
             needs_redraw: true,
             width,
             height,
@@ -341,6 +356,9 @@ struct WebState {
     render_scene: CachedRenderScene,
     projected_labels: RefCell<ProjectedSceneLabels>,
     input: InputState,
+    manipulation: ViewportManipulation,
+    interaction_macos: bool,
+    display_scale: f32,
     needs_redraw: bool,
     width: u32,
     height: u32,
@@ -438,6 +456,103 @@ impl WebViewer {
     }
 
     #[wasm_bindgen]
+    /// Configures the host platform and physical pixels per logical UI pixel.
+    pub fn configure_interaction(&mut self, macos: bool, scale: f32) {
+        let mut state = self.state.borrow_mut();
+        if !scale.is_finite() || scale <= 0.0 {
+            return;
+        }
+        if state.display_scale != scale {
+            state.cancel_pointer();
+        }
+        state.interaction_macos = macos;
+        state.display_scale = scale;
+        state.input.set_macos(macos);
+        state.needs_redraw = true;
+    }
+
+    /// Updates manipulation affordances even when the pointer is stationary.
+    pub fn on_modifiers(&mut self, bits: u32) {
+        self.state.borrow_mut().on_modifiers(bits);
+    }
+
+    /// Cancels input after focus loss, Escape, or lost pointer capture.
+    pub fn cancel_pointer(&mut self) {
+        self.state.borrow_mut().cancel_pointer();
+    }
+
+    /// Clears hover when the pointer leaves the viewport.
+    pub fn leave_pointer(&mut self) {
+        self.state.borrow_mut().manipulation.leave();
+    }
+
+    /// Returns the shared controller's cursor for the canvas.
+    pub fn manipulation_cursor(&self) -> String {
+        match self.state.borrow().manipulation.feedback().cursor {
+            ViewportCursor::Default => "default",
+            ViewportCursor::Grab => "grab",
+            ViewportCursor::Grabbing => "grabbing",
+        }
+        .to_string()
+    }
+
+    /// Returns highlight strengths in the projected labels' paint order.
+    pub fn label_highlights(&self) -> Vec<u8> {
+        let state = self.state.borrow();
+        let feedback = state.manipulation.feedback();
+        let projected = state.projected_labels.borrow();
+        projected
+            .labels()
+            .iter()
+            .map(|label| {
+                let id = ViewportTargetId::Label {
+                    owner: label.owner_id,
+                    entity: label.insertion_ordinal,
+                };
+                match feedback.highlight(id) {
+                    TargetHighlight::None => 0,
+                    TargetHighlight::Available => 1,
+                    TargetHighlight::Active => 2,
+                }
+            })
+            .collect()
+    }
+
+    /// Accepts actual DOM text extents; target selection remains in shared Rust.
+    pub fn set_label_bounds(&mut self, bounds: JsValue) -> Result<(), JsValue> {
+        let bounds: Vec<LabelBoundsInfo> = serde_wasm_bindgen::from_value(bounds)
+            .map_err(|error| JsValue::from_str(&error.to_string()))?;
+        let bounds: HashMap<_, _> = bounds
+            .into_iter()
+            .map(|bounds| ((bounds.owner_id, bounds.insertion_ordinal), bounds))
+            .collect();
+        let mut state = self.state.borrow_mut();
+        let targets = state
+            .projected_labels
+            .borrow()
+            .labels()
+            .iter()
+            .filter_map(|label| {
+                let metrics = bounds.get(&(label.owner_id.get(), label.insertion_ordinal))?;
+                let (ax, ay) = label.alignment.anchor_factors();
+                label_target(
+                    &state.session.registry,
+                    label.owner_id,
+                    label.insertion_ordinal,
+                    ViewportBounds {
+                        x: label.x / state.display_scale - ax * metrics.width,
+                        y: label.y / state.display_scale - ay * metrics.height,
+                        width: metrics.width,
+                        height: metrics.height,
+                    },
+                    label.display_order,
+                )
+            })
+            .collect();
+        state.manipulation.set_targets(targets);
+        Ok(())
+    }
+
     pub fn on_mouse_down(&mut self, x: f32, y: f32, button: u32, modifiers: u32) {
         self.state
             .borrow_mut()
@@ -450,7 +565,7 @@ impl WebViewer {
     }
 
     #[wasm_bindgen]
-    pub fn on_mouse_up(&mut self, x: f32, y: f32, button: u32) {
+    pub fn on_mouse_up(&mut self, x: f32, y: f32, button: u32) -> bool {
         self.state.borrow_mut().on_mouse_up(x, y, button)
     }
 
@@ -718,21 +833,68 @@ impl WebState {
     // Input events
     // =======================================================================
 
+    fn on_modifiers(&mut self, bits: u32) {
+        let modifiers = event::modifiers_from_bits(bits);
+        self.input.handle_modifiers(modifiers);
+        self.manipulation
+            .set_modifiers(modifiers, self.interaction_macos);
+        if self.manipulation.is_reserved() {
+            self.clear_pending_gpu_picks();
+            self.apply_hover_hit(None);
+        }
+    }
+
+    fn cancel_pointer(&mut self) {
+        self.manipulation.cancel();
+        self.input.reset();
+        self.clear_pending_gpu_picks();
+        self.apply_hover_hit(None);
+        self.needs_redraw = true;
+    }
+
     pub fn on_mouse_down(&mut self, x: f32, y: f32, button: u32, modifiers: u32) {
+        self.on_modifiers(modifiers);
+        if button == 0 {
+            self.manipulation.press([x, y], &self.session.registry);
+        }
         event::handle_mouse_down(&mut self.input, x, y, button, modifiers);
         self.needs_redraw = true;
     }
 
     pub fn on_mouse_move(&mut self, x: f32, y: f32, modifiers: u32) {
+        self.on_modifiers(modifiers);
+        event::handle_manipulation_motion(
+            &mut self.manipulation,
+            &mut self.session.registry,
+            [x, y],
+            [
+                self.width as f32 / self.display_scale,
+                self.height as f32 / self.display_scale,
+            ],
+        );
         event::handle_mouse_move(&mut self.input, x, y, modifiers);
         if self.input.any_button_pressed() {
             self.needs_redraw = true;
         }
     }
 
-    pub fn on_mouse_up(&mut self, x: f32, y: f32, button: u32) {
+    pub fn on_mouse_up(&mut self, x: f32, y: f32, button: u32) -> bool {
+        event::handle_manipulation_motion(
+            &mut self.manipulation,
+            &mut self.session.registry,
+            [x, y],
+            [
+                self.width as f32 / self.display_scale,
+                self.height as f32 / self.display_scale,
+            ],
+        );
+        let mut consumed = self.input.manipulation_reserved() || self.manipulation.is_reserved();
+        if button == 0 {
+            consumed |= self.manipulation.release();
+        }
         event::handle_mouse_up(&mut self.input, x, y, button);
         self.needs_redraw = true;
+        consumed
     }
 
     pub fn on_wheel(&mut self, delta_y: f32, modifiers: u32) {
@@ -762,7 +924,10 @@ impl WebState {
     /// Update hover indicators by submitting a GPU pick at physical-pixel
     /// coordinates.
     pub fn process_hover(&mut self, screen_x: f32, screen_y: f32) {
-        if !self.picking_enabled || self.input.any_button_pressed() {
+        if !self.picking_enabled
+            || self.input.any_button_pressed()
+            || self.manipulation.is_reserved()
+        {
             return;
         }
         if screen_x < 0.0 || screen_y < 0.0 {
@@ -816,7 +981,10 @@ impl WebState {
     /// Returns `null` immediately — the actual hit lands asynchronously
     /// via `take_completed_pick()`.
     pub fn pick_at_screen(&mut self, screen_x: f32, screen_y: f32) -> JsValue {
-        if !self.picking_enabled {
+        if !self.picking_enabled
+            || self.manipulation.is_reserved()
+            || self.input.manipulation_reserved()
+        {
             return JsValue::NULL;
         }
         if self.pending_click.is_none() {
@@ -1340,10 +1508,11 @@ impl WebState {
     pub fn get_labels(&self) -> JsValue {
         let viewport = (0.0, 0.0, self.width as f32, self.height as f32);
         let mut projected = self.projected_labels.borrow_mut();
-        projected.rebuild(
+        projected.rebuild_with_scale(
             &self.session.camera,
             viewport,
             self.render_scene.annotation_bundles(),
+            self.display_scale,
         );
         let labels = projected
             .labels()

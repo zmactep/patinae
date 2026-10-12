@@ -28,6 +28,12 @@ pub struct LabelEntity {
     text: String,
     #[serde(default)]
     presentation: LabelEntityPresentation,
+    /// Screen-space displacement in device-independent pixels.
+    #[serde(
+        default,
+        deserialize_with = "super::annotation::deserialize_label_offset"
+    )]
+    label_offset: [f32; 2],
 }
 
 impl LabelEntity {
@@ -37,6 +43,7 @@ impl LabelEntity {
             anchor,
             text: text.into(),
             presentation: LabelEntityPresentation::default(),
+            label_offset: [0.0; 2],
         }
     }
 
@@ -50,7 +57,13 @@ impl LabelEntity {
             anchor,
             text: text.into(),
             presentation,
+            label_offset: [0.0; 2],
         }
+    }
+
+    /// Returns the label displacement in device-independent pixels.
+    pub fn label_offset(&self) -> [f32; 2] {
+        self.label_offset
     }
 
     /// Returns the dynamic atom anchor.
@@ -374,6 +387,25 @@ fn default_dirty_true() -> bool {
 }
 
 impl LabelObject {
+    /// Sets one label displacement without changing anchors or geometry.
+    ///
+    /// Returns false for missing entities, nonfinite values, or unchanged offsets.
+    pub fn set_label_offset(&mut self, index: usize, offset: [f32; 2]) -> bool {
+        if !offset.iter().all(|value| value.is_finite()) {
+            return false;
+        }
+        let Some(entity) = self.entities.get_mut(index) else {
+            return false;
+        };
+        if entity.label_offset == offset {
+            return false;
+        }
+        entity.label_offset = offset;
+        self.revisions.labels = self.revisions.labels.saturating_add(1);
+        self.dirty = true;
+        true
+    }
+
     /// Creates an empty label collection.
     pub fn new(name: impl Into<String>) -> Self {
         Self {

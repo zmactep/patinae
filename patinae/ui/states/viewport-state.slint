@@ -36,7 +36,16 @@ export global ViewportState {
     /// Projected annotation labels in logical viewport coordinates and UI-pixel sizes.
     in-out property <[ViewportLabel]> labels;
 
+    in-out property <bool> manipulation-visible;
+    in-out property <string> manipulation-owner;
+    in-out property <int> manipulation-entity: -1;
+    in-out property <int> manipulation-cursor;
+    callback label-size(string, int, float, float);
+    // Kind: 0 down, 1 move, 2 up, 3 cancel. Rust snapshots raw winit modifiers.
+    callback manipulation-pointer(int, float, float);
+
     // Slint → Rust
+
     in-out property <float> mouse-x;
     in-out property <float> mouse-y;
     in-out property <float> press-x;

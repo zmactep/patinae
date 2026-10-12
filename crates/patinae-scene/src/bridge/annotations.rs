@@ -77,7 +77,7 @@ pub struct ProjectedAnnotationLabel {
 /// Camera-dependent label cache owned independently by each render context.
 #[derive(Debug, Default)]
 pub struct ProjectedSceneLabels {
-    fingerprint: Option<u64>,
+    fingerprint: Option<(u64, u32)>,
     labels: Vec<ProjectedAnnotationLabel>,
 }
 
@@ -91,11 +91,25 @@ impl ProjectedSceneLabels {
         viewport: (f32, f32, f32, f32),
         bundles: &[ResolvedAnnotationBundle],
     ) -> bool {
-        let fingerprint = projection_fingerprint(camera, viewport, bundles);
+        self.rebuild_with_scale(camera, viewport, bundles, 1.0)
+    }
+
+    /// Reprojects labels using physical viewport dimensions and the current UI scale.
+    pub fn rebuild_with_scale(
+        &mut self,
+        camera: &Camera,
+        viewport: (f32, f32, f32, f32),
+        bundles: &[ResolvedAnnotationBundle],
+        scale: f32,
+    ) -> bool {
+        let fingerprint = (
+            projection_fingerprint(camera, viewport, bundles),
+            scale.to_bits(),
+        );
         if self.fingerprint == Some(fingerprint) {
             return false;
         }
-        self.labels = project_annotation_labels(camera, viewport, bundles);
+        self.labels = project_annotation_labels_with_scale(camera, viewport, bundles, scale);
         self.fingerprint = Some(fingerprint);
         true
     }
@@ -118,8 +132,20 @@ pub fn project_annotation_labels(
     viewport: (f32, f32, f32, f32),
     bundles: &[ResolvedAnnotationBundle],
 ) -> Vec<ProjectedAnnotationLabel> {
+    project_annotation_labels_with_scale(camera, viewport, bundles, 1.0)
+}
+
+/// Projects labels, converting entity offsets from logical to physical pixels.
+pub fn project_annotation_labels_with_scale(
+    camera: &Camera,
+    viewport: (f32, f32, f32, f32),
+    bundles: &[ResolvedAnnotationBundle],
+    scale: f32,
+) -> Vec<ProjectedAnnotationLabel> {
     let (viewport_x, viewport_y, viewport_width, viewport_height) = viewport;
-    if !viewport_x.is_finite()
+    if !scale.is_finite()
+        || scale <= 0.0
+        || !viewport_x.is_finite()
         || !viewport_y.is_finite()
         || !viewport_width.is_finite()
         || !viewport_height.is_finite()
@@ -135,6 +161,8 @@ pub fn project_annotation_labels(
         .flat_map(|bundle| &bundle.labels)
         .filter_map(|label| {
             let (x, y) = camera.project_to_screen(label.position, viewport)?;
+            let x = x + label.label_offset[0] * scale;
+            let y = y + label.label_offset[1] * scale;
             if !(viewport_x..=max_x).contains(&x) || !(viewport_y..=max_y).contains(&y) {
                 return None;
             }
@@ -230,6 +258,82 @@ mod tests {
             .iter()
             .find(|bundle| bundle.owner_name == name)
             .expect("annotation bundle")
+    }
+
+    #[test]
+    fn offsets_survive_camera_state_visibility_scale_and_viewport_changes() {
+        let (mut source, _) = molecule("mol", &[Vec3::new(0.0, 0.0, 0.0)]);
+        source
+            .molecule_mut()
+            .add_coord_set(CoordSet::from_vec3(&[Vec3::new(1.0, 0.0, 0.0)]));
+        let mut registry = ObjectRegistry::new();
+        registry.add(source);
+        registry.add(LabelObject::with_entities(
+            "labels",
+            vec![LabelEntity::new(AtomAnchor::new("mol", AtomIndex(0)), "C")],
+        ));
+        let mut camera = crate::Camera::new();
+        for (scale, width, height, state, rotation) in [
+            (1.0, 800.0, 600.0, 0, 0.0),
+            (2.0, 1600.0, 1200.0, 1, 0.3),
+            (1.5, 900.0, 600.0, 0, 0.7),
+        ] {
+            registry
+                .get_molecule_mut("mol")
+                .unwrap()
+                .set_display_state(state);
+            camera.rotate_y(rotation);
+            camera.set_aspect(width / height);
+            registry
+                .get_label_mut("labels")
+                .unwrap()
+                .set_label_offset(0, [0.0; 2]);
+            let baseline = rebuild(&registry, &Settings::default());
+            let viewport = (0.0, 0.0, width, height);
+            let before = super::project_annotation_labels_with_scale(
+                &camera,
+                viewport,
+                baseline.bundles(),
+                scale,
+            );
+            assert_eq!(before.len(), 1);
+            registry
+                .get_label_mut("labels")
+                .unwrap()
+                .set_label_offset(0, [20.0, -15.0]);
+            registry
+                .get_label_mut("labels")
+                .unwrap()
+                .state_mut()
+                .enabled = false;
+            let hidden = rebuild(&registry, &Settings::default());
+            assert!(super::project_annotation_labels_with_scale(
+                &camera,
+                viewport,
+                hidden.bundles(),
+                scale
+            )
+            .is_empty());
+            registry
+                .get_label_mut("labels")
+                .unwrap()
+                .state_mut()
+                .enabled = true;
+            let after = rebuild(&registry, &Settings::default());
+            let moved = super::project_annotation_labels_with_scale(
+                &camera,
+                viewport,
+                after.bundles(),
+                scale,
+            );
+            assert_eq!(moved.len(), 1);
+            assert!((moved[0].x - before[0].x - 20.0 * scale).abs() < 0.001);
+            assert!((moved[0].y - before[0].y + 15.0 * scale).abs() < 0.001);
+            let mut cache = ProjectedSceneLabels::default();
+            assert!(cache.rebuild_with_scale(&camera, viewport, after.bundles(), scale));
+            assert!(!cache.rebuild_with_scale(&camera, viewport, after.bundles(), scale));
+            assert!(cache.rebuild_with_scale(&camera, viewport, after.bundles(), scale + 0.25));
+        }
     }
 
     #[test]

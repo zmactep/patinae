@@ -34,8 +34,8 @@ mod picking;
 mod strokes;
 
 pub use annotations::{
-    project_annotation_labels, ProjectedAnnotationLabel, ProjectedSceneLabels,
-    ResolvedSceneAnnotations,
+    project_annotation_labels, project_annotation_labels_with_scale, ProjectedAnnotationLabel,
+    ProjectedSceneLabels, ResolvedSceneAnnotations,
 };
 pub use cache::{CachedRenderFrame, CachedRenderScene};
 pub use colors::{resolve_setting_color, ResolvedSceneColors};
