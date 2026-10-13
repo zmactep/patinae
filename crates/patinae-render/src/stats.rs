@@ -22,6 +22,9 @@ use std::sync::{
 };
 use std::time::Instant;
 
+#[cfg(test)]
+mod tests;
+
 /// Result of one fully-resolved frame's instrumentation. All times in
 /// **milliseconds**. `-1.0` means the pass did not run that frame (e.g.
 /// silhouette skipped, picking_disabled, etc.).
@@ -130,6 +133,12 @@ pub const TIMESTAMPS_PER_FRAME: u32 = 32;
 /// Frames in flight before a slot is reused. 3 is the canonical
 /// double-buffering + 1 budget.
 pub const IN_FLIGHT_FRAMES: usize = 3;
+
+fn written_query_pairs(written_mask: u32) -> impl Iterator<Item = std::ops::Range<u32>> {
+    (0..TIMESTAMPS_PER_FRAME / 2)
+        .filter(move |pass| written_mask & (1 << pass) != 0)
+        .map(|pass| pass * 2..pass * 2 + 2)
+}
 
 /// One ring slot — a frame's worth of CPU markers + GPU resolution
 /// buffer. State flips through `Recording → Pending → Ready → Drained`
@@ -438,25 +447,36 @@ impl FrameStatsCollector {
             self.cursor = (self.cursor + 1) % IN_FLIGHT_FRAMES;
             return;
         }
-        let (resolve_buf, readback_buf) = {
+        let (resolve_buf, readback_buf, written_mask) = {
             let slot = slot_arc.lock().unwrap();
-            (slot.resolve_buffer.clone(), slot.readback_buffer.clone())
+            (
+                slot.resolve_buffer.clone(),
+                slot.readback_buffer.clone(),
+                slot.written_mask,
+            )
         };
         let qs = &self.query_sets[self.cursor];
-        encoder.resolve_query_set(qs, 0..TIMESTAMPS_PER_FRAME, &resolve_buf, 0);
-        encoder.copy_buffer_to_buffer(
-            &resolve_buf,
-            0,
-            &readback_buf,
-            0,
-            (TIMESTAMPS_PER_FRAME as u64) * 8,
-        );
+        for queries in written_query_pairs(written_mask) {
+            let readback_offset = u64::from(queries.start) * u64::from(wgpu::QUERY_SIZE);
+            // Resolving unwritten queries is invalid on Vulkan with wgpu 29.
+            // Resolve destinations require 256-byte alignment, so reuse offset
+            // zero and copy each pair before the next resolve overwrites it.
+            encoder.resolve_query_set(qs, queries, &resolve_buf, 0);
+            encoder.copy_buffer_to_buffer(
+                &resolve_buf,
+                0,
+                &readback_buf,
+                readback_offset,
+                2 * u64::from(wgpu::QUERY_SIZE),
+            );
+        }
+        // Unwritten pairs may contain an older frame's ticks, including when
+        // the mask is empty. Readback uses this frame's mask to ignore them.
         slot_arc
             .lock()
             .unwrap()
             .state
             .store(SLOT_NEEDS_MAP, Ordering::Release);
-        let _ = readback_buf;
         self.cursor = (self.cursor + 1) % IN_FLIGHT_FRAMES;
     }
 
