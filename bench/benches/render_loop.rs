@@ -230,7 +230,9 @@ fn rendered_frame_checksum(
         .expect("frame checksum map callback")
         .expect("frame checksum map");
 
-    let data = slice.get_mapped_range();
+    let data = slice
+        .get_mapped_range()
+        .expect("readback range is mapped and has no overlapping views");
     let hash = checksum_bytes((0..height as usize).map(|row| {
         let start = row * padded_row_bytes as usize;
         let end = start + row_bytes as usize;
@@ -391,6 +393,7 @@ fn request_device() -> (Arc<wgpu::Device>, Arc<wgpu::Queue>, RenderMemoryPolicy)
         power_preference: wgpu::PowerPreference::HighPerformance,
         force_fallback_adapter: false,
         compatible_surface: None,
+        ..Default::default()
     }))
     .expect("no GPU adapter");
     // Bench wants timestamps. If the adapter doesn't expose them, fall

@@ -125,7 +125,7 @@ pub fn render_frame(
         .ctx
         .queue
         .submit(std::iter::once(encoder.finish()));
-    output.present();
+    gpu.state.ctx.queue.present(output);
     timings.submit_present_ms = elapsed_ms(t0);
 
     Ok(timings)

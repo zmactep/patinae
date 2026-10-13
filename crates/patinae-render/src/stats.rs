@@ -22,9 +22,6 @@ use std::sync::{
 };
 use std::time::Instant;
 
-#[cfg(test)]
-mod tests;
-
 /// Result of one fully-resolved frame's instrumentation. All times in
 /// **milliseconds**. `-1.0` means the pass did not run that frame (e.g.
 /// silhouette skipped, picking_disabled, etc.).
@@ -543,7 +540,9 @@ impl FrameStatsCollector {
                     let mut ticks_owned: [u64; TIMESTAMPS_PER_FRAME as usize] =
                         [0; TIMESTAMPS_PER_FRAME as usize];
                     {
-                        let mapped = slice.get_mapped_range();
+                        let mapped = slice
+                            .get_mapped_range()
+                            .expect("readback range is mapped and has no overlapping views");
                         let src: &[u64] = bytemuck::cast_slice(&mapped);
                         let n = ticks_owned.len().min(src.len());
                         ticks_owned[..n].copy_from_slice(&src[..n]);

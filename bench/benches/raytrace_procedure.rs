@@ -87,6 +87,7 @@ fn request_device() -> (wgpu::Device, wgpu::Queue) {
         power_preference: wgpu::PowerPreference::HighPerformance,
         force_fallback_adapter: false,
         compatible_surface: None,
+        ..Default::default()
     }))
     .expect("raytrace benchmark requires a GPU adapter");
     let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {

@@ -1136,7 +1136,13 @@ impl ArtifactGpu {
             })
             .unwrap();
         recv.recv().unwrap().unwrap();
-        bytemuck::cast_slice(&staging.slice(..).get_mapped_range()).to_vec()
+        bytemuck::cast_slice(
+            &staging
+                .slice(..)
+                .get_mapped_range()
+                .expect("readback range is mapped and has no overlapping views"),
+        )
+        .to_vec()
     }
 }
 

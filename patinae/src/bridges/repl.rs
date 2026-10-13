@@ -352,7 +352,7 @@ fn release_stale_keyboard_modifiers(window: &AppWindow) {
     for key in keyboard_modifier_release_keys() {
         if let Err(err) = window
             .window()
-            .try_dispatch_event(WindowEvent::KeyReleased {
+            .dispatch_event_with_result(WindowEvent::KeyReleased {
                 text: (*key).into(),
             })
         {

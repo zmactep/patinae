@@ -160,7 +160,9 @@ impl PickingReadback {
             }
         }
         let slice = self.buffer.slice(..);
-        let data = slice.get_mapped_range();
+        let data = slice
+            .get_mapped_range()
+            .expect("readback range is mapped and has no overlapping views");
         let (origin_x, origin_y) = self.origin.get();
         let (center_x, center_y) = self.center.get();
         let (width, height) = self.dims.get();

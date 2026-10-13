@@ -98,7 +98,7 @@ pub(crate) fn log_window_event(
 }
 
 #[cfg(not(target_os = "windows"))]
-pub(crate) fn log_selected_gpu(info: &slint::wgpu_29::wgpu::AdapterInfo) {
+pub(crate) fn log_selected_gpu(info: &slint::wgpu_30::wgpu::AdapterInfo) {
     if window_event_diagnostics_enabled() {
         log::info!(
             "selected GPU: {} ({:?}) vendor={} device={}",

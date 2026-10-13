@@ -1701,7 +1701,11 @@ mod tests {
             })
             .unwrap();
         rx.recv().unwrap().unwrap();
-        let data = buffer.slice(..).get_mapped_range().to_vec();
+        let data = buffer
+            .slice(..)
+            .get_mapped_range()
+            .expect("readback range is mapped and has no overlapping views")
+            .to_vec();
         buffer.unmap();
         data
     }

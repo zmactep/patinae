@@ -388,10 +388,10 @@ export component ReplPill inherits Rectangle {
                 y: 0;
                 width: parent.width;
                 height: parent.height;
-                viewport-height: drawer-layout.preferred-height + 2 * Tokens.repl-output-pad;
+                content-height: drawer-layout.preferred-height + 2 * Tokens.repl-output-pad;
                 // Scroll to bottom whenever new output arrives (generation bumps).
                 // The `* 0` makes the dependency invisible to the value.
-                viewport-y: min(0px, self.height - self.viewport-height)
+                content-y: min(0px, self.height - self.content-height)
                             + ReplState.output-generation * 0px;
 
                 drawer-layout := VerticalLayout {

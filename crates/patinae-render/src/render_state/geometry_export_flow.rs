@@ -653,7 +653,9 @@ fn read_buffer_range<T: Pod>(
         .map_err(|err| GeometryExportError::Gpu(err.to_string()))?
         .map_err(|err| GeometryExportError::Gpu(err.to_string()))?;
 
-    let data = slice.get_mapped_range();
+    let data = slice
+        .get_mapped_range()
+        .expect("readback range is mapped and has no overlapping views");
     let values = bytemuck::cast_slice(&data).to_vec();
     drop(data);
     staging.unmap();

@@ -117,7 +117,7 @@ impl PickingPass {
                 module: &module,
                 entry_point: Some("vs_main"),
                 compilation_options: Default::default(),
-                buffers: &[SphereInstance::vertex_layout()],
+                buffers: &[Some(SphereInstance::vertex_layout())],
             },
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
@@ -162,7 +162,7 @@ impl PickingPass {
                 module: &stick_module,
                 entry_point: Some("vs_main"),
                 compilation_options: Default::default(),
-                buffers: &[StickInstance::vertex_layout()],
+                buffers: &[Some(StickInstance::vertex_layout())],
             },
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
@@ -196,7 +196,7 @@ impl PickingPass {
                 module: &line_module,
                 entry_point: Some("vs_main"),
                 compilation_options: Default::default(),
-                buffers: &[LineInstance::vertex_layout()],
+                buffers: &[Some(LineInstance::vertex_layout())],
             },
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::LineList,
@@ -240,7 +240,7 @@ impl PickingPass {
                 module: &dot_module,
                 entry_point: Some("vs_main"),
                 compilation_options: Default::default(),
-                buffers: &[DotAtomInstance::vertex_layout()],
+                buffers: &[Some(DotAtomInstance::vertex_layout())],
             },
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
@@ -274,7 +274,7 @@ impl PickingPass {
                 module: &std_vertex_module,
                 entry_point: Some("vs_main"),
                 compilation_options: Default::default(),
-                buffers: &[StdVertex::vertex_layout()],
+                buffers: &[Some(StdVertex::vertex_layout())],
             },
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
@@ -306,7 +306,7 @@ impl PickingPass {
                     module: &std_vertex_module,
                     entry_point: Some("vs_main"),
                     compilation_options: Default::default(),
-                    buffers: &[StdVertex::vertex_layout()],
+                    buffers: &[Some(StdVertex::vertex_layout())],
                 },
                 primitive: wgpu::PrimitiveState {
                     topology: wgpu::PrimitiveTopology::LineList,
@@ -340,7 +340,7 @@ impl PickingPass {
                 module: &ellipsoid_module,
                 entry_point: Some("vs_main"),
                 compilation_options: Default::default(),
-                buffers: &[EllipsoidInstance::vertex_layout()],
+                buffers: &[Some(EllipsoidInstance::vertex_layout())],
             },
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,

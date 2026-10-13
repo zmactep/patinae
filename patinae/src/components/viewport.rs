@@ -212,7 +212,7 @@ impl ViewportRenderer {
     pub fn schedule(
         api: &slint::GraphicsAPI,
     ) -> Option<crate::renderer_startup::RendererStartup<PreparedViewport>> {
-        let slint::GraphicsAPI::WGPU29 {
+        let slint::GraphicsAPI::WGPU30 {
             instance,
             device,
             queue,

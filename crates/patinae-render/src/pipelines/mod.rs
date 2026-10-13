@@ -77,6 +77,7 @@ pub(crate) fn build_draw_pair(
         immediate_size: 0,
     });
 
+    let vertex_layout = Some(vertex_layout);
     let vertex_buffers = std::slice::from_ref(&vertex_layout);
 
     let translucent_targets = translucent_color_targets();
@@ -172,7 +173,7 @@ pub(crate) fn build_fast_overlay_pipeline(
         bind_group_layouts: &bind_group_layouts,
         immediate_size: 0,
     });
-    let vertex_buffers = [vertex_layout];
+    let vertex_buffers = [Some(vertex_layout)];
     let color_targets = opaque_color_target(ctx.color_format);
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some(&format!("{label_prefix}.pipeline")),

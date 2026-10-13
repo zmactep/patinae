@@ -35,7 +35,7 @@ pollster = "0.4"
 half = "2"
 patinae-io = { workspace = true }
 image = { workspace = true }
-naga = { version = "29", features = ["wgsl-in"] }
+naga = { version = "30", features = ["wgsl-in"] }
 winit = "0.30"
 
 [lints]

@@ -98,7 +98,7 @@ export component CompletionPopup inherits Rectangle {
         y: 0;
         width: parent.width;
         height: parent.height;
-        viewport-height: count * row-h + 2 * pad;
+        content-height: count * row-h + 2 * pad;
 
         VerticalLayout {
             padding: root.pad;
@@ -127,21 +127,21 @@ export component CompletionPopup inherits Rectangle {
         // Position of the row inside the content
         // VerticalLayout has padding = pad at top, then rows of row-h each.
         // So row top = pad + idx * row-h, row bottom = pad + (idx+1) * row-h.
-        // viewport-y is negative (scrolled down = more negative).
-        // visible-top = -viewport-y, visible-bottom = -viewport-y + height.
+        // content-y is negative (scrolled down = more negative).
+        // visible-top = -content-y, visible-bottom = -content-y + height.
         // We want: row-top >= visible-top AND row-bottom <= visible-bottom.
 
         // Use helper lengths to avoid unit issues
         // row-top and row-bottom in content space:
-        // visible window in content space: [-viewport-y, -viewport-y + height)
+        // visible window in content space: [-content-y, -content-y + height)
 
         // If the selected row is above the visible area, scroll up:
-        if pad + idx * row-h < -flick.viewport-y {
-            flick.viewport-y = -(pad + idx * row-h);
+        if pad + idx * row-h < -flick.content-y {
+            flick.content-y = -(pad + idx * row-h);
         }
         // If the selected row is below the visible area, scroll down:
-        if pad + (idx + 1) * row-h > -flick.viewport-y + flick.height {
-            flick.viewport-y = -(pad + (idx + 1) * row-h - flick.height);
+        if pad + (idx + 1) * row-h > -flick.content-y + flick.height {
+            flick.content-y = -(pad + (idx + 1) * row-h - flick.height);
         }
     }
 }

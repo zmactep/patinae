@@ -69,7 +69,9 @@ impl ViewportLodReadback {
             _ => return None,
         }
         let slice = self.buffer.slice(..);
-        let mapped = slice.get_mapped_range();
+        let mapped = slice
+            .get_mapped_range()
+            .expect("readback range is mapped and has no overlapping views");
         let count = u32::from_le_bytes([mapped[0], mapped[1], mapped[2], mapped[3]]);
         drop(mapped);
         self.buffer.unmap();

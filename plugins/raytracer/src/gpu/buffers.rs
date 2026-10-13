@@ -187,7 +187,9 @@ pub(crate) fn map_readback_buffer(
         .map_err(|e| RaytraceError::RenderFailed(format!("Failed to receive map result: {e}")))?
         .map_err(|e| RaytraceError::RenderFailed(format!("Failed to map buffer: {e:?}")))?;
 
-    let data = buffer_slice.get_mapped_range();
+    let data = buffer_slice
+        .get_mapped_range()
+        .expect("readback range is mapped and has no overlapping views");
     let mut pixels = Vec::with_capacity((width * height * bytes_per_pixel) as usize);
     for row in 0..height {
         let start = (row * padded_bytes_per_row) as usize;

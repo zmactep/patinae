@@ -189,7 +189,9 @@ pub(crate) fn read_texture_rgba(
         .map_err(|e| CaptureError::Gpu(format!("buffer map failed: {e:?}")))?;
 
     // Strip row padding while copying into a tightly packed RGBA8 buffer.
-    let mapped = slice.get_mapped_range();
+    let mapped = slice
+        .get_mapped_range()
+        .expect("readback range is mapped and has no overlapping views");
     let mut tightly_packed = Vec::with_capacity(output_capacity);
     for row in 0..height as usize {
         let start = row * aligned_bpr_usize;

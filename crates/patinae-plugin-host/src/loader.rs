@@ -3314,10 +3314,12 @@ impl<'a> HostCommandRuntimeState<'a> {
             .buffers
             .iter()
             .zip(vertex_attributes.iter())
-            .map(|(layout, attributes)| wgpu::VertexBufferLayout {
-                array_stride: layout.array_stride,
-                step_mode: wgpu_vertex_step_mode(layout.step_mode),
-                attributes,
+            .map(|(layout, attributes)| {
+                Some(wgpu::VertexBufferLayout {
+                    array_stride: layout.array_stride,
+                    step_mode: wgpu_vertex_step_mode(layout.step_mode),
+                    attributes,
+                })
             })
             .collect::<Vec<_>>();
         let fragment_module = descriptor
@@ -4782,7 +4784,9 @@ fn map_readback_buffer(
     rx.recv()
         .map_err(|error| error.to_string())?
         .map_err(|error| error.to_string())?;
-    let mapped = slice.get_mapped_range();
+    let mapped = slice
+        .get_mapped_range()
+        .expect("readback range is mapped and has no overlapping views");
     let bytes = mapped.to_vec();
     drop(mapped);
     buffer.unmap();

@@ -77,7 +77,7 @@ export component PluginListDialog inherits Rectangle {
             ScrollView {
                 horizontal-stretch: 1;
                 vertical-stretch: 1;
-                viewport-width: self.visible-width;
+                content-width: self.visible-width;
                 VerticalLayout {
                     spacing: Tokens.space-sm;
                     if PluginListState.rows.length == 0: Text {

@@ -87,7 +87,7 @@ patinae-mm = { version = "0.5.1", path = "crates/patinae-mm" }
 anyhow = "1"
 bitflags = { version = "2", features = ["serde"] }
 lin_alg = { version = "1.1", features = ["computer_graphics"] }
-wgpu = "29"
+wgpu = "30"
 nom = "7"
 thiserror = "2"
 log = "0.4"
@@ -114,7 +114,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
 webbrowser = "1.2"
 
 # Slint integration (Patinae GUI)
-slint = { version = "1.17.1", default-features = false, features = ["compat-1-2", "backend-winit", "renderer-femtovg-wgpu", "renderer-software", "unstable-wgpu-29", "unstable-winit-030"] }
+slint = { version = "~1.18.1", default-features = false, features = ["compat-1-2", "backend-winit", "renderer-femtovg-wgpu", "renderer-software", "unstable-wgpu-30", "unstable-winit-030"] }
 
 [profile.release]
 lto = "fat"

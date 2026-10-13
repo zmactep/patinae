@@ -73,6 +73,7 @@ impl GpuState {
                     power_preference: wgpu::PowerPreference::HighPerformance,
                     compatible_surface: Some(&surface),
                     force_fallback_adapter: false,
+                    ..Default::default()
                 })
                 .await
                 .map_err(|e| format!("No suitable GPU adapter: {}", e))?;
@@ -131,6 +132,7 @@ impl GpuState {
                 caps.alpha_modes[0]
             };
             let surface_config = wgpu::SurfaceConfiguration {
+                color_space: wgpu::SurfaceColorSpace::Auto,
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
                 format,
                 width,

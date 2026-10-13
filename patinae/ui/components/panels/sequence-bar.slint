@@ -334,7 +334,7 @@ export component SequenceBar inherits Rectangle {
             // Keep the inner TouchArea in charge of pointer events; we still
             // get mouse-wheel + keyboard scrolling.
             interactive: false;
-            viewport-width: root.content-width;
+            content-width: root.content-width;
 
             VerticalLayout {
                 spacing: 1px;

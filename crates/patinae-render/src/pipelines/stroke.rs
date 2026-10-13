@@ -36,7 +36,7 @@ impl StrokePipeline {
                 module: &module,
                 entry_point: Some("vs_main"),
                 compilation_options: Default::default(),
-                buffers: &[StrokeSegment::vertex_layout()],
+                buffers: &[Some(StrokeSegment::vertex_layout())],
             },
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,

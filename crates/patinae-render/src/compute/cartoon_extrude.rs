@@ -279,7 +279,10 @@ mod tests {
             })
             .unwrap();
         rx.recv().unwrap().unwrap();
-        let mapped = staging.slice(..).get_mapped_range();
+        let mapped = staging
+            .slice(..)
+            .get_mapped_range()
+            .expect("readback range is mapped and has no overlapping views");
         for vertex in mapped[..prefix as usize * 24].as_chunks::<24>().0 {
             assert_ne!(vertex, &[0x55; 24], "prefix lane did not execute");
         }
