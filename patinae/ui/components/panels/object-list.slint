@@ -72,7 +72,7 @@ export component SubchainRow inherits PanelRow {
     }
 
     // Chain letter (+ label suffix when present, e.g. "A (HEM)")
-    UiText {
+    chain-name := UiText {
         x: root.base-indent + ComponentMetrics.chain-indicator-w + Spacing.sm;
         width: max(0px, atom-count.x - self.x - Spacing.sm);
         overflow: elide;
@@ -128,7 +128,7 @@ export component SubchainRow inherits PanelRow {
         entry-index: root.subchain.entry-index; selector-clause: root.subchain.selector-clause;
         row-hovered: touch.has-hover || root.focused;
     }
-    TooltipAnchor { width: parent.width - ComponentMetrics.row-actions-w; height: parent.height; text: root.subchain.chain-id + " " + root.subchain.label; active: touch.has-hover; }
+    TooltipAnchor { width: parent.width - ComponentMetrics.row-actions-w; height: parent.height; text: chain-name.text; active: touch.has-hover && chain-name.preferred-width > chain-name.width; }
 }
 export component ObjectRow inherits Rectangle {
     in property <ObjectItem> obj;
@@ -337,7 +337,7 @@ export component ObjectRow inherits Rectangle {
     if ObjectsState.name-input-action == "rename" && ObjectsState.name-input-target == root.obj.name: InlineName {
         x: name-text.x; y: name-text.y; width: name-text.width; height: name-text.height;
     }
-    TooltipAnchor { width: parent.width - ComponentMetrics.row-actions-w; height: parent.height; text: root.obj.name; active: obj-touch.has-hover; }
+    TooltipAnchor { width: parent.width - ComponentMetrics.row-actions-w; height: parent.height; text: root.obj.name; active: obj-touch.has-hover && name-text.preferred-width > name-text.width; }
 }
 
 export component GroupRow inherits Rectangle {
@@ -433,5 +433,5 @@ export component GroupRow inherits Rectangle {
     if ObjectsState.name-input-action == "rename" && ObjectsState.name-input-target == root.data.group-name: InlineName {
         x: group-name-text.x; width: group-name-text.width; height: parent.height;
     }
-    TooltipAnchor { width: parent.width - ComponentMetrics.row-actions-w; height: parent.height; text: root.data.group-name; active: group-touch.has-hover; }
+    TooltipAnchor { width: parent.width - ComponentMetrics.row-actions-w; height: parent.height; text: root.data.group-name; active: group-touch.has-hover && group-name-text.preferred-width > group-name-text.width; }
 }

@@ -237,7 +237,7 @@ export global ObjectsState {
                              /* entry-index */ int, /* selector-clause */ string);
 
     // ── Popover state ──
-    in-out property <string> popover-source: "";      // "object" | "selection"
+    in-out property <string> popover-source: "";      // "object" | "selection" | "pill"
     in-out property <string> popover-kind: "";        // "" | "C"
     in-out property <string> popover-obj-name: "";
     in-out property <string> popover-chain-id: "";       // "" = object scope
@@ -252,6 +252,7 @@ export global ObjectsState {
     /// Whether the color popover exposes only direct solid colors.
     in-out property <bool> popover-solid-only: false;
     in-out property <length> popover-anchor-y: 0px;    // window-relative Y for popover top edge
+    in-out property <length> popover-anchor-x: 0px;    // window-relative right edge for pill menus
     // Per-rep active flags (computed by Rust for "R" popover)
     in-out property <bool> popover-rep-lines: false;
     in-out property <bool> popover-rep-sticks: false;

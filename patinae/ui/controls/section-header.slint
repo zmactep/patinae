@@ -10,11 +10,15 @@ export component SectionHeader inherits Rectangle {
     in property <string> action;
     callback action-clicked;
     height: ComponentMetrics.section-header-h;
-    if root.separator: Rectangle { height: Shape.hairline; width: parent.width; background: Theme.border-subtle; }
+    if root.separator: Rectangle {
+        x: 0px; y: 0px;
+        height: Shape.hairline; width: parent.width;
+        background: Theme.border-subtle;
+    }
     HorizontalLayout {
         padding-left: Spacing.md; padding-right: Spacing.md; spacing: Spacing.sm;
         UiText { text: root.title; text-style: Typography.label; color: root.selection ? Theme.accent-selection : Theme.accent-primary; vertical-alignment: center; }
-        UiText { text: root.count; text-style: Typography.hint; color: Theme.text-placeholder; vertical-alignment: center; }
+        UiText { text: root.count; text-style: Typography.label; color: Theme.text-muted; vertical-alignment: center; }
         Rectangle { horizontal-stretch: 1; }
         if root.action != "": TextButton { label: root.action; height: ComponentMetrics.row-btn-h; clicked => { root.action-clicked(); } }
     }

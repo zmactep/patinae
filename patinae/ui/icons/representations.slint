@@ -1,17 +1,16 @@
-import { Icons } from "icons.slint";
 import { ObjectsState } from "../states/objects-state.slint";
 export struct Representation { id: string, label: string, icon: image, biopolymer: bool }
 export global Representations {
-    // Asset migration is incomplete: these legacy icons must be replaced with original SVG exports.
+    // Preserve the representation glyphs from main in both settings cards.
     out property <[Representation]> items: [
-        { id: "lines", label: "lines", icon: Icons.triangle, biopolymer: false },
-        { id: "sticks", label: "sticks", icon: Icons.atom, biopolymer: false },
-        { id: "spheres", label: "spheres", icon: Icons.circle-dot, biopolymer: false },
-        { id: "cartoon", label: "cartoon", icon: Icons.waves, biopolymer: true },
-        { id: "ribbon", label: "ribbon", icon: Icons.waves, biopolymer: true },
-        { id: "surface", label: "surface", icon: Icons.box, biopolymer: false },
-        { id: "mesh", label: "mesh", icon: Icons.grid-3x3, biopolymer: false },
-        { id: "dots", label: "dots", icon: Icons.ellipsis, biopolymer: false }
+        { id: "lines", label: "lines", icon: @image-url("representations/lines.svg"), biopolymer: false },
+        { id: "sticks", label: "sticks", icon: @image-url("representations/sticks.svg"), biopolymer: false },
+        { id: "spheres", label: "spheres", icon: @image-url("representations/spheres.svg"), biopolymer: false },
+        { id: "cartoon", label: "cartoon", icon: @image-url("representations/cartoon.svg"), biopolymer: true },
+        { id: "ribbon", label: "ribbon", icon: @image-url("representations/ribbon.svg"), biopolymer: true },
+        { id: "surface", label: "surface", icon: @image-url("representations/surface.svg"), biopolymer: false },
+        { id: "mesh", label: "mesh", icon: @image-url("representations/mesh.svg"), biopolymer: false },
+        { id: "dots", label: "dots", icon: @image-url("representations/dots.svg"), biopolymer: false }
     ];
     public pure function active(id: string) -> bool {
         return id == "lines" ? ObjectsState.popover-rep-lines : id == "sticks" ? ObjectsState.popover-rep-sticks

@@ -23,8 +23,10 @@ export global ComponentMetrics {
     out property <length> completion-row-h: Typography.input.size + 2 * Spacing.sm;
     out property <length> row-h: Typography.body-small.size + 2 * Spacing.sm;
     out property <length> popover-w: 280px;
+    out property <length> overflow-menu-w: 184px;
     out property <length> tab-bar-h: Typography.label.size + 2 * Spacing.sm;
     out property <length> icon-size: Typography.body.size + 2 * Spacing.sm;
+    out property <length> compact-control-h: Typography.control.size + 3 * Spacing.xs;
     out property <length> annotation-field-h: 34px;
     out property <length> annotation-action-h: 32px;
     out property <length> annotation-dropdown-max-h: 196px;
@@ -51,7 +53,7 @@ export global ComponentMetrics {
     out property <length> marker-size: 10px;
     out property <length> marker-inner: 6px;
     out property <length> marker-inner-offset: 2px;
-    out property <length> action-pill-h: 48px;
+    out property <length> action-pill-h: action-btn-h + 2 * action-pill-pad-v;
     out property <length> action-pill-radius: Shape.radius-lg;
     out property <length> action-pill-pad-h: Spacing.sm;
     out property <length> action-pill-pad-v: Spacing.sm;
@@ -62,7 +64,6 @@ export global ComponentMetrics {
     out property <length> action-btn-radius: Shape.radius-sm;
     out property <length> badge-size: 18px;
     out property <length> badge-radius: 9px;
-    out property <length> action-pill-glow: 2px;
     out property <length> pill-icon-size: 16px;
     out property <length> pill-icon-stroke: 1.5px;
     out property <length> repl-pill-w: 480px;

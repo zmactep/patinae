@@ -1,4 +1,4 @@
-import { Theme, Shape } from "../foundations/foundations.slint";
+import { Theme } from "../foundations/foundations.slint";
 import { ComponentMetrics } from "../components/metrics.slint";
 export component PanelRow inherits Rectangle {
     in property <bool> selected;
@@ -16,9 +16,8 @@ export component PanelRow inherits Rectangle {
         }
     }
     height: ComponentMetrics.row-h;
-    border-radius: Shape.radius-sm;
+    border-radius: 0px;
     background: root.selected ? Theme.focus-background : root.hovered ? Theme.surface-raised : transparent;
-    border-width: root.focused ? Shape.border-stroke : root.selected ? Shape.hairline : 0px;
-    border-color: root.focused ? Theme.border-focus : Theme.focus-outline;
+    border-width: 0px;
     @children
 }

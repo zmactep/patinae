@@ -145,6 +145,7 @@ component SeqChainRowView {
                         && event.button == PointerEventButton.left
                         && SequenceState.drag-active
                         && SequenceState.drag-chain == chain-index {
+                        SequenceState.row-drag-move(chain-index, self.mouse-x / 1px);
                         SequenceState.residue-drag-ended(
                             chain-index,
                             SequenceState.drag-start,
@@ -334,9 +335,9 @@ export component SequenceBar inherits Rectangle {
                 Toggle { label: "Viewer colors"; active: SequenceState.viewer-colors; clicked => { SequenceState.viewer-colors-toggled(); } }
                 instruction := Rectangle {
                     horizontal-stretch: 1;
-                    UiText { text: SequenceState.footer-text; text-style: Typography.hint; color: Theme.text-placeholder; width: parent.width; height: parent.height; overflow: elide; vertical-alignment: center; }
+                    help-text := UiText { text: SequenceState.footer-text; text-style: Typography.hint; color: Theme.text-placeholder; width: parent.width; height: parent.height; overflow: elide; vertical-alignment: center; }
                     help-touch := TouchArea {}
-                    TooltipAnchor { width: parent.width; height: parent.height; text: SequenceState.footer-text; active: help-touch.has-hover; }
+                    TooltipAnchor { width: parent.width; height: parent.height; text: SequenceState.footer-text; active: help-touch.has-hover && help-text.preferred-width > help-text.width; }
                 }
             }
         }

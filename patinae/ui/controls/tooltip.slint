@@ -3,7 +3,7 @@ import { Theme, Typography, Spacing, Shape, Motion } from "../foundations/founda
 import { ComponentMetrics } from "../components/metrics.slint";
 import { UiText } from "../primitives/text.slint";
 
-// A passive anchor: the owning control supplies its hover/focus state.
+// A passive anchor: the owning control supplies its hover state.
 export component TooltipAnchor inherits Rectangle {
     in property <bool> active;
     in property <string> text;
@@ -11,6 +11,7 @@ export component TooltipAnchor inherits Rectangle {
     changed active => {
         if root.active && root.text != "" {
             root.ticket = TooltipState.show(root.text, root.absolute-position.x,
+                root.absolute-position.x + root.width,
                 root.absolute-position.y, root.absolute-position.y + root.height, false);
         } else { TooltipState.release(root.ticket); }
     }
@@ -18,6 +19,15 @@ export component TooltipAnchor inherits Rectangle {
 }
 
 export component TooltipLayer inherits Rectangle {
+    property <length> gap: Spacing.sm;
+    property <length> anchor-left: TooltipState.x - root.absolute-position.x;
+    property <length> anchor-right: TooltipState.right - root.absolute-position.x;
+    property <length> right-space: max(0px, root.width - root.anchor-right - root.gap - Spacing.sm);
+    property <length> left-space: max(0px, root.anchor-left - root.gap - Spacing.sm);
+    property <length> desired-width: min(caption.preferred-width + 2 * Spacing.sm, ComponentMetrics.popover-w);
+    property <bool> on-right: root.right-space >= root.desired-width
+        || (root.left-space < root.desired-width && root.right-space >= root.left-space);
+    property <length> anchor-center: (TooltipState.top + TooltipState.bottom) / 2 - root.absolute-position.y;
     timer := Timer {
         interval: 2 * Motion.base;
         running: TooltipState.pending;
@@ -25,12 +35,10 @@ export component TooltipLayer inherits Rectangle {
     }
     card := Rectangle {
         visible: TooltipState.visible;
-        width: min(caption.preferred-width + 2 * Spacing.sm,
-            min(ComponentMetrics.popover-w, max(0px, root.width - 2 * Spacing.sm)));
+        width: min(root.desired-width, root.on-right ? root.right-space : root.left-space);
         height: caption.preferred-height + 2 * Spacing.xs;
-        x: clamp(TooltipState.x, Spacing.sm, max(Spacing.sm, root.width - self.width - Spacing.sm));
-        y: clamp(TooltipState.bottom + Spacing.sm + self.height <= root.height - Spacing.sm
-            ? TooltipState.bottom + Spacing.sm : TooltipState.top - self.height - Spacing.sm,
+        x: root.on-right ? root.anchor-right + root.gap : root.anchor-left - root.gap - self.width;
+        y: clamp(root.anchor-center - self.height / 2,
             Spacing.sm, max(Spacing.sm, root.height - self.height - Spacing.sm));
         background: Theme.accent-primary;
         border-radius: Shape.radius-sm;
@@ -40,5 +48,13 @@ export component TooltipLayer inherits Rectangle {
             text: TooltipState.text; text-style: Typography.tooltip;
             color: Theme.text-on-accent; wrap: word-wrap;
         }
+    }
+    if TooltipState.visible: Path {
+        width: 5px; height: 10px;
+        x: root.on-right ? card.x - self.width : card.x + card.width;
+        y: clamp(root.anchor-center - self.height / 2,
+            card.y + Shape.radius-sm, card.y + card.height - Shape.radius-sm - self.height);
+        commands: root.on-right ? "M 5 0 L 0 5 L 5 10 Z" : "M 0 0 L 5 5 L 0 10 Z";
+        fill: Theme.accent-primary;
     }
 }

@@ -37,9 +37,9 @@ component RowBtn inherits IconButton {
         ObjectsState.popover-anchor-y = root.absolute-position.y + root.height;
         ObjectsState.row-btn-clicked(root.action-id, root.source, root.obj-name, root.chain-id, root.subchain-label, root.subchain-kind, root.entry-index, root.selector-clause);
     }
-    // When a popover is open, only the active row shows buttons; otherwise normal hover behavior
+    // Hovering another row's action can switch the card in one click.
     property <bool> shown: root.row-popover-open
-        || (ObjectsState.popover-kind == "" && (root.row-hovered || root.hovered || root.focused || root.sibling-hovered));
+        || root.row-hovered || root.hovered || root.focused || root.sibling-hovered;
 
     width: ComponentMetrics.row-btn-w;
     height: ComponentMetrics.row-btn-h;

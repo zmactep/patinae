@@ -56,7 +56,8 @@ export component Sidebar inherits Surface {
             spacing: Spacing.sm;
             for item in PluginState.toolbar-items: Control {
                 width: ComponentMetrics.icon-size;
-                label: item.id;
+                label: item.title;
+                tooltip: item.title;
                 active: item.active;
                 clicked => { PluginState.toggle-panel(item.id); }
                 UiText {

@@ -230,6 +230,10 @@ export component MainLayout inherits Rectangle {
         height: 100%;
         background: transparent;
         TouchArea {
+            // Keep the dock's action column reachable while a card is open.
+            x: 0px; y: 0px;
+            width: parent.width - (root.rw > 0px ? ComponentMetrics.row-actions-w : 0px);
+            height: parent.height - root.bh;
             pointer-event(event) => {
                 if event.kind == PointerEventKind.down {
                     ObjectsState.popover-close();
@@ -263,15 +267,29 @@ export component MainLayout inherits Rectangle {
                 return accept;
             }
         }
+        TouchArea {
+            y: parent.height - root.bh;
+            height: root.bh;
+            pointer-event(event) => {
+                if event.kind == PointerEventKind.down { ObjectsState.popover-close(); }
+            }
+        }
     }
 
     settings-card := AnchoredPopover {
+        property <bool> from-pill: ObjectsState.popover-source == "pill";
         visible: ObjectsState.popover-kind != "";
-        width: min(ComponentMetrics.popover-w, max(0px, parent.width - root.sw - 2 * Spacing.sm));
-        x: max(root.sw + Spacing.sm, parent.width - root.rw - self.width - Spacing.sm);
+        width: min(ObjectsState.popover-kind == "M" ? ComponentMetrics.overflow-menu-w : ComponentMetrics.popover-w,
+            max(0px, parent.width - root.sw - 2 * Spacing.sm));
+        x: self.from-pill
+            ? clamp(ObjectsState.popover-anchor-x - root.absolute-position.x - self.width,
+                root.sw + Spacing.sm, parent.width - self.width - Spacing.sm)
+            : max(root.sw + Spacing.sm, parent.width - root.rw - self.width - Spacing.sm);
         available-height: parent.height;
-        anchor-top: ObjectsState.popover-anchor-y - ComponentMetrics.row-btn-h;
-        anchor-bottom: ObjectsState.popover-anchor-y;
+        anchor-top: self.from-pill
+            ? max(Spacing.sm, ObjectsState.popover-anchor-y - root.absolute-position.y - self.height - Spacing.sm)
+            : ObjectsState.popover-anchor-y - root.absolute-position.y - ComponentMetrics.row-btn-h;
+        anchor-bottom: ObjectsState.popover-anchor-y - root.absolute-position.y;
         if ObjectsState.popover-kind == "C": ColorPopover { width: parent.width; }
         if ObjectsState.popover-kind == "R": RepPopover { width: parent.width; }
         if ObjectsState.popover-kind == "M": OverflowMenu { width: parent.width; }

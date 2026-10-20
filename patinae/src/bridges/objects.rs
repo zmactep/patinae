@@ -291,7 +291,8 @@ impl ObjectsBridge {
             layout.get_selections_visible(),
             layout.get_recent_atoms_visible(),
         ];
-        if !self.dock_dirty.replace(false) && self.dock_visible == visible {
+        let visibility_changed = self.dock_visible != visible;
+        if !self.dock_dirty.replace(false) && !visibility_changed {
             return;
         }
         self.dock_visible = visible;
@@ -304,13 +305,19 @@ impl ObjectsBridge {
         let old = self.dock_model.iter().collect::<Vec<_>>();
         let os = window.global::<ObjectsState>();
         let metrics = window.global::<ComponentMetrics>();
-        let scroll = super::dock::restored_scroll(
-            &old,
-            &rows,
-            os.get_dock_scroll_y(),
-            metrics.get_section_header_h(),
-            metrics.get_row_h(),
-        );
+        // A section toggle changes the list composition deliberately. Anchoring
+        // to the old first row would scroll newly shown sections out of view.
+        let scroll = if visibility_changed {
+            0.0
+        } else {
+            super::dock::restored_scroll(
+                &old,
+                &rows,
+                os.get_dock_scroll_y(),
+                metrics.get_section_header_h(),
+                metrics.get_row_h(),
+            )
+        };
         // Preserve row instances (including keyboard focus) on selection-only updates.
         for (index, row) in rows.iter().enumerate() {
             if self

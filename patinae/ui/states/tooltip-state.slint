@@ -5,11 +5,12 @@ export global TooltipState {
     in-out property <bool> visible: false;
     in-out property <string> text;
     in-out property <length> x;
+    in-out property <length> right;
     in-out property <length> top;
     in-out property <length> bottom;
-    public function show(text: string, x: length, top: length, bottom: length, immediate: bool) -> int {
+    public function show(text: string, x: length, right: length, top: length, bottom: length, immediate: bool) -> int {
         self.ticket += 1;
-        self.text = text; self.x = x; self.top = top; self.bottom = bottom;
+        self.text = text; self.x = x; self.right = right; self.top = top; self.bottom = bottom;
         self.visible = immediate && text != "";
         self.pending = !immediate && text != "";
         return self.ticket;

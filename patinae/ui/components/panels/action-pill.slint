@@ -77,8 +77,15 @@ component MeasurementActionIcon {
 
 component PillSep inherits Rectangle {
     width: Shape.hairline;
+    height: ComponentMetrics.action-btn-h;
     horizontal-stretch: 0;
-    background: Theme.border-subtle;
+    Rectangle {
+        x: 0px;
+        y: (parent.height - self.height) / 2;
+        width: parent.width;
+        height: ComponentMetrics.pill-icon-size;
+        background: Theme.border-subtle;
+    }
 }
 
 // ── Action pill ──────────────────────────────────────────────────────
@@ -90,39 +97,42 @@ export component ActionPill inherits Rectangle {
         && (ObjectsState.action-can-focus
             || ObjectsState.action-can-orient
             || ObjectsState.action-can-center);
+    property <length> anchor-right: root.absolute-position.x + root.width - ComponentMetrics.action-pill-pad-h;
+    property <length> anchor-top: root.absolute-position.y;
+    function update-anchor() {
+        ObjectsState.popover-anchor-x = root.anchor-right;
+        ObjectsState.popover-anchor-y = root.anchor-top;
+    }
+    function anchor-popover() {
+        ObjectsState.popover-source = "pill";
+        root.update-anchor();
+    }
+    changed anchor-right => { if ObjectsState.popover-source == "pill" { root.update-anchor(); } }
+    changed anchor-top => { if ObjectsState.popover-source == "pill" { root.update-anchor(); } }
     width: layout.preferred-width;
     height: ComponentMetrics.action-pill-h;
     border-radius: ComponentMetrics.action-pill-radius;
     background: Theme.surface-overlay;
     border-width: Shape.hairline;
-    border-color: Theme.accent-primary.with-alpha(0.5);
+    border-color: Theme.border-strong;
 
     // Block events from passing through to content underneath
     TouchArea {}
 
-    // Outer glow
-    Rectangle {
-        x: -ComponentMetrics.action-pill-glow;
-        y: -ComponentMetrics.action-pill-glow;
-        width: parent.width + 2 * ComponentMetrics.action-pill-glow;
-        height: parent.height + 2 * ComponentMetrics.action-pill-glow;
-        border-radius: ComponentMetrics.action-pill-radius + Shape.border-stroke;
-        background: transparent;
-        border-width: Shape.border-stroke;
-        border-color: Theme.accent-primary.with-alpha(0.08);
-    }
-
     layout := HorizontalLayout {
+        y: (root.height - self.height) / 2;
+        height: ComponentMetrics.action-btn-h;
         padding-left:   ComponentMetrics.action-pill-pad-h;
         padding-right:  ComponentMetrics.action-pill-pad-h;
-        padding-top:    ComponentMetrics.action-pill-pad-v;
-        padding-bottom: ComponentMetrics.action-pill-pad-v;
         spacing: ComponentMetrics.action-pill-spacing;
 
         // Count badge
-        VerticalLayout {
-            alignment: center;
+        Rectangle {
+            width: ComponentMetrics.action-btn-h;
+            height: ComponentMetrics.action-btn-h;
             Rectangle {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
                 width: ComponentMetrics.badge-size;
                 height: ComponentMetrics.badge-size;
                 border-radius: ComponentMetrics.badge-radius;
@@ -162,10 +172,11 @@ export component ActionPill inherits Rectangle {
 
         if root.recent-domain: measurement-to-btn := PillButton {
             tooltip: "Add measurement to…";
+            active: ObjectsState.popover-source == "pill" && ObjectsState.popover-kind == "AM";
             enabled: ObjectsState.recent-can-add-measurement
                 && ObjectsState.recent-has-measurement-targets;
             clicked => {
-                ObjectsState.popover-anchor-y = measurement-to-btn.absolute-position.y;
+                root.anchor-popover();
                 ObjectsState.action-add-measurement-to();
             }
 
@@ -182,9 +193,10 @@ export component ActionPill inherits Rectangle {
 
         if root.recent-domain: label-btn := PillButton {
             tooltip: "Add label";
+            active: ObjectsState.popover-source == "pill" && ObjectsState.popover-kind == "AL";
             enabled: ObjectsState.recent-can-add-label;
             clicked => {
-                ObjectsState.popover-anchor-y = label-btn.absolute-position.y;
+                root.anchor-popover();
                 ObjectsState.action-add-label();
             }
 
@@ -243,8 +255,11 @@ export component ActionPill inherits Rectangle {
         // Overflow
         if !root.recent-domain && ObjectsState.action-can-overflow: overflow-btn := PillButton {
             tooltip: "More actions";
+            active: ObjectsState.popover-source == "pill"
+                && (ObjectsState.popover-kind == "M" || ObjectsState.popover-kind == "N"
+                    || ObjectsState.popover-kind == "C" || ObjectsState.popover-kind == "R");
             clicked => {
-                ObjectsState.popover-anchor-y = overflow-btn.absolute-position.y - ComponentMetrics.action-pill-pad-v;
+                root.anchor-popover();
                 ObjectsState.action-overflow();
             }
             OverflowIcon {

@@ -77,7 +77,7 @@ export component SelectionRowItem inherits PanelRow {
         source: "selection"; obj-name: root.data.name;
         row-hovered: touch.has-hover || root.focused;
     }
-    TooltipAnchor { width: parent.width - ComponentMetrics.row-actions-w; height: parent.height; text: root.data.name; active: touch.has-hover; }
+    TooltipAnchor { width: parent.width - ComponentMetrics.row-actions-w; height: parent.height; text: root.data.name; active: touch.has-hover && name-text.preferred-width > name-text.width; }
     if ObjectsState.name-input-action == "rename" && ObjectsState.name-input-target == root.data.name: InlineName {
         x: name-text.x; y: name-text.y; width: name-text.width; height: name-text.height;
     }

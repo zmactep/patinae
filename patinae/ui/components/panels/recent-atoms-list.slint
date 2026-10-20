@@ -28,7 +28,7 @@ export component RecentAtomRowItem inherits PanelRow {
         tint: root.data.selected ? Theme.accent-primary : Theme.text-placeholder;
     }
 
-    UiText {
+    atom-path := UiText {
         x: Spacing.md + ComponentMetrics.row-action-icon-size + Spacing.sm;
         width: parent.width - self.x - 2 * ComponentMetrics.row-h;
         height: parent.height;
@@ -84,5 +84,5 @@ export component RecentAtomRowItem inherits PanelRow {
         label: "Remove " + root.data.display-path + " from recent atoms";
         clicked => { ObjectsState.recent-atom-remove-clicked(root.data.key); }
     }
-    TooltipAnchor { width: parent.width - ComponentMetrics.row-actions-w; height: parent.height; text: root.data.display-path; active: row-touch.has-hover; }
+    TooltipAnchor { width: parent.width - ComponentMetrics.row-actions-w; height: parent.height; text: root.data.display-path; active: row-touch.has-hover && atom-path.preferred-width > atom-path.width; }
 }

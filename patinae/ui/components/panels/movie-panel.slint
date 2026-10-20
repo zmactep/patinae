@@ -1,6 +1,6 @@
 import { UiIcon } from "../../primitives/icon.slint";
 import { Icons } from "../../icons/icons.slint";
-import { Control, TextButton } from "../../controls/button.slint";
+import { Control } from "../../controls/button.slint";
 import { ComponentMetrics } from "../metrics.slint";
 import { UiText } from "../../primitives/text.slint";
 import { Theme, Typography, Spacing, Shape } from "../../foundations/foundations.slint";
@@ -23,15 +23,30 @@ component TransportIcon inherits UiIcon {
 
 component MiniButton inherits Control {
     in property <string> icon;
-    width: ComponentMetrics.icon-size;
-    label: root.icon;
+    width: root.primary ? ComponentMetrics.icon-size : ComponentMetrics.compact-control-h + Spacing.xs;
+    height: ComponentMetrics.compact-control-h;
+    label: root.icon == "first" ? "First frame" : root.icon == "prev" ? "Previous frame"
+        : root.icon == "next" ? "Next frame" : root.icon == "last" ? "Last frame"
+        : root.icon == "play" ? "Play" : root.icon == "pause" ? "Pause" : "Stop";
+    tooltip: root.label;
     TransportIcon {
         x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
         kind: root.icon; tint: root.tint;
     }
 }
 
-component ToggleChip inherits TextButton { }
+component ToggleChip inherits Control {
+    width: label-text.preferred-width + 2 * Spacing.sm;
+    height: ComponentMetrics.compact-control-h;
+    border-width: Shape.hairline;
+    border-color: root.active ? Theme.focus-outline : Theme.border-subtle;
+    label-text := UiText {
+        width: parent.width; height: parent.height;
+        text: root.label; text-style: Typography.control;
+        color: root.tint;
+        horizontal-alignment: center; vertical-alignment: center;
+    }
+}
 
 component FieldBox inherits Rectangle {
     in-out property <string> value;
@@ -40,7 +55,7 @@ component FieldBox inherits Rectangle {
     callback edited;
 
     width: root.field-w;
-    height: 24px;
+    height: ComponentMetrics.compact-control-h;
     border-radius: Shape.radius-sm;
     background: Theme.surface-control.with-alpha(0.72);
     border-width: Shape.hairline;
@@ -55,7 +70,7 @@ component FieldBox inherits Rectangle {
         single-line: true;
         color: Theme.text-secondary;
         font-family: Typography.content-family;
-        font-size: Typography.label.size;
+        font-size: Typography.input.size;
         horizontal-alignment: center;
         vertical-alignment: center;
         selection-background-color: Theme.accent-primary.with-alpha(0.3);
@@ -70,14 +85,14 @@ component StatusLabel inherits Rectangle {
     in property <string> label;
 
     width: label-text.preferred-width;
-    height: 24px;
+    height: ComponentMetrics.compact-control-h;
 
     label-text := UiText {
         width: parent.width;
         height: parent.height;
         text: root.label;
         color: Theme.text-muted;
-        text-style: Typography.label;
+        text-style: Typography.control;
         vertical-alignment: center;
     }
 }
@@ -86,14 +101,14 @@ component StatusValue inherits Rectangle {
     in property <string> label;
 
     width: value-text.preferred-width;
-    height: 24px;
+    height: ComponentMetrics.compact-control-h;
 
     value-text := UiText {
         width: parent.width;
         height: parent.height;
         text: root.label;
         color: Theme.text-muted;
-        text-style: Typography.hint;
+        text-style: Typography.input;
         vertical-alignment: center;
     }
 }
@@ -204,34 +219,7 @@ component RulerRow inherits Rectangle {
     }
 }
 
-component ActionButton inherits Rectangle {
-    in property <string> label;
-    in property <bool> enabled: true;
-    callback clicked;
-
-    width: label-text.preferred-width + 18px;
-    height: 24px;
-    border-radius: Shape.radius-sm;
-    background: root.enabled && touch.has-hover ? Theme.surface-control : transparent;
-    border-width: Shape.hairline;
-    border-color: root.enabled && touch.has-hover ? Theme.border-strong : Theme.border-subtle;
-    opacity: root.enabled ? 1.0 : 0.35;
-
-    label-text := UiText {
-        text: root.label;
-        color: Theme.text-muted;
-        text-style: Typography.hint;
-        font-weight: 500;
-        horizontal-alignment: center;
-        vertical-alignment: center;
-    }
-
-    touch := TouchArea {
-        enabled: root.enabled;
-        mouse-cursor: pointer;
-        clicked => { root.clicked(); }
-    }
-}
+component ActionButton inherits ToggleChip { }
 
 // Movie panel — compact timeline for animation playback and keyframes.
 export component MoviePanel inherits Rectangle {
@@ -252,11 +240,10 @@ export component MoviePanel inherits Rectangle {
                 x: Spacing.md;
                 y: (parent.height - self.height) / 2;
                 width: parent.width - 2 * Spacing.md;
-                height: 24px;
+                height: ComponentMetrics.compact-control-h;
 
                 HorizontalLayout {
-                    spacing: Spacing.sm;
-                    alignment: start;
+                    spacing: Spacing.xs;
 
                     MiniButton { icon: "first"; clicked => { MovieState.goto-frame(1); } }
                     MiniButton { icon: "prev"; clicked => { MovieState.step-frame(-1); } }
@@ -285,6 +272,8 @@ export component MoviePanel inherits Rectangle {
 
                     StatusValue { label: "/ " + MovieState.frame-count; }
 
+                    Rectangle { width: Spacing.sm; }
+
                     StatusLabel { label: "FPS"; }
 
                     FieldBox {
@@ -296,6 +285,8 @@ export component MoviePanel inherits Rectangle {
                             MovieState.set-fps(text);
                         }
                     }
+
+                    Rectangle { width: Spacing.sm; }
 
                     ToggleChip {
                         label: "Loop";
@@ -387,8 +378,9 @@ export component MoviePanel inherits Rectangle {
             HorizontalLayout {
                 padding-left: Spacing.md;
                 padding-right: Spacing.md;
+                padding-top: (MovieLayout.footer-h - ComponentMetrics.compact-control-h) / 2;
+                padding-bottom: (MovieLayout.footer-h - ComponentMetrics.compact-control-h) / 2;
                 spacing: Spacing.sm;
-                alignment: start;
 
                 ActionButton {
                     label: "+ Camera keyframe";

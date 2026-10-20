@@ -11,7 +11,7 @@ export component Control inherits Rectangle {
     in property <bool> enabled: true;
     in property <bool> active: false;
     in property <string> label;
-    in property <string> tooltip: root.label;
+    in property <string> tooltip;
     out property <bool> focused: keys.has-focus;
     out property <bool> hovered: touch.has-hover && root.enabled;
     out property <color> tint: !root.enabled ? Theme.icon-disabled
@@ -20,8 +20,7 @@ export component Control inherits Rectangle {
     forward-focus: keys;
     height: ComponentMetrics.icon-size;
     border-radius: Shape.radius-sm;
-    border-width: keys.has-focus ? Shape.border-stroke : 0px;
-    border-color: Theme.border-focus;
+    border-width: 0px;
     background: !root.enabled ? transparent : touch.pressed ? Theme.surface-control
         : root.active || root.primary ? Theme.focus-background : root.hovered ? Theme.surface-raised : transparent;
     accessible-role: button;
@@ -29,10 +28,11 @@ export component Control inherits Rectangle {
     accessible-enabled: root.enabled;
     accessible-action-default => { if root.enabled { root.clicked(); } }
     animate background { duration: Motion.micro; }
-    TooltipAnchor { width: parent.width; height: parent.height; text: root.tooltip; active: root.visible && root.enabled && (root.hovered || root.focused) && !touch.pressed; }
+    TooltipAnchor { width: parent.width; height: parent.height; text: root.tooltip; active: root.visible && root.enabled && root.hovered && !touch.pressed; }
     @children
     keys := FocusScope {
         enabled: root.enabled;
+        focus-on-click: false;
         key-pressed(event) => {
             if event.text == Key.Return || event.text == " " {
                 TooltipState.dismiss(); root.clicked();
@@ -45,12 +45,13 @@ export component Control inherits Rectangle {
         enabled: root.enabled;
         mouse-cursor: root.enabled ? pointer : default;
         pointer-event(event) => { if event.kind == PointerEventKind.down { TooltipState.dismiss(); } }
-        clicked => { keys.focus(); root.clicked(); }
+        clicked => { root.clicked(); }
     }
 }
 
 export component IconButton inherits Control {
     in property <image> icon;
+    tooltip: root.label;
     width: ComponentMetrics.icon-size;
     UiIcon {
         x: (parent.width - self.width) / 2;
@@ -67,8 +68,8 @@ export component TextButton inherits Control {
     horizontal-stretch: 0;
     min-width: label-text.preferred-width + 2 * Spacing.md;
     preferred-width: self.min-width;
-    border-width: root.focused ? Shape.border-stroke : Shape.hairline;
-    border-color: root.focused ? Theme.border-focus : root.primary ? Theme.focus-outline : Theme.border-subtle;
+    border-width: Shape.hairline;
+    border-color: root.primary ? Theme.focus-outline : Theme.border-subtle;
     label-text := UiText {
         x: Spacing.md; height: parent.height;
         text: root.label; text-style: Typography.body-small;

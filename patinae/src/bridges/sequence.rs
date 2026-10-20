@@ -952,7 +952,20 @@ pub fn setup_callbacks(app: Rc<RefCell<crate::app::App>>, window: &AppWindow) {
                 .sequence
                 .build_drag_command(chain, start_idx, end_idx, exclude, has_sele);
             if let Some(cmd) = cmd {
-                a.kernel.bus.execute_command(cmd);
+                // Commit before Slint removes the drag preview. Waiting for the
+                // host queue and a later render can leave the released range blank.
+                let scale = w.window().scale_factor();
+                let viewport = (
+                    (w.get_scene_width() * scale).max(1.0) as u32,
+                    (w.get_scene_height() * scale).max(1.0) as u32,
+                );
+                if let Err(error) = a.kernel.execute_command(&cmd, false, None, viewport) {
+                    log::error!("Sequence selection failed: {error}");
+                }
+                let a = &mut *a;
+                a.objects.sync(&mut a.kernel, &w);
+                a.sequence.sync(&a.kernel, &w);
+                w.window().request_redraw();
             }
         });
     }
@@ -980,6 +993,7 @@ pub fn setup_callbacks(app: Rc<RefCell<crate::app::App>>, window: &AppWindow) {
                 ss.set_hover_tooltip(tooltip.clone().into());
                 let ticket = w.global::<crate::TooltipState>().invoke_show(
                     tooltip.into(),
+                    ss.get_hover_x(),
                     ss.get_hover_x(),
                     ss.get_hover_y(),
                     ss.get_hover_y(),
