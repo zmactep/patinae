@@ -51,7 +51,7 @@ export component Sidebar inherits Surface {
         y: separator.y + Spacing.md;
         width: ComponentMetrics.icon-size;
         height: max(0px, bottom.y - self.y - Spacing.md);
-        viewport-height: plugin-buttons.preferred-height;
+        content-height: plugin-buttons.preferred-height;
         plugin-buttons := VerticalLayout {
             spacing: Spacing.sm;
             for item in PluginState.toolbar-items: Control {

@@ -13,9 +13,9 @@ export component BuiltinPanels inherits Rectangle {
     TouchArea { clicked => { ObjectsState.object-list-background-clicked(); ObjectsState.selection-list-background-clicked(); ObjectsState.recent-atoms-background-clicked(); } }
     ListView {
         width: parent.width; height: parent.height;
-        viewport-y <=> ObjectsState.dock-scroll-y;
-        viewport-width: self.width;
-        changed viewport-y => { TooltipState.dismiss(); }
+        content-y <=> ObjectsState.dock-scroll-y;
+        content-width: self.width;
+        changed content-y => { TooltipState.dismiss(); }
         for row[index] in ObjectsState.dock-rows: Rectangle {
             height: row.kind == "header" ? ComponentMetrics.section-header-h : ComponentMetrics.row-h;
             if row.kind == "header": SectionHeader {

@@ -19,8 +19,8 @@ export component AnchoredPopover inherits Surface {
     TouchArea {}
     Flickable {
         width: parent.width; height: parent.height;
-        viewport-width: self.width;
-        viewport-height: content.preferred-height;
+        content-width: self.width;
+        content-height: content.preferred-height;
         content := VerticalLayout {
             width: parent.width;
             @children

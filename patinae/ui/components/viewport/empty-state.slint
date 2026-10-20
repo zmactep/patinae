@@ -463,8 +463,8 @@ export component EmptyState inherits Surface {
 
     Flickable {
         width: parent.width; height: parent.height;
-        viewport-width: self.width;
-        viewport-height: max(root.height, root.examples-y + 100px + Spacing.lg);
+        content-width: self.width;
+        content-height: max(root.height, root.examples-y + 100px + Spacing.lg);
         Rectangle {
             width: parent.width; height: parent.height;
     PatinaeMark {

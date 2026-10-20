@@ -627,13 +627,7 @@ impl App {
             && pointer.mouse_logical.1 >= 0.0
             && pointer.mouse_logical.0 < vw as f32 / sf
             && pointer.mouse_logical.1 < vh as f32 / sf
-            && !Self::point_over_repl_pill(
-                pointer.mouse_logical,
-                vw,
-                vh,
-                sf,
-                app.global::<LayoutState>().get_repl_visible(),
-            );
+            && !app.invoke_overlay_contains_point(pointer.mouse_logical.0, pointer.mouse_logical.1);
         if !inside || !self.cursor_known.get() {
             self.manipulation.leave();
         }
