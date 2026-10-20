@@ -278,7 +278,7 @@ component SeqEmptyState inherits Rectangle {
 component SeqObjectHeader inherits Rectangle {
     in property <string> object-name;
 
-    height: Typography.body-small.size + 2 * Spacing.xs;
+    height: SequenceState.object-header-height;
     background: transparent;
 
     HorizontalLayout {
@@ -347,12 +347,15 @@ export component SequenceBar inherits Rectangle {
             // Keep the inner TouchArea in charge of pointer events; we still
             // get mouse-wheel + keyboard scrolling.
             interactive: false;
+            content-y <=> SequenceState.viewport-y;
+            init => { SequenceState.viewport-height = self.height; }
+            changed height => { SequenceState.viewport-height = self.height; }
             changed content-x => { SequenceState.clear-hover(); TooltipState.dismiss(); }
             changed content-y => { SequenceState.clear-hover(); TooltipState.dismiss(); }
             content-width: root.content-width;
 
             VerticalLayout {
-                spacing: 1px;
+                spacing: SequenceState.row-gap;
                 padding-left: Spacing.xs;
                 padding-right: Spacing.xs;
 

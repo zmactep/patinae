@@ -157,6 +157,8 @@ struct ChainSlot {
     strip_h_phys: u32,
     /// Pre-resolved RGB for the chain-id label, baked into the strip image.
     chain_rgb: [u8; 3],
+    /// Vertical position of the strip inside the scrollable content.
+    top: f32,
 }
 
 pub struct SequenceBridge {
@@ -175,6 +177,7 @@ pub struct SequenceBridge {
     last_dpr: f32,
     metrics: SequenceMetrics,
     last_dark_mode: Option<bool>,
+    rendered_rows: std::ops::Range<usize>,
 }
 
 impl SequenceBridge {
@@ -189,6 +192,7 @@ impl SequenceBridge {
             last_dpr: 0.0,
             metrics: SequenceMetrics::default(),
             last_dark_mode: None,
+            rendered_rows: 0..0,
         }
     }
 
@@ -235,6 +239,7 @@ impl SequenceBridge {
 
         // Update 3D selection highlights (no full rebuild needed)
         self.update_highlights(kernel, window);
+        self.refresh_visible_rows(window, dpr, dark_mode);
 
         // Mirror viewer-colors flag for the toggle button.
         let ss = window.global::<SequenceState>();
@@ -355,22 +360,16 @@ impl SequenceBridge {
         self.slots.clear();
         let mut max_row_w: f32 = 0.0;
 
-        let ghost = if dark_mode {
-            [58, 58, 67]
-        } else {
-            [154, 148, 136]
-        };
-        let ligand = if dark_mode {
-            [244, 114, 182]
-        } else {
-            [190, 24, 93]
-        };
         let strip_h_phys = (self.metrics.height * dpr).ceil() as u32;
+        let mut top = 0.0;
 
         let mut tmp_slots: Vec<ChainSlot> = Vec::new();
 
         for seq_obj in &self.model.sequences {
             for (chain_idx_in_obj, chain) in seq_obj.chains.iter().enumerate() {
+                if chain_idx_in_obj == 0 {
+                    top += ss.get_object_header_height();
+                }
                 let mut cell_widths: Vec<f32> = Vec::with_capacity(chain.residues.len());
                 let mut cell_prefix: Vec<f32> = Vec::with_capacity(chain.residues.len() + 1);
                 cell_prefix.push(0.0);
@@ -396,7 +395,9 @@ impl SequenceBridge {
                     strip_w_phys,
                     strip_h_phys,
                     chain_rgb,
+                    top,
                 });
+                top += self.metrics.height + ss.get_row_gap();
 
                 let chain_color =
                     slint::Color::from_rgb_u8(chain_rgb[0], chain_rgb[1], chain_rgb[2]);
@@ -423,21 +424,68 @@ impl SequenceBridge {
             }
         }
 
-        // Render strip + (empty) highlight image for each slot now that we
-        // can take a mutable borrow of `self.atlas`.
-        for (i, slot) in tmp_slots.iter().enumerate() {
-            let strip_img = self.render_strip_image(slot, dpr, ghost, ligand);
-            let highlight_img = make_empty_image(slot.strip_w_phys, slot.strip_h_phys);
-            chains[i].strip_image = strip_img;
-            chains[i].highlight_image = highlight_img;
-        }
-
         self.slots = tmp_slots;
+        self.rendered_rows = 0..0;
         ss.set_chains(ModelRc::from(Rc::new(VecModel::from(chains))));
         ss.set_has_data(!self.model.sequences.is_empty());
         ss.set_max_row_width((max_row_w + self.metrics.padding).max(1.0));
         ss.set_footer_text("drag to add \u{00b7} \u{2318}+drag to exclude".into());
         ss.set_viewer_colors(self.viewer_colors);
+        self.refresh_visible_rows(window, dpr, dark_mode);
+    }
+
+    /// Keep raster images only for visible rows and one row of overscan.
+    fn refresh_visible_rows(&mut self, window: &AppWindow, dpr: f32, dark_mode: bool) {
+        let ss = window.global::<SequenceState>();
+        let range = visible_rows(
+            &self.slots,
+            -ss.get_viewport_y(),
+            ss.get_viewport_height(),
+            self.metrics.height,
+        );
+        if range == self.rendered_rows {
+            return;
+        }
+        let rows = ss.get_chains();
+        for index in self.rendered_rows.clone() {
+            if !range.contains(&index) {
+                if let Some(mut row) = rows.row_data(index) {
+                    row.strip_image = Image::default();
+                    row.highlight_image = Image::default();
+                    rows.set_row_data(index, row);
+                }
+            }
+        }
+        let ghost = if dark_mode {
+            [58, 58, 67]
+        } else {
+            [154, 148, 136]
+        };
+        let ligand = if dark_mode {
+            [244, 114, 182]
+        } else {
+            [190, 24, 93]
+        };
+        let highlight = if dark_mode {
+            [244, 114, 182, 77]
+        } else {
+            [190, 24, 93, 77]
+        };
+        // The atlas is mutable during rasterization; keep the immutable slots
+        // outside that borrow without cloning residue strings on every scroll.
+        let slots = std::mem::take(&mut self.slots);
+        for index in range.clone() {
+            if !self.rendered_rows.contains(&index) {
+                if let Some(mut row) = rows.row_data(index) {
+                    row.strip_image = self.render_strip_image(&slots[index], dpr, ghost, ligand);
+                    row.highlight_image =
+                        self.render_highlight_image(&slots[index], dpr, highlight);
+                    rows.set_row_data(index, row);
+                }
+            }
+        }
+        self.slots = slots;
+        self.rendered_rows = range;
     }
 
     /// Render the static strip image (ruler ticks + colored residue
@@ -557,7 +605,7 @@ impl SequenceBridge {
 
         self.model.update_highlights(new_highlights);
 
-        // Rebuild highlight image for each chain.
+        // Rebuild highlights only for rows that currently have raster images.
         let dpr = self.last_dpr.max(1.0);
         let dark_mode = self.last_dark_mode.unwrap_or(true);
         let hl_rgba = if dark_mode {
@@ -568,19 +616,13 @@ impl SequenceBridge {
             [190, 24, 93, 77]
         };
 
-        let mut new_images: Vec<Image> = Vec::with_capacity(self.slots.len());
-        for slot in &self.slots {
-            new_images.push(self.render_highlight_image(slot, dpr, hl_rgba));
-        }
-
         let ss = window.global::<SequenceState>();
         let chains_model = ss.get_chains();
-        let chain_count = chains_model.row_count().min(new_images.len());
-        for (ci, image) in new_images.iter().enumerate().take(chain_count) {
+        for ci in self.rendered_rows.clone() {
             let Some(mut row) = chains_model.row_data(ci) else {
                 continue;
             };
-            row.highlight_image = image.clone();
+            row.highlight_image = self.render_highlight_image(&self.slots[ci], dpr, hl_rgba);
             chains_model.set_row_data(ci, row);
         }
     }
@@ -588,7 +630,7 @@ impl SequenceBridge {
     fn render_highlight_image(&self, slot: &ChainSlot, dpr: f32, rgba: [u8; 4]) -> Image {
         let w = slot.strip_w_phys;
         let h = slot.strip_h_phys;
-        if w == 0 || h == 0 {
+        if w == 0 || h == 0 || self.model.highlighted.is_empty() {
             return Image::default();
         }
         let mut buf = vec![0u8; (w * h * 4) as usize];
@@ -598,10 +640,6 @@ impl SequenceBridge {
         let y1 = h;
 
         let highlights = &self.model.highlighted;
-        if highlights.is_empty() {
-            return rgba_to_slint_image(buf, w, h);
-        }
-
         // Walk residues, painting magenta bands for hits.
         let res_x_off = self.metrics.offset * dpr;
         for (i, r) in slot.chain.residues.iter().enumerate() {
@@ -686,12 +724,18 @@ impl SequenceBridge {
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn make_empty_image(w: u32, h: u32) -> Image {
-    if w == 0 || h == 0 {
-        return Image::default();
+fn visible_rows(
+    slots: &[ChainSlot],
+    top: f32,
+    height: f32,
+    row_height: f32,
+) -> std::ops::Range<usize> {
+    if height <= 0.0 || !height.is_finite() || !top.is_finite() {
+        return 0..0;
     }
-    let buf = vec![0u8; (w * h * 4) as usize];
-    rgba_to_slint_image(buf, w, h)
+    let start = slots.partition_point(|slot| slot.top + row_height < top - row_height);
+    let end = slots.partition_point(|slot| slot.top <= top + height + row_height);
+    start..end
 }
 
 fn rgba_to_slint_image(buf: Vec<u8>, w: u32, h: u32) -> Image {
@@ -1038,6 +1082,81 @@ mod tests {
     use super::*;
     use patinae_framework::model::sequence::SeqResidue;
 
+    struct OffscreenPlatform;
+
+    impl slint::platform::Platform for OffscreenPlatform {
+        fn create_window_adapter(
+            &self,
+        ) -> Result<Rc<dyn slint::platform::WindowAdapter>, slint::PlatformError> {
+            Ok(
+                slint::platform::software_renderer::MinimalSoftwareWindow::new(
+                    slint::platform::software_renderer::RepaintBufferType::NewBuffer,
+                ),
+            )
+        }
+    }
+
+    #[test]
+    fn sequence_images_follow_viewport_and_preserve_scrolled_selection() {
+        slint::platform::set_platform(Box::new(OffscreenPlatform)).unwrap();
+        let window = AppWindow::new().unwrap();
+        let state = window.global::<SequenceState>();
+        let mut bridge = SequenceBridge::new();
+        bridge.metrics = window.global::<ComponentMetrics>().get_sequence();
+        bridge.atlas = GlyphAtlas::new(1.0, &bridge.metrics);
+        bridge
+            .model
+            .sequences
+            .push(patinae_framework::model::sequence::SeqObject {
+                object_name: "test".into(),
+                chains: (0..24)
+                    .map(|i| SeqChain {
+                        chain_id: i.to_string(),
+                        residues: vec![test_residue(1), test_residue(2)],
+                    })
+                    .collect(),
+            });
+        state.set_viewport_height(bridge.metrics.height * 2.0);
+        bridge.push_to_slint(&window, &ThemedPalette::dark(), 1.0, true);
+        let rows = state.get_chains();
+        let painted = || {
+            rows.iter()
+                .filter(|row| row.strip_image.size().width > 0)
+                .count()
+        };
+        assert!((1..=5).contains(&painted()));
+        assert_eq!(rows.row_data(12).unwrap().strip_image.size().width, 0);
+        assert_eq!(rows.row_data(0).unwrap().highlight_image.size().width, 0);
+
+        bridge.model.highlighted.insert(ResidueRef {
+            object_name: "test".into(),
+            chain_id: "12".into(),
+            resv: 1,
+        });
+        state.set_viewport_y(-bridge.slots[12].top);
+        bridge.refresh_visible_rows(&window, 1.0, true);
+        assert!((1..=5).contains(&painted()));
+        assert_eq!(rows.row_data(0).unwrap().strip_image.size().width, 0);
+        assert!(rows.row_data(12).unwrap().strip_image.size().width > 0);
+        let highlight = rows
+            .row_data(12)
+            .unwrap()
+            .highlight_image
+            .to_rgba8()
+            .unwrap();
+        let y = (bridge.metrics.ruler + 1.0) as usize;
+        let first_x = (bridge.metrics.offset + bridge.metrics.cell * 0.5) as usize;
+        let second_x = (bridge.metrics.offset + bridge.metrics.cell * 1.5) as usize;
+        let alpha = |x| highlight.as_bytes()[(y * highlight.width() as usize + x) * 4 + 3];
+        assert_eq!(alpha(first_x), 77);
+        assert_eq!(alpha(second_x), 0);
+        assert_eq!(bridge.hit_residue(12, 0.0).unwrap().0, 0);
+
+        state.set_viewport_height(0.0);
+        bridge.refresh_visible_rows(&window, 1.0, true);
+        assert_eq!(painted(), 0);
+    }
+
     fn test_residue(resv: i32) -> SeqResidue {
         SeqResidue {
             chain: String::new(),
@@ -1065,6 +1184,7 @@ mod tests {
             strip_w_phys: 0,
             strip_h_phys: 0,
             chain_rgb: [0, 0, 0],
+            top: 0.0,
         }
     }
 

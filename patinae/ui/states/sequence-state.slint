@@ -1,4 +1,5 @@
 import { TooltipState } from "tooltip-state.slint";
+import { Typography, Spacing } from "../foundations/foundations.slint";
 // ── One chain row ──────────────────────────────────────────────────
 //
 // The strip and highlight images are pre-rendered in Rust (CPU
@@ -32,6 +33,11 @@ export global SequenceState {
     in-out property <length> max-row-width;
     // Mirrored from the Rust bridge; drives the toggle button state.
     in-out property <bool> viewer-colors;
+    // Shared row geometry and current vertical viewport for lazy strip images.
+    out property <length> object-header-height: Typography.body-small.size + 2 * Spacing.xs;
+    out property <length> row-gap: 1px;
+    in-out property <length> viewport-y;
+    in-out property <length> viewport-height;
 
     // Drag state (shared between Slint and Rust)
     in-out property <int> drag-chain: -1;
