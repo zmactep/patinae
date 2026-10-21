@@ -163,11 +163,19 @@ export component ReplPill inherits Rectangle {
     property <length> pill-w: min(ComponentMetrics.repl-pill-w, max(0px, root.viewport-w - 2 * Spacing.md));
     property <length> pill-h: ComponentMetrics.repl-pill-h;
     property <length> pill-x: (root.viewport-w - pill-w) / 2;
-    property <length> pill-y: ComponentMetrics.repl-pill-top;
+    property <length> pill-y: LayoutState.repl-at-top
+        ? ComponentMetrics.repl-pill-edge-gap
+        : max(0px, root.viewport-h - root.pill-h - ComponentMetrics.repl-pill-edge-gap);
 
     // Drawer geometry — full height is always computed, clip height animates
-    property <length> drawer-y: root.pill-y + root.pill-h + ComponentMetrics.repl-drawer-gap;
-    property <length> drawer-max-h: max(0px, min(root.viewport-h * 0.5, root.viewport-h - drawer-y - Spacing.md));
+    property <length> drawer-anchor: LayoutState.repl-at-top
+        ? root.pill-y + root.pill-h + ComponentMetrics.repl-drawer-gap
+        : root.pill-y - ComponentMetrics.repl-drawer-gap;
+    property <length> drawer-y: LayoutState.repl-at-top ? root.drawer-anchor : root.drawer-anchor - drawer.height;
+    property <length> available-h: max(0px, LayoutState.repl-at-top
+        ? root.viewport-h - root.drawer-anchor - Spacing.md
+        : root.drawer-anchor - Spacing.md);
+    property <length> drawer-max-h: min(root.viewport-h * 0.5, root.available-h);
     property <length> drawer-content-h: drawer-layout.preferred-height + 2 * ComponentMetrics.repl-output-pad;
     property <length> drawer-full-h: min(drawer-content-h, drawer-max-h);
     property <length> drawer-h: ReplState.drawer-open ? drawer-full-h : 0px;
@@ -175,7 +183,7 @@ export component ReplPill inherits Rectangle {
     public pure function contains-point(px: length, py: length) -> bool {
         return root.visible && px >= root.pill-x && px < root.pill-x + root.pill-w
             && ((py >= root.pill-y && py < root.pill-y + root.pill-h)
-                || (ReplState.drawer-open && py >= root.drawer-y && py < root.drawer-y + root.drawer-h)
+                || (ReplState.drawer-open && py >= root.drawer-y && py < root.drawer-y + drawer.height)
                 || (ReplState.completion-visible && ReplState.completion-items.length > 0
                     && py >= completion.y && py < completion.y + completion.height));
     }
@@ -247,7 +255,7 @@ export component ReplPill inherits Rectangle {
         }
     }
 
-    // Output opens below the input; hit testing uses the same geometry.
+    // Output opens toward the viewport interior; hit testing follows its animation.
     drawer := Rectangle {
         x: root.pill-x;
         y: root.drawer-y;
@@ -266,12 +274,12 @@ export component ReplPill inherits Rectangle {
         // Block events from passing through
         TouchArea {}
 
-        // Content stays anchored to the top while the drawer reveals downward.
+        // Anchor the reveal to the input edge in either placement.
         Rectangle {
             x: 0;
             width: parent.width;
             height: root.drawer-full-h;
-            y: 0px;
+            y: LayoutState.repl-at-top ? 0px : parent.height - self.height;
 
             flick := Flickable {
                 x: 0;
@@ -308,8 +316,8 @@ export component ReplPill inherits Rectangle {
     completion := CompletionPopup {
         x: root.pill-x;
         width: root.pill-w;
-        y: root.drawer-y;
-        available-height: max(0px, root.viewport-h - root.drawer-y - Spacing.md);
+        y: LayoutState.repl-at-top ? root.drawer-anchor : root.drawer-anchor - self.height;
+        available-height: root.available-h;
     }
 
     // ── Pill ──────────────────────────────────────────────────────
@@ -495,12 +503,12 @@ export component ReplPill inherits Rectangle {
                     : transparent;
                 border-radius: Shape.radius-sm;
 
-                if ReplState.drawer-open: DrawerChevronUp {
+                if ReplState.drawer-open != LayoutState.repl-at-top: DrawerChevronDown {
                     x: (parent.width - self.width) / 2;
                     y: (parent.height - self.height) / 2;
                     tint: chevron-ta.has-hover ? Theme.text-primary : Theme.text-muted;
                 }
-                if !ReplState.drawer-open: DrawerChevronDown {
+                if ReplState.drawer-open == LayoutState.repl-at-top: DrawerChevronUp {
                     x: (parent.width - self.width) / 2;
                     y: (parent.height - self.height) / 2;
                     tint: chevron-ta.has-hover ? Theme.text-primary : Theme.text-muted;

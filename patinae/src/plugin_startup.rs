@@ -14,6 +14,7 @@ enum Stage {
 }
 
 pub(crate) struct PluginStartup {
+    discovery: PluginDiscovery,
     stage: Stage,
     started: Instant,
     processed: usize,
@@ -23,6 +24,7 @@ pub(crate) struct PluginStartup {
 impl PluginStartup {
     pub(crate) fn new(started: Instant) -> Self {
         Self {
+            discovery: PluginDiscovery::from_process_env(),
             stage: Stage::WaitingForFrame,
             started,
             processed: 0,
@@ -38,6 +40,11 @@ impl PluginStartup {
             );
             self.stage = Stage::Scheduled;
         }
+    }
+
+    pub(crate) fn with_discovery(mut self, discovery: PluginDiscovery) -> Self {
+        self.discovery = discovery;
+        self
     }
 
     pub(crate) fn ready(&self) -> bool {
@@ -64,7 +71,12 @@ impl PluginStartup {
         host: &mut PluginHost,
         executor: &mut CommandExecutor,
     ) -> Result<bool, String> {
-        self.tick_with_discovery(host, executor, PluginDiscovery::from_process_env)
+        if matches!(self.stage, Stage::Scheduled) {
+            let discovery = self.discovery.clone();
+            self.tick_with_discovery(host, executor, || discovery)
+        } else {
+            self.tick_with_discovery(host, executor, PluginDiscovery::from_process_env)
+        }
     }
 
     fn tick_with_discovery(
@@ -133,7 +145,8 @@ mod tests {
         startup
             .tick_with_discovery(&mut host, &mut executor, || {
                 PluginDiscovery::new(PathResolver::new(PathResolverInput {
-                    plugin_dir: Some(missing),
+                    config_dir: Some(missing.clone()),
+                    plugin_dir: Some(missing.clone()),
                     ..Default::default()
                 }))
             })
@@ -147,6 +160,7 @@ mod tests {
             assert!(Instant::now() < deadline);
             std::thread::yield_now();
         }
+        std::fs::remove_dir_all(&missing).unwrap();
         assert_eq!(startup.total, Some(0));
         assert!(startup.status().is_none());
         startup.after_frame();
@@ -176,7 +190,7 @@ mod tests {
             std::process::id()
         ));
         std::fs::create_dir_all(&root).unwrap();
-        let manifest = root.join("plugins.toml");
+        let manifest = root.join("config.toml");
         std::fs::write(&manifest, "[[plugins]]\npath = 'wrong'").unwrap();
         let mut startup = PluginStartup::new(Instant::now());
         let mut host = PluginHost::new();
@@ -185,6 +199,7 @@ mod tests {
         startup
             .tick_with_discovery(&mut host, &mut executor, || {
                 PluginDiscovery::new(PathResolver::new(PathResolverInput {
+                    config_dir: Some(root.clone()),
                     plugin_dir: Some(root.clone()),
                     ..Default::default()
                 }))

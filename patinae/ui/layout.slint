@@ -181,7 +181,7 @@ export component MainLayout inherits Rectangle {
         width: min(420px, parent.width - root.sw - root.rw - 2 * Spacing.md);
         height: min(notification-content.preferred-height + 2 * Spacing.xs, parent.height / 2);
         x: root.sw + (parent.width - root.sw - root.rw - self.width) / 2;
-        y: ComponentMetrics.repl-pill-top + ComponentMetrics.repl-pill-h + Spacing.sm;
+        y: Spacing.md + ComponentMetrics.repl-pill-h + Spacing.sm;
         border-radius: ComponentMetrics.repl-pill-radius;
         border-width: 1px;
         border-color: Theme.accent-primary-strong.with-alpha(0.45);

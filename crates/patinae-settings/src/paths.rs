@@ -11,6 +11,7 @@
 //! | `PATINAE_RESOURCES_DIR` | `<config_dir>/resources`   |
 //! | recent files            | `<config_dir>/recent-files.json` |
 //! | thumbnails              | `<config_dir>/thumbnails`  |
+//! | application config      | `<config_dir>/config.toml` |
 
 use std::path::PathBuf;
 
@@ -95,6 +96,11 @@ impl PathResolver {
             .config_dir
             .clone()
             .unwrap_or_else(|| default_config_dir_from(self.input.home_dir.as_ref()))
+    }
+
+    /// Returns the unified application configuration file.
+    pub fn config_file(&self) -> PathBuf {
+        self.config_dir().join("config.toml")
     }
 
     /// Returns the plugin directory.
@@ -249,6 +255,19 @@ mod tests {
     fn config_dir_derives_from_home_dir() {
         let paths = resolver(PathResolverInput::default());
         assert_eq!(paths.config_dir(), PathBuf::from("/home/patinae/.patinae"));
+    }
+
+    #[test]
+    fn config_file_uses_config_dir_independently_of_plugin_dir() {
+        let paths = resolver(PathResolverInput {
+            config_dir: Some(PathBuf::from("/custom/config")),
+            plugin_dir: Some(PathBuf::from("/external/plugins")),
+            ..Default::default()
+        });
+        assert_eq!(
+            paths.config_file(),
+            PathBuf::from("/custom/config/config.toml")
+        );
     }
 
     #[test]

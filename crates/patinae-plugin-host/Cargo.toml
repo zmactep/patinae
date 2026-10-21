@@ -23,14 +23,13 @@ patinae-select = { workspace = true }
 patinae-settings = { workspace = true }
 rmp-serde = { workspace = true }
 serde = { workspace = true }
-toml = "1.1"
-tempfile = "3"
 wgpu = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"
 
 [dev-dependencies]
+tempfile = "3"
 pollster = "0.4"
 serde_json = { workspace = true }
 

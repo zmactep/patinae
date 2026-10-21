@@ -85,7 +85,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use crate::actions::apply_atom_property_change_batch;
 use crate::host::PluginHost;
 use crate::panic::panic_payload_to_string;
-use crate::paths::{plugin_library_paths, PluginDiscovery};
+use crate::paths::{scan_plugin_dirs, PluginDiscovery};
 use crate::plugin::{LibraryHandle, LoadedPanel, LoadedPlugin};
 
 mod startup;
@@ -354,7 +354,7 @@ impl PluginHost {
         self.load_discovered_dirs(&PluginDiscovery::from_process_env(), executor);
     }
 
-    /// Loads the first manifest's libraries, or scans all discovered directories.
+    /// Loads the unified configuration's libraries, or scans discovered directories.
     ///
     /// Manifest errors are logged without falling back to scanning. Individual
     /// library errors are logged and do not prevent later libraries from loading.
@@ -363,19 +363,29 @@ impl PluginHost {
         discovery: &PluginDiscovery,
         executor: &mut CommandExecutor,
     ) {
-        self.load_dirs(&discovery.standard_plugin_dirs(), executor);
+        self.load_selection(
+            &discovery.standard_plugin_dirs(),
+            discovery.library_paths(),
+            executor,
+        );
     }
 
-    /// Loads a directory's manifest, or scans that directory when no manifest exists.
+    /// Scans one explicit directory without consulting application configuration.
     pub fn load_dir(&mut self, dir: &Path, executor: &mut CommandExecutor) {
-        self.load_dirs(&[dir.to_path_buf()], executor);
+        let directories = [dir.to_path_buf()];
+        self.load_selection(&directories, Ok(scan_plugin_dirs(&directories)), executor);
     }
 
-    fn load_dirs(&mut self, directories: &[PathBuf], executor: &mut CommandExecutor) {
+    fn load_selection(
+        &mut self,
+        directories: &[PathBuf],
+        selection: Result<Vec<PathBuf>, String>,
+        executor: &mut CommandExecutor,
+    ) {
         for directory in directories {
             self.add_plugin_dir(directory);
         }
-        let paths = match plugin_library_paths(directories) {
+        let paths = match selection {
             Ok(paths) => paths,
             Err(error) => {
                 log::warn!("Plugin discovery failed: {error}");

@@ -45,6 +45,8 @@ pub mod enums;
 // macros must come before groups (groups use define_settings_group!)
 pub mod macros;
 
+#[cfg(not(target_arch = "wasm32"))]
+pub mod config;
 pub mod groups;
 pub mod legacy;
 pub mod overrides;

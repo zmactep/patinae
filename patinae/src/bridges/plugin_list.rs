@@ -7,8 +7,7 @@ use std::{cell::RefCell, collections::HashSet, path::PathBuf, rc::Rc};
 use crate::{AppWindow, PluginListRow, PluginListState};
 use patinae_cmd::LoadedPluginCapability;
 use patinae_plugin_host::{
-    library_identity as identity, plugin_manifest_path, read_plugin_manifest, save_plugin_manifest,
-    PluginApplication, PluginHost,
+    library_identity as identity, read_plugin_config, PluginApplication, PluginHost,
 };
 use slint::{ComponentHandle, ModelRc, VecModel};
 
@@ -58,33 +57,16 @@ pub(crate) struct PluginList {
 }
 
 impl PluginList {
-    fn read(directories: &[PathBuf], loaded: &[Entry]) -> Self {
+    fn read(config_path: &std::path::Path, loaded: &[Entry]) -> Self {
         let mut list = Self {
             draft: PluginListDraft {
-                target: directories
-                    .first()
-                    .cloned()
-                    .unwrap_or_default()
-                    .join("plugins.toml"),
+                target: config_path.to_owned(),
                 ..Default::default()
             },
             loaded: loaded.to_vec(),
             ..Default::default()
         };
-        match plugin_manifest_path(directories) {
-            Ok(Some(path)) => list.draft.target = path,
-            Ok(None) => {
-                list.draft.entries = loaded.iter().map(|entry| identity(&entry.path)).collect();
-                list.draft.document = DocumentState::Missing;
-                return list;
-            }
-            Err(error) => {
-                list.draft.document =
-                    DocumentState::Damaged(format!("Cannot read TOML file: {error}"));
-                return list;
-            }
-        }
-        match read_plugin_manifest(directories) {
+        match read_plugin_config(config_path) {
             Ok(document) => {
                 list.draft.entries = loaded.iter().map(|entry| identity(&entry.path)).collect();
                 if let Some(document) = document {
@@ -99,9 +81,10 @@ impl PluginList {
                     list.draft.document = DocumentState::Missing;
                 }
             }
-            Err(_) => {
-                list.draft.document =
-                    DocumentState::Damaged("TOML file is damaged or cannot be read.".into())
+            Err(error) => {
+                list.draft.document = DocumentState::Damaged(format!(
+                    "TOML file is damaged or cannot be read: {error}"
+                ))
             }
         }
         list
@@ -169,14 +152,14 @@ impl PluginList {
     }
 
     fn save(&mut self) {
-        match save_plugin_manifest(&self.draft.target, &self.draft.entries) {
+        match patinae_settings::config::save_plugins(&self.draft.target, &self.draft.entries) {
             Ok(()) => {
                 self.draft.document = DocumentState::Ready;
                 self.draft.dirty = false;
                 self.save_error.clear();
                 self.application.queue(self.draft.entries.clone());
             }
-            Err(error) => self.save_error = error,
+            Err(error) => self.save_error = error.to_string(),
         }
     }
 
@@ -198,7 +181,7 @@ impl PluginList {
         }
         match &self.draft.document {
             DocumentState::Ready => String::new(),
-            DocumentState::Missing => "TOML file does not exist.".into(),
+            DocumentState::Missing => "TOML file has no explicit plugin list.".into(),
             DocumentState::Damaged(error) => error.clone(),
         }
     }
@@ -346,7 +329,7 @@ pub(crate) fn setup_callbacks(app: Rc<RefCell<crate::app::App>>, window: &AppWin
         let mut app = open_app.borrow_mut();
         if !app.plugin_list.applying() {
             app.plugin_list = PluginList::read(
-                &patinae_plugin_host::standard_plugin_dirs(),
+                &patinae_settings::paths::PathResolver::from_process_env().config_file(),
                 &loaded_entries(&app.plugins),
             );
         }
@@ -408,11 +391,11 @@ mod tests {
         }
 
         fn write(&self, text: &str) {
-            std::fs::write(self.0.join("plugins.toml"), text).unwrap();
+            std::fs::write(self.0.join("config.toml"), text).unwrap();
         }
 
         fn read(&self, loaded: &[Entry]) -> PluginList {
-            PluginList::read(std::slice::from_ref(&self.0), loaded)
+            PluginList::read(&self.0.join("config.toml"), loaded)
         }
     }
 
@@ -487,7 +470,7 @@ pub static PATINAE_PLUGIN_DECLARATION: PluginDeclaration = PluginDeclaration {{
         assert!(list.draft.entries[0].is_absolute());
         list.save();
         assert!(list.save_error.is_empty());
-        let document = read_plugin_manifest(std::slice::from_ref(&fixture.0))
+        let document = read_plugin_config(&fixture.0.join("config.toml"))
             .unwrap()
             .unwrap();
         assert_eq!(document.entries[0].resolved_path, list.draft.entries[0]);
@@ -501,7 +484,7 @@ pub static PATINAE_PLUGIN_DECLARATION: PluginDeclaration = PluginDeclaration {{
         assert_eq!(host.plugin_count(), 0);
         assert!(kernel.executor.loaded_plugin_capabilities().is_empty());
 
-        assert!(read_plugin_manifest(std::slice::from_ref(&fixture.0))
+        assert!(read_plugin_config(&fixture.0.join("config.toml"))
             .unwrap()
             .unwrap()
             .entries
@@ -588,7 +571,7 @@ pub static PATINAE_PLUGIN_DECLARATION: PluginDeclaration = PluginDeclaration {{
         assert!(!list.draft.target.exists());
         list.save();
         assert!(list.save_error.is_empty());
-        let document = read_plugin_manifest(std::slice::from_ref(&fixture.0))
+        let document = read_plugin_config(&fixture.0.join("config.toml"))
             .unwrap()
             .unwrap();
         assert_eq!(
@@ -700,7 +683,7 @@ pub static PATINAE_PLUGIN_DECLARATION: PluginDeclaration = PluginDeclaration {{
         let active = loaded(fixture.0.join("active.dylib"));
         let list = fixture.read(std::slice::from_ref(&active));
         assert_eq!(list.rows().len(), 1);
-        assert!(list.status().contains("does not exist"));
+        assert!(list.status().contains("has no explicit plugin list"));
         fixture.write("");
         assert_eq!(fixture.read(std::slice::from_ref(&active)).rows().len(), 1);
         fixture.write("[");
@@ -710,25 +693,24 @@ pub static PATINAE_PLUGIN_DECLARATION: PluginDeclaration = PluginDeclaration {{
         assert!(!list.refresh_loaded(std::slice::from_ref(&active)));
         assert!(list.rows().is_empty());
         list.save();
-        assert!(list.save_error.is_empty());
-        assert!(!list.damaged());
-        assert!(read_plugin_manifest(std::slice::from_ref(&fixture.0))
-            .unwrap()
-            .unwrap()
-            .entries
-            .is_empty());
+        assert!(!list.save_error.is_empty());
+        assert!(list.damaged());
+        assert_eq!(
+            std::fs::read_to_string(fixture.0.join("config.toml")).unwrap(),
+            "["
+        );
     }
 
     #[test]
     fn deletion_is_a_draft_and_startup_updates_do_not_restore_removed_rows() {
         let fixture = Fixture::new();
         fixture.write("[[plugin]]\npath = 'late.dylib'\n[[plugin]]\npath = 'missing.dylib'");
-        let original = std::fs::read(fixture.0.join("plugins.toml")).unwrap();
+        let original = std::fs::read(fixture.0.join("config.toml")).unwrap();
         let mut list = fixture.read(&[]);
         list.remove(0);
         assert!(list.draft.dirty);
         assert_eq!(
-            std::fs::read(fixture.0.join("plugins.toml")).unwrap(),
+            std::fs::read(fixture.0.join("config.toml")).unwrap(),
             original
         );
         let live = vec![
@@ -742,7 +724,7 @@ pub static PATINAE_PLUGIN_DECLARATION: PluginDeclaration = PluginDeclaration {{
         list.save();
         assert!(list.save_error.is_empty());
         assert!(!list.draft.dirty);
-        let saved = read_plugin_manifest(std::slice::from_ref(&fixture.0))
+        let saved = read_plugin_config(&fixture.0.join("config.toml"))
             .unwrap()
             .unwrap();
         assert_eq!(saved.entries.len(), 2);

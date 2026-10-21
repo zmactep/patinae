@@ -1,177 +1,72 @@
 use std::path::{Path, PathBuf};
 
-use patinae_settings::paths::PathResolver;
+use patinae_settings::{
+    config::{initialize_config, read_config, AppConfig},
+    paths::PathResolver,
+};
 
-/// Optional allowlist filename shared by every native plugin loader.
-const PLUGIN_MANIFEST_FILE: &str = "plugins.toml";
-
-#[derive(serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-struct PluginManifest {
-    #[serde(default)]
-    plugin: Vec<PluginEntry>,
-}
-
-#[derive(serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-struct PluginEntry {
-    path: String,
-}
-
-/// A plugin configuration document, preserving entry order and duplicates.
+/// A configured plugin allowlist, preserving entry order and duplicates.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PluginManifestDocument {
-    /// The selected configuration file.
+pub struct PluginConfigDocument {
+    /// Unified configuration file.
     pub path: PathBuf,
     /// Entries as written in the document.
-    pub entries: Vec<PluginManifestEntry>,
+    pub entries: Vec<PluginConfigEntry>,
 }
 
-/// A configured library path before and after relative path resolution.
+/// A library path before and after resolution against the configuration directory.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PluginManifestEntry {
+pub struct PluginConfigEntry {
     /// Original path text from TOML.
     pub path: String,
-    /// Path resolved relative to the manifest directory.
+    /// Path resolved relative to the configuration directory.
     pub resolved_path: PathBuf,
 }
 
-/// Reads the first plugin manifest in directory priority order.
+/// Reads the allowlist from the unified configuration.
 ///
-/// Missing libraries and repeated entries are retained. No libraries are loaded.
-/// Returns `None` only when no manifest exists.
+/// Returns `None` when the file or the `plugin` key is absent.
 ///
 /// # Errors
-/// Returns an error if a manifest cannot be inspected, read, or parsed,
-/// or contains an empty path. Later directories are not tried on error.
-pub fn read_plugin_manifest(
+/// Returns an error for unreadable or invalid configuration.
+pub fn read_plugin_config(path: &Path) -> Result<Option<PluginConfigDocument>, String> {
+    let config = read_config(path).map_err(|error| error.to_string())?;
+    Ok(config.and_then(|config| plugin_document(path, config)))
+}
+
+fn plugin_document(path: &Path, config: AppConfig) -> Option<PluginConfigDocument> {
+    let directory = path.parent().unwrap_or_else(|| Path::new("."));
+    config.plugin.map(|entries| PluginConfigDocument {
+        path: path.to_owned(),
+        entries: entries
+            .into_iter()
+            .map(|entry| PluginConfigEntry {
+                resolved_path: directory.join(&entry.path),
+                path: entry.path,
+            })
+            .collect(),
+    })
+}
+
+/// Selects configured libraries or scans the supplied directories.
+fn plugin_library_paths(
+    config_path: &Path,
+    config: AppConfig,
     directories: &[PathBuf],
-) -> Result<Option<PluginManifestDocument>, String> {
-    let Some(manifest_path) = plugin_manifest_path(directories)? else {
-        return Ok(None);
-    };
-    let directory = manifest_path.parent().unwrap_or_else(|| Path::new("."));
-    let content = std::fs::read_to_string(&manifest_path)
-        .map_err(|error| format!("Cannot read {}: {error}", manifest_path.display()))?;
-    let manifest: PluginManifest = toml::from_str(&content)
-        .map_err(|error| format!("Invalid {}: {error}", manifest_path.display()))?;
-    let mut entries = Vec::with_capacity(manifest.plugin.len());
-    for (index, entry) in manifest.plugin.into_iter().enumerate() {
-        if entry.path.trim().is_empty() {
-            return Err(format!(
-                "Invalid {}: plugin entry {} requires a nonempty path",
-                manifest_path.display(),
-                index + 1
-            ));
-        }
-        entries.push(PluginManifestEntry {
-            resolved_path: directory.join(&entry.path),
-            path: entry.path,
-        });
-    }
-    Ok(Some(PluginManifestDocument {
-        path: manifest_path,
-        entries,
-    }))
-}
-
-/// Finds the first manifest without parsing its contents.
-///
-/// # Errors
-/// Returns an error when a candidate cannot be inspected.
-pub fn plugin_manifest_path(directories: &[PathBuf]) -> Result<Option<PathBuf>, String> {
-    for directory in directories {
-        let manifest_path = directory.join(PLUGIN_MANIFEST_FILE);
-        // Unlike exists(), this distinguishes absence from an inaccessible file
-        // and recognizes dangling symlinks as manifests that failed to load.
-        match std::fs::symlink_metadata(&manifest_path) {
-            Ok(_) => {}
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
-                ) =>
-            {
-                continue;
-            }
-            Err(error) => {
-                return Err(format!(
-                    "Cannot inspect {}: {error}",
-                    manifest_path.display()
-                ));
-            }
-        }
-        return Ok(Some(manifest_path));
-    }
-    Ok(None)
-}
-
-/// Atomically saves a plugin list using the native loader's TOML format.
-///
-/// Existing symlinks retain their targets. Serialization and temporary-file writes
-/// complete before the old document is replaced.
-///
-/// # Errors
-/// Returns an error for empty or non-Unicode paths, serialization, or filesystem failures.
-pub fn save_plugin_manifest(path: &Path, libraries: &[PathBuf]) -> Result<(), String> {
-    use std::io::Write;
-    let plugin = libraries
-        .iter()
-        .map(|library| {
-            library
-                .to_str()
-                .filter(|text| !text.trim().is_empty())
-                .map(|path| PluginEntry {
-                    path: path.to_owned(),
-                })
-                .ok_or_else(|| "Plugin paths must be nonempty Unicode strings".to_owned())
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let content = toml::to_string_pretty(&PluginManifest { plugin })
-        .map_err(|error| format!("Cannot serialize plugin list: {error}"))?;
-    let target = if path.is_symlink() {
-        path.canonicalize()
-            .map_err(|error| format!("Cannot resolve {}: {error}", path.display()))?
-    } else {
-        path.to_path_buf()
-    };
-    let parent = target
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    let save = || -> std::io::Result<()> {
-        std::fs::create_dir_all(parent)?;
-        let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
-        if let Ok(metadata) = std::fs::metadata(&target) {
-            temporary
-                .as_file()
-                .set_permissions(metadata.permissions())?;
-        }
-        temporary.write_all(content.as_bytes())?;
-        temporary.as_file().sync_all()?;
-        temporary.persist(&target).map_err(|error| error.error)?;
-        Ok(())
-    };
-    save().map_err(|error| format!("Cannot save {}: {error}", path.display()))
-}
-
-/// Selects libraries from the first manifest, or scans all directories.
-pub(crate) fn plugin_library_paths(directories: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
-    if let Some(manifest) = read_plugin_manifest(directories)? {
-        let mut paths = Vec::new();
+) -> Vec<PathBuf> {
+    if let Some(document) = plugin_document(config_path, config) {
         let mut seen = std::collections::HashSet::new();
-        for entry in manifest.entries {
-            let path = entry.resolved_path;
-            // Keep unresolved paths for per-library errors; one missing library
-            // must not prevent subsequent entries from loading.
-            let identity = library_identity(&path);
-            if seen.insert(identity) {
-                paths.push(path);
-            }
-        }
-        return Ok(paths);
+        return document
+            .entries
+            .into_iter()
+            .map(|entry| entry.resolved_path)
+            .filter(|path| seen.insert(library_identity(path)))
+            .collect();
     }
+    scan_plugin_dirs(directories)
+}
 
+pub(crate) fn scan_plugin_dirs(directories: &[PathBuf]) -> Vec<PathBuf> {
     let mut paths = Vec::new();
     for directory in directories {
         match std::fs::read_dir(directory) {
@@ -184,7 +79,7 @@ pub(crate) fn plugin_library_paths(directories: &[PathBuf]) -> Result<Vec<PathBu
             Err(error) => log::debug!("Plugin directory {directory:?}: {error}"),
         }
     }
-    Ok(paths)
+    paths
 }
 
 /// Discovers plugin directories from settings and executable layout.
@@ -192,6 +87,7 @@ pub(crate) fn plugin_library_paths(directories: &[PathBuf]) -> Result<Vec<PathBu
 pub struct PluginDiscovery {
     paths: PathResolver,
     executable_path: Option<PathBuf>,
+    config: Option<Result<AppConfig, String>>,
 }
 
 impl PluginDiscovery {
@@ -200,6 +96,7 @@ impl PluginDiscovery {
         Self {
             paths,
             executable_path: None,
+            config: None,
         }
     }
 
@@ -219,6 +116,35 @@ impl PluginDiscovery {
     pub fn with_optional_executable_path(mut self, executable_path: Option<PathBuf>) -> Self {
         self.executable_path = executable_path;
         self
+    }
+
+    /// Returns the single application configuration path.
+    pub fn config_path(&self) -> PathBuf {
+        self.paths.config_file()
+    }
+
+    /// Pins startup preferences so deferred discovery uses the same document as the GUI.
+    pub fn with_config(mut self, config: Result<AppConfig, String>) -> Self {
+        self.config = Some(config);
+        self
+    }
+
+    /// Reads configuration, creating defaults when the file is absent.
+    ///
+    /// # Errors
+    /// Returns configuration errors without falling back to scanning.
+    pub fn load_config(&self) -> Result<AppConfig, String> {
+        self.config.clone().unwrap_or_else(|| {
+            initialize_config(&self.config_path()).map_err(|error| error.to_string())
+        })
+    }
+
+    pub(crate) fn library_paths(&self) -> Result<Vec<PathBuf>, String> {
+        Ok(plugin_library_paths(
+            &self.config_path(),
+            self.load_config()?,
+            &self.standard_plugin_dirs(),
+        ))
     }
 
     /// Returns the standard plugin search directories.
@@ -477,253 +403,93 @@ mod tests {
     use super::*;
     use patinae_settings::paths::PathResolverInput;
 
-    struct ManifestFixture(PathBuf);
-
-    impl ManifestFixture {
-        fn new() -> Self {
-            static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-            let root = std::env::temp_dir().join(format!(
-                "patinae-manifest-{}-{}",
-                std::process::id(),
-                NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-            ));
-            for dir in ["user", "app", "external"] {
-                std::fs::create_dir_all(root.join(dir)).unwrap();
-            }
-            Self(root)
-        }
-
-        fn dirs(&self) -> Vec<PathBuf> {
-            vec![self.0.join("user"), self.0.join("app")]
-        }
-
-        fn library(&self, dir: &str, name: &str) -> PathBuf {
-            let path = self
-                .0
-                .join(dir)
-                .join(format!("{name}.{}", std::env::consts::DLL_EXTENSION));
-            std::fs::write(&path, "fixture").unwrap();
-            path
-        }
-
-        fn manifest(&self, dir: &str, content: &str) {
-            std::fs::write(self.0.join(dir).join(PLUGIN_MANIFEST_FILE), content).unwrap();
-        }
-    }
-
-    impl Drop for ManifestFixture {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
+    fn fixture_discovery(root: &Path) -> PluginDiscovery {
+        PluginDiscovery::new(PathResolver::new(PathResolverInput {
+            config_dir: Some(root.to_owned()),
+            plugin_dir: Some(root.join("plugins")),
+            ..Default::default()
+        }))
+        .with_executable_path(root.join("bin/patinae"))
     }
 
     #[test]
-    fn absent_manifest_preserves_scanning_all_directories() {
-        let fixture = ManifestFixture::new();
-        let user = fixture.library("user", "user");
-        let app = fixture.library("app", "app");
-        fixture.library("external", "external");
-        std::fs::write(fixture.0.join("user/readme.txt"), "ignored").unwrap();
-        assert_eq!(
-            plugin_library_paths(&fixture.dirs()).unwrap(),
-            vec![user, app]
-        );
+    fn missing_allowlist_scans_all_dirs_but_empty_list_disables_loading() {
+        let root = tempfile::tempdir().unwrap();
+        let discovery = fixture_discovery(root.path());
+        let dirs = discovery.standard_plugin_dirs();
+        let mut expected = Vec::new();
+        for dir in &dirs {
+            std::fs::create_dir_all(dir).unwrap();
+            let library = dir.join(format!("fixture.{}", std::env::consts::DLL_EXTENSION));
+            std::fs::write(&library, "fixture").unwrap();
+            std::fs::write(dir.join("readme.txt"), "ignore").unwrap();
+            expected.push(library);
+        }
+        assert_eq!(discovery.library_paths().unwrap(), expected);
+        assert!(discovery.config_path().is_file());
+        std::fs::write(discovery.config_path(), "repl_position='top'\nplugin=[]").unwrap();
+        assert!(discovery.library_paths().unwrap().is_empty());
     }
 
     #[test]
-    fn absent_or_non_directory_search_paths_do_not_block_other_directories() {
-        let fixture = ManifestFixture::new();
-        let library = fixture.library("app", "library");
-        let not_directory = fixture.0.join("file");
-        std::fs::write(&not_directory, "not a directory").unwrap();
-        let directories = vec![
-            fixture.0.join("missing"),
-            not_directory,
-            fixture.0.join("app"),
-        ];
-        assert_eq!(plugin_library_paths(&directories).unwrap(), vec![library]);
-    }
-
-    #[test]
-    fn saved_manifest_round_trips_escaped_paths_and_empty_lists() {
-        let fixture = ManifestFixture::new();
-        let path = fixture.0.join("new/plugins.toml");
-        let entries = vec![
-            PathBuf::from("relative/quoted\"name"),
-            PathBuf::from("back\\slash"),
-            fixture.0.join("absolute"),
-        ];
-        save_plugin_manifest(&path, &entries).unwrap();
-        let document = read_plugin_manifest(&[fixture.0.join("new")])
+    fn configured_paths_resolve_from_config_dir_and_deduplicate_in_order() {
+        let root = tempfile::tempdir().unwrap();
+        let discovery = fixture_discovery(root.path());
+        let library = root.path().join("library");
+        std::fs::write(&library, "fixture").unwrap();
+        let text = format!("[[plugin]]\npath='./library'\n[[plugin]]\npath='{}'\n[[plugin]]\npath='missing'\n[[plugin]]\npath='missing'", library.display());
+        std::fs::write(discovery.config_path(), text).unwrap();
+        let document = read_plugin_config(&discovery.config_path())
             .unwrap()
             .unwrap();
+        assert_eq!(document.entries.len(), 4);
+        assert_eq!(document.entries[0].path, "./library");
         assert_eq!(
-            document
-                .entries
-                .iter()
-                .map(|entry| PathBuf::from(&entry.path))
-                .collect::<Vec<_>>(),
-            entries
+            discovery.library_paths().unwrap(),
+            vec![root.path().join("./library"), root.path().join("missing")]
         );
-        let bytes = std::fs::read(&path).unwrap();
-        assert!(save_plugin_manifest(&path, &[PathBuf::new()]).is_err());
-        assert_eq!(std::fs::read(&path).unwrap(), bytes);
-        save_plugin_manifest(&path, &[]).unwrap();
-        assert!(plugin_library_paths(&[fixture.0.join("new")])
-            .unwrap()
-            .is_empty());
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn save_preserves_manifest_symlink_and_updates_target() {
-        let fixture = ManifestFixture::new();
-        fixture.manifest("external", "[");
-        let link = fixture.0.join("user/plugins.toml");
-        std::os::unix::fs::symlink(fixture.0.join("external/plugins.toml"), &link).unwrap();
-        save_plugin_manifest(&link, &[]).unwrap();
-        assert!(link.is_symlink());
-        assert!(read_plugin_manifest(&fixture.dirs())
-            .unwrap()
-            .unwrap()
-            .entries
-            .is_empty());
-    }
-
-    #[test]
-    fn document_retains_original_paths_duplicates_and_missing_libraries() {
-        let fixture = ManifestFixture::new();
-        assert_eq!(read_plugin_manifest(&fixture.dirs()).unwrap(), None);
-        let absolute = fixture.0.join("external/missing");
-        fixture.manifest("user", &format!(
-            "[[plugin]]\npath = './missing'\n[[plugin]]\npath = './missing'\n[[plugin]]\npath = '{}'",
-            absolute.display()
-        ));
-        let document = read_plugin_manifest(&fixture.dirs()).unwrap().unwrap();
-        assert_eq!(document.path, fixture.0.join("user/plugins.toml"));
-        assert_eq!(document.entries.len(), 3);
-        assert_eq!(document.entries[0], document.entries[1]);
-        assert_eq!(document.entries[0].path, "./missing");
-        assert_eq!(
-            document.entries[0].resolved_path,
-            fixture.0.join("user/./missing")
-        );
-        assert_eq!(document.entries[2].resolved_path, absolute);
-        assert_eq!(plugin_library_paths(&fixture.dirs()).unwrap().len(), 2);
-    }
-
-    #[test]
-    fn first_manifest_wins_before_any_directory_is_scanned() {
-        let fixture = ManifestFixture::new();
-        fixture.library("user", "unlisted");
-        fixture.library("app", "unlisted");
-        fixture.manifest("app", "plugin = []");
-        assert!(plugin_library_paths(&fixture.dirs()).unwrap().is_empty());
-        fixture.manifest("user", "[[plugin]]\npath = 'selected'");
-        fixture.manifest("app", "invalid TOML");
-        assert_eq!(
-            plugin_library_paths(&fixture.dirs()).unwrap(),
-            vec![fixture.0.join("user/selected")]
-        );
-    }
-
-    #[test]
-    fn manifest_resolves_paths_in_order_and_deduplicates_canonical_paths() {
-        let fixture = ManifestFixture::new();
-        let local = fixture.library("user", "local");
-        let external = fixture.library("external", "external");
-        let absolute = fixture.library("external", "absolute");
-        fixture.manifest("user", &format!(
-            "[[plugin]]\npath = '../external/{}'\n[[plugin]]\npath = '{}'\n[[plugin]]\npath = '{}'\n[[plugin]]\npath = './{}'\n[[plugin]]\npath = 'missing'\n",
-            external.file_name().unwrap().to_str().unwrap(),
-            local.file_name().unwrap().to_str().unwrap(),
-            absolute.display(),
-            local.file_name().unwrap().to_str().unwrap(),
-        ));
-        let paths = plugin_library_paths(&fixture.dirs()).unwrap();
-        assert_eq!(paths.len(), 4);
-        assert_eq!(
-            paths[0].canonicalize().unwrap(),
-            external.canonicalize().unwrap()
-        );
-        assert_eq!(paths[1], local);
-        assert_eq!(paths[2], absolute);
-        assert_eq!(paths[3], fixture.0.join("user/missing"));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn manifest_deduplicates_library_symlinks() {
-        let fixture = ManifestFixture::new();
-        let library = fixture.library("external", "library");
-        std::os::unix::fs::symlink(&library, fixture.0.join("user/link")).unwrap();
-        fixture.manifest(
-            "user",
-            &format!(
-                "[[plugin]]\npath = 'link'\n[[plugin]]\npath = '{}'\n",
-                library.display()
-            ),
-        );
-        assert_eq!(
-            plugin_library_paths(&fixture.dirs()).unwrap(),
-            vec![fixture.0.join("user/link")]
-        );
-    }
-
-    #[test]
-    fn empty_manifest_disables_loading() {
-        let fixture = ManifestFixture::new();
-        fixture.library("user", "unlisted");
-        for content in ["", "# no plugins", "plugin = []"] {
-            fixture.manifest("user", content);
-            assert!(plugin_library_paths(&fixture.dirs()).unwrap().is_empty());
-        }
-    }
-
-    #[test]
-    fn invalid_manifest_never_falls_back() {
-        let fixture = ManifestFixture::new();
-        fixture.library("user", "unlisted");
-        fixture.manifest("app", "plugin = []");
-        for content in [
-            "[",
-            "[[plugins]]\npath = 'x'",
-            "unknown = 1",
-            "[[plugin]]",
-            "[[plugin]]\npath = 42",
-            "[[plugin]]\npath = ''",
-            "[[plugin]]\npath = '  '",
-            "[[plugin]]\npath = 'x'\nenabled = true",
-            "[[plugin]]\npath = 'valid'\n[[plugin]]\npath = ''",
-        ] {
-            fixture.manifest("user", content);
-            let error = plugin_library_paths(&fixture.dirs()).unwrap_err();
-            assert!(
-                error.contains(&fixture.0.join("user/plugins.toml").display().to_string()),
-                "{error}"
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&library, root.path().join("alias")).unwrap();
+            std::fs::write(
+                discovery.config_path(),
+                "[[plugin]]\npath='alias'\n[[plugin]]\npath='library'",
+            )
+            .unwrap();
+            assert_eq!(
+                discovery.library_paths().unwrap(),
+                vec![root.path().join("alias")]
             );
         }
     }
 
     #[test]
-    fn unreadable_manifest_never_falls_back() {
-        let fixture = ManifestFixture::new();
-        fixture.manifest("app", "plugin = []");
-        let manifest = fixture.0.join("user/plugins.toml");
-        std::fs::create_dir(&manifest).unwrap();
-        let error = plugin_library_paths(&fixture.dirs()).unwrap_err();
-        assert!(error.contains("Cannot read"));
-        assert!(error.contains(&manifest.display().to_string()));
+    fn config_errors_never_fall_back_to_scanning() {
+        let root = tempfile::tempdir().unwrap();
+        let discovery = fixture_discovery(root.path());
+        let plugins = root.path().join("plugins");
+        std::fs::create_dir(&plugins).unwrap();
+        std::fs::write(discovery.config_path(), "repl_position='left'").unwrap();
+        assert!(discovery
+            .library_paths()
+            .unwrap_err()
+            .contains("config.toml"));
     }
 
-    #[cfg(unix)]
     #[test]
-    fn dangling_manifest_symlink_never_falls_back() {
-        let fixture = ManifestFixture::new();
-        std::os::unix::fs::symlink("missing", fixture.0.join("user/plugins.toml")).unwrap();
-        assert!(plugin_library_paths(&fixture.dirs())
-            .unwrap_err()
-            .contains("Cannot read"));
+    fn startup_snapshot_survives_external_edits_and_pins_failures() {
+        let root = tempfile::tempdir().unwrap();
+        let discovery = fixture_discovery(root.path());
+        std::fs::write(discovery.config_path(), "[[plugin]]\npath='initial'").unwrap();
+        let config = discovery.load_config();
+        let snapshot = discovery.clone().with_config(config);
+        std::fs::write(discovery.config_path(), "plugin=[]").unwrap();
+        assert_eq!(
+            snapshot.library_paths().unwrap(),
+            vec![root.path().join("initial")]
+        );
+        let failed = discovery.with_config(Err("Cannot read startup config".into()));
+        assert!(failed.library_paths().is_err());
     }
 
     fn discovery(config_dir: &str, plugin_dir: Option<&str>, exe: Option<&str>) -> PluginDiscovery {

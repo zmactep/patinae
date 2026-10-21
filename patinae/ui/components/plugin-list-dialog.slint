@@ -151,7 +151,7 @@ export component PluginListDialog inherits Rectangle {
                 DialogButton {
                     label: "Save";
                     primary: true;
-                    enabled: PluginListState.loading-status == "" && !PluginListState.picking && !PluginListState.applying;
+                    enabled: PluginListState.loading-status == "" && !PluginListState.picking && !PluginListState.applying && !PluginListState.damaged;
                     clicked => { PluginListState.save(); }
                 }
             }

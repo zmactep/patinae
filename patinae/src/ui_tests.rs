@@ -531,4 +531,133 @@ fn actual_ui_hover_tooltip_and_responsive_bounds() {
         previous_highlight,
         "the selection band must replace the drag preview on release"
     );
+
+    // Exercise the real input, drawer hit testing, and completion routing in both
+    // placements, including a resized viewport with the bottom dock open.
+    crate::bridges::repl::setup_callbacks(host.clone(), &app);
+    let repl = app.global::<crate::ReplState>();
+    repl.set_output_items(ModelRc::new(VecModel::from(
+        (0..40)
+            .map(|index| crate::OutputItem {
+                plain_text: format!("Output line {index}").into(),
+                kind: "normal".into(),
+                ..Default::default()
+            })
+            .collect::<Vec<_>>(),
+    )));
+    let accepted = Rc::new(Cell::new(-1));
+    let seen = accepted.clone();
+    let weak = app.as_weak();
+    repl.on_completion_accept(move |index| {
+        seen.set(index);
+        weak.unwrap()
+            .global::<crate::ReplState>()
+            .set_completion_visible(false);
+    });
+    let click = |x, y| {
+        let position = slint::LogicalPosition::new(x, y);
+        app.window()
+            .dispatch_event(WindowEvent::PointerMoved { position });
+        app.window().dispatch_event(WindowEvent::PointerPressed {
+            position,
+            button: slint::platform::PointerEventButton::Left,
+        });
+        app.window().dispatch_event(WindowEvent::PointerReleased {
+            position,
+            button: slint::platform::PointerEventButton::Left,
+        });
+    };
+    let settle = || {
+        render();
+        clock.set(clock.get() + Duration::from_secs(1));
+        slint::platform::update_timers_and_animations();
+        render();
+    };
+    for top in [false, true] {
+        for (width, height, bottom_dock) in [(1512.0, 945.0, false), (800.0, 600.0, true)] {
+            app.invoke_dismiss_repl();
+            layout.set_repl_at_top(top);
+            layout.set_sequence_visible(bottom_dock);
+            layout.set_movie_visible(false);
+            layout.set_repl_visible(true);
+            objects.set_popover_kind("".into());
+            app.window()
+                .set_size(slint::LogicalSize::new(width, height));
+            settle();
+            let cx = app.get_scene_width() / 2.0;
+            let pill_h = geometry.get_repl_pill_h();
+            let edge = geometry.get_repl_pill_edge_gap();
+            let pill_y = if top {
+                edge
+            } else {
+                app.get_scene_height() - edge - pill_h
+            };
+            assert!(app.invoke_overlay_contains_point(cx, pill_y + pill_h / 2.0));
+            let opposite_y = if top {
+                app.get_scene_height() - edge - pill_h / 2.0
+            } else {
+                edge + pill_h / 2.0
+            };
+            assert!(!app.invoke_overlay_contains_point(cx, opposite_y));
+            click(
+                app.get_scene_x() + cx,
+                app.get_scene_y() + pill_y + pill_h / 2.0,
+            );
+            assert!(
+                repl.get_focused(),
+                "input must be clickable at its configured edge"
+            );
+            repl.set_drawer_open(false);
+            settle();
+            let pill_w = geometry
+                .get_repl_pill_w()
+                .min(app.get_scene_width() - 2.0 * spacing.get_md());
+            click(
+                app.get_scene_x() + cx + pill_w / 2.0 - 18.0,
+                app.get_scene_y() + pill_y + pill_h / 2.0,
+            );
+            assert!(repl.get_drawer_open(), "toggle must open the drawer");
+            settle();
+            let drawer_point = if top {
+                pill_y + pill_h + 30.0
+            } else {
+                pill_y - 30.0
+            };
+            assert!(app.invoke_overlay_contains_point(cx, drawer_point));
+            click(app.get_scene_x() + cx, app.get_scene_y() + drawer_point);
+            assert!(
+                repl.get_drawer_open(),
+                "output clicks must not dismiss the drawer"
+            );
+            repl.set_completion_items(ModelRc::new(VecModel::from(vec![crate::CompletionItem {
+                text: "help".into(),
+                ..Default::default()
+            }])));
+            repl.set_completion_visible(true);
+            accepted.set(-1);
+            settle();
+            let completion_point = if top {
+                pill_y
+                    + pill_h
+                    + geometry.get_repl_drawer_gap()
+                    + spacing.get_xs()
+                    + geometry.get_completion_row_h() / 2.0
+            } else {
+                pill_y
+                    - geometry.get_repl_drawer_gap()
+                    - spacing.get_xs()
+                    - geometry.get_completion_row_h() / 2.0
+            };
+            assert!(app.invoke_overlay_contains_point(cx, completion_point));
+            click(app.get_scene_x() + cx, app.get_scene_y() + completion_point);
+            assert_eq!(
+                accepted.get(),
+                0,
+                "completion must receive clicks above the output layer"
+            );
+            click(app.get_scene_x() + 12.0, app.get_scene_y() + 100.0);
+            assert!(!repl.get_drawer_open());
+            assert!(!repl.get_focused());
+        }
+    }
 }

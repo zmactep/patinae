@@ -126,7 +126,7 @@ impl BackgroundPluginLoader {
     pub fn start(discovery: PluginDiscovery) -> std::io::Result<Self> {
         Self::start_selection(move || {
             let directories = discovery.standard_plugin_dirs();
-            let selection = plugin_library_paths(&directories);
+            let selection = discovery.library_paths();
             (directories, selection)
         })
     }
@@ -434,12 +434,12 @@ pub static PATINAE_PLUGIN_DECLARATION: PluginDeclaration = PluginDeclaration {{
     }
 
     #[test]
-    fn manifest_selects_external_plugin_in_both_loaders_and_load_dir() {
+    fn config_selects_external_plugin_in_both_loaders_but_load_dir_scans() {
         let selected = Fixture::new(true, false, false);
         let unlisted = Fixture::new(true, false, false);
         selected.release();
         unlisted.release();
-        let manifest = unlisted.root.join("plugins.toml");
+        let manifest = unlisted.root.join("config.toml");
         std::fs::write(
             &manifest,
             format!(
@@ -495,20 +495,19 @@ pub static PATINAE_PLUGIN_DECLARATION: PluginDeclaration = PluginDeclaration {{
         host.load_dir(&unlisted.root, &mut executor);
         assert_eq!(host.plugin_count(), 1);
         assert!(executor.registry().contains("slow_fixture"));
-        assert!(selected.root.join("entered").exists());
-        assert!(!unlisted.root.join("entered").exists());
+        assert!(!selected.root.join("entered").exists());
+        assert!(unlisted.root.join("entered").exists());
     }
 
     #[test]
     fn invalid_manifest_loads_nothing_and_background_finishes_without_acknowledgement() {
         let fixture = Fixture::new(true, false, false);
         fixture.release();
-        let manifest = fixture.root.join("plugins.toml");
+        let manifest = fixture.root.join("config.toml");
         std::fs::write(&manifest, "[[plugins]]\npath = 'wrong'").unwrap();
         let mut host = PluginHost::new();
         let mut executor = CommandExecutor::new();
         host.load_discovered_dirs(&fixture.discovery(), &mut executor);
-        host.load_dir(&fixture.root, &mut executor);
         assert_eq!(host.plugin_count(), 0);
         let loader = BackgroundPluginLoader::start(fixture.discovery()).unwrap();
         assert!(matches!(

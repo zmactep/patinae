@@ -1860,7 +1860,17 @@ pub fn run(started: Instant) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let mut app_state = App::new();
-    app_state.plugin_startup = PluginStartup::new(started);
+    let discovery = patinae_plugin_host::PluginDiscovery::from_process_env();
+    let config = discovery.load_config();
+    let repl_at_top = config
+        .as_ref()
+        .is_ok_and(|config| config.repl_position == patinae_settings::config::ReplPosition::Top);
+    if let Err(error) = &config {
+        log::error!("{error}");
+        app_state.kernel.output.print_error(error.clone());
+    }
+    app_state.plugin_startup =
+        PluginStartup::new(started).with_discovery(discovery.with_config(config));
     app_state.startup_actions = startup_actions(
         patinae_settings::paths::patinaerc_path(),
         std::env::args_os().skip(1).map(PathBuf::from).collect(),
@@ -1871,6 +1881,8 @@ pub fn run(started: Instant) -> Result<(), Box<dyn std::error::Error>> {
         Ok(window) => window,
         Err(err) => return abort_startup_for_renderer_error(err),
     };
+
+    window.global::<LayoutState>().set_repl_at_top(repl_at_top);
 
     #[cfg(target_os = "macos")]
     let display_link_heartbeat: Rc<

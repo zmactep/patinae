@@ -1,22 +1,40 @@
 # Patinae plugins
 
-Native plugins extend the Patinae desktop application with commands, panels,
-scripting, rendering, and external control.
+Plugins add commands and tools to the Patinae desktop app.
 
-| Plugin | Cargo package | What it adds |
-| --- | --- | --- |
-| [Hello](hello/README.md) | `hello-plugin` | Minimal command and settings example |
-| [Raytracer](raytracer/README.md) | `raytracer-plugin` | `ray`, GPU ray tracing, PNG export, and a rendering panel |
-| [IPC](ipc/README.md) | `ipc-plugin` | Local Unix socket control for external clients |
-| [Python](python/README.md) | `python-plugin` | Embedded Python, `.py` scripts, atom expressions, and an editor panel |
-| [AI](ai/README.md) | `ai-plugin` | Natural-language control with scene images and optional MCP tools |
+| Plugin | What you can do |
+| --- | --- |
+| [Hello](hello/README.md) | Try a minimal plugin with a `hello` command |
+| [Raytracer](raytracer/README.md) | Render a scene with GPU ray tracing and export a PNG |
+| [Python](python/README.md) | Run Python commands and scripts inside Patinae |
+| [AI](ai/README.md) | Control Patinae using natural language |
+| [IPC](ipc/README.md) | Control a running Patinae app from another program |
 
-## Build and load
+Each plugin's README has its setup instructions and usage examples. Python
+needs a matching Python runtime, AI needs a provider configuration, and IPC
+needs a socket path before it can accept connections.
 
-Run build commands from the repository root. Build plugins and the application
-from the same source revision: the native plugin ABI and runtime wire contracts
-must match. Rust and Cargo are required; building all plugins also requires the
+## Install a plugin
+
+Copy the plugin library into `~/.patinae/plugins/` and restart Patinae.
+The library extension depends on your platform: `.dylib` on macOS, `.so` on
+Linux, or `.dll` on Windows. Use a plugin built for your platform and the same
+Patinae version or source revision as the app.
+
+In the Patinae command bar, check which plugins loaded:
+
+```pml
+capabilities plugins
+```
+
+For example, with Hello installed, enter `hello Alice` to try it or `help hello`
+to see its command syntax.
+
+## Build the bundled plugins
+
+You need Rust and Cargo. Building the full set also requires the
 [Python build prerequisites](python/README.md#build-and-install).
+Run these commands from the repository root:
 
 ```sh
 make patinae
@@ -24,99 +42,59 @@ make plugins
 ./target/release/patinae
 ```
 
-`make plugins` stages the libraries in `target/release/plugins/`, where the
-release executable discovers them. The Windows build excludes IPC.
+The plugins are placed in `target/release/plugins/`, ready for the app to load.
+IPC is excluded on Windows. To build just one plugin, follow its README.
 
-On macOS and Linux, install into the user plugin directory with:
+On macOS and Linux, `make plugins-install` builds and copies the bundled plugins
+to `~/.patinae/plugins/`. For another destination, use
+`make plugins-install PLUGIN_INSTALL_DIR=/absolute/path/to/plugins`.
 
-```sh
-make plugins-install
-```
+## Choose which plugins to load
 
-The default installation destination is `~/.patinae/plugins/`. To install into a
-different directory, set `PLUGIN_INSTALL_DIR` explicitly:
+By default, Patinae finds plugins automatically. Use the **Plugins** dialog to
+add or remove libraries, then click **Save** to apply the changes.
 
-```sh
-make plugins-install PLUGIN_INSTALL_DIR=/absolute/path/to/plugins
-```
-
-For an individual plugin, follow its README. Cargo library names use underscores:
-`libhello_plugin.dylib` on macOS, `libhello_plugin.so` on Linux, and
-`hello_plugin.dll` on Windows. Copy the library into the plugin directory itself.
-
-## Discovery and verification
-
-The user plugin directory is selected in this order:
-
-1. `PATINAE_PLUGIN_DIR`, when set.
-2. `<PATINAE_CONFIG_DIR>/plugins`, when the configuration directory is overridden.
-3. `~/.patinae/plugins/` otherwise.
-
-Patinae also searches application-relative plugin locations, including
-`plugins/` beside the executable and `Contents/PlugIns/` in a macOS app bundle.
-The Makefile installation destination is separate from these runtime environment
-variables; use `PLUGIN_INSTALL_DIR` when installing to a custom location.
-
-### Explicit plugin list
-
-To select exactly which libraries load, create `plugins.toml` in a plugin directory:
+You can also edit `~/.patinae/config.toml`. For example, to load only Hello on
+macOS, add:
 
 ```toml
 [[plugin]]
-path = "libhello_plugin.dylib"
-
-[[plugin]]
-path = "../custom/libcustom_plugin.dylib"
-
-[[plugin]]
-path = "/absolute/path/libother_plugin.dylib"
+path = "plugins/libhello_plugin.dylib"
 ```
 
-Use library filenames for your platform (`.dylib`, `.so`, or `.dll`). Relative
-paths are resolved from the directory containing `plugins.toml`; absolute paths
-can point outside the plugin directories. Paths are literal: no glob patterns,
-environment-variable or `~` expansion, or directory scanning is performed.
-On Windows, TOML literal strings such as `path = 'C:\plugins\custom.dll'` avoid
-backslash escaping.
+Add one `[[plugin]]` entry per library, in the order you want them loaded.
+Use the appropriate filename for your platform. Paths are relative to the
+folder containing `config.toml`; absolute paths also work.
 
-Patinae checks for the file in the user plugin directory first, then beside the
-executable in `plugins/`, then in macOS `Contents/PlugIns/`. The first file found
-defines the **entire** list: no other directory is scanned and later manifests
-are ignored. Libraries load in the listed order; repeated references to the same
-canonical path load only once. An empty file or `plugin = []` loads no plugins.
-If no manifest exists anywhere, automatic directory scanning works as before.
+To disable all plugins, replace the list with `plugin = []`. To restore
+automatic discovery, remove the `plugin` list entirely. Restart Patinae after
+editing the file by hand.
 
-Only `[[plugin]]` with a nonempty string `path` is supported. Unknown fields,
-including `[[plugins]]`, are errors. A manifest read or parse error is reported
-and disables plugin loading without falling back to scanning; Patinae still
-starts. A library load error is reported and subsequent entries are attempted.
-The existing search paths for plugin resources and configuration stay the same;
-external library directories are not added to resource lookup. Restart Patinae
-after editing the manifest; it is not reloaded while the application is running.
+For older installations, see [Move an old plugin list to config.toml](../docs/migrate-plugins-config.md).
 
-Restart Patinae after installing or rebuilding a library. In the Patinae REPL:
+### Custom directories
 
-```pml
-capabilities plugins
-capabilities settings
-capabilities formats run
-```
+`PATINAE_CONFIG_DIR` changes the configuration folder; Patinae then reads
+`config.toml` and looks in `plugins/` inside that folder. `PATINAE_PLUGIN_DIR`
+overrides the user plugin folder alone. Patinae also searches `plugins/` next
+to the executable and `Contents/PlugIns/` in macOS app bundles.
 
-`capabilities` reports loaded plugins and active handlers. Use `help hello`,
-`help ray`, `help python`, or `help ai` for command syntax. IPC adds no REPL
-command and needs `PATINAE_IPC_SOCKET` to start its server. AI needs a separate
-configuration file; installing the library does not create one.
+An explicit list in `config.toml` replaces automatic discovery. The Makefile
+uses `PLUGIN_INSTALL_DIR` for installation, independently of these runtime
+settings.
 
-If a plugin is missing, check the startup log, library location, platform and
-architecture, and that the host and plugin were rebuilt together. Python also
-needs its matching runtime available when the library loads.
+## If a plugin does not load
 
-## Develop a plugin
+Check the startup log for the library path and error. If you have a plugin list
+in `config.toml`, make sure the library is included. A configuration error stops
+plugin loading until the file is fixed.
 
-Start with the [plugin authoring guide](../docs/make-your-own-plugin.md).
-[Hello](hello/README.md) is the smallest implementation; the other plugins show
-panels, background tasks, renderer integration, and external command execution.
+For a library compatibility error, rebuild the app and plugin from the same
+source revision, then restart. For Python, check that its matching runtime is
+available; see the [Python setup instructions](python/README.md#build-and-install).
 
-These dynamic libraries target native hosts. For browser integration, see the
-[web viewer](../web/README.md); for scripts and notebooks outside the desktop
-application, see the [Python package](../python/README.md).
+## Write your own plugin
+
+Follow the [plugin authoring guide](../docs/make-your-own-plugin.md) to build
+your first plugin. [Hello](hello/README.md) is the smallest working example;
+the other plugins demonstrate panels, scripting, rendering, and external control.
