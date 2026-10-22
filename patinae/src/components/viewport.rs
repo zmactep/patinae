@@ -24,12 +24,12 @@ use patinae_color::{NamedPalette, ThemedPalette};
 use patinae_render::picking::readback::PendingPick;
 use patinae_render::{
     copy_rgba_buffer_to_viewport_texture, estimate_texture_2d_bytes, is_wgpu_oom,
-    render_memory_policy_from_settings, select_render_memory_policy, DisplayedGeometry,
+    render_memory_policy_from_settings, select_render_memory_policy_with_budget, DisplayedGeometry,
     GeometryExportOptions, GpuMemoryCategory, GpuMemorySnapshot, GpuMemoryUsage, GpuViewportImage,
     RenderArtifactSnapshot, RenderConfig, RenderInput, RenderMemoryPolicy, RenderMemoryProfile,
     RenderMemoryRecoveryAction, RenderMemoryRecoveryStage, RenderMemorySelectionInput, RenderState,
-    RenderSyncTimings, SceneLod, TraceGeometryChunk, PERFORMANCE_MAX_BUFFER_SIZE,
-    PERFORMANCE_MAX_STORAGE_BUFFER_BINDING_SIZE,
+    RenderSyncTimings, SceneLod, TraceGeometryChunk, PERFORMANCE_MAX_STORAGE_BUFFER_BINDING_SIZE,
+    PERFORMANCE_MIN_BUFFER_SIZE,
 };
 use patinae_scene::{Camera, CaptureRenderer, ObjectRegistry, PickHit, Session, ViewerError};
 use patinae_settings::{ResolvedSettings, Settings, ShadingMode};

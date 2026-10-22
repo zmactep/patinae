@@ -106,10 +106,10 @@ pub(super) fn patinae_wgpu_configuration(
     }
     log_selected_gpu(&adapter_info);
     let memory_policy = render_memory_policy_for_device(
-        Some(&adapter_info),
+        &adapter_info,
         &adapter_limits,
+        crate::components::gpu_memory::adapter_memory_budget(&adapter),
         "PATINAE_RENDER_MEMORY_PROFILE",
-        false,
     );
     crate::allocator_startup::apply(memory_policy.profile)?;
     if let Some(notice) = crate::allocator_startup::restart_notice(memory_policy.profile) {

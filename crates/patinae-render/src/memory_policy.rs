@@ -8,11 +8,20 @@ use std::fmt;
 use std::str::FromStr;
 
 use crate::byte_units::{gib_to_bytes, mib_to_bytes, BYTES_PER_MIB};
+use crate::NativeGpuMemoryBudget;
 
 const LITE_BUFFER_THRESHOLD: u64 = gib_to_bytes(1);
 const LITE_STORAGE_BINDING_THRESHOLD: u64 = mib_to_bytes(512);
 /// Desired single-buffer target for capable native adapters.
 pub const PERFORMANCE_MAX_BUFFER_SIZE: u64 = gib_to_bytes(4);
+/// Minimum practical buffer ceiling for the performance policy.
+/// WGPU indirect validation caps buffers at u32::MAX, even on large GPUs.
+pub const PERFORMANCE_MIN_BUFFER_SIZE: u64 = PERFORMANCE_MAX_BUFFER_SIZE - 1;
+// Keep a quarter of the advisory budget outside our startup headroom estimate.
+// Eight GiB of remaining headroom permits the eager performance policy; below
+// two GiB use lite instead of balanced's two-GiB representation budget.
+const PERFORMANCE_MEMORY_HEADROOM: u64 = gib_to_bytes(8);
+const BALANCED_MEMORY_HEADROOM: u64 = gib_to_bytes(2);
 /// Desired single storage-buffer binding target for capable adapters.
 pub const PERFORMANCE_MAX_STORAGE_BUFFER_BINDING_SIZE: u64 = gib_to_bytes(2) - 1;
 /// Maximum storage-buffer bindings used by the current compute pipeline layouts.
@@ -497,6 +506,19 @@ pub fn select_render_memory_policy(
     input: RenderMemorySelectionInput,
     override_profile: Option<RenderMemoryProfile>,
 ) -> RenderMemoryPolicy {
+    select_render_memory_policy_with_budget(input, None, override_profile)
+}
+
+/// Selects a profile using native memory headroom and separate resource limits.
+///
+/// Explicit overrides win. Without a usable native budget, retain the existing
+/// capability-based fallback. The advisory snapshot is sampled at startup;
+/// runtime allocation failures still use the renderer's OOM recovery policy.
+pub fn select_render_memory_policy_with_budget(
+    input: RenderMemorySelectionInput,
+    budget: Option<NativeGpuMemoryBudget>,
+    override_profile: Option<RenderMemoryProfile>,
+) -> RenderMemoryPolicy {
     if let Some(profile) = override_profile {
         return RenderMemoryPolicy::from_profile(profile);
     }
@@ -514,7 +536,25 @@ pub fn select_render_memory_policy(
             input.backend,
             RenderBackend::BrowserWebGpu | RenderBackend::BrowserWebGl
         )
-        || input.max_buffer_size < PERFORMANCE_MAX_BUFFER_SIZE
+    {
+        return RenderMemoryPolicy::balanced();
+    }
+    if let Some(budget) = budget.filter(|budget| budget.budget_bytes > 0) {
+        let headroom = budget
+            .headroom_bytes()
+            .saturating_sub(budget.budget_bytes / 4);
+        if headroom < BALANCED_MEMORY_HEADROOM {
+            return RenderMemoryPolicy::lite();
+        }
+        if headroom < PERFORMANCE_MEMORY_HEADROOM
+            || input.max_buffer_size < PERFORMANCE_MIN_BUFFER_SIZE
+            || input.max_storage_buffer_binding_size < PERFORMANCE_MAX_STORAGE_BUFFER_BINDING_SIZE
+        {
+            return RenderMemoryPolicy::balanced();
+        }
+        return RenderMemoryPolicy::performance();
+    }
+    if input.max_buffer_size < PERFORMANCE_MAX_BUFFER_SIZE
         || input.max_storage_buffer_binding_size < PERFORMANCE_MAX_STORAGE_BUFFER_BINDING_SIZE
     {
         return RenderMemoryPolicy::balanced();
@@ -566,6 +606,119 @@ pub fn required_limits_for_memory_policy(
 mod tests {
     use super::*;
     use crate::byte_units::{gib_to_bytes, mib_to_bytes};
+
+    fn native_budget(budget: u64, usage: u64) -> NativeGpuMemoryBudget {
+        NativeGpuMemoryBudget {
+            budget_bytes: budget,
+            usage_bytes: usage,
+            source: crate::NativeMemoryBudgetSource::MetalWorkingSet,
+        }
+    }
+
+    #[test]
+    fn native_budget_selects_performance_under_indirect_validation_limits() {
+        let adapter = input(
+            RenderAdapterType::IntegratedGpu,
+            u64::from(u32::MAX),
+            PERFORMANCE_MAX_STORAGE_BUFFER_BINDING_SIZE,
+        );
+        let budget = native_budget(gib_to_bytes(100), gib_to_bytes(1));
+        let policy = select_render_memory_policy_with_budget(adapter, Some(budget), None);
+        assert_eq!(policy.profile, RenderMemoryProfile::Performance);
+        let required = required_limits_for_memory_policy(
+            &limits(
+                adapter.max_buffer_size,
+                adapter.max_storage_buffer_binding_size,
+            ),
+            policy,
+        );
+        assert_eq!(required.max_buffer_size, u64::from(u32::MAX));
+        assert_eq!(
+            required.max_storage_buffer_binding_size,
+            adapter.max_storage_buffer_binding_size
+        );
+    }
+
+    #[test]
+    fn native_headroom_reserves_margin_and_accounts_for_process_usage() {
+        let adapter = input(RenderAdapterType::DiscreteGpu, gib_to_bytes(8), u64::MAX);
+        for (total, used, expected) in [
+            (16, 4, RenderMemoryProfile::Performance),
+            (16, 5, RenderMemoryProfile::Balanced),
+            (8, 4, RenderMemoryProfile::Balanced),
+            (8, 5, RenderMemoryProfile::Lite),
+            (8, 9, RenderMemoryProfile::Lite),
+        ] {
+            let policy = select_render_memory_policy_with_budget(
+                adapter,
+                Some(native_budget(gib_to_bytes(total), gib_to_bytes(used))),
+                None,
+            );
+            assert_eq!(policy.profile, expected, "budget={total} usage={used}");
+        }
+    }
+
+    #[test]
+    fn native_budget_does_not_override_explicit_profiles_or_resource_limits() {
+        let adapter = input(RenderAdapterType::IntegratedGpu, gib_to_bytes(8), u64::MAX);
+        for profile in [
+            RenderMemoryProfile::Balanced,
+            RenderMemoryProfile::Lite,
+            RenderMemoryProfile::Performance,
+            RenderMemoryProfile::Manual {
+                bytes: gib_to_bytes(3),
+            },
+        ] {
+            assert_eq!(
+                select_render_memory_policy_with_budget(
+                    adapter,
+                    Some(native_budget(gib_to_bytes(1), 0)),
+                    Some(profile)
+                )
+                .profile,
+                profile
+            );
+        }
+        let constrained = input(
+            RenderAdapterType::IntegratedGpu,
+            gib_to_bytes(2),
+            gib_to_bytes(1),
+        );
+        assert_eq!(
+            select_render_memory_policy_with_budget(
+                constrained,
+                Some(native_budget(gib_to_bytes(100), 0)),
+                None
+            )
+            .profile,
+            RenderMemoryProfile::Balanced
+        );
+    }
+
+    #[test]
+    fn missing_native_budget_preserves_fallback_and_oom_downgrade() {
+        let mut adapter = input(
+            RenderAdapterType::IntegratedGpu,
+            u64::from(u32::MAX),
+            u64::MAX,
+        );
+        for budget in [None, Some(native_budget(0, 0))] {
+            assert_eq!(
+                select_render_memory_policy_with_budget(adapter, budget, None).profile,
+                RenderMemoryProfile::Balanced
+            );
+        }
+        adapter.observed_downgrade = true;
+        assert_eq!(
+            select_render_memory_policy_with_budget(
+                adapter,
+                Some(native_budget(gib_to_bytes(100), 0)),
+                None
+            )
+            .profile,
+            RenderMemoryProfile::Lite
+        );
+    }
 
     fn limits(max_buffer_size: u64, max_storage_buffer_binding_size: u64) -> wgpu::Limits {
         wgpu::Limits {

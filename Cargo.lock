@@ -3813,6 +3813,7 @@ name = "patinae"
 version = "0.5.1"
 dependencies = [
  "ab_glyph",
+ "ash",
  "copypasta",
  "env_logger",
  "i-slint-backend-testing",
@@ -3822,6 +3823,7 @@ dependencies = [
  "objc2 0.5.2",
  "objc2-app-kit 0.2.2",
  "objc2-foundation 0.2.2",
+ "objc2-metal 0.3.2",
  "patinae-cmd",
  "patinae-color",
  "patinae-framework",
@@ -3842,6 +3844,7 @@ dependencies = [
  "tokio",
  "webbrowser",
  "wgpu",
+ "windows",
 ]
 
 [[package]]

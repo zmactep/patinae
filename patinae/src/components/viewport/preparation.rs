@@ -34,26 +34,16 @@ impl ViewportRenderer {
     pub(crate) fn schedule(
         api: &slint::GraphicsAPI,
     ) -> Option<crate::renderer_startup::RendererStartup<PreparedViewport>> {
-        let slint::GraphicsAPI::WGPU30 {
-            instance,
-            device,
-            queue,
-            ..
-        } = api
-        else {
+        let slint::GraphicsAPI::WGPU30 { device, queue, .. } = api else {
             return None;
         };
-        let (instance, device, queue) = (instance.clone(), device.clone(), queue.clone());
+        let (device, queue) = (device.clone(), queue.clone());
         Some(crate::renderer_startup::RendererStartup::new(move || {
-            Self::prepare(instance, device, queue)
+            Self::prepare(device, queue)
         }))
     }
 
-    pub(super) fn prepare(
-        instance: wgpu::Instance,
-        device: wgpu::Device,
-        queue: wgpu::Queue,
-    ) -> PreparedViewport {
+    pub(super) fn prepare(device: wgpu::Device, queue: wgpu::Queue) -> PreparedViewport {
         // Explicit diagnostic fault injection, bounded to avoid accidental long stalls.
         if let Some(delay) = std::env::var("PATINAE_DEBUG_RENDER_PREPARE_DELAY_MS")
             .ok()
@@ -65,22 +55,16 @@ impl ViewportRenderer {
             std::thread::sleep(Duration::from_millis(delay));
         }
         let started = Instant::now();
-        let adapter_info =
-            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
-                ..Default::default()
-            }))
-            .ok()
-            .map(|adapter| adapter.get_info());
-        let info = adapter_info.as_ref().map(|info| AdapterInfo {
-            device_name: info.name.clone(),
-            backend: format!("{:?}", info.backend),
+        let adapter_info = device.adapter_info();
+        let info = Some(AdapterInfo {
+            device_name: adapter_info.name.clone(),
+            backend: format!("{:?}", adapter_info.backend),
         });
         let memory_policy = render_memory_policy_for_device(
-            adapter_info.as_ref(),
+            &adapter_info,
             &device.limits(),
+            crate::components::gpu_memory::device_memory_budget(&device),
             "PATINAE_RENDER_MEMORY_PROFILE",
-            false,
         );
         log::info!(
             "render memory profile: profile={} budget={:?} handoff_ring={}",
@@ -153,10 +137,10 @@ pub(super) fn install_wgpu_error_handlers(device: &wgpu::Device) -> WgpuErrorFla
 }
 
 pub(crate) fn render_memory_policy_for_device(
-    adapter_info: Option<&wgpu::AdapterInfo>,
+    adapter_info: &wgpu::AdapterInfo,
     limits: &wgpu::Limits,
+    budget: Option<patinae_render::NativeGpuMemoryBudget>,
     env_var: &str,
-    is_web: bool,
 ) -> RenderMemoryPolicy {
     let override_profile = std::env::var(env_var).ok().and_then(|value| match value
         .parse::<RenderMemoryProfile>(
@@ -167,23 +151,21 @@ pub(crate) fn render_memory_policy_for_device(
             None
         }
     });
-    let input = adapter_info.map_or_else(
-        || RenderMemorySelectionInput {
-            adapter_type: patinae_render::RenderAdapterType::Other,
-            backend: if is_web {
-                patinae_render::RenderBackend::BrowserWebGpu
-            } else {
-                patinae_render::RenderBackend::Other
-            },
-            max_buffer_size: limits.max_buffer_size,
-            max_storage_buffer_binding_size: limits.max_storage_buffer_binding_size,
-            max_texture_dimension_2d: limits.max_texture_dimension_2d,
-            is_web,
-            observed_downgrade: false,
-        },
-        |info| RenderMemorySelectionInput::from_wgpu(info, limits, is_web),
-    );
-    select_render_memory_policy(input, override_profile)
+    match budget {
+        Some(budget) => log::info!(
+            "native GPU memory: source={:?} budget={:.2} MiB process_usage={:.2} MiB headroom={:.2} MiB",
+            budget.source,
+            patinae_render::bytes_to_mib(budget.budget_bytes),
+            patinae_render::bytes_to_mib(budget.usage_bytes),
+            patinae_render::bytes_to_mib(budget.headroom_bytes()),
+        ),
+        None => log::info!("native GPU memory budget unavailable; using capability fallback"),
+    }
+    select_render_memory_policy_with_budget(
+        RenderMemorySelectionInput::from_wgpu(adapter_info, limits, false),
+        budget,
+        override_profile,
+    )
 }
 
 pub(super) fn memory_policy_supported_by_device(
@@ -192,7 +174,7 @@ pub(super) fn memory_policy_supported_by_device(
 ) -> bool {
     match policy.profile {
         RenderMemoryProfile::Performance => {
-            limits.max_buffer_size >= PERFORMANCE_MAX_BUFFER_SIZE
+            limits.max_buffer_size >= PERFORMANCE_MIN_BUFFER_SIZE
                 && limits.max_storage_buffer_binding_size
                     >= PERFORMANCE_MAX_STORAGE_BUFFER_BINDING_SIZE
         }

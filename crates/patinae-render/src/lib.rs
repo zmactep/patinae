@@ -20,6 +20,7 @@ mod map_contour;
 pub mod memory;
 mod memory_policy;
 mod memory_recovery;
+mod native_memory;
 pub(crate) mod passes;
 pub mod picking;
 pub(crate) mod pipelines;
@@ -61,16 +62,18 @@ pub use memory::{
 };
 pub use memory_policy::{
     render_memory_policy_from_settings, required_limits_for_memory_policy,
-    select_render_memory_policy, FrameTargetPolicy, OverlayPolicy, PickingPolicy,
-    PostprocessPolicy, RenderAdapterType, RenderBackend, RenderMemoryPolicy, RenderMemoryProfile,
-    RenderMemoryProfileParseError, RenderMemorySelectionInput, RepresentationBudgetPolicy,
-    SceneStoreCompactionPolicy, SceneStoreGrowthPolicy, SceneStoreMemoryPolicy, ShadowPolicy,
-    PERFORMANCE_MAX_BUFFER_SIZE, PERFORMANCE_MAX_STORAGE_BUFFER_BINDING_SIZE,
+    select_render_memory_policy, select_render_memory_policy_with_budget, FrameTargetPolicy,
+    OverlayPolicy, PickingPolicy, PostprocessPolicy, RenderAdapterType, RenderBackend,
+    RenderMemoryPolicy, RenderMemoryProfile, RenderMemoryProfileParseError,
+    RenderMemorySelectionInput, RepresentationBudgetPolicy, SceneStoreCompactionPolicy,
+    SceneStoreGrowthPolicy, SceneStoreMemoryPolicy, ShadowPolicy, PERFORMANCE_MAX_BUFFER_SIZE,
+    PERFORMANCE_MAX_STORAGE_BUFFER_BINDING_SIZE, PERFORMANCE_MIN_BUFFER_SIZE,
     RENDER_COMPUTE_STORAGE_BUFFERS_PER_STAGE,
 };
 pub use memory_recovery::{
     is_wgpu_oom, next_oom_fallback, RenderMemoryRecoveryAction, RenderMemoryRecoveryStage,
 };
+pub use native_memory::{NativeGpuMemoryBudget, NativeMemoryBudgetSource};
 pub use picking::{ObjectId, PackedId, PickHit, PickingMode, RenderConfig, RepKind};
 pub use render_artifacts::{
     RenderArtifactBufferRef, RenderArtifactBufferRole, RenderArtifactPrimitiveTopology,
