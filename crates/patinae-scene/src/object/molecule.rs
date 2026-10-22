@@ -190,25 +190,20 @@ impl MoleculeObject {
 
     /// Color selected atoms, returning the number whose stored colors changed.
     ///
+    /// Preserve explicit representation colors. The default cartoon chain scheme
+    /// switches to base-color inheritance when atoms are explicitly recolored.
     /// Only changed colors invalidate the renderer's color cache. Existing
     /// dirty flags are preserved; coordinates and representations are untouched.
     pub fn color_selection(&mut self, selected: &SelectionResult, color: i32) -> usize {
-        let colors = patinae_mol::AtomColors {
-            base: color,
-            cartoon: color,
-            ribbon: color,
-            stick: color,
-            line: color,
-            surface: color,
-            mesh: color,
-            sphere: color,
-            dot: color,
-            ellipsoid: color,
-        };
         let mut changed = 0;
         let mut set_color = |atom: &mut Atom| {
-            if atom.repr.colors != colors {
-                atom.repr.colors = colors.clone();
+            let colors = &mut atom.repr.colors;
+            let inherits_chain = colors.cartoon == patinae_mol::COLOR_BY_CHAIN;
+            if colors.base != color || inherits_chain {
+                colors.base = color;
+                if inherits_chain {
+                    colors.cartoon = patinae_mol::COLOR_UNSET;
+                }
                 changed += 1;
             }
         };
@@ -721,7 +716,7 @@ mod tests {
         object.clear_dirty();
         assert_eq!(object.color_selection(&selected, 4), 0);
         assert_eq!(object.dirty_flags(), DirtyFlags::empty());
-        // A non-base override must be detected, even if base is unchanged.
+        // An explicit representation color survives a repeated base color.
         object
             .molecule
             .get_atom_mut(AtomIndex(0))
@@ -730,8 +725,8 @@ mod tests {
             .colors
             .ellipsoid = 7;
         object.invalidate(DirtyFlags::COORDS);
-        assert_eq!(object.color_selection(&selected, 4), 1);
-        assert_eq!(object.dirty_flags(), DirtyFlags::COLOR | DirtyFlags::COORDS);
+        assert_eq!(object.color_selection(&selected, 4), 0);
+        assert_eq!(object.dirty_flags(), DirtyFlags::COORDS);
         assert_eq!(
             object
                 .molecule()
@@ -740,7 +735,7 @@ mod tests {
                 .repr
                 .colors
                 .ellipsoid,
-            4
+            7
         );
     }
 
@@ -773,8 +768,8 @@ mod tests {
         assert_eq!(object.color_selection(&selected, 4), 0);
         assert_eq!(object.dirty_flags(), DirtyFlags::empty());
 
-        // The full-object path must inspect every representation override and
-        // count changed source atoms once, regardless of the number of copies.
+        // The full-object path preserves overrides and counts changed source
+        // atoms once, regardless of the number of copies.
         object
             .molecule
             .get_atom_mut(AtomIndex(1))
@@ -783,7 +778,9 @@ mod tests {
             .colors
             .ellipsoid = 9;
         object.invalidate(DirtyFlags::COORDS);
-        assert_eq!(object.color_selection(&selected, 4), 1);
+        assert_eq!(object.color_selection(&selected, 4), 0);
+        assert_eq!(object.dirty_flags(), DirtyFlags::COORDS);
+        assert_eq!(object.color_selection(&selected, 5), 2);
         assert_eq!(object.dirty_flags(), DirtyFlags::COLOR | DirtyFlags::COORDS);
         assert_eq!(object.displayed_atom_count(), 4);
         assert_eq!(
@@ -800,10 +797,9 @@ mod tests {
                 .collect::<Vec<_>>(),
             before_reps
         );
-        assert!(object
-            .molecule()
-            .atoms()
-            .all(|a| a.repr.colors.ellipsoid == 4));
+        let atoms = object.molecule().atoms_slice();
+        assert_eq!(atoms[0].repr.colors.ellipsoid, patinae_mol::COLOR_UNSET);
+        assert_eq!(atoms[1].repr.colors.ellipsoid, 9);
     }
 
     #[test]
