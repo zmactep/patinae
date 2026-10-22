@@ -143,7 +143,7 @@ export component ReplPill inherits Rectangle {
 
         key-pressed(event) => {
             if event.text == Key.Tab {
-                root.focus-input();
+                ReplState.request-focus();
                 return accept;
             }
             return reject;
@@ -205,50 +205,21 @@ export component ReplPill inherits Rectangle {
             property <bool> forwarding-viewport-input: false;
 
             pointer-event(event) => {
-                ViewportState.shift-held   = event.modifiers.shift;
-                ViewportState.control-held = event.modifiers.control;
-                ViewportState.alt-held     = event.modifiers.alt;
-                ViewportState.meta-held    = event.modifiers.meta;
                 if event.kind == PointerEventKind.down {
                     self.forwarding-viewport-input = !self.over-repl-ui;
-                    if self.forwarding-viewport-input {
-                        root.dismiss();
-                        ViewportState.mouse-x = self.mouse-x / 1px;
-                        ViewportState.mouse-y = self.mouse-y / 1px;
-                        ViewportState.press-x = ViewportState.mouse-x;
-                        ViewportState.press-y = ViewportState.mouse-y;
-                        ViewportState.suppress-click = false;
-                        if event.button == PointerEventButton.left   { ViewportState.left-pressed = true; }
-                        if event.button == PointerEventButton.middle { ViewportState.middle-pressed = true; }
-                        if event.button == PointerEventButton.right  { ViewportState.right-pressed = true; }
-                    }
+                    if self.forwarding-viewport-input { ReplState.request-dismiss(); }
                 }
-                if event.kind == PointerEventKind.up && self.forwarding-viewport-input {
-                    ViewportState.mouse-x = self.mouse-x / 1px;
-                    ViewportState.mouse-y = self.mouse-y / 1px;
-                    if event.button == PointerEventButton.left {
-                        ViewportState.click-x = ViewportState.mouse-x;
-                        ViewportState.click-y = ViewportState.mouse-y;
-                        ViewportState.click-serial += 1;
-                    }
-                }
-                if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel)
-                   && self.forwarding-viewport-input {
-                    if event.button == PointerEventButton.left   { ViewportState.left-pressed = false; }
-                    if event.button == PointerEventButton.middle { ViewportState.middle-pressed = false; }
-                    if event.button == PointerEventButton.right  { ViewportState.right-pressed = false; }
-                    self.forwarding-viewport-input = false;
-                }
-            }
-            moved => {
                 if self.forwarding-viewport-input {
-                    ViewportState.mouse-x = self.mouse-x / 1px;
-                    ViewportState.mouse-y = self.mouse-y / 1px;
+ViewportState.pointer(event.kind == PointerEventKind.down ? 0 : event.kind == PointerEventKind.up ? 2 : event.kind == PointerEventKind.move ? 1 : 3,
+        event.button == PointerEventButton.middle ? 1 : event.button == PointerEventButton.right ? 2 : 0,
+        self.mouse-x / 1px, self.mouse-y / 1px, event.modifiers.shift, event.modifiers.control, event.modifiers.alt, event.modifiers.meta, false);
+                    if event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel {self.forwarding-viewport-input=false;}
                 }
             }
+            moved => { if self.forwarding-viewport-input { ViewportState.pointer(1, 0, self.mouse-x / 1px, self.mouse-y / 1px, ViewportState.shift-held, ViewportState.control-held, ViewportState.alt-held, ViewportState.meta-held, false); } }
             scroll-event(event) => {
                 if !self.over-repl-ui {
-                    ViewportState.scroll-delta = ViewportState.scroll-delta - event.delta-y / 1px;
+                    ViewportState.scroll(-event.delta-y / 1px);
                 }
                 return accept;
             }
@@ -341,7 +312,7 @@ export component ReplPill inherits Rectangle {
         // Block events from passing through to viewport
         TouchArea {
             clicked => {
-                root.focus-input();
+                ReplState.request-focus();
             }
         }
 
@@ -474,7 +445,7 @@ export component ReplPill inherits Rectangle {
                                 return accept;
                             }
                             if event.text == Key.Escape {
-                                root.dismiss();
+                                ReplState.request-dismiss();
                                 return accept;
                             }
                             if event.text == Key.Tab {
@@ -536,7 +507,7 @@ export component ReplPill inherits Rectangle {
         height: root.pill-h;
         background: transparent;
         TouchArea {
-            clicked => { root.focus-input(); }
+            clicked => { ReplState.request-focus(); }
         }
     }
 
@@ -555,7 +526,7 @@ export component ReplPill inherits Rectangle {
         // Click-through to pill
         TouchArea {
             clicked => {
-                root.focus-input();
+                ReplState.request-focus();
             }
         }
     }

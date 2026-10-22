@@ -1,6 +1,6 @@
 mod allocator_startup;
 mod app;
-mod bridges;
+use app::bridges;
 mod clipboard;
 mod components;
 #[cfg(target_os = "macos")]
@@ -10,7 +10,7 @@ mod fetch;
 #[cfg(target_os = "macos")]
 mod macos;
 mod native_file_actions;
-mod native_menu;
+use app::native_menu;
 mod plugin_startup;
 mod recent_files;
 mod recent_thumbnails;
@@ -31,6 +31,3 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     log::info!("Starting Patinae");
     app::run(started)
 }
-
-#[cfg(test)]
-mod ui_tests;

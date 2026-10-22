@@ -4,7 +4,7 @@ import { Typography, Spacing } from "../foundations/foundations.slint";
 //
 // The strip and highlight images are pre-rendered in Rust (CPU
 // rasterisation via ab_glyph) so the scene-graph cost is O(chains),
-// not O(chains × residues). See `patinae/src/bridges/sequence.rs`.
+// not O(chains × residues). See `patinae/src/app/bridges/sequence.rs`.
 
 export struct SeqChainRow {
     chain-id: string,
@@ -25,6 +25,11 @@ export struct SeqChainRow {
 // ── Sequence panel global state ────────────────────────────────────
 
 export global SequenceState {
+    in-out property <int> model-generation;
+    in-out property <bool> commit-pending;
+    callback pointer(int, int, float, float, float, bool, int);
+    callback hover-left();
+    callback close-context();
     in-out property <[SeqChainRow]> chains;
     in-out property <bool> has-data;
     in-out property <string> footer-text;
@@ -78,11 +83,6 @@ export global SequenceState {
     in-out property <length> context-menu-y;
 
     // Callbacks
-    callback residue-clicked(int, int, int);
-    // row-dragging: chain-index, x-px (relative to residue strip)
-    callback row-drag-move(int, float);
-    callback residue-drag-ended(int, int, int, int);
-    callback row-hover(int, float);
     callback viewer-colors-toggled();
     callback copy-chain-fasta(int);
     callback copy-all-fasta();

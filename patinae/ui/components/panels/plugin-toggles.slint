@@ -1,0 +1,182 @@
+import { UiText } from "../../primitives/text.slint";
+import { Theme, Typography, Spacing, Shape, Motion } from "../../foundations/foundations.slint";
+import { PluginState, PluginControl, PluginControlNode, PluginControlLeaf, PluginSubLeaf, PluginOption, PluginButtonItem, PluginHighlightLine } from "../../states/plugin-state.slint";
+import { HighlightedTextArea } from "highlighted-text-area.slint";
+
+
+export component PluginToggle inherits Rectangle {
+    in property <bool> bool-value;
+    in property <string> label;
+    in property <string> control-id;
+    in property <string> panel-id;
+
+    height: 28px;
+
+    HorizontalLayout {
+        spacing: Spacing.sm;
+
+        Rectangle {
+            width: 24px;
+            height: 100%;
+            background: transparent;
+
+            Rectangle {
+                x: 0;
+                y: (parent.height - self.height) / 2;
+                width: 14px;
+                height: 14px;
+                border-radius: 4px;
+                border-width: 1px;
+                border-color: root.bool-value ? Theme.accent-primary : Theme.text-placeholder;
+                background: root.bool-value ? Theme.accent-primary.with-alpha(0.20) : transparent;
+
+                if root.bool-value: Path {
+                    width: 10px;
+                    height: 10px;
+                    x: 2px;
+                    y: 2px;
+                    commands: "M 1 5 L 4 8 L 9 2";
+                    stroke: Theme.accent-primary;
+                    stroke-width: 1.5px;
+                    fill: transparent;
+                }
+            }
+        }
+
+        UiText {
+            horizontal-stretch: 1;
+            height: 100%;
+            text: root.label;
+            color: Theme.text-secondary;
+            text-style: Typography.label;
+            vertical-alignment: center;
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            PluginState.control-event(
+            root.panel-id,
+            root.control-id,
+            "toggle",
+            "",
+            0,
+            !root.bool-value
+            );
+        }
+    }
+}
+
+export component PluginLeafToggle inherits Rectangle {
+    in property <bool> bool-value;
+    in property <string> label;
+    in property <string> control-id;
+    in property <string> panel-id;
+
+    height: 28px;
+
+    HorizontalLayout {
+        spacing: Spacing.sm;
+
+        Rectangle {
+            width: 30px;
+            height: 100%;
+            background: transparent;
+
+            Rectangle {
+                x: 0;
+                y: (parent.height - self.height) / 2;
+                width: 28px;
+                height: 16px;
+                border-radius: 8px;
+                border-width: Shape.hairline;
+                border-color: root.bool-value ? Theme.accent-primary.with-alpha(0.60) : Theme.border-strong;
+                background: root.bool-value ? Theme.accent-primary.with-alpha(0.28) : Theme.surface-control;
+
+                Rectangle {
+                    x: root.bool-value ? parent.width - self.width - 2px : 2px;
+                    y: (parent.height - self.height) / 2;
+                    width: 12px;
+                    height: 12px;
+                    border-radius: 6px;
+                    background: root.bool-value ? Theme.accent-primary : Theme.text-muted;
+                    animate x { duration: Motion.micro; easing: ease-out; }
+                }
+            }
+        }
+
+        UiText {
+            horizontal-stretch: 1;
+            height: 100%;
+            text: root.label;
+            color: Theme.text-secondary;
+            text-style: Typography.label;
+            vertical-alignment: center;
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            PluginState.control-event(
+            root.panel-id,
+            root.control-id,
+            "toggle",
+            "",
+            0,
+            !root.bool-value
+            );
+        }
+    }
+}
+
+export component PluginSubToggle inherits Rectangle {
+    in property <bool> bool-value;
+    in property <string> label;
+    in property <string> control-id;
+    in property <string> panel-id;
+
+    HorizontalLayout {
+        spacing: Spacing.sm;
+
+        Rectangle {
+            width: 30px;
+
+            Rectangle {
+                y: (parent.height - self.height) / 2;
+                width: 28px;
+                height: 16px;
+                border-radius: 8px;
+                border-width: Shape.hairline;
+                border-color: root.bool-value ? Theme.accent-primary.with-alpha(0.60) : Theme.border-strong;
+                background: root.bool-value ? Theme.accent-primary.with-alpha(0.28) : Theme.surface-control;
+
+                Rectangle {
+                    x: root.bool-value ? parent.width - self.width - 2px : 2px;
+                    y: (parent.height - self.height) / 2;
+                    width: 12px;
+                    height: 12px;
+                    border-radius: 6px;
+                    background: root.bool-value ? Theme.accent-primary : Theme.text-muted;
+                    animate x { duration: Motion.micro; easing: ease-out; }
+                }
+            }
+        }
+
+        UiText {
+            horizontal-stretch: 1;
+            text: root.label;
+            color: Theme.text-secondary;
+            text-style: Typography.label;
+            vertical-alignment: center;
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            PluginState.control-event(root.panel-id, root.control-id, "toggle", "", 0, !root.bool-value);
+        }
+    }
+}

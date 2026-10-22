@@ -26,15 +26,15 @@ export component DockTabBar inherits Rectangle {
         padding-left: Spacing.sm; spacing: Spacing.xs; alignment: start;
         if LayoutState.sequence-visible: DockTab {
             label: "SEQUENCE"; active: LayoutState.bottom-active-tab == 0;
-            clicked => { PluginState.deactivate-placement("bottom"); LayoutState.bottom-active-tab = 0; }
+            clicked => { PluginState.deactivate-placement("bottom"); LayoutState.select-tab(0); }
         }
         if LayoutState.movie-visible: DockTab {
             label: "MOVIE"; active: LayoutState.bottom-active-tab == 1;
-            clicked => { PluginState.deactivate-placement("bottom"); LayoutState.bottom-active-tab = 1; }
+            clicked => { PluginState.deactivate-placement("bottom"); LayoutState.select-tab(1); }
         }
         for tab in PluginState.bottom-tabs: DockTab {
             label: tab.title; active: tab.active;
-            clicked => { LayoutState.bottom-active-tab = -1; PluginState.activate-panel(tab.id); }
+            clicked => { LayoutState.select-tab(-1); PluginState.activate-panel(tab.id); }
         }
     }
     Rectangle {

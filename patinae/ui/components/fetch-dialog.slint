@@ -95,7 +95,7 @@ component FormatSegment inherits Rectangle {
     }
 
     touch := TouchArea {
-        clicked => { MenuState.fetch-format = root.value; }
+        clicked => { MenuState.fetch-format-selected(root.value); }
     }
 }
 
@@ -356,7 +356,7 @@ export component FetchDialog inherits Rectangle {
                 }
 
                 CloseButton {
-                    clicked => { MenuState.fetch-visible = false; }
+                    clicked => { MenuState.fetch-close(); }
                 }
             }
 
@@ -426,7 +426,7 @@ export component FetchDialog inherits Rectangle {
 
                     DialogButton {
                         label: "Cancel";
-                        clicked => { MenuState.fetch-visible = false; }
+                        clicked => { MenuState.fetch-close(); }
                     }
 
                     DialogButton {

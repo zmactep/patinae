@@ -64,57 +64,19 @@ export component Viewport inherits Rectangle {
         width: 100%;
         height: 100%;
         mouse-cursor: ViewportState.manipulation-cursor == 2 ? grabbing : ViewportState.manipulation-cursor == 1 ? grab : default;
-        property <bool> left-press-started: false;
 
         pointer-event(event) => {
-            if event.button == PointerEventButton.left || event.kind == PointerEventKind.cancel {
-                ViewportState.manipulation-pointer(event.kind == PointerEventKind.down ? 0 : event.kind == PointerEventKind.up ? 2 : 3,
-                    self.mouse-x / 1px, self.mouse-y / 1px);
-            }
-
-            if event.kind == PointerEventKind.down {
-                ViewportState.mouse-x = self.mouse-x / 1px;
-                ViewportState.mouse-y = self.mouse-y / 1px;
-                ViewportState.press-x = ViewportState.mouse-x;
-                ViewportState.press-y = ViewportState.mouse-y;
-                if event.button == PointerEventButton.left {
-                    self.left-press-started = true;
-                    ViewportState.left-pressed = true;
-                }
-                if event.button == PointerEventButton.middle { ViewportState.middle-pressed = true; }
-                if event.button == PointerEventButton.right  { ViewportState.right-pressed = true; }
-            }
-            if event.kind == PointerEventKind.up {
-                ViewportState.mouse-x = self.mouse-x / 1px;
-                ViewportState.mouse-y = self.mouse-y / 1px;
-                if event.button == PointerEventButton.left && self.left-press-started {
-                    ViewportState.click-x = ViewportState.mouse-x;
-                    ViewportState.click-y = ViewportState.mouse-y;
-                    ViewportState.click-serial += 1;
-                }
-            }
-            if event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel {
-                if event.button == PointerEventButton.left {
-                    self.left-press-started = false;
-                    ViewportState.left-pressed = false;
-                }
-                if event.button == PointerEventButton.middle { ViewportState.middle-pressed = false; }
-                if event.button == PointerEventButton.right  { ViewportState.right-pressed = false; }
-            }
-            ViewportState.shift-held   = event.modifiers.shift;
-            ViewportState.control-held = event.modifiers.control;
-            ViewportState.alt-held     = event.modifiers.alt;
-            ViewportState.meta-held    = event.modifiers.meta;
+ViewportState.pointer(event.kind == PointerEventKind.down ? 0 : event.kind == PointerEventKind.up ? 2 : event.kind == PointerEventKind.move ? 1 : 3,
+        event.button == PointerEventButton.middle ? 1 : event.button == PointerEventButton.right ? 2 : 0,
+        self.mouse-x / 1px, self.mouse-y / 1px, event.modifiers.shift, event.modifiers.control, event.modifiers.alt, event.modifiers.meta, false);
         }
 
         moved => {
-            ViewportState.manipulation-pointer(1, self.mouse-x / 1px, self.mouse-y / 1px);
-            ViewportState.mouse-x = self.mouse-x / 1px;
-            ViewportState.mouse-y = self.mouse-y / 1px;
+ViewportState.pointer(1, 0, self.mouse-x / 1px, self.mouse-y / 1px, ViewportState.shift-held, ViewportState.control-held, ViewportState.alt-held, ViewportState.meta-held, false);
         }
 
         scroll-event(event) => {
-            ViewportState.scroll-delta = ViewportState.scroll-delta - event.delta-y / 1px;
+            ViewportState.scroll(-event.delta-y / 1px);
             return accept;
         }
     }

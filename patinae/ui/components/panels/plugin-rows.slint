@@ -1,0 +1,557 @@
+import { UiText } from "../../primitives/text.slint";
+import { Theme, Typography, Spacing, Shape, Motion } from "../../foundations/foundations.slint";
+import { PluginState, PluginControl, PluginControlNode, PluginControlLeaf, PluginSubLeaf, PluginOption, PluginButtonItem, PluginHighlightLine } from "../../states/plugin-state.slint";
+import { HighlightedTextArea } from "highlighted-text-area.slint";
+
+import { PluginButton, PluginButtonRow, PluginLeafButton, PluginSubButton } from "plugin-buttons.slint";
+import { PluginToggle, PluginLeafToggle, PluginSubToggle } from "plugin-toggles.slint";
+import { PluginSlider, PluginSelect, PluginTextInput, PluginLeafTextInput, PluginLeafSelect, PluginLeafTextArea, PluginSubTextInput, PluginSubSelect, PluginSubTitleDesc } from "plugin-fields.slint";
+
+export component PluginSubLeafRow inherits Rectangle {
+    in property <PluginSubLeaf> control;
+    in property <string> panel-id;
+
+    height: root.control.kind == "text" ? max(root.control.height * 1px, sub-text.preferred-height)
+    : max(4px, root.control.height * 1px);
+    // A button cell does not stretch (grow 0); give it a width so it can't
+    // collapse to a thin strip when the inner button is width:100%.
+    min-width: root.control.kind == "button" ? 150px : 0px;
+
+    if control.kind == "titledesc": PluginSubTitleDesc {
+        width: 100%;
+        label: root.control.label;
+        text: root.control.text;
+    }
+
+    if control.kind == "heading": UiText {
+        width: 100%;
+        text: root.control.text;
+        color: Theme.text-primary;
+        text-style: Typography.label;
+        font-weight: 600;
+        horizontal-alignment: left;
+        vertical-alignment: center;
+    }
+
+    sub-text := UiText {
+        visible: root.control.kind == "text";
+        width: 100%;
+        text: root.control.text;
+        color: Theme.text-muted;
+        text-style: Typography.hint;
+        horizontal-alignment: left;
+        wrap: word-wrap;
+    }
+
+    if control.kind == "number" || control.kind == "text-input": PluginSubTextInput {
+        width: 100%;
+        label: root.control.label;
+        value-text: root.control.value-text;
+        control-id: root.control.id;
+        panel-id: root.panel-id;
+    }
+
+    if control.kind == "select": PluginSubSelect {
+        width: 100%;
+        label: root.control.label;
+        options: root.control.options;
+        value-text: root.control.value-text;
+        control-id: root.control.id;
+        panel-id: root.panel-id;
+    }
+
+    if control.kind == "toggle": PluginSubToggle {
+        width: 100%;
+        height: 100%;
+        bool-value: root.control.bool-value;
+        label: root.control.label;
+        control-id: root.control.id;
+        panel-id: root.panel-id;
+    }
+
+    if control.kind == "button": PluginSubButton {
+        width: 100%;
+        control-id: root.control.id;
+        label: root.control.label;
+        panel-id: root.panel-id;
+    }
+}
+
+export component PluginControlLeafRow inherits Rectangle {
+    in property <PluginControlLeaf> control;
+    in property <string> panel-id;
+
+    height: root.control.kind == "text" ? max(root.control.height * 1px, leaf-text.preferred-height)
+    : max(4px, root.control.height * 1px);
+
+    if control.kind == "heading": UiText {
+        width: 100%;
+        text: root.control.text;
+        color: Theme.text-primary;
+        text-style: Typography.label;
+        font-weight: 600;
+        horizontal-alignment: left;
+        vertical-alignment: center;
+    }
+
+    leaf-text := UiText {
+        visible: root.control.kind == "text";
+        width: 100%;
+        text: root.control.text;
+        color: Theme.text-muted;
+        text-style: Typography.hint;
+        horizontal-alignment: left;
+        wrap: word-wrap;
+    }
+
+    if control.kind == "number": PluginLeafTextInput {
+        width: 100%;
+        label: root.control.label;
+        value-text: root.control.value-text;
+        control-id: root.control.id;
+        panel-id: root.panel-id;
+    }
+
+    if control.kind == "text-input": PluginLeafTextInput {
+        width: 100%;
+        label: root.control.label;
+        value-text: root.control.value-text;
+        control-id: root.control.id;
+        panel-id: root.panel-id;
+    }
+
+    if control.kind == "select": PluginLeafSelect {
+        width: 100%;
+        label: root.control.label;
+        options: root.control.options;
+        value-text: root.control.value-text;
+        control-id: root.control.id;
+        panel-id: root.panel-id;
+    }
+
+    if control.kind == "toggle": PluginLeafToggle {
+        width: 100%;
+        bool-value: root.control.bool-value;
+        label: root.control.label;
+        control-id: root.control.id;
+        panel-id: root.panel-id;
+    }
+
+    if control.kind == "button": PluginLeafButton {
+        width: 100%;
+        control-id: root.control.id;
+        primary: root.control.primary;
+        label: root.control.label;
+        panel-id: root.panel-id;
+    }
+
+    if control.kind == "text-area": PluginLeafTextArea {
+        width: 100%;
+        height: 100%;
+        control-id: root.control.id;
+        label: root.control.label;
+        value-text: root.control.value-text;
+        text: root.control.text;
+        read-only: root.control.read-only;
+        highlight-lines: root.control.highlight-lines;
+        panel-id: root.panel-id;
+    }
+
+    if control.kind == "row": HorizontalLayout {
+        spacing: root.control.gap * 1px;
+
+        for sub in root.control.sub-children: PluginSubLeafRow {
+            horizontal-stretch: sub.grow;
+            height: 100%;
+            control: sub;
+            panel-id: root.panel-id;
+        }
+    }
+
+    if control.kind == "column": VerticalLayout {
+        spacing: root.control.gap * 1px;
+
+        for sub in root.control.sub-children: PluginSubLeafRow {
+            width: 100%;
+            control: sub;
+            panel-id: root.panel-id;
+        }
+    }
+}
+
+export component PluginControlNodeRow inherits Rectangle {
+    in property <PluginControlNode> control;
+    in property <string> panel-id;
+
+    height: root.control.kind == "text" ? max(root.control.height * 1px, text-row.preferred-height)
+    : max(4px, root.control.height * 1px);
+
+    if control.kind == "heading": UiText {
+        text: root.control.text;
+        color: Theme.text-primary;
+        text-style: Typography.label;
+        font-weight: 600;
+        vertical-alignment: center;
+    }
+
+    text-row := UiText {
+        visible: root.control.kind == "text";
+        text: root.control.text;
+        color: Theme.text-muted;
+        text-style: Typography.hint;
+        wrap: word-wrap;
+    }
+
+    if control.kind == "button": PluginButton {
+        width: 100%;
+        primary: root.control.primary;
+        label: root.control.label;
+        control-id: root.control.id;
+        panel-id: root.panel-id;
+    }
+
+    if control.kind == "button-row": PluginButtonRow {
+        width: 100%;
+        buttons: root.control.buttons;
+        panel-id: root.panel-id;
+    }
+
+    if control.kind == "text-area": PluginLeafTextArea {
+        width: 100%;
+        height: 100%;
+        control-id: root.control.id;
+        label: root.control.label;
+        value-text: root.control.value-text;
+        text: root.control.text;
+        read-only: root.control.read-only;
+        highlight-lines: root.control.highlight-lines;
+        panel-id: root.panel-id;
+    }
+
+    if control.kind == "row": HorizontalLayout {
+        spacing: root.control.gap * 1px;
+
+        for node in root.control.leaf-children: PluginControlLeafRow {
+            horizontal-stretch: node.grow;
+            height: 100%;
+            control: node;
+            panel-id: root.panel-id;
+        }
+    }
+
+    if control.kind == "column": Rectangle {
+        width: 100%;
+        height: 100%;
+        border-radius: Shape.radius-md;
+        background: Theme.surface-raised.with-alpha(0.32);
+        border-width: Shape.hairline;
+        border-color: Theme.border-subtle.with-alpha(0.72);
+
+        VerticalLayout {
+            padding: 12px;
+            spacing: root.control.gap * 1px;
+            alignment: start;
+
+            for node in root.control.leaf-children: PluginControlLeafRow {
+                width: 100%;
+                vertical-stretch: node.grow;
+                control: node;
+                panel-id: root.panel-id;
+            }
+        }
+    }
+
+    if control.kind == "toggle": PluginToggle {
+        width: 100%;
+        bool-value: root.control.bool-value;
+        label: root.control.label;
+        control-id: root.control.id;
+        panel-id: root.panel-id;
+    }
+
+    if control.kind == "slider": PluginSlider {
+        width: 100%;
+        num-value: root.control.num-value;
+        minimum: root.control.min;
+        step: root.control.step;
+        maximum: root.control.max;
+        label: root.control.label;
+        control-id: root.control.id;
+        panel-id: root.panel-id;
+    }
+
+    if control.kind == "number": PluginTextInput {
+        width: 100%;
+        label: root.control.label;
+        value-text: root.control.value-text;
+        control-id: root.control.id;
+        panel-id: root.panel-id;
+    }
+
+    if control.kind == "select": PluginSelect {
+        width: 100%;
+        label: root.control.label;
+        options: root.control.options;
+        value-text: root.control.value-text;
+        control-id: root.control.id;
+        panel-id: root.panel-id;
+    }
+
+    if control.kind == "text-input": PluginTextInput {
+        width: 100%;
+        label: root.control.label;
+        value-text: root.control.value-text;
+        control-id: root.control.id;
+        panel-id: root.panel-id;
+    }
+
+    if control.kind == "image": Image {
+        width: root.control.image-width * 1px;
+        height: root.control.image-height * 1px;
+        source: root.control.image-value;
+        image-fit: contain;
+    }
+}
+
+export component PluginGroup inherits Rectangle {
+    in property <PluginControl> control;
+    in property <string> panel-id;
+
+    height: 100%;
+    border-radius: Shape.radius-md;
+    background: Theme.surface-raised.with-alpha(0.50);
+    border-width: Shape.hairline;
+    border-color: Theme.border-subtle.with-alpha(0.78);
+
+    VerticalLayout {
+        padding: 8px;
+        spacing: root.control.gap * 1px;
+
+        if root.control.label != "": Rectangle {
+            height: 24px;
+
+            UiText {
+                x: 2px;
+                width: parent.width - 28px;
+                height: 100%;
+                text: root.control.label;
+                color: Theme.text-primary;
+                text-style: Typography.label;
+                font-weight: 600;
+                vertical-alignment: center;
+            }
+
+            if !root.control.open: Path {
+                x: parent.width - 18px;
+                y: 7px;
+                width: 10px;
+                height: 10px;
+                viewbox-width: 10;
+                viewbox-height: 10;
+                commands: "M 3 2 L 7 5 L 3 8";
+                stroke: Theme.accent-primary;
+                stroke-width: 1.4px;
+                fill: transparent;
+            }
+
+            if root.control.open: Path {
+                x: parent.width - 18px;
+                y: 7px;
+                width: 10px;
+                height: 10px;
+                viewbox-width: 10;
+                viewbox-height: 10;
+                commands: "M 2 3 L 5 7 L 8 3";
+                stroke: Theme.accent-primary;
+                stroke-width: 1.4px;
+                fill: transparent;
+            }
+
+            header-touch := TouchArea {
+                mouse-cursor: pointer;
+                clicked => {
+                    PluginState.control-event(root.panel-id, root.control.id, "toggle", "", 0, !root.control.open);
+                }
+            }
+        }
+
+        for node in root.control.children: PluginControlNodeRow {
+            visible: root.control.open;
+            width: 100%;
+            vertical-stretch: node.grow;
+            control: node;
+            panel-id: root.panel-id;
+        }
+    }
+}
+
+export component PluginControlRow inherits Rectangle {
+    in property <PluginControl> control;
+    in property <string> panel-id;
+
+    height: control.kind == "text" ? max(root.control.height * 1px, text-row.preferred-height)
+    : max(4px, root.control.height * 1px);
+
+    if control.kind == "heading": UiText {
+        width: 100%;
+        text: root.control.text;
+        color: Theme.text-primary;
+        text-style: Typography.label;
+        font-weight: 600;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    text-row := UiText {
+        visible: root.control.kind == "text";
+        width: 100%;
+        text: root.control.text;
+        color: Theme.text-muted;
+        text-style: Typography.hint;
+        wrap: word-wrap;
+    }
+
+    if control.kind == "section": Rectangle {
+        height: 100%;
+        border-radius: Shape.radius-md;
+        background: touch.has-hover ? Theme.surface-control.with-alpha(0.72) : Theme.surface-raised.with-alpha(0.38);
+        border-width: Shape.hairline;
+        border-color: touch.has-hover ? Theme.border-strong : Theme.border-subtle.with-alpha(0.70);
+
+        UiText {
+            x: 10px;
+            width: 12px;
+            height: 100%;
+            text: root.control.open ? "⌄" : "›";
+            color: Theme.accent-primary;
+            text-style: Typography.label;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+
+        UiText {
+            x: 28px;
+            width: parent.width - 38px;
+            height: 100%;
+            text: root.control.label;
+            color: Theme.text-primary;
+            text-style: Typography.label;
+            font-weight: 600;
+            vertical-alignment: center;
+        }
+
+        touch := TouchArea {
+            mouse-cursor: pointer;
+            clicked => {
+                PluginState.control-event(root.panel-id, root.control.id, "toggle", "", 0, !root.control.open);
+            }
+        }
+    }
+
+    if control.kind == "button": PluginButton {
+        width: 100%;
+        primary: root.control.primary;
+        label: root.control.label;
+        control-id: root.control.id;
+        panel-id: root.panel-id;
+    }
+
+    if control.kind == "button-row": PluginButtonRow {
+        width: 100%;
+        buttons: root.control.buttons;
+        panel-id: root.panel-id;
+    }
+
+    if control.kind == "row": HorizontalLayout {
+        spacing: root.control.gap * 1px;
+
+        for node in root.control.children: PluginControlNodeRow {
+            horizontal-stretch: node.grow;
+            height: 100%;
+            control: node;
+            panel-id: root.panel-id;
+        }
+    }
+
+    if control.kind == "column": VerticalLayout {
+        spacing: root.control.gap * 1px;
+        alignment: start;
+
+        for node in root.control.children: PluginControlNodeRow {
+            width: 100%;
+            vertical-stretch: node.grow;
+            control: node;
+            panel-id: root.panel-id;
+        }
+    }
+
+    if control.kind == "group": PluginGroup {
+        width: 100%;
+        height: 100%;
+        control: root.control;
+        panel-id: root.panel-id;
+    }
+
+    if control.kind == "toggle": PluginToggle {
+        width: 100%;
+        bool-value: root.control.bool-value;
+        label: root.control.label;
+        control-id: root.control.id;
+        panel-id: root.panel-id;
+    }
+
+    if control.kind == "slider": PluginSlider {
+        width: 100%;
+        num-value: root.control.num-value;
+        minimum: root.control.min;
+        step: root.control.step;
+        maximum: root.control.max;
+        label: root.control.label;
+        control-id: root.control.id;
+        panel-id: root.panel-id;
+    }
+
+    if control.kind == "number": PluginTextInput {
+        width: 100%;
+        label: root.control.label;
+        value-text: root.control.value-text;
+        control-id: root.control.id;
+        panel-id: root.panel-id;
+    }
+
+    if control.kind == "select": PluginSelect {
+        width: 100%;
+        label: root.control.label;
+        options: root.control.options;
+        value-text: root.control.value-text;
+        control-id: root.control.id;
+        panel-id: root.panel-id;
+    }
+
+    if control.kind == "text-input": PluginTextInput {
+        width: 100%;
+        label: root.control.label;
+        value-text: root.control.value-text;
+        control-id: root.control.id;
+        panel-id: root.panel-id;
+    }
+
+    if control.kind == "text-area": PluginLeafTextArea {
+        width: 100%;
+        height: 100%;
+        control-id: root.control.id;
+        label: root.control.label;
+        value-text: root.control.value-text;
+        text: root.control.text;
+        read-only: root.control.read-only;
+        highlight-lines: root.control.highlight-lines;
+        panel-id: root.panel-id;
+    }
+
+    if control.kind == "image": Image {
+        width: root.control.image-width * 1px;
+        height: root.control.image-height * 1px;
+        source: root.control.image-value;
+        image-fit: contain;
+    }
+}

@@ -97,7 +97,7 @@ fn actual_ui_hover_tooltip_and_responsive_bounds() {
     }]))));
     let hovered = Rc::new(Cell::new(false));
     let seen = hovered.clone();
-    sequence.on_row_hover(move |chain, x| {
+    sequence.on_pointer(move |_kind, chain, x, _sx, _sy, _exclude, _generation| {
         if chain == 0 && x >= 0.0 {
             seen.set(true);
         }
@@ -397,9 +397,12 @@ fn actual_ui_hover_tooltip_and_responsive_bounds() {
 
     // Exercise the sidebar through the production callbacks and derived dock model.
     let host = Rc::new(RefCell::new(crate::app::App::new()));
-    crate::bridges::layout::setup_callbacks(host.clone(), &app);
+    let sender = host.borrow().events.clone();
+    sender.bind(&host, &app);
+    crate::bridges::layout::setup_callbacks(sender.clone(), &app);
     host.borrow().objects.attach(&app);
     let sync_dock = || {
+        sender.drain();
         let mut host = host.borrow_mut();
         let messages = host.kernel.process_messages(None, (800, 600));
         crate::bridges::layout::dispatch_messages(&messages, &app);
@@ -492,7 +495,7 @@ fn actual_ui_hover_tooltip_and_responsive_bounds() {
         let host = &mut *host;
         host.sequence.sync(&host.kernel, &app);
     }
-    crate::bridges::sequence::setup_callbacks(host.clone(), &app);
+    crate::bridges::sequence::setup_callbacks(sender.clone(), &app);
     layout.set_bottom_active_tab(0);
     app.window()
         .set_size(slint::LogicalSize::new(1512.0, 945.0));
@@ -516,12 +519,18 @@ fn actual_ui_hover_tooltip_and_responsive_bounds() {
         position: start,
         button: slint::platform::PointerEventButton::Left,
     });
+    sender.drain();
     assert!(sequence.get_drag_active());
     // Release at a new position, with no intervening move event.
     app.window().dispatch_event(WindowEvent::PointerReleased {
         position: end,
         button: slint::platform::PointerEventButton::Left,
     });
+    sender.drain();
+    assert!(sequence.get_commit_pending());
+    assert!(!host.borrow().kernel.session.selections.contains("sele"));
+    sender.drain();
+    assert!(!sequence.get_commit_pending());
     assert!(!sequence.get_drag_active());
     assert!(sequence.get_drag_end() > sequence.get_drag_start());
     assert!(host.borrow().kernel.session.selections.contains("sele"));
@@ -534,7 +543,7 @@ fn actual_ui_hover_tooltip_and_responsive_bounds() {
 
     // Exercise the real input, drawer hit testing, and completion routing in both
     // placements, including a resized viewport with the bottom dock open.
-    crate::bridges::repl::setup_callbacks(host.clone(), &app);
+    crate::bridges::repl::setup_callbacks(sender.clone(), &app);
     let repl = app.global::<crate::ReplState>();
     repl.set_output_items(ModelRc::new(VecModel::from(
         (0..40)
@@ -566,8 +575,10 @@ fn actual_ui_hover_tooltip_and_responsive_bounds() {
             position,
             button: slint::platform::PointerEventButton::Left,
         });
+        sender.drain();
     };
     let settle = || {
+        sender.drain();
         render();
         clock.set(clock.get() + Duration::from_secs(1));
         slint::platform::update_timers_and_animations();

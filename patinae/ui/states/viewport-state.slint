@@ -13,6 +13,8 @@ export struct ViewportLabel {
 }
 
 export global ViewportState {
+    callback pointer(int, int, float, float, bool, bool, bool, bool, bool);
+    callback scroll(float);
     // Rust → Slint
     in-out property <image> viewport-texture;
     in-out property <string> device-name;
@@ -42,7 +44,6 @@ export global ViewportState {
     in-out property <int> manipulation-cursor;
     callback label-size(string, int, float, float);
     // Kind: 0 down, 1 move, 2 up, 3 cancel. Rust snapshots raw winit modifiers.
-    callback manipulation-pointer(int, float, float);
 
     // Slint → Rust
 
@@ -50,14 +51,9 @@ export global ViewportState {
     in-out property <float> mouse-y;
     in-out property <float> press-x;
     in-out property <float> press-y;
-    in-out property <float> click-x;
-    in-out property <float> click-y;
-    in-out property <int> click-serial;
     in-out property <bool> left-pressed;
     in-out property <bool> middle-pressed;
     in-out property <bool> right-pressed;
-    in-out property <bool> suppress-click;
-    in-out property <float> scroll-delta;
     in-out property <bool> shift-held;
     in-out property <bool> control-held;
     in-out property <bool> alt-held;

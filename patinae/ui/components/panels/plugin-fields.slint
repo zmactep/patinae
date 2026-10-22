@@ -1,0 +1,451 @@
+import { UiText } from "../../primitives/text.slint";
+import { Theme, Typography, Spacing, Shape, Motion } from "../../foundations/foundations.slint";
+import { PluginState, PluginControl, PluginControlNode, PluginControlLeaf, PluginSubLeaf, PluginOption, PluginButtonItem, PluginHighlightLine } from "../../states/plugin-state.slint";
+import { HighlightedTextArea } from "highlighted-text-area.slint";
+
+
+export component PluginSlider inherits Rectangle {
+    in property <float> num-value;
+    in property <float> minimum;
+    in property <float> step;
+    in property <float> maximum;
+    in property <string> label;
+    in property <string> control-id;
+    in property <string> panel-id;
+    property <float> value: root.num-value;
+
+    height: 38px;
+
+    function snap-value(raw: float) -> float {
+        return clamp(
+        root.minimum + round((raw - root.minimum) / max(0.0001, root.step)) * max(0.0001, root.step),
+        root.minimum,
+        root.maximum
+        );
+    }
+
+    function display-value() -> string {
+        return root.step >= 1.0
+        ? "" + round(root.value)
+        : "" + (round(root.value * 100) / 100);
+    }
+
+    VerticalLayout {
+        spacing: 3px;
+
+        HorizontalLayout {
+            UiText {
+                horizontal-stretch: 1;
+                text: root.label;
+                color: Theme.text-secondary;
+                text-style: Typography.hint;
+            }
+            UiText {
+                width: 52px;
+                text: root.display-value();
+                color: Theme.accent-primary;
+                text-style: Typography.hint;
+                horizontal-alignment: right;
+            }
+        }
+
+        Rectangle {
+            height: 12px;
+            background: transparent;
+
+            Rectangle {
+                y: 2px;
+                width: 100%;
+                height: 8px;
+                border-radius: 4px;
+                background: Theme.surface-control;
+            }
+
+            property <length> knob-size: 10px;
+
+            property <float> denom: max(0.0001, root.maximum - root.minimum);
+            property <float> pos: clamp((root.value - root.minimum) / self.denom, 0.0, 1.0);
+
+            Rectangle {
+                x: 0;
+                y: 2px;
+                width: parent.width * parent.pos;
+                height: 8px;
+                border-radius: 4px;
+                background: Theme.accent-primary.with-alpha(0.45);
+            }
+
+            Rectangle {
+                x: clamp(parent.width * parent.pos - parent.knob-size / 2, 0px, parent.width - parent.knob-size);
+                y: 1px;
+                width: parent.knob-size;
+                height: parent.knob-size;
+                border-radius: parent.knob-size / 2;
+                background: touch.has-hover ? Theme.accent-primary : Theme.text-muted;
+            }
+
+            touch := TouchArea {
+                mouse-cursor: pointer;
+                pointer-event(event) => {
+                    if event.kind == PointerEventKind.down || event.kind == PointerEventKind.up {
+                        root.value = root.snap-value(root.minimum + parent.denom * clamp(self.mouse-x / parent.width, 0.0, 1.0));
+                        PluginState.control-event(root.panel-id, root.control-id, "number", "", root.value, false);
+                    }
+                }
+                moved => {
+                    if self.pressed {
+                        root.value = root.snap-value(root.minimum + parent.denom * clamp(self.mouse-x / parent.width, 0.0, 1.0));
+                        PluginState.control-event(root.panel-id, root.control-id, "number", "", root.value, false);
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component PluginOptionChip inherits Rectangle {
+    in property <PluginOption> option;
+    in property <string> value-text;
+    in property <string> control-id;
+    in property <string> panel-id;
+    property <bool> selected: root.option.value == root.value-text;
+
+    width: max(42px, label.preferred-width + 16px);
+    height: 28px;
+    border-radius: Shape.radius-sm;
+    background: selected ? Theme.accent-primary.with-alpha(0.14) : touch.has-hover ? Theme.surface-control : transparent;
+    border-width: Shape.hairline;
+    border-color: selected ? Theme.accent-primary.with-alpha(0.55) : Theme.border-subtle;
+
+    label := UiText {
+        text: root.option.label;
+        color: root.selected ? Theme.accent-primary : Theme.text-muted;
+        text-style: Typography.hint;
+        font-weight: 500;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            PluginState.control-event(root.panel-id, root.control-id, "select", root.option.value, 0, false);
+        }
+    }
+}
+
+export component PluginSelect inherits VerticalLayout {
+    in property <string> label;
+    in property <[PluginOption]> options;
+    in property <string> value-text;
+    in property <string> control-id;
+    in property <string> panel-id;
+
+    spacing: 4px;
+
+    UiText {
+        text: root.label;
+        color: Theme.text-secondary;
+        text-style: Typography.hint;
+    }
+
+    HorizontalLayout {
+        spacing: Spacing.xs;
+        for option in root.options: PluginOptionChip {
+            option: option;
+            value-text: root.value-text;
+            control-id: root.control-id;
+            panel-id: root.panel-id;
+        }
+    }
+}
+
+export component PluginTextInput inherits Rectangle {
+    in property <string> label;
+    in property <string> value-text;
+    in property <string> control-id;
+    in property <string> panel-id;
+
+    height: 46px;
+
+    VerticalLayout {
+        spacing: 4px;
+
+        UiText {
+            text: root.label;
+            color: Theme.text-secondary;
+            text-style: Typography.hint;
+        }
+
+        Rectangle {
+            height: 28px;
+            border-radius: Shape.radius-sm;
+            background: Theme.surface-control.with-alpha(0.70);
+            border-width: Shape.hairline;
+            border-color: input.has-focus ? Theme.accent-primary.with-alpha(0.65) : Theme.border-subtle;
+
+            input := TextInput {
+                x: 8px;
+                width: parent.width - 16px;
+                height: parent.height;
+                text: root.value-text;
+                single-line: true;
+                color: Theme.text-secondary;
+                font-size: Typography.label.size;
+                vertical-alignment: center;
+                selection-background-color: Theme.accent-primary.with-alpha(0.3);
+                selection-foreground-color: Theme.text-primary;
+
+                edited => {
+                    PluginState.control-event(root.panel-id, root.control-id, "text-edit", self.text, 0, false);
+                }
+                accepted => {
+                    PluginState.control-event(root.panel-id, root.control-id, "text-commit", self.text, 0, false);
+                }
+            }
+        }
+    }
+}
+
+export component PluginLeafTextInput inherits Rectangle {
+    in property <string> label;
+    in property <string> value-text;
+    in property <string> control-id;
+    in property <string> panel-id;
+
+    height: 46px;
+
+    VerticalLayout {
+        spacing: 4px;
+        alignment: start;
+
+        UiText {
+            text: root.label;
+            color: Theme.text-secondary;
+            text-style: Typography.hint;
+        }
+
+        Rectangle {
+            height: 28px;
+            border-radius: Shape.radius-sm;
+            background: Theme.surface-control.with-alpha(0.70);
+            border-width: Shape.hairline;
+            border-color: input.has-focus ? Theme.accent-primary.with-alpha(0.65) : Theme.border-subtle;
+
+            input := TextInput {
+                x: 8px;
+                width: parent.width - 16px;
+                height: parent.height;
+                text: root.value-text;
+                single-line: true;
+                color: Theme.text-secondary;
+                font-size: Typography.label.size;
+                vertical-alignment: center;
+                selection-background-color: Theme.accent-primary.with-alpha(0.3);
+                selection-foreground-color: Theme.text-primary;
+
+                edited => {
+                    PluginState.control-event(root.panel-id, root.control-id, "text-edit", self.text, 0, false);
+                }
+                accepted => {
+                    PluginState.control-event(root.panel-id, root.control-id, "text-commit", self.text, 0, false);
+                }
+            }
+        }
+    }
+}
+
+export component PluginTextAreaPane inherits Rectangle {
+    in property <string> panel-id;
+    in property <string> control-id;
+    in property <string> label;
+    in property <string> value-text;
+    in property <string> placeholder;
+    in property <bool> read-only;
+    in property <[PluginHighlightLine]> highlight-lines;
+
+    VerticalLayout {
+        spacing: 4px;
+
+        UiText {
+            visible: root.label != "";
+            height: root.label == "" ? 0px : 14px;
+            text: root.label;
+            color: Theme.text-secondary;
+            text-style: Typography.hint;
+        }
+
+        HighlightedTextArea {
+            vertical-stretch: 1;
+            min-height: 48px;
+            identity: root.control-id;
+            value-text: root.value-text;
+            placeholder: root.placeholder;
+            read-only: root.read-only;
+            highlight-lines: root.highlight-lines;
+            font-family: Typography.content-family;
+            font-size: Typography.label.size;
+
+            edited(text) => {
+                PluginState.control-event(root.panel-id, root.control-id, "text-area-edit", text, 0, false);
+            }
+
+            committed(text) => {
+                PluginState.control-event(root.panel-id, root.control-id, "text-commit", text, 0, false);
+            }
+        }
+    }
+}
+
+export component PluginLeafSelect inherits VerticalLayout {
+    in property <string> label;
+    in property <[PluginOption]> options;
+    in property <string> value-text;
+    in property <string> control-id;
+    in property <string> panel-id;
+
+    spacing: 4px;
+    alignment: start;
+
+    UiText {
+        text: root.label;
+        color: Theme.text-secondary;
+        text-style: Typography.hint;
+        vertical-stretch: 0;
+    }
+
+    HorizontalLayout {
+        spacing: Spacing.xs;
+        vertical-stretch: 0;
+        for option in root.options: PluginOptionChip {
+            option: option;
+            value-text: root.value-text;
+            control-id: root.control-id;
+            panel-id: root.panel-id;
+        }
+    }
+}
+
+export component PluginLeafTextArea inherits Rectangle {
+    in property <string> control-id;
+    in property <string> label;
+    in property <string> value-text;
+    in property <string> text;
+    in property <bool> read-only;
+    in property <[PluginHighlightLine]> highlight-lines;
+    in property <string> panel-id;
+
+    PluginTextAreaPane {
+        width: 100%;
+        height: 100%;
+        panel-id: root.panel-id;
+        control-id: root.control-id;
+        label: root.label;
+        value-text: root.value-text;
+        placeholder: root.text;
+        read-only: root.read-only;
+        highlight-lines: root.highlight-lines;
+    }
+}
+
+export component PluginSubTextInput inherits Rectangle {
+    in property <string> label;
+    in property <string> value-text;
+    in property <string> control-id;
+    in property <string> panel-id;
+
+    VerticalLayout {
+        spacing: 3px;
+        alignment: start;
+
+        UiText {
+            visible: root.label != "";
+            height: root.label == "" ? 0px : 14px;
+            text: root.label;
+            color: Theme.text-secondary;
+            text-style: Typography.hint;
+        }
+
+        Rectangle {
+            height: 28px;
+            border-radius: Shape.radius-sm;
+            background: Theme.surface-control.with-alpha(0.70);
+            border-width: Shape.hairline;
+            border-color: input.has-focus ? Theme.accent-primary.with-alpha(0.65) : Theme.border-subtle;
+
+            input := TextInput {
+                x: 8px;
+                width: parent.width - 16px;
+                height: parent.height;
+                text: root.value-text;
+                single-line: true;
+                color: Theme.text-secondary;
+                font-size: Typography.label.size;
+                vertical-alignment: center;
+                selection-background-color: Theme.accent-primary.with-alpha(0.3);
+                selection-foreground-color: Theme.text-primary;
+
+                edited => {
+                    PluginState.control-event(root.panel-id, root.control-id, "text-edit", self.text, 0, false);
+                }
+                accepted => {
+                    PluginState.control-event(root.panel-id, root.control-id, "text-commit", self.text, 0, false);
+                }
+            }
+        }
+    }
+}
+
+export component PluginSubSelect inherits VerticalLayout {
+    in property <string> label;
+    in property <[PluginOption]> options;
+    in property <string> value-text;
+    in property <string> control-id;
+    in property <string> panel-id;
+
+    spacing: 3px;
+    alignment: start;
+
+    UiText {
+        height: 14px;
+        text: root.label;
+        color: Theme.text-secondary;
+        text-style: Typography.hint;
+        vertical-stretch: 0;
+    }
+
+    HorizontalLayout {
+        spacing: Spacing.xs;
+        vertical-stretch: 0;
+        for option in root.options: PluginOptionChip {
+            option: option;
+            value-text: root.value-text;
+            control-id: root.control-id;
+            panel-id: root.panel-id;
+        }
+    }
+}
+
+export component PluginSubTitleDesc inherits VerticalLayout {
+    in property <string> label;
+    in property <string> text;
+
+    spacing: 3px;
+    alignment: start;
+
+    UiText {
+        text: root.label;
+        color: Theme.text-primary;
+        text-style: Typography.label;
+        font-weight: 600;
+        vertical-stretch: 0;
+    }
+
+    UiText {
+        text: root.text;
+        color: Theme.text-muted;
+        text-style: Typography.hint;
+        wrap: word-wrap;
+        vertical-stretch: 0;
+    }
+}

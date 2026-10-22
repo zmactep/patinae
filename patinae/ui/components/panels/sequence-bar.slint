@@ -69,7 +69,7 @@ component SeqChainRowView {
             // Drag-preview band — only materialises for the chain being
             // dragged. `drag-px-start`/`drag-px-end` are strip-relative so
             // the rectangle lands exactly on the residue cells.
-            if SequenceState.drag-active && SequenceState.drag-chain == chain-index: Rectangle {
+            if (SequenceState.drag-active || SequenceState.commit-pending) && SequenceState.drag-chain == chain-index: Rectangle {
                 x: SequenceState.drag-px-start;
                 y: ComponentMetrics.sequence.ruler;
                 width: SequenceState.drag-px-end - SequenceState.drag-px-start;
@@ -87,12 +87,7 @@ component SeqChainRowView {
 
                 pointer-event(event) => {
                     if event.kind == PointerEventKind.down && event.button == PointerEventButton.right {
-                        SequenceState.clear-hover();
-                        SequenceState.context-menu-chain = chain-index;
-                        SequenceState.context-menu-chain-copy-enabled = chain-data.polymer-length > 0;
-                        SequenceState.context-menu-x = self.absolute-position.x + self.mouse-x - root.panel-x-origin;
-                        SequenceState.context-menu-y = self.absolute-position.y + self.mouse-y - root.panel-y-origin;
-                        SequenceState.context-menu-open = true;
+                        SequenceState.pointer(5, chain-index, 0, (self.absolute-position.x + self.mouse-x - root.panel-x-origin) / 1px, (self.absolute-position.y + self.mouse-y - root.panel-y-origin) / 1px, false, SequenceState.model-generation);
                         return;
                     }
                 }
@@ -108,58 +103,26 @@ component SeqChainRowView {
                 mouse-cursor: text;
 
                 pointer-event(event) => {
-                    SequenceState.ctrl-held = event.modifiers.meta || event.modifiers.control;
-
-                    if event.kind == PointerEventKind.down && event.button == PointerEventButton.right {
-                        SequenceState.clear-hover();
-                        SequenceState.context-menu-chain = chain-index;
-                        SequenceState.context-menu-chain-copy-enabled = chain-data.polymer-length > 0;
-                        SequenceState.context-menu-x = self.absolute-position.x + self.mouse-x - root.panel-x-origin;
-                        SequenceState.context-menu-y = self.absolute-position.y + self.mouse-y - root.panel-y-origin;
-                        SequenceState.context-menu-open = true;
+                    if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
+                        SequenceState.pointer(5, chain-index, self.mouse-x / 1px,
+                            (self.absolute-position.x + self.mouse-x - root.panel-x-origin) / 1px,
+                            (self.absolute-position.y + self.mouse-y - root.panel-y-origin) / 1px,
+                            event.modifiers.meta || event.modifiers.control, SequenceState.model-generation);
                         return;
                     }
-
-                    if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
-                        SequenceState.clear-hover();
-                        SequenceState.drag-chain = chain-index;
-                        SequenceState.drag-active = true;
-                        SequenceState.drag-start = -1;
-                        SequenceState.drag-end = -1;
-                        SequenceState.row-drag-move(chain-index, self.mouse-x / 1px);
-                        return;
-                    }
-                    if event.kind == PointerEventKind.move {
-                        if SequenceState.drag-active && SequenceState.drag-chain == chain-index {
-                            SequenceState.row-drag-move(chain-index, self.mouse-x / 1px);
-                        } else if !SequenceState.drag-active && !SequenceState.context-menu-open {
-                            // Keep the tooltip anchored to the cursor in panel-local coordinates.
-                            SequenceState.hover-x = self.absolute-position.x + self.mouse-x;
-                            SequenceState.hover-y = self.absolute-position.y + self.mouse-y;
-                            SequenceState.row-hover(chain-index, self.mouse-x / 1px);
-                        }
-                        return;
-                    }
-                    if event.kind == PointerEventKind.cancel { SequenceState.drag-active = false; SequenceState.clear-hover(); }
-                    if event.kind == PointerEventKind.up
-                        && event.button == PointerEventButton.left
-                        && SequenceState.drag-active
-                        && SequenceState.drag-chain == chain-index {
-                        SequenceState.row-drag-move(chain-index, self.mouse-x / 1px);
-                        SequenceState.residue-drag-ended(
-                            chain-index,
-                            SequenceState.drag-start,
-                            chain-index,
-                            SequenceState.drag-end
-                        );
-                        SequenceState.drag-active = false;
+                    if event.button == PointerEventButton.left || event.kind == PointerEventKind.move || event.kind == PointerEventKind.cancel {
+                        SequenceState.pointer(event.kind == PointerEventKind.down ? 0 : event.kind == PointerEventKind.up ? 2 : event.kind == PointerEventKind.move ? 1 : 3,
+                            chain-index, self.mouse-x / 1px,
+                            (self.absolute-position.x + self.mouse-x) / 1px,
+                            (self.absolute-position.y + self.mouse-y) / 1px,
+                            event.modifiers.meta || event.modifiers.control, SequenceState.model-generation);
                     }
                 }
 
                 changed has-hover => {
                     if !self.has-hover && !SequenceState.drag-active {
                         if SequenceState.hover-chain == chain-index {
-                            SequenceState.clear-hover();
+                            SequenceState.hover-left();
                         }
                     }
                 }
@@ -174,12 +137,7 @@ component SeqChainRowView {
 
             pointer-event(event) => {
                 if event.kind == PointerEventKind.down && event.button == PointerEventButton.right {
-                    SequenceState.clear-hover();
-                    SequenceState.context-menu-chain = chain-index;
-                    SequenceState.context-menu-chain-copy-enabled = chain-data.polymer-length > 0;
-                    SequenceState.context-menu-x = self.absolute-position.x + self.mouse-x - root.panel-x-origin;
-                    SequenceState.context-menu-y = self.absolute-position.y + self.mouse-y - root.panel-y-origin;
-                    SequenceState.context-menu-open = true;
+                    SequenceState.pointer(5, chain-index, 0, (self.absolute-position.x + self.mouse-x - root.panel-x-origin) / 1px, (self.absolute-position.y + self.mouse-y - root.panel-y-origin) / 1px, false, SequenceState.model-generation);
                     return;
                 }
             }
@@ -243,7 +201,7 @@ component SeqContextMenu inherits Rectangle {
             disabled: !SequenceState.context-menu-chain-copy-enabled;
 
             activated => {
-                SequenceState.context-menu-open = false;
+                SequenceState.close-context();
                 SequenceState.copy-chain-fasta(SequenceState.context-menu-chain);
             }
         }
@@ -253,7 +211,7 @@ component SeqContextMenu inherits Rectangle {
             disabled: !SequenceState.has-data;
 
             activated => {
-                SequenceState.context-menu-open = false;
+                SequenceState.close-context();
                 SequenceState.copy-all-fasta();
             }
         }
@@ -304,7 +262,7 @@ export component SequenceBar inherits Rectangle {
     // Use a Rectangle root so the floating tooltip can be positioned
     // absolutely on top of the layout.
 
-    changed visible => { if !root.visible { SequenceState.clear-hover(); } }
+    changed visible => { if !root.visible { SequenceState.hover-left(); } }
     property <length> content-width: max(SequenceState.max-row-width, max(0px, root.width - 2 * Spacing.xs));
 
     panel-context-touch := TouchArea {
@@ -314,12 +272,7 @@ export component SequenceBar inherits Rectangle {
 
         pointer-event(event) => {
             if event.kind == PointerEventKind.down && event.button == PointerEventButton.right {
-                SequenceState.clear-hover();
-                SequenceState.context-menu-chain = -1;
-                SequenceState.context-menu-chain-copy-enabled = false;
-                SequenceState.context-menu-x = self.mouse-x;
-                SequenceState.context-menu-y = self.mouse-y;
-                SequenceState.context-menu-open = true;
+                SequenceState.pointer(5, -1, 0, self.mouse-x / 1px, self.mouse-y / 1px, false, SequenceState.model-generation);
                 return;
             }
         }
@@ -351,8 +304,8 @@ export component SequenceBar inherits Rectangle {
             content-y <=> SequenceState.viewport-y;
             init => { SequenceState.viewport-height = self.height; }
             changed height => { SequenceState.viewport-height = self.height; }
-            changed content-x => { SequenceState.clear-hover(); TooltipState.dismiss(); }
-            changed content-y => { SequenceState.clear-hover(); TooltipState.dismiss(); }
+            changed content-x => { SequenceState.hover-left(); TooltipState.dismiss(); }
+            changed content-y => { SequenceState.hover-left(); TooltipState.dismiss(); }
             content-width: root.content-width;
 
             VerticalLayout {
@@ -389,7 +342,7 @@ export component SequenceBar inherits Rectangle {
 
         pointer-event(event) => {
             if event.kind == PointerEventKind.down {
-                SequenceState.context-menu-open = false;
+                SequenceState.close-context();
             }
         }
     }

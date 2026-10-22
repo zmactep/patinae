@@ -8,6 +8,8 @@ export struct RecentFileItem {
 }
 
 export global MenuState {
+    callback fetch-close();
+    callback fetch-format-selected(string);
     callback action(string);
     callback open-recent(string);
 

@@ -132,11 +132,11 @@ export component MainLayout inherits Rectangle {
             mouse-cursor: col-resize;
             moved => {
                 if self.pressed {
-                    LayoutState.right-dock-width = clamp(
+                    LayoutState.resize-right(clamp(
                         LayoutState.right-dock-width - (self.mouse-x - self.pressed-x),
                         ComponentMetrics.right-dock-min-w,
                         ComponentMetrics.right-dock-max-w
-                    );
+                    ) / 1px);
                 }
             }
         }
@@ -155,11 +155,11 @@ export component MainLayout inherits Rectangle {
             mouse-cursor: row-resize;
             moved => {
                 if self.pressed {
-                    LayoutState.bottom-dock-height = clamp(
+                    LayoutState.resize-bottom(clamp(
                         LayoutState.bottom-dock-height - (self.mouse-y - self.pressed-y),
                         ComponentMetrics.bottom-dock-min-h,
                         ComponentMetrics.bottom-dock-max-h
-                    );
+                    ) / 1px);
                 }
             }
         }
@@ -235,35 +235,16 @@ export component MainLayout inherits Rectangle {
             width: parent.width - (root.rw > 0px ? ComponentMetrics.row-actions-w : 0px);
             height: parent.height - root.bh;
             pointer-event(event) => {
-                if event.kind == PointerEventKind.down {
-                    ObjectsState.popover-close();
-                    if self.mouse-x >= root.sw && self.mouse-x < parent.width - root.rw
-                       && self.mouse-y >= 0px && self.mouse-y < parent.height - root.bh {
-                        ViewportState.mouse-x = (self.mouse-x - root.sw) / 1px;
-                        ViewportState.mouse-y = self.mouse-y / 1px;
-                        ViewportState.press-x = ViewportState.mouse-x;
-                        ViewportState.press-y = ViewportState.mouse-y;
-                        ViewportState.suppress-click = true;
-                        if event.button == PointerEventButton.left   { ViewportState.left-pressed = true; }
-                        if event.button == PointerEventButton.middle { ViewportState.middle-pressed = true; }
-                        if event.button == PointerEventButton.right  { ViewportState.right-pressed = true; }
-                    }
-                }
-                if event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel {
-                    if event.button == PointerEventButton.left   { ViewportState.left-pressed = false; }
-                    if event.button == PointerEventButton.middle { ViewportState.middle-pressed = false; }
-                    if event.button == PointerEventButton.right  { ViewportState.right-pressed = false; }
+                if event.kind == PointerEventKind.down { ObjectsState.popover-close(); }
+                if self.mouse-x >= root.sw && self.mouse-x < parent.width - root.rw && self.mouse-y >= 0px && self.mouse-y < parent.height - root.bh {
+ViewportState.pointer(event.kind == PointerEventKind.down ? 0 : event.kind == PointerEventKind.up ? 2 : event.kind == PointerEventKind.move ? 1 : 3,
+        event.button == PointerEventButton.middle ? 1 : event.button == PointerEventButton.right ? 2 : 0,
+        (self.mouse-x - root.sw) / 1px, self.mouse-y / 1px, event.modifiers.shift, event.modifiers.control, event.modifiers.alt, event.modifiers.meta, true);
                 }
             }
-            moved => {
-                if self.mouse-x >= root.sw && self.mouse-x < parent.width - root.rw
-                   && self.mouse-y >= 0px && self.mouse-y < parent.height - root.bh {
-                    ViewportState.mouse-x = (self.mouse-x - root.sw) / 1px;
-                    ViewportState.mouse-y = self.mouse-y / 1px;
-                }
-            }
+            moved => { ViewportState.pointer(1, 0, (self.mouse-x - root.sw) / 1px, self.mouse-y / 1px, ViewportState.shift-held, ViewportState.control-held, ViewportState.alt-held, ViewportState.meta-held, true); }
             scroll-event(event) => {
-                ViewportState.scroll-delta = ViewportState.scroll-delta - event.delta-y / 1px;
+                ViewportState.scroll(-event.delta-y / 1px);
                 return accept;
             }
         }

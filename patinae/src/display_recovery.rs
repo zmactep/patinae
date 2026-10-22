@@ -1,5 +1,3 @@
-use std::cell::Cell;
-
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct DisplayRecovery {
     live_textures_invalid: bool,
@@ -30,16 +28,6 @@ pub(crate) fn request_display_recovery_redraw(slint_window: &slint::Window) {
     let _ = slint_window.with_winit_window(|winit_window| {
         winit_window.request_redraw();
     });
-}
-
-pub(crate) fn mark_display_transition_and_redraw(
-    recovery: &Cell<DisplayRecovery>,
-    slint_window: &slint::Window,
-) {
-    let mut state = recovery.get();
-    state.mark_transition();
-    recovery.set(state);
-    request_display_recovery_redraw(slint_window);
 }
 
 pub(crate) fn log_window_event(

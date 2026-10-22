@@ -38,6 +38,9 @@ export global LayoutState {
     in-out property <string> mod-key: "⌘";
 
     // ── Callbacks (Slint -> Rust, routed through message bus) ──────
+    callback resize-right(float);
+    callback resize-bottom(float);
+    callback select-tab(int);
     callback show-panel(/* id */ string);
     callback hide-panel(/* id */ string);
 }

@@ -1,6 +1,3 @@
-use std::cell::RefCell;
-use std::rc::Rc;
-
 use slint::ComponentHandle;
 
 use patinae_framework::message::AppMessage;
@@ -11,27 +8,8 @@ use crate::{AppWindow, LayoutState, ReplState};
 // Callbacks
 // ---------------------------------------------------------------------------
 
-pub fn setup_callbacks(app: Rc<RefCell<crate::app::App>>, window: &AppWindow) {
-    let ls = window.global::<LayoutState>();
-
-    // --- Show panel ---
-    {
-        let app = app.clone();
-        ls.on_show_panel(move |id| {
-            let mut a = app.borrow_mut();
-            a.kernel.bus.send(AppMessage::ShowPanel(id.to_string()));
-        });
-    }
-
-    // --- Hide panel ---
-    {
-        let app = app.clone();
-        ls.on_hide_panel(move |id| {
-            let mut a = app.borrow_mut();
-            a.kernel.bus.send(AppMessage::HidePanel(id.to_string()));
-        });
-    }
-}
+pub(crate) mod events;
+pub(crate) use events::setup_callbacks;
 
 // ---------------------------------------------------------------------------
 // Dispatch unhandled messages to Slint layout state

@@ -1,6 +1,3 @@
-use std::cell::RefCell;
-use std::rc::Rc;
-
 use slint::ComponentHandle;
 
 use patinae_cmd::tasks::{TaskId, TaskOutcomeStatus};
@@ -11,120 +8,8 @@ use crate::{AppWindow, LayoutState, MenuState, StartState};
 
 const PDB_ID_DISPLAY_CHARS: usize = 4;
 
-pub fn setup_callbacks(app: Rc<RefCell<crate::app::App>>, window: &AppWindow) {
-    let menu = window.global::<MenuState>();
-
-    {
-        let app = app.clone();
-        let weak = window.as_weak();
-        menu.on_action(move |action| {
-            let Some(window) = weak.upgrade() else {
-                return;
-            };
-            if window.global::<crate::PluginListState>().get_visible() {
-                return;
-            }
-            dispatch_menu_action(app.clone(), &window, action.as_str());
-        });
-    }
-
-    {
-        let app = app.clone();
-        let weak = window.as_weak();
-        menu.on_open_recent(move |path| {
-            let Some(window) = weak.upgrade() else {
-                return;
-            };
-            if window.global::<crate::PluginListState>().get_visible() {
-                return;
-            }
-            app.borrow_mut().open_recent_file(&window, path.as_str());
-        });
-    }
-
-    {
-        let weak = window.as_weak();
-        menu.on_fetch_pdb_edited(move |pdb_id| {
-            let Some(window) = weak.upgrade() else {
-                return;
-            };
-            normalize_fetch_pdb_edit(&window, pdb_id.as_str());
-        });
-    }
-
-    {
-        let app = app.clone();
-        let weak = window.as_weak();
-        menu.on_fetch_preview(move |pdb_id| {
-            let Some(window) = weak.upgrade() else {
-                return;
-            };
-            request_fetch_preview(app.clone(), &window, pdb_id.as_str());
-        });
-    }
-
-    {
-        let app = app.clone();
-        let weak = window.as_weak();
-        menu.on_fetch_submit(move |pdb_id, object_name, format| {
-            let Some(window) = weak.upgrade() else {
-                return;
-            };
-            submit_fetch(
-                app.clone(),
-                &window,
-                pdb_id.as_str(),
-                object_name.as_str(),
-                format.as_str(),
-            );
-        });
-    }
-
-    {
-        let app = app.clone();
-        let weak = window.as_weak();
-        menu.on_fetch_open_doi(move |doi| {
-            let Some(window) = weak.upgrade() else {
-                return;
-            };
-            open_doi_link(app.clone(), &window, doi.as_str());
-        });
-    }
-
-    let start = window.global::<StartState>();
-
-    {
-        let weak = window.as_weak();
-        start.on_fetch_pdb_edited(move |pdb_id| {
-            let Some(window) = weak.upgrade() else {
-                return;
-            };
-            normalize_start_fetch_edit(&window, pdb_id.as_str());
-        });
-    }
-
-    {
-        let app = app.clone();
-        let weak = window.as_weak();
-        start.on_fetch_submit(move |pdb_id| {
-            let Some(window) = weak.upgrade() else {
-                return;
-            };
-            submit_start_fetch(app.clone(), &window, pdb_id.as_str());
-        });
-    }
-
-    {
-        let app = app.clone();
-        let weak = window.as_weak();
-        start.on_open_example(move |pdb_id| {
-            let Some(window) = weak.upgrade() else {
-                return;
-            };
-            submit_start_fetch(app.clone(), &window, pdb_id.as_str());
-        });
-    }
-}
+pub(crate) mod events;
+pub(crate) use events::setup_callbacks;
 
 pub(crate) fn sync_fetch_preview(
     kernel: &patinae_framework::kernel::AppKernel,
@@ -173,10 +58,9 @@ pub(crate) fn sync_fetch_preview(
     }
 }
 
-fn dispatch_menu_action(app: Rc<RefCell<crate::app::App>>, window: &AppWindow, action: &str) {
+fn dispatch_menu_action(app: &mut crate::app::App, window: &AppWindow, action: &str) {
     if let Some(panel_id) = action.strip_prefix("panel:") {
-        app.borrow_mut()
-            .kernel
+        app.kernel
             .bus
             .send(AppMessage::TogglePanel(panel_id.to_string()));
         window.window().request_redraw();
@@ -204,32 +88,30 @@ fn dispatch_menu_action(app: Rc<RefCell<crate::app::App>>, window: &AppWindow, a
         "help" => enqueue_command(app, "help"),
         "quit" => enqueue_command(app, "quit"),
         other => {
-            app.borrow_mut()
-                .kernel
+            app.kernel
                 .bus
                 .print_warning(format!("Unknown menu action: {other}"));
         }
     }
 }
 
-fn enqueue_command(app: Rc<RefCell<crate::app::App>>, command: impl Into<String>) {
-    app.borrow_mut().kernel.bus.execute_command(command.into());
+fn enqueue_command(app: &mut crate::app::App, command: impl Into<String>) {
+    app.kernel.bus.execute_command(command.into());
 }
 
-fn focus_repl(app: Rc<RefCell<crate::app::App>>, window: &AppWindow) {
+fn focus_repl(app: &mut crate::app::App, window: &AppWindow) {
     if window.global::<LayoutState>().get_empty_mode() {
         return;
     }
 
-    app.borrow_mut()
-        .kernel
+    app.kernel
         .bus
         .send(AppMessage::ShowPanel("repl".to_string()));
     window.window().request_redraw();
 }
 
-fn toggle_opaque_background(app: Rc<RefCell<crate::app::App>>) {
-    let current = app.borrow().kernel.session.settings.ui.opaque_background;
+fn toggle_opaque_background(app: &mut crate::app::App) {
+    let current = app.kernel.session.settings.ui.opaque_background;
     let next = if current { "off" } else { "on" };
     enqueue_command(app, format!("set opaque_background, {next}"));
 }
@@ -246,7 +128,7 @@ fn open_fetch_dialog(window: &AppWindow) {
     menu.set_fetch_visible(true);
 }
 
-fn request_fetch_preview(app: Rc<RefCell<crate::app::App>>, window: &AppWindow, pdb_id: &str) {
+fn request_fetch_preview(app: &mut crate::app::App, window: &AppWindow, pdb_id: &str) {
     let normalized = normalize_pdb_id(pdb_id);
     let menu = window.global::<MenuState>();
     menu.set_fetch_task_id(String::new().into());
@@ -262,7 +144,6 @@ fn request_fetch_preview(app: Rc<RefCell<crate::app::App>>, window: &AppWindow, 
     clear_fetch_metadata(&menu);
     menu.set_fetch_status(String::new().into());
     let admission = app
-        .borrow()
         .kernel
         .spawn_task(crate::fetch::PdbMetadataTask::new(normalized));
     match admission {
@@ -301,32 +182,24 @@ fn normalize_start_fetch_edit(window: &AppWindow, pdb_id: &str) {
     window.window().request_redraw();
 }
 
-fn open_doi_link(app: Rc<RefCell<crate::app::App>>, window: &AppWindow, doi: &str) {
+fn open_doi_link(app: &mut crate::app::App, window: &AppWindow, doi: &str) {
     let Some(url) = doi_url(doi) else {
-        app.borrow_mut()
-            .kernel
+        app.kernel
             .bus
             .print_warning("No DOI is available for this PDB entry.");
         return;
     };
 
-    match webbrowser::open(&url) {
-        Ok(_) => app.borrow_mut().notify_short("Opened DOI in browser"),
-        Err(err) => app
-            .borrow_mut()
-            .kernel
-            .bus
-            .print_warning(format!("Could not open DOI link: {err}")),
-    }
+    app.effects.push(crate::app::effects::Effect::OpenUrl(url));
     window.window().request_redraw();
 }
 
-fn submit_start_fetch(app: Rc<RefCell<crate::app::App>>, window: &AppWindow, pdb_id: &str) {
+fn submit_start_fetch(app: &mut crate::app::App, window: &AppWindow, pdb_id: &str) {
     let start = window.global::<StartState>();
     match build_start_fetch_command(pdb_id) {
         Ok(command) => {
             start.set_fetch_status(String::new().into());
-            app.borrow_mut().kernel.bus.execute_command(command);
+            app.kernel.bus.execute_command(command);
             window.window().request_redraw();
         }
         Err(error) => {
@@ -338,7 +211,7 @@ fn submit_start_fetch(app: Rc<RefCell<crate::app::App>>, window: &AppWindow, pdb
 }
 
 fn submit_fetch(
-    app: Rc<RefCell<crate::app::App>>,
+    app: &mut crate::app::App,
     window: &AppWindow,
     pdb_id: &str,
     object_name: &str,
@@ -348,7 +221,7 @@ fn submit_fetch(
     match build_fetch_command(pdb_id, object_name, format) {
         Ok(command) => {
             menu.set_fetch_visible(false);
-            app.borrow_mut().kernel.bus.execute_command(command);
+            app.kernel.bus.execute_command(command);
             window.window().request_redraw();
         }
         Err(error) => {
@@ -368,66 +241,22 @@ fn clear_fetch_metadata(menu: &MenuState) {
     menu.set_fetch_doi(String::new().into());
 }
 
-fn menu_open_file(app: Rc<RefCell<crate::app::App>>, _window: &AppWindow) {
-    #[cfg(target_os = "macos")]
-    {
-        if let Some(path) = crate::macos::open_file_path("Open") {
-            app.borrow_mut().route_menu_open_file(path);
-        }
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        app.borrow_mut()
-            .kernel
-            .bus
-            .print_warning("Open dialog is unavailable on this platform; use load in the REPL.");
-    }
+fn menu_open_file(app: &mut crate::app::App, _window: &AppWindow) {
+    app.effects
+        .push(crate::app::effects::Effect::OpenFile { script: false });
 }
 
-fn menu_run_script(app: Rc<RefCell<crate::app::App>>, _window: &AppWindow) {
-    #[cfg(target_os = "macos")]
-    {
-        if let Some(path) = crate::macos::open_file_path("Run Script") {
-            app.borrow_mut().route_menu_run_script(path);
-        }
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        app.borrow_mut().kernel.bus.print_warning(
-            "Run Script dialog is unavailable on this platform; use run in the REPL.",
-        );
-    }
+fn menu_run_script(app: &mut crate::app::App, _window: &AppWindow) {
+    app.effects
+        .push(crate::app::effects::Effect::OpenFile { script: true });
 }
 
-fn menu_save_file(
-    app: Rc<RefCell<crate::app::App>>,
-    title: &str,
-    default_name: &str,
-    command: &str,
-) {
-    #[cfg(not(target_os = "macos"))]
-    let _ = default_name;
-
-    #[cfg(target_os = "macos")]
-    {
-        if let Some(path) = crate::macos::save_file_path_with_default(title, default_name) {
-            let path_text = path.to_string_lossy();
-            let path = quote_command_arg(path_text.as_ref());
-            app.borrow_mut()
-                .kernel
-                .bus
-                .execute_command(format!("{command} {path}"));
-        }
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        app.borrow_mut().kernel.bus.print_warning(format!(
-            "{title} dialog is unavailable on this platform; use {command} in the REPL."
-        ));
-    }
+fn menu_save_file(app: &mut crate::app::App, title: &str, default_name: &str, command: &str) {
+    app.effects.push(crate::app::effects::Effect::SaveFile {
+        title: title.into(),
+        default_name: default_name.into(),
+        command: command.into(),
+    });
 }
 
 pub(crate) fn build_fetch_command(

@@ -1,0 +1,227 @@
+import { UiText } from "../../primitives/text.slint";
+import { Theme, Typography, Spacing, Shape, Motion } from "../../foundations/foundations.slint";
+import { PluginState, PluginControl, PluginControlNode, PluginControlLeaf, PluginSubLeaf, PluginOption, PluginButtonItem, PluginHighlightLine } from "../../states/plugin-state.slint";
+import { HighlightedTextArea } from "highlighted-text-area.slint";
+
+
+export component PluginButton inherits Rectangle {
+    in property <bool> primary;
+    in property <string> label;
+    in property <string> control-id;
+    in property <string> panel-id;
+
+    height: 32px;
+    border-radius: Shape.radius-sm;
+    background: root.primary
+    ? Theme.accent-primary.with-alpha(0.20)
+    : touch.has-hover ? Theme.surface-control : Theme.surface-raised.with-alpha(0.22);
+    border-width: Shape.hairline;
+    border-color: root.primary
+    ? Theme.accent-primary.with-alpha(0.68)
+    : touch.has-hover ? Theme.border-strong : Theme.border-subtle.with-alpha(0.72);
+
+    UiText {
+        text: root.label;
+        color: root.primary ? Theme.accent-primary : Theme.text-secondary;
+        text-style: Typography.label;
+        font-weight: 500;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            PluginState.control-event(root.panel-id, root.control-id, "click", "", 0, false);
+        }
+    }
+}
+
+export component PluginGlyph {
+    in property <string> icon;
+    in property <color> tint;
+
+    width: 14px;
+    height: 14px;
+
+    if root.icon == "run": Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 16;
+        viewbox-height: 16;
+        commands: "M 5 3 L 12 8 L 5 13 Z";
+        stroke: transparent;
+        fill: root.tint;
+    }
+
+    if root.icon == "stop": Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 16;
+        viewbox-height: 16;
+        commands: "M 5 5 L 11 5 L 11 11 L 5 11 Z";
+        stroke: transparent;
+        fill: root.tint;
+    }
+
+    if root.icon == "clear": Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 16;
+        viewbox-height: 16;
+        commands: "M 5 6 L 11 6 M 6 6 L 6.5 13 L 9.5 13 L 10 6 M 7 4 L 9 4 M 4 5 L 12 5";
+        stroke: root.tint;
+        stroke-width: 1.3px;
+        fill: transparent;
+    }
+}
+
+export component PluginIconButton inherits Rectangle {
+    in property <PluginButtonItem> button;
+    in property <string> panel-id;
+
+    width: root.button.primary ? 32px : 28px;
+    height: 24px;
+    border-radius: Shape.radius-sm;
+    background: root.button.primary
+    ? (root.button.enabled ? Theme.accent-primary.with-alpha(0.16) : transparent)
+    : touch.has-hover && root.button.enabled ? Theme.surface-control : transparent;
+    border-width: Shape.hairline;
+    border-color: root.button.primary && root.button.enabled
+    ? Theme.accent-primary.with-alpha(0.55)
+    : touch.has-hover && root.button.enabled ? Theme.border-strong : Theme.border-subtle;
+    opacity: root.button.enabled ? 1.0 : 0.35;
+
+    PluginGlyph {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        icon: root.button.icon;
+        tint: root.button.primary ? Theme.accent-primary : Theme.text-secondary;
+    }
+
+    touch := TouchArea {
+        enabled: root.button.enabled;
+        mouse-cursor: pointer;
+        clicked => {
+            PluginState.control-event(root.panel-id, root.button.id, "click", "", 0, false);
+        }
+    }
+
+    if touch.has-hover && root.button.enabled && root.button.label != "": Rectangle {
+        y: parent.height + 4px;
+        width: tooltip-text.preferred-width + 10px;
+        height: 20px;
+        border-radius: Shape.radius-sm;
+        background: Theme.surface-overlay;
+        border-width: Shape.hairline;
+        border-color: Theme.border-strong;
+
+        tooltip-text := UiText {
+            x: 5px;
+            width: parent.width - 10px;
+            height: 100%;
+            text: root.button.label;
+            color: Theme.text-secondary;
+            text-style: Typography.hint;
+            vertical-alignment: center;
+        }
+    }
+}
+
+export component PluginButtonRow inherits Rectangle {
+    in property <[PluginButtonItem]> buttons;
+    in property <string> panel-id;
+
+    height: 24px;
+
+    HorizontalLayout {
+        spacing: Spacing.xs;
+
+        for button in root.buttons: PluginIconButton {
+            button: button;
+            panel-id: root.panel-id;
+        }
+
+        Rectangle {
+            horizontal-stretch: 1;
+            background: transparent;
+        }
+    }
+}
+
+export component PluginLeafButton inherits Rectangle {
+    in property <string> control-id;
+    in property <bool> primary;
+    in property <string> label;
+    in property <string> panel-id;
+    property <bool> action: root.control-id == "run";
+
+    height: 100%;
+    border-radius: Shape.radius-sm;
+    background: root.action
+    ? (touch.has-hover ? Theme.accent-primary.brighter(0.15) : Theme.accent-primary)
+    : root.primary ? Theme.accent-primary.with-alpha(0.14)
+    : touch.has-hover ? Theme.surface-control.with-alpha(0.6) : transparent;
+
+    if root.primary && !root.action: Rectangle {
+        x: 0;
+        width: 2px;
+        height: parent.height - 6px;
+        y: 3px;
+        background: Theme.accent-primary;
+    }
+
+    Text {
+        x: root.action ? 0px : 10px;
+        width: root.action ? parent.width : parent.width - 20px;
+        height: 100%;
+        text: root.label;
+        color: root.action ? Theme.surface-base : (root.primary ? Theme.accent-primary : Theme.text-secondary);
+        font-size: root.action ? Typography.label.size : Typography.hint.size;
+        font-weight: root.action || root.primary ? 500 : 400;
+        horizontal-alignment: root.action ? center : left;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            PluginState.control-event(root.panel-id, root.control-id, "click", "", 0, false);
+        }
+    }
+}
+
+export component PluginSubButton inherits Rectangle {
+    in property <string> control-id;
+    in property <string> label;
+    in property <string> panel-id;
+    property <bool> action: root.control-id == "run";
+
+    height: 100%;
+    min-width: btn-label.preferred-width + (root.action ? 28px : 4px);
+    border-radius: Shape.radius-sm;
+    background: root.action
+    ? (touch.has-hover ? Theme.accent-primary.brighter(0.15) : Theme.accent-primary)
+    : touch.has-hover ? Theme.surface-control.with-alpha(0.6) : transparent;
+
+    btn-label := UiText {
+        x: root.action ? 12px : 0px;
+        width: parent.width - (root.action ? 24px : 0px);
+        height: 100%;
+        text: root.label;
+        color: root.action ? Theme.surface-base : Theme.text-secondary;
+        text-style: Typography.label;
+        font-weight: root.action ? 500 : 400;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            PluginState.control-event(root.panel-id, root.control-id, "click", "", 0, false);
+        }
+    }
+}

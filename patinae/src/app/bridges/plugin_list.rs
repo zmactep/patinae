@@ -2,7 +2,7 @@
 
 #[cfg(test)]
 use std::path::Path;
-use std::{cell::RefCell, collections::HashSet, path::PathBuf, rc::Rc};
+use std::{collections::HashSet, path::PathBuf};
 
 use crate::{AppWindow, PluginListRow, PluginListState};
 use patinae_cmd::LoadedPluginCapability;
@@ -279,98 +279,8 @@ impl PluginList {
     }
 }
 
-pub(crate) fn setup_callbacks(app: Rc<RefCell<crate::app::App>>, window: &AppWindow) {
-    let add_app = app.clone();
-    let weak = window.as_weak();
-    window.global::<PluginListState>().on_add(move || {
-        let Some(window) = weak.upgrade() else {
-            return;
-        };
-        if window.global::<PluginListState>().get_picking()
-            || window.global::<PluginListState>().get_applying()
-        {
-            return;
-        }
-        window.global::<PluginListState>().set_picking(true);
-        let app = add_app.clone();
-        let weak = window.as_weak();
-        // AppKit runs a nested event loop. Defer past the Slint callback and
-        // hold no App borrow while the native picker is open.
-        if let Err(error) = slint::spawn_local(async move {
-            let Some(window) = weak.upgrade() else {
-                return;
-            };
-            #[cfg(target_os = "macos")]
-            let selected: Result<Vec<PathBuf>, String> =
-                Ok(crate::macos::open_plugin_paths().unwrap_or_default());
-            #[cfg(not(target_os = "macos"))]
-            let selected: Result<Vec<PathBuf>, String> =
-                Err("Plugin file picker is unavailable on this platform.".into());
-            window.global::<PluginListState>().set_picking(false);
-            let mut app = app.borrow_mut();
-            match selected {
-                Ok(paths) => app.plugin_list.add(paths),
-                Err(error) => app.plugin_list.save_error = error,
-            }
-            app.plugin_list.publish(&window);
-        }) {
-            window.global::<PluginListState>().set_picking(false);
-            let mut app = add_app.borrow_mut();
-            app.plugin_list.save_error = format!("Cannot open plugin picker: {error}");
-            app.plugin_list.publish(&window);
-        }
-    });
-    let weak = window.as_weak();
-    let open_app = app.clone();
-    window.global::<PluginListState>().on_open(move || {
-        let Some(window) = weak.upgrade() else {
-            return;
-        };
-        let mut app = open_app.borrow_mut();
-        if !app.plugin_list.applying() {
-            app.plugin_list = PluginList::read(
-                &patinae_settings::paths::PathResolver::from_process_env().config_file(),
-                &loaded_entries(&app.plugins),
-            );
-        }
-        app.plugin_list.publish(&window);
-        window.global::<PluginListState>().set_visible(true);
-        app.sync_plugin_list(&window);
-    });
-    let weak = window.as_weak();
-    let remove_app = app.clone();
-    window.global::<PluginListState>().on_remove(move |index| {
-        let Some(window) = weak.upgrade() else {
-            return;
-        };
-        let Ok(index) = usize::try_from(index) else {
-            return;
-        };
-        let mut app = remove_app.borrow_mut();
-        if app.plugin_list.applying() {
-            return;
-        }
-        app.plugin_list.remove(index);
-        app.plugin_list.publish(&window);
-    });
-    let weak = window.as_weak();
-    window.global::<PluginListState>().on_save(move || {
-        let Some(window) = weak.upgrade() else {
-            return;
-        };
-        let mut app = app.borrow_mut();
-        if app.plugin_list.applying()
-            || !window
-                .global::<PluginListState>()
-                .get_loading_status()
-                .is_empty()
-        {
-            return;
-        }
-        app.plugin_list.save();
-        app.plugin_list.publish(&window);
-    });
-}
+pub(crate) mod events;
+pub(crate) use events::setup_callbacks;
 
 #[cfg(test)]
 mod tests {

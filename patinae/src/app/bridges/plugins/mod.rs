@@ -166,76 +166,8 @@ impl Default for PluginBridge {
     }
 }
 
-pub fn setup_callbacks(app: Rc<RefCell<crate::app::App>>, window: &AppWindow) {
-    let ps = window.global::<PluginState>();
-
-    {
-        let app = app.clone();
-        let window = window.as_weak();
-        ps.on_toggle_panel(move |id| {
-            if let Some(window) = window.upgrade() {
-                let mut app = app.borrow_mut();
-                if app.plugins.toggle_panel(id.as_str()) {
-                    app.sync_plugins(&window);
-                    window.window().request_redraw();
-                }
-            }
-        });
-    }
-
-    {
-        let app = app.clone();
-        let window = window.as_weak();
-        ps.on_activate_panel(move |id| {
-            if let Some(window) = window.upgrade() {
-                let mut app = app.borrow_mut();
-                if app.plugins.activate_panel(id.as_str()) {
-                    app.sync_plugins(&window);
-                    window.window().request_redraw();
-                }
-            }
-        });
-    }
-
-    {
-        let app = app.clone();
-        let window = window.as_weak();
-        ps.on_deactivate_placement(move |placement| {
-            let placement = match placement.as_str() {
-                "right" => Some(PanelPlacement::Right),
-                "bottom" => Some(PanelPlacement::Bottom),
-                _ => None,
-            };
-            if let (Some(placement), Some(window)) = (placement, window.upgrade()) {
-                let mut app = app.borrow_mut();
-                if app.plugins.deactivate_placement(placement) {
-                    app.sync_plugins(&window);
-                    window.window().request_redraw();
-                }
-            }
-        });
-    }
-
-    let window = window.as_weak();
-    ps.on_control_event(move |panel_id, control_id, kind, text, number, boolean| {
-        let Some((kind, value)) =
-            panel_event_payload(kind.as_str(), text.as_str(), number, boolean)
-        else {
-            log::warn!("Unknown plugin panel event kind '{}'", kind);
-            return;
-        };
-
-        app.borrow_mut().plugins.queue_panel_event(PanelEvent {
-            panel_id: panel_id.to_string(),
-            control_id: control_id.to_string(),
-            kind,
-            value,
-        });
-        if let Some(window) = window.upgrade() {
-            window.window().request_redraw();
-        }
-    });
-}
+pub(crate) mod gui_events;
+pub(crate) use gui_events::setup_callbacks;
 
 fn placement_name(placement: PanelPlacement) -> &'static str {
     match placement {
