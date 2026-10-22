@@ -27,7 +27,7 @@ export component Sidebar inherits Surface {
     ];
     top := VerticalLayout {
         x: Spacing.sm; y: Spacing.md;
-        spacing: Spacing.md;
+        spacing: Spacing.sm;
         for item in root.items: SidebarButton {
             label: item.title; icon: item.icon;
             enabled: !LayoutState.empty-mode;
