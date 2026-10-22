@@ -20,6 +20,7 @@
 #[cfg(feature = "render-bridge")]
 pub mod bridge;
 mod camera;
+mod color_resolver;
 mod error;
 mod gpu_runtime;
 pub mod highlight_state;
@@ -41,6 +42,7 @@ mod view;
 mod viewer_trait;
 // Re-export main types
 pub use camera::{normalize_matrix, Camera, CameraAnimation, Projection, SceneView};
+pub use color_resolver::{ColorResolver, RepColorDefaults};
 pub use error::{SceneError, SceneResult, ViewerError};
 pub use gpu_runtime::{
     GpuAddressMode, GpuBatchCommand, GpuBatchResult, GpuBindGroupDescriptor, GpuBindGroupEntry,
@@ -89,9 +91,7 @@ pub use pick::{
 #[doc(inline)]
 pub use recent_atoms::{RecentAtomId, RecentAtomRow, RecentAtoms};
 pub use render_target::CaptureRenderer;
-pub use scene::{
-    Scene, SceneAtomData, SceneManager, SceneObjectData, ScenePerAtomData, SceneStoreMask,
-};
+pub use scene::{Scene, SceneManager, SceneObjectData, ScenePerAtomData, SceneStoreMask};
 pub use selection::{SelectionEntry, SelectionManager};
 pub use session::{AnimationUpdate, HoverTarget, MovieStateSnapshot, MutationStamp, Session};
 pub use session_adapter::SessionAdapter;

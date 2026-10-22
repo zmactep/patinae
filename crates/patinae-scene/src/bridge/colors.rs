@@ -1,17 +1,14 @@
 //! Host color policy for deferred renderer writes and standalone color arrays.
 
 use std::collections::HashMap;
-use std::sync::OnceLock;
 
-use patinae_color::{Color as RgbColor, ColorResolver, NamedPalette, ThemedPalette};
-use patinae_mol::{
-    polymer_residue_ranks, Atom, AtomFlags, AtomIndex, ObjectMolecule, ResidueRankTable,
-    COLOR_BY_CHAIN, COLOR_UNSET,
-};
+use crate::{ColorResolver, RepColorDefaults};
+use patinae_color::{ColorValue, NamedPalette, ThemedPalette};
+use patinae_mol::{Atom, AtomIndex, ObjectMolecule};
 use patinae_render::{
     pack_rep_rgb8, AtomColorSource, ColorLutEntry, RepColorLutEntry, REP_COLOR_INHERIT,
 };
-use patinae_settings::{Color as SettingColor, ResolvedSettings, Settings};
+use patinae_settings::Settings;
 
 use crate::object::{Object, ObjectRegistry};
 
@@ -21,13 +18,12 @@ pub(super) struct ObjectColorSource<'a> {
     named: &'a NamedPalette,
     themed: &'a ThemedPalette,
     defaults: RepColorDefaults,
-    ranks: OnceLock<ResidueRankTable>,
 }
 
 impl<'a> ObjectColorSource<'a> {
     pub(super) fn new(
         molecule: &'a ObjectMolecule,
-        settings: &ResolvedSettings,
+        settings: &Settings,
         named: &'a NamedPalette,
         themed: &'a ThemedPalette,
     ) -> Self {
@@ -36,15 +32,11 @@ impl<'a> ObjectColorSource<'a> {
             named,
             themed,
             defaults: RepColorDefaults::from_settings(settings),
-            ranks: OnceLock::new(),
         }
     }
 
     fn resolver(&self) -> ColorResolver<'_> {
-        ColorResolver::new(self.named, self.themed).with_residue_ranks(Some(
-            self.ranks
-                .get_or_init(|| polymer_residue_ranks(self.molecule)),
-        ))
+        ColorResolver::new(self.named, self.themed).with_molecule(self.molecule)
     }
 }
 
@@ -66,10 +58,7 @@ impl AtomColorSource for ObjectColorSource<'_> {
 
     fn write(&self, target: &mut [ColorLutEntry]) {
         assert_eq!(target.len(), self.len());
-        // Release bulk-resolution scratch after this object, rather than
-        // retaining every dirty object's residue table until the frame ends.
-        let ranks = polymer_residue_ranks(self.molecule);
-        let resolver = ColorResolver::new(self.named, self.themed).with_residue_ranks(Some(&ranks));
+        let resolver = self.resolver();
         for (entry, atom) in target.iter_mut().zip(self.molecule.atoms()) {
             *entry = ColorLutEntry::new(
                 resolver.resolve_atom(atom),
@@ -88,24 +77,6 @@ impl AtomColorSource for ObjectColorSource<'_> {
 pub struct ResolvedSceneColors {
     by_object: HashMap<String, Vec<[f32; 4]>>,
     rep_by_object: HashMap<String, Vec<RepColorLutEntry>>,
-}
-
-/// Resolve a global/object color setting through the active named palette.
-/// Non-negative values that are not palette indices are treated as packed
-/// `0x00RRGGBB` colors, matching command parsing for `set *_color, [r,g,b]`.
-pub fn resolve_setting_color(
-    setting: SettingColor,
-    named: &NamedPalette,
-    fallback: [f32; 4],
-) -> [f32; 4] {
-    if setting.0 < 0 {
-        return fallback;
-    }
-
-    let color = named
-        .get_by_index(setting.0 as u32)
-        .unwrap_or_else(|| RgbColor::from_packed_rgb(setting.0));
-    color.to_rgba(fallback[3])
 }
 
 impl ResolvedSceneColors {
@@ -158,10 +129,8 @@ impl ResolvedSceneColors {
             if mol_obj.display_coord_set().is_none() {
                 continue;
             }
-            let ranks = polymer_residue_ranks(mol);
-            let resolver = ColorResolver::new(named, themed).with_residue_ranks(Some(&ranks));
-            let resolved = ResolvedSettings::resolve(settings, mol_obj.overrides());
-            let defaults = RepColorDefaults::from_settings(&resolved);
+            let resolver = ColorResolver::new(named, themed).with_molecule(mol);
+            let defaults = RepColorDefaults::from_settings(settings);
             let entry = self.by_object.entry(name.to_string()).or_default();
             entry.clear();
             entry.reserve(mol.atom_count());
@@ -238,37 +207,6 @@ impl ResolvedSceneColors {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-struct RepColorDefaults {
-    sphere: i32,
-    stick: i32,
-    line: i32,
-    dot: i32,
-    cartoon: i32,
-    cartoon_nucleic: i32,
-    ribbon: i32,
-    surface: i32,
-    mesh: i32,
-    ellipsoid: i32,
-}
-
-impl RepColorDefaults {
-    fn from_settings(settings: &ResolvedSettings) -> Self {
-        Self {
-            sphere: settings.sphere.color.0,
-            stick: settings.stick.color.0,
-            line: settings.line.color.0,
-            dot: settings.dot.color.0,
-            cartoon: settings.cartoon.color.0,
-            cartoon_nucleic: settings.cartoon.nucleic_acid_color.0,
-            ribbon: settings.ribbon.color.0,
-            surface: settings.surface.color.0,
-            mesh: settings.mesh.color.0,
-            ellipsoid: settings.ellipsoid.color.0,
-        }
-    }
-}
-
 fn resolve_rep_colors(
     resolver: &ColorResolver<'_>,
     atom: &Atom,
@@ -280,7 +218,7 @@ fn resolve_rep_colors(
         stick: resolve_rep_override(resolver, atom, colors.stick, defaults.stick),
         line: resolve_rep_override(resolver, atom, colors.line, defaults.line),
         dot: resolve_rep_override(resolver, atom, colors.dot, defaults.dot),
-        cartoon: resolve_cartoon_override(resolver, atom, colors.cartoon, defaults),
+        cartoon: pack_rep_rgb8(resolver.resolve_cartoon_with_defaults(atom, defaults)),
         ribbon: resolve_rep_override(resolver, atom, colors.ribbon, defaults.ribbon),
         surface: resolve_rep_override(resolver, atom, colors.surface, defaults.surface),
         mesh: resolve_rep_override(resolver, atom, colors.mesh, defaults.mesh),
@@ -291,43 +229,34 @@ fn resolve_rep_colors(
     }
 }
 
+#[cfg(test)]
 fn resolve_cartoon_override(
     resolver: &ColorResolver<'_>,
     atom: &Atom,
-    per_atom_color: i32,
+    per_atom_color: ColorValue,
     defaults: &RepColorDefaults,
 ) -> u32 {
-    let explicit_atom_color = per_atom_color != COLOR_UNSET && per_atom_color != COLOR_BY_CHAIN;
-    if explicit_atom_color {
-        return pack_rep_rgb8(resolver.resolve_rep_color(atom, per_atom_color, defaults.cartoon));
-    }
-
-    if atom.state.flags.contains(AtomFlags::NUCLEIC) && defaults.cartoon_nucleic >= 0 {
-        return pack_rep_rgb8(resolver.resolve_rep_color(
-            atom,
-            COLOR_UNSET,
-            defaults.cartoon_nucleic,
-        ));
-    }
-
-    if defaults.cartoon >= 0 {
-        return pack_rep_rgb8(resolver.resolve_rep_color(atom, COLOR_UNSET, defaults.cartoon));
-    }
-
-    resolve_rep_override(resolver, atom, per_atom_color, defaults.cartoon)
+    let mut atom = atom.clone();
+    atom.repr.colors.cartoon = per_atom_color;
+    pack_rep_rgb8(resolver.resolve_cartoon_with_defaults(&atom, defaults))
 }
 
 fn resolve_rep_override(
     resolver: &ColorResolver<'_>,
     atom: &Atom,
-    per_atom_color: i32,
-    default_color: i32,
+    per_atom_color: ColorValue,
+    default_color: ColorValue,
 ) -> u32 {
-    if per_atom_color == COLOR_UNSET && default_color < 0 {
+    if per_atom_color == ColorValue::INHERIT && !has_rep_color_default(default_color) {
         REP_COLOR_INHERIT
     } else {
         pack_rep_rgb8(resolver.resolve_rep_color(atom, per_atom_color, default_color))
     }
+}
+
+fn has_rep_color_default(color: ColorValue) -> bool {
+    // Schemes and literals both override the base color.
+    color != ColorValue::INHERIT
 }
 
 #[cfg(test)]
@@ -335,20 +264,22 @@ mod tests {
     use super::*;
     use crate::MoleculeObject;
     use lin_alg::f32::Vec3;
+    use patinae_color::Color as RgbColor;
+    use patinae_mol::AtomFlags;
     use patinae_mol::{AtomBuilder, Element, MoleculeBuilder};
 
-    fn defaults(cartoon: i32, cartoon_nucleic: i32) -> RepColorDefaults {
+    fn defaults(cartoon: ColorValue, cartoon_nucleic: ColorValue) -> RepColorDefaults {
         RepColorDefaults {
-            sphere: COLOR_UNSET,
-            stick: COLOR_UNSET,
-            line: COLOR_UNSET,
-            dot: COLOR_UNSET,
+            sphere: ColorValue::INHERIT,
+            stick: ColorValue::INHERIT,
+            line: ColorValue::INHERIT,
+            dot: ColorValue::INHERIT,
             cartoon,
             cartoon_nucleic,
-            ribbon: COLOR_UNSET,
-            surface: COLOR_UNSET,
-            mesh: COLOR_UNSET,
-            ellipsoid: COLOR_UNSET,
+            ribbon: ColorValue::INHERIT,
+            surface: ColorValue::INHERIT,
+            mesh: ColorValue::INHERIT,
+            ellipsoid: ColorValue::INHERIT,
         }
     }
 
@@ -357,12 +288,20 @@ mod tests {
         let named = NamedPalette::default();
         let (red_idx, red) = named.get_by_name("red").unwrap();
         assert_eq!(
-            resolve_setting_color(SettingColor(red_idx as i32), &named, [0.0, 0.0, 0.0, 1.0]),
+            patinae_color::resolve_literal_color(
+                ColorValue::palette(red_idx),
+                &named,
+                [0.0, 0.0, 0.0, 1.0]
+            ),
             red.to_rgba(1.0)
         );
         assert_eq!(
-            resolve_setting_color(SettingColor(0x123456), &named, [0.0, 0.0, 0.0, 0.5]),
-            RgbColor::from_packed_rgb(0x123456).to_rgba(0.5)
+            patinae_color::resolve_literal_color(
+                ColorValue::rgb(0x12, 0x34, 0x56),
+                &named,
+                [0.0, 0.0, 0.0, 0.5]
+            ),
+            RgbColor::from_rgb8(0x12, 0x34, 0x56).to_rgba(0.5)
         );
     }
 
@@ -373,11 +312,11 @@ mod tests {
         let resolver = ColorResolver::new(&named, &themed);
         let (red_idx, red) = named.get_by_name("red").unwrap();
         let (blue_idx, blue) = named.get_by_name("blue").unwrap();
-        let defaults = defaults(blue_idx as i32, red_idx as i32);
+        let defaults = defaults(ColorValue::palette(blue_idx), ColorValue::palette(red_idx));
 
         let mut nucleic = Atom::new("P", Element::Phosphorus);
         nucleic.state.flags = AtomFlags::NUCLEIC | AtomFlags::POLYMER;
-        nucleic.repr.colors.cartoon = COLOR_BY_CHAIN;
+        nucleic.repr.colors.cartoon = ColorValue::INHERIT;
         assert_eq!(
             resolve_cartoon_override(&resolver, &nucleic, nucleic.repr.colors.cartoon, &defaults),
             pack_rep_rgb8(red.to_rgba(1.0))
@@ -385,10 +324,24 @@ mod tests {
 
         let mut protein = Atom::new("CA", Element::Carbon);
         protein.state.flags = AtomFlags::PROTEIN | AtomFlags::POLYMER;
-        protein.repr.colors.cartoon = COLOR_BY_CHAIN;
+        protein.repr.colors.cartoon = ColorValue::INHERIT;
         assert_eq!(
             resolve_cartoon_override(&resolver, &protein, protein.repr.colors.cartoon, &defaults),
             pack_rep_rgb8(blue.to_rgba(1.0))
+        );
+
+        let scheme_defaults = RepColorDefaults {
+            cartoon_nucleic: patinae_color::ColorValue::SECONDARY_STRUCTURE,
+            ..defaults
+        };
+        assert_eq!(
+            resolve_cartoon_override(
+                &resolver,
+                &nucleic,
+                nucleic.repr.colors.cartoon,
+                &scheme_defaults
+            ),
+            pack_rep_rgb8(themed.ss.get(nucleic.ss_type as u8).to_rgba(1.0))
         );
     }
 
@@ -405,15 +358,15 @@ mod tests {
     fn bridge_resolves_rep_specific_atom_colors() {
         let named = NamedPalette::new();
         let themed = ThemedPalette::dark();
-        let red = named.get_by_name("red").unwrap().0 as i32;
-        let green = named.get_by_name("green").unwrap().0 as i32;
-        let blue = named.get_by_name("blue").unwrap().0 as i32;
-        let yellow = named.get_by_name("yellow").unwrap().0 as i32;
-        let cyan = named.get_by_name("cyan").unwrap().0 as i32;
-        let magenta = named.get_by_name("magenta").unwrap().0 as i32;
-        let white = named.get_by_name("white").unwrap().0 as i32;
-        let gray = named.get_by_name("gray").unwrap().0 as i32;
-        let black = named.get_by_name("black").unwrap().0 as i32;
+        let red = patinae_color::ColorValue::palette(named.get_by_name("red").unwrap().0);
+        let green = patinae_color::ColorValue::palette(named.get_by_name("green").unwrap().0);
+        let blue = patinae_color::ColorValue::palette(named.get_by_name("blue").unwrap().0);
+        let yellow = patinae_color::ColorValue::palette(named.get_by_name("yellow").unwrap().0);
+        let cyan = patinae_color::ColorValue::palette(named.get_by_name("cyan").unwrap().0);
+        let magenta = patinae_color::ColorValue::palette(named.get_by_name("magenta").unwrap().0);
+        let white = patinae_color::ColorValue::palette(named.get_by_name("white").unwrap().0);
+        let gray = patinae_color::ColorValue::palette(named.get_by_name("gray").unwrap().0);
+        let black = patinae_color::ColorValue::palette(named.get_by_name("black").unwrap().0);
 
         let mut atom = AtomBuilder::new().name("CA").element_symbol("C").build();
         atom.repr.colors.sphere = red;
@@ -429,8 +382,14 @@ mod tests {
         let registry = single_atom_registry(atom);
         let colors = ResolvedSceneColors::build(&registry, &Settings::default(), &named, &themed);
         let rep = colors.get_rep("obj").unwrap()[0];
-        let expected =
-            |idx: i32| pack_rep_rgb8(named.get_by_index(idx as u32).unwrap().to_rgba(1.0));
+        let expected = |idx: ColorValue| {
+            pack_rep_rgb8(
+                named
+                    .get_by_index(idx.palette_index().unwrap())
+                    .unwrap()
+                    .to_rgba(1.0),
+            )
+        };
 
         assert_eq!(rep.sphere, expected(red));
         assert_eq!(rep.stick, expected(green));
@@ -447,20 +406,133 @@ mod tests {
     fn bridge_resolves_global_rep_color_defaults() {
         let named = NamedPalette::new();
         let themed = ThemedPalette::dark();
-        let red = named.get_by_name("red").unwrap().0 as i32;
+        let red = patinae_color::ColorValue::palette(named.get_by_name("red").unwrap().0);
 
         let atom = AtomBuilder::new().name("CA").element_symbol("C").build();
         let registry = single_atom_registry(atom);
         let mut settings = Settings::default();
-        settings.sphere.color = SettingColor(red);
+        settings.sphere.color = red;
 
         let colors = ResolvedSceneColors::build(&registry, &settings, &named, &themed);
         let rep = colors.get_rep("obj").unwrap()[0];
 
         assert_eq!(
             rep.sphere,
-            pack_rep_rgb8(named.get_by_index(red as u32).unwrap().to_rgba(1.0))
+            pack_rep_rgb8(
+                named
+                    .get_by_index(red.palette_index().unwrap())
+                    .unwrap()
+                    .to_rgba(1.0)
+            )
         );
         assert_eq!(rep.stick, REP_COLOR_INHERIT);
+    }
+
+    #[test]
+    fn representation_schemes_override_base_and_default_cartoon_chain_colors() {
+        use patinae_color::ColorValue;
+        use patinae_mol::SecondaryStructure;
+
+        let named = NamedPalette::new();
+        let themed = ThemedPalette::dark();
+        let mut atom = Atom::new("CA", Element::Carbon);
+        atom.state.flags = AtomFlags::PROTEIN | AtomFlags::POLYMER;
+        atom.ss_type = SecondaryStructure::Helix;
+        atom.repr.colors.base =
+            patinae_color::ColorValue::palette(named.get_by_name("blue").unwrap().0);
+        let registry = single_atom_registry(atom.clone());
+        let resolver = ColorResolver::new(&named, &themed)
+            .with_molecule(registry.get_molecule("obj").unwrap().molecule());
+
+        for scheme in [
+            ColorValue::ELEMENT,
+            ColorValue::CHAIN,
+            ColorValue::SECONDARY_STRUCTURE,
+            ColorValue::B_FACTOR,
+            ColorValue::RESIDUE_TYPE,
+            ColorValue::RESIDUE_INDEX,
+        ] {
+            let color = scheme;
+            let mut expected_atom = atom.clone();
+            expected_atom.repr.colors.base = color;
+            let expected = pack_rep_rgb8(resolver.resolve_atom(&expected_atom));
+            for object_scope in [false, true] {
+                let mut registry = single_atom_registry(atom.clone());
+                let mut settings = Settings::default();
+                for name in [
+                    "cartoon_color",
+                    "ribbon_color",
+                    "stick_color",
+                    "line_color",
+                    "surface_color",
+                    "mesh_color",
+                    "sphere_color",
+                    "dot_color",
+                    "ellipsoid_color",
+                ] {
+                    let descriptor = patinae_settings::registry::lookup_by_name(name).unwrap();
+                    let value = patinae_settings::SettingValue::Color(color);
+                    if object_scope {
+                        let atom = &mut registry
+                            .get_molecule_mut("obj")
+                            .unwrap()
+                            .molecule_mut()
+                            .atoms_mut()
+                            .next()
+                            .unwrap()
+                            .repr
+                            .colors;
+                        *patinae_mol::AtomColors::representation_field(name).unwrap()(atom) = color;
+                    } else {
+                        descriptor.set(&mut settings, value).unwrap();
+                    }
+                }
+                let colors = ResolvedSceneColors::build(&registry, &settings, &named, &themed);
+                let rep = colors.get_rep("obj").unwrap()[0];
+                for actual in [
+                    rep.cartoon,
+                    rep.ribbon,
+                    rep.stick,
+                    rep.line,
+                    rep.surface,
+                    rep.mesh,
+                    rep.sphere,
+                    rep.dot,
+                    rep.ellipsoid,
+                ] {
+                    assert_eq!(actual, expected, "{scheme:?}, object_scope={object_scope}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn explicit_atom_schemes_precede_object_colors() {
+        use patinae_color::ColorValue;
+
+        let named = NamedPalette::default();
+        let themed = ThemedPalette::dark();
+        let resolver = ColorResolver::new(&named, &themed);
+        let red = patinae_color::ColorValue::palette(named.get_by_name("red").unwrap().0);
+        let mut atom = Atom::new("CA", Element::Carbon);
+        atom.state.flags = AtomFlags::PROTEIN | AtomFlags::POLYMER;
+        atom.repr.colors.base = red;
+        for scheme in [
+            ColorValue::ELEMENT,
+            ColorValue::CHAIN,
+            ColorValue::SECONDARY_STRUCTURE,
+        ] {
+            let explicit = scheme;
+            let mut expected = atom.clone();
+            expected.repr.colors.base = scheme;
+            assert_eq!(
+                resolve_cartoon_override(&resolver, &atom, explicit, &defaults(red, red)),
+                pack_rep_rgb8(resolver.resolve_atom(&expected)),
+            );
+            assert_eq!(
+                resolve_rep_override(&resolver, &atom, explicit, red),
+                pack_rep_rgb8(resolver.resolve_atom(&expected)),
+            );
+        }
     }
 }

@@ -10,6 +10,7 @@ homepage.workspace = true
 documentation.workspace = true
 
 [dependencies]
+patinae-color = { workspace = true }
 thiserror = { workspace = true }
 ahash = { workspace = true }
 serde = { workspace = true }

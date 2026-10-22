@@ -237,6 +237,17 @@ fn ident(input: &str) -> LexResult<'_, Token> {
     Ok((input, Token::Ident(s.to_string())))
 }
 
+/// Preserve RGB literals as a single token.
+fn rgb_literal(input: &str) -> LexResult<'_, Token> {
+    map(
+        recognize(pair(
+            char('#'),
+            take_while1(|c: char| c.is_ascii_hexdigit()),
+        )),
+        |s: &str| Token::Ident(s.to_string()),
+    )(input)
+}
+
 /// Parse an identifier that starts with a digit (like atom names "1H", "2HG")
 fn digit_ident(input: &str) -> LexResult<'_, Token> {
     // Match digit(s) followed by at least one letter, then any alphanumeric/quote chars.
@@ -329,7 +340,7 @@ fn token(input: &str) -> LexResult<'_, Token> {
             // Quoted strings
             quoted_string,
             // Identifiers starting with digit (like 1H) - must come before number
-            digit_ident,
+            alt((rgb_literal, digit_ident)),
             // Numbers (does not include leading minus)
             number,
             // Regular identifiers

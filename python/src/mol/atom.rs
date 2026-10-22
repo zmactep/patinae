@@ -32,7 +32,7 @@ pub struct PyAtom {
     pub(crate) formal_charge: i8,
 
     // Display
-    pub(crate) color: i32,
+    pub(crate) color: u32,
     pub(crate) hetatm: bool,
 
     // Secondary structure
@@ -62,7 +62,7 @@ impl PyAtom {
             vdw: atom.vdw,
             partial_charge: atom.partial_charge,
             formal_charge: atom.formal_charge,
-            color: atom.repr.colors.base,
+            color: atom.repr.colors.base.to_bits(),
             hetatm: atom.state.hetatm,
             ss_type: atom.ss_type,
             coord,
@@ -169,9 +169,9 @@ impl PyAtom {
         self.formal_charge
     }
 
-    /// Color index
+    /// Tagged 32-bit color value
     #[getter]
-    fn color(&self) -> i32 {
+    fn color(&self) -> u32 {
         self.color
     }
 

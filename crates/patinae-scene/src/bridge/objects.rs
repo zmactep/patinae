@@ -88,9 +88,8 @@ pub fn visit_render_scene_deferred<'a>(
     visit_map: &mut dyn FnMut(&'a str, RenderMapInput<'a>),
 ) {
     let make_colors = |_name: &'a str, mol: &'a MoleculeObject| {
-        let settings = patinae_settings::ResolvedSettings::resolve(settings, mol.overrides());
         Some(RenderAtomColors::Source(Box::new(
-            super::colors::ObjectColorSource::new(mol.molecule(), &settings, named, themed),
+            super::colors::ObjectColorSource::new(mol.molecule(), settings, named, themed),
         )))
     };
     let total = registry

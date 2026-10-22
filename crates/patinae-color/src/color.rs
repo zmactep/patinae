@@ -25,21 +25,6 @@ impl Color {
         }
     }
 
-    /// Create a color from a packed 0x00RRGGBB integer
-    pub fn from_packed_rgb(packed: i32) -> Self {
-        Self::from_rgb8(
-            ((packed >> 16) & 0xFF) as u8,
-            ((packed >> 8) & 0xFF) as u8,
-            (packed & 0xFF) as u8,
-        )
-    }
-
-    /// Convert to a packed 0x00RRGGBB integer
-    pub fn to_packed_rgb(&self) -> i32 {
-        let [r, g, b] = self.to_rgb8();
-        ((r as i32) << 16) | ((g as i32) << 8) | (b as i32)
-    }
-
     /// Create a color from a hex string (e.g., "#FF0000", "0xFF0000", or "FF0000")
     pub fn from_hex(hex: &str) -> Option<Self> {
         let hex = hex.trim_start_matches('#').trim_start_matches("0x");
@@ -110,99 +95,5 @@ impl From<[f32; 3]> for Color {
 impl From<Color> for [f32; 3] {
     fn from(c: Color) -> Self {
         c.to_array()
-    }
-}
-
-/// A color index referencing either a named color or a custom color
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum ColorIndex {
-    /// Index into the named color table
-    Named(u32),
-    /// Special color: by element
-    ByElement,
-    /// Special color: by chain
-    ByChain,
-    /// Special color: by secondary structure
-    BySS,
-    /// Special color: by B-factor (temperature factor)
-    ByBFactor,
-    /// Special color: by residue type
-    ByResidueType,
-    /// Special color: by residue index (rainbow spectrum)
-    ByResidueIndex,
-    /// Atomic colors (per-atom custom colors)
-    Atomic,
-}
-
-/// Color scheme names for autocompletion (all recognized aliases).
-/// Keep in sync with [`ColorIndex::from_scheme_name`].
-pub const SCHEME_NAMES: &[&str] = &[
-    "atomic",
-    "b",
-    "b_factor",
-    "chain",
-    "chainbow",
-    "cpk",
-    "element",
-    "index",
-    "rainbow",
-    "residue",
-    "residue_index",
-    "residue_type",
-    "spectrum",
-    "ss",
-];
-
-impl ColorIndex {
-    /// Parse a color scheme name alias into a `ColorIndex`.
-    ///
-    /// Recognizes common scheme names like "atomic", "chain", "ss", and "b_factor".
-    pub fn from_scheme_name(name: &str) -> Option<Self> {
-        match name.to_lowercase().as_str() {
-            "atomic" | "cpk" | "element" | "by_element" => Some(ColorIndex::ByElement),
-            "chain" | "by_chain" | "chainbow" => Some(ColorIndex::ByChain),
-            "ss" | "secondary_structure" | "by_ss" | "dssp" => Some(ColorIndex::BySS),
-            "b" | "b_factor" | "bfactor" | "by_b" => Some(ColorIndex::ByBFactor),
-            "residue" | "by_residue" | "residue_type" | "aa_type" => {
-                Some(ColorIndex::ByResidueType)
-            }
-            "index" | "residue_index" | "spectrum" | "rainbow" => Some(ColorIndex::ByResidueIndex),
-            _ => None,
-        }
-    }
-}
-
-impl Default for ColorIndex {
-    fn default() -> Self {
-        ColorIndex::Named(0) // White
-    }
-}
-
-impl From<ColorIndex> for i32 {
-    fn from(index: ColorIndex) -> i32 {
-        match index {
-            ColorIndex::Named(idx) => idx as i32,
-            ColorIndex::ByElement | ColorIndex::Atomic => -1,
-            ColorIndex::ByChain => -2,
-            ColorIndex::BySS => -3,
-            ColorIndex::ByBFactor => -4,
-            ColorIndex::ByResidueType => -5,
-            ColorIndex::ByResidueIndex => -6,
-        }
-    }
-}
-
-impl From<i32> for ColorIndex {
-    fn from(value: i32) -> Self {
-        match value {
-            -1 => ColorIndex::ByElement,
-            -2 => ColorIndex::ByChain,
-            -3 => ColorIndex::BySS,
-            -4 => ColorIndex::ByBFactor,
-            -5 => ColorIndex::ByResidueType,
-            -6 => ColorIndex::ByResidueIndex,
-            c if c >= 0 => ColorIndex::Named(c as u32),
-            _ => ColorIndex::default(),
-        }
     }
 }

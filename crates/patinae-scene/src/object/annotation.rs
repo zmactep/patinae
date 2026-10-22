@@ -7,7 +7,7 @@ use std::error::Error;
 use std::fmt;
 
 use lin_alg::f32::Vec3;
-use patinae_color::ColorIndex;
+use patinae_color::ColorValue;
 use patinae_mol::{AtomIndex, AtomRemap};
 use serde::{Deserialize, Deserializer, Serialize};
 
@@ -15,7 +15,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AnnotationPresentationError {
     /// Annotation colors cannot depend on an atom-specific color scheme.
-    ColorMustBeNamed,
+    ColorMustBeLiteral,
     /// Label sizes must be positive finite values.
     InvalidLabelSize,
 }
@@ -23,7 +23,9 @@ pub enum AnnotationPresentationError {
 impl fmt::Display for AnnotationPresentationError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::ColorMustBeNamed => formatter.write_str("annotation color must be a named color"),
+            Self::ColorMustBeLiteral => {
+                formatter.write_str("annotation color must be a palette or RGB color")
+            }
             Self::InvalidLabelSize => {
                 formatter.write_str("label size must be a positive finite value")
             }
@@ -260,35 +262,35 @@ pub struct ResolvedStrokePath {
     pub style: StrokeStyle,
 }
 
-/// Stores a validated named color for an annotation primitive.
+/// Stores a validated literal color for an annotation primitive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 #[serde(transparent)]
-pub struct AnnotationColor(ColorIndex);
+pub struct AnnotationColor(ColorValue);
 
 impl AnnotationColor {
-    /// Creates an annotation color from a named palette index.
+    /// Creates an annotation color from a palette reference or RGB value.
     ///
     /// # Errors
     ///
-    /// Returns [`AnnotationPresentationError::ColorMustBeNamed`] for
+    /// Returns [`AnnotationPresentationError::ColorMustBeLiteral`] for
     /// atom-dependent color schemes.
-    pub const fn new(color: ColorIndex) -> Result<Self, AnnotationPresentationError> {
-        match color {
-            ColorIndex::Named(_) => Ok(Self(color)),
-            _ => Err(AnnotationPresentationError::ColorMustBeNamed),
+    pub const fn new(color: ColorValue) -> Result<Self, AnnotationPresentationError> {
+        match color.kind() {
+            patinae_color::ColorKind::Palette | patinae_color::ColorKind::Rgb => Ok(Self(color)),
+            _ => Err(AnnotationPresentationError::ColorMustBeLiteral),
         }
     }
 
-    /// Returns the stored named color index.
-    pub const fn color_index(self) -> ColorIndex {
+    /// Returns the stored tagged color value.
+    pub const fn value(self) -> ColorValue {
         self.0
     }
 }
 
-impl TryFrom<ColorIndex> for AnnotationColor {
+impl TryFrom<ColorValue> for AnnotationColor {
     type Error = AnnotationPresentationError;
 
-    fn try_from(value: ColorIndex) -> Result<Self, Self::Error> {
+    fn try_from(value: ColorValue) -> Result<Self, Self::Error> {
         Self::new(value)
     }
 }
@@ -298,17 +300,17 @@ impl<'de> Deserialize<'de> for AnnotationColor {
     where
         D: Deserializer<'de>,
     {
-        let color = ColorIndex::deserialize(deserializer)?;
+        let color = ColorValue::deserialize(deserializer)?;
         Self::new(color).map_err(serde::de::Error::custom)
     }
 }
 
 pub(super) fn has_mixed_annotation_colors(
-    inherited_color: ColorIndex,
-    object_color: Option<ColorIndex>,
-    entity_colors: impl IntoIterator<Item = Option<ColorIndex>>,
+    inherited_color: ColorValue,
+    object_color: Option<ColorValue>,
+    entity_colors: impl IntoIterator<Item = Option<ColorValue>>,
 ) -> Result<bool, AnnotationPresentationError> {
-    let inherited_color = AnnotationColor::new(inherited_color)?.color_index();
+    let inherited_color = AnnotationColor::new(inherited_color)?.value();
     let object_color = object_color.unwrap_or(inherited_color);
     let mut colors = entity_colors
         .into_iter()
@@ -376,9 +378,9 @@ pub struct MeasurementObjectPresentation {
 
 impl MeasurementObjectPresentation {
     /// Returns the object color override.
-    pub const fn color(self) -> Option<ColorIndex> {
+    pub const fn color(self) -> Option<ColorValue> {
         match self.color {
-            Some(color) => Some(color.color_index()),
+            Some(color) => Some(color.value()),
             None => None,
         }
     }
@@ -388,7 +390,7 @@ impl MeasurementObjectPresentation {
     /// # Errors
     ///
     /// Returns an error when `color` is atom-dependent.
-    pub fn set_color(&mut self, color: ColorIndex) -> Result<(), AnnotationPresentationError> {
+    pub fn set_color(&mut self, color: ColorValue) -> Result<(), AnnotationPresentationError> {
         self.color = Some(AnnotationColor::new(color)?);
         Ok(())
     }
@@ -442,9 +444,9 @@ pub struct MeasurementEntityPresentation {
 
 impl MeasurementEntityPresentation {
     /// Returns the entity color override.
-    pub const fn color(self) -> Option<ColorIndex> {
+    pub const fn color(self) -> Option<ColorValue> {
         match self.color {
-            Some(color) => Some(color.color_index()),
+            Some(color) => Some(color.value()),
             None => None,
         }
     }
@@ -454,7 +456,7 @@ impl MeasurementEntityPresentation {
     /// # Errors
     ///
     /// Returns an error when `color` is atom-dependent.
-    pub fn set_color(&mut self, color: ColorIndex) -> Result<(), AnnotationPresentationError> {
+    pub fn set_color(&mut self, color: ColorValue) -> Result<(), AnnotationPresentationError> {
         self.color = Some(AnnotationColor::new(color)?);
         Ok(())
     }
@@ -529,7 +531,7 @@ impl MeasurementPresentation {
     ///
     /// Returns an error when `color` is atom-dependent.
     pub fn new(
-        color: ColorIndex,
+        color: ColorValue,
         line_pattern: LinePattern,
         label_visible: bool,
     ) -> Result<Self, AnnotationPresentationError> {
@@ -541,8 +543,8 @@ impl MeasurementPresentation {
     }
 
     /// Returns the resolved measurement color.
-    pub const fn color(self) -> ColorIndex {
-        self.color.color_index()
+    pub const fn color(self) -> ColorValue {
+        self.color.value()
     }
 
     /// Returns the resolved line pattern.
@@ -571,9 +573,9 @@ pub struct LabelObjectPresentation {
 
 impl LabelObjectPresentation {
     /// Returns the object color override.
-    pub const fn color(self) -> Option<ColorIndex> {
+    pub const fn color(self) -> Option<ColorValue> {
         match self.color {
-            Some(color) => Some(color.color_index()),
+            Some(color) => Some(color.value()),
             None => None,
         }
     }
@@ -583,7 +585,7 @@ impl LabelObjectPresentation {
     /// # Errors
     ///
     /// Returns an error when `color` is atom-dependent.
-    pub fn set_color(&mut self, color: ColorIndex) -> Result<(), AnnotationPresentationError> {
+    pub fn set_color(&mut self, color: ColorValue) -> Result<(), AnnotationPresentationError> {
         self.color = Some(AnnotationColor::new(color)?);
         Ok(())
     }
@@ -660,9 +662,9 @@ pub struct LabelEntityPresentation {
 
 impl LabelEntityPresentation {
     /// Returns the entity color override.
-    pub const fn color(self) -> Option<ColorIndex> {
+    pub const fn color(self) -> Option<ColorValue> {
         match self.color {
-            Some(color) => Some(color.color_index()),
+            Some(color) => Some(color.value()),
             None => None,
         }
     }
@@ -672,7 +674,7 @@ impl LabelEntityPresentation {
     /// # Errors
     ///
     /// Returns an error when `color` is atom-dependent.
-    pub fn set_color(&mut self, color: ColorIndex) -> Result<(), AnnotationPresentationError> {
+    pub fn set_color(&mut self, color: ColorValue) -> Result<(), AnnotationPresentationError> {
         self.color = Some(AnnotationColor::new(color)?);
         Ok(())
     }
@@ -751,7 +753,7 @@ impl LabelPresentation {
     ///
     /// Returns an error for an atom-dependent color or invalid size.
     pub fn new(
-        color: ColorIndex,
+        color: ColorValue,
         size: f32,
         visible: bool,
         alignment: LabelAlignment,
@@ -765,8 +767,8 @@ impl LabelPresentation {
     }
 
     /// Returns the resolved label color.
-    pub const fn color(self) -> ColorIndex {
-        self.color.color_index()
+    pub const fn color(self) -> ColorValue {
+        self.color.value()
     }
 
     /// Returns the resolved label size.
@@ -799,37 +801,40 @@ pub(super) fn deserialize_label_offset<'de, D: serde::Deserializer<'de>>(
 
 #[cfg(test)]
 mod tests {
-    use patinae_color::ColorIndex;
+    use patinae_color::ColorValue;
 
     use super::*;
 
     #[test]
     fn presentation_uses_entity_object_global_precedence() {
-        let global = MeasurementPresentation::new(ColorIndex::Named(1), LinePattern::Solid, true)
+        let global = MeasurementPresentation::new(ColorValue::palette(1), LinePattern::Solid, true)
             .expect("global presentation");
         let mut object = MeasurementObjectPresentation::default();
         object
-            .set_color(ColorIndex::Named(2))
+            .set_color(ColorValue::palette(2))
             .expect("object color");
         object.set_line_pattern(LinePattern::Dotted);
         let mut entity = MeasurementEntityPresentation::default();
         entity
-            .set_color(ColorIndex::Named(3))
+            .set_color(ColorValue::palette(3))
             .expect("entity color");
         entity.set_label_visible(false);
 
         let resolved = entity.resolve(&object, global);
 
-        assert_eq!(resolved.color(), ColorIndex::Named(3));
+        assert_eq!(resolved.color(), ColorValue::palette(3));
         assert_eq!(resolved.line_pattern(), LinePattern::Dotted);
         assert!(!resolved.label_visible());
     }
 
     #[test]
     fn annotation_color_rejects_atom_dependent_schemes() {
-        let error = AnnotationColor::new(ColorIndex::ByChain).expect_err("scheme is invalid");
+        let error = AnnotationColor::new(ColorValue::CHAIN).expect_err("scheme is invalid");
 
-        assert_eq!(error.to_string(), "annotation color must be a named color");
+        assert_eq!(
+            error.to_string(),
+            "annotation color must be a palette or RGB color"
+        );
     }
 
     #[test]
@@ -846,7 +851,7 @@ mod tests {
 
     #[test]
     fn deserialization_rejects_invalid_color_and_size() {
-        let color_json = serde_json::to_string(&ColorIndex::ByChain).expect("serialize color");
+        let color_json = serde_json::to_string(&ColorValue::CHAIN).expect("serialize color");
 
         let color_error = serde_json::from_str::<AnnotationColor>(&color_json)
             .expect_err("atom-dependent color must fail");
@@ -854,7 +859,7 @@ mod tests {
 
         assert!(color_error
             .to_string()
-            .contains("annotation color must be a named color"));
+            .contains("annotation color must be a palette or RGB color"));
         assert!(size_error
             .to_string()
             .contains("label size must be a positive finite value"));
@@ -863,20 +868,20 @@ mod tests {
     #[test]
     fn label_presentation_uses_entity_object_global_precedence() {
         let global =
-            LabelPresentation::new(ColorIndex::Named(1), 10.0, true, LabelAlignment::Center)
+            LabelPresentation::new(ColorValue::palette(1), 10.0, true, LabelAlignment::Center)
                 .expect("global presentation");
         let mut object = LabelObjectPresentation::default();
         object.set_size(12.0).expect("object size");
         object.set_alignment(LabelAlignment::TopCenter);
         let mut entity = LabelEntityPresentation::default();
         entity
-            .set_color(ColorIndex::Named(3))
+            .set_color(ColorValue::palette(3))
             .expect("entity color");
         entity.set_visible(false);
 
         let resolved = entity.resolve(&object, global);
 
-        assert_eq!(resolved.color(), ColorIndex::Named(3));
+        assert_eq!(resolved.color(), ColorValue::palette(3));
         assert_eq!(resolved.size(), 12.0);
         assert!(!resolved.visible());
         assert_eq!(resolved.alignment(), LabelAlignment::TopCenter);

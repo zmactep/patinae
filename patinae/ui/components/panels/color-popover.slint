@@ -1,4 +1,6 @@
 import { IconTile } from "../../controls/button.slint";
+import { TooltipAnchor } from "../../controls/tooltip.slint";
+import { TooltipState } from "../../states/tooltip-state.slint";
 import { Representations } from "../../icons/representations.slint";
 import { UiText } from "../../primitives/text.slint";
 import { SectionLabel } from "../../primitives/section-label.slint";
@@ -116,6 +118,7 @@ component ColorSwatch inherits Rectangle {
 component ScopeButton inherits Rectangle {
     in property <string> scope-id;
     in property <string> label;
+    in property <string> tooltip;
     in property <bool> disabled: false;
 
     property <bool> active: !root.disabled && ObjectsState.popover-scope == root.scope-id;
@@ -147,9 +150,17 @@ component ScopeButton inherits Rectangle {
         vertical-alignment: center;
     }
 
+    TooltipAnchor {
+        width: parent.width;
+        height: parent.height;
+        text: root.tooltip;
+        active: root.visible && !root.disabled && scope-touch.has-hover && !scope-touch.pressed;
+    }
+
     scope-touch := TouchArea {
         enabled: !root.disabled;
         clicked => {
+            TooltipState.dismiss();
             ObjectsState.popover-scope = root.scope-id;
         }
     }
@@ -238,8 +249,17 @@ export component ColorPopover inherits Rectangle {
 
             HorizontalLayout {
                 spacing: 1px;
-                ScopeButton { scope-id: "all"; label: "all"; }
-                ScopeButton { scope-id: "all-c"; label: "all C"; disabled: !root.is-bio-or-organic; }
+                ScopeButton {
+                    scope-id: "all";
+                    label: "base";
+                    tooltip: "Base color of all atoms. Explicit representation colors take priority.";
+                }
+                ScopeButton {
+                    scope-id: "all-c";
+                    label: "base C";
+                    tooltip: "Base color of carbon atoms only. Explicit representation colors take priority.";
+                    disabled: !root.is-bio-or-organic;
+                }
             }
 
             for row in 2: HorizontalLayout {

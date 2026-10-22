@@ -10,6 +10,7 @@ documentation.workspace = true
 description = "Patinae selection language parser and evaluator"
 
 [dependencies]
+patinae-color = { workspace = true }
 patinae-mol = { workspace = true }
 lin_alg = { workspace = true }
 nom = { workspace = true }

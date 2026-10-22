@@ -8,8 +8,8 @@
 
 use std::hash::{DefaultHasher, Hash, Hasher};
 
-use patinae_color::{Color, ColorIndex, NamedPalette, ThemedPalette};
-use patinae_mol::{Atom, SubchainKind, SubchainView};
+use patinae_color::{Color, ColorValue, NamedPalette, ThemedPalette};
+use patinae_mol::{SubchainKind, SubchainView};
 use patinae_scene::{
     resolve_annotation_bundles, AnnotationColorSummary, MapDisplayMode, MeasurementKind, Object,
     ObjectRegistry, ResolvedAnnotationBundle,
@@ -444,6 +444,10 @@ fn build_scene_object(
 ) -> SceneObject {
     let state = mol.state();
     let molecule = mol.molecule();
+    let resolver = patinae_scene::ColorResolver::new(color_ctx.named_palette, color_ctx.palette)
+        .with_molecule(molecule);
+    let defaults = patinae_scene::RepColorDefaults::from_settings(color_ctx.settings);
+
     let partition = molecule.subchain_partition();
     let atoms = molecule.atoms_slice();
     let total_entries = partition.entries().len();
@@ -467,7 +471,7 @@ fn build_scene_object(
                 .expect("entry index in range");
             let chain_id = view.chain_id().to_string();
             let label = view.label().to_string();
-            let color = resolve_sidebar_color(&view, color_ctx);
+            let color = resolve_sidebar_color(&view, &resolver, &defaults);
             let chain_count = entries_per_chain
                 .get(chain_id.as_str())
                 .copied()
@@ -623,15 +627,13 @@ fn annotation_sidebar_color(
     }
 }
 
-fn resolve_object_color(color: ColorIndex, named_palette: &NamedPalette) -> SidebarColor {
-    match color {
-        ColorIndex::Named(index) => SidebarColor::Color(
-            named_palette
-                .get_by_index(index)
-                .unwrap_or(patinae_color::CYAN),
-        ),
-        _ => SidebarColor::Color(patinae_color::CYAN),
-    }
+fn resolve_object_color(color: ColorValue, named_palette: &NamedPalette) -> SidebarColor {
+    let [r, g, b, _] = patinae_color::resolve_literal_color(
+        color,
+        named_palette,
+        patinae_color::CYAN.to_rgba(1.0),
+    );
+    SidebarColor::Color(Color::new(r, g, b))
 }
 
 fn annotation_settings_hash(settings: &Settings) -> u64 {
@@ -656,9 +658,9 @@ fn annotation_settings_hash(settings: &Settings) -> u64 {
         measurement.label_distance_digits,
         measurement.label_angle_digits,
         measurement.label_dihedral_digits,
-        measurement.dash_color.0,
-        measurement.angle_color.0,
-        measurement.dihedral_color.0,
+        measurement.dash_color.to_bits() as i32,
+        measurement.angle_color.to_bits() as i32,
+        measurement.dihedral_color.to_bits() as i32,
     ] {
         value.hash(&mut hasher);
     }
@@ -743,78 +745,38 @@ fn compress_resvs(sub: &SubchainView<'_>) -> String {
 // ============================================================================
 
 /// Determine the representative color for a subchain's sidebar dot.
-fn resolve_sidebar_color(sub: &SubchainView<'_>, ctx: &SceneColorContext<'_>) -> SidebarColor {
+fn resolve_sidebar_color(
+    sub: &SubchainView<'_>,
+    resolver: &patinae_scene::ColorResolver<'_>,
+    defaults: &patinae_scene::RepColorDefaults,
+) -> SidebarColor {
     match sub.kind {
         SubchainKind::Solvent => SidebarColor::Solvent,
-        SubchainKind::Biopolymer => resolve_biopolymer_color(sub, ctx),
+        SubchainKind::Biopolymer => {
+            let mut first = None;
+            for residue in sub.residues() {
+                let atom = residue
+                    .ca()
+                    .map(|(_, atom)| atom)
+                    .or_else(|| residue.iter().next());
+                let Some(atom) = atom else {
+                    continue;
+                };
+                let [r, g, b, _] = resolver.resolve_cartoon_with_defaults(atom, defaults);
+                let color = Color::new(r, g, b);
+                match first {
+                    None => first = Some(color),
+                    Some(previous) if previous.to_rgb8() != color.to_rgb8() => {
+                        return SidebarColor::Multicolor
+                    }
+                    _ => {}
+                }
+            }
+            first
+                .map(SidebarColor::Color)
+                .unwrap_or(SidebarColor::Other)
+        }
         _ => SidebarColor::Other,
-    }
-}
-
-/// For biopolymers: use effective cartoon color (cartoon_or_base) so the
-/// sidebar dot matches the cartoon representation in the viewport.
-/// ByChain → palette color, multicolor schemes → Multicolor,
-/// otherwise → consensus CA cartoon color.
-fn resolve_biopolymer_color(sub: &SubchainView<'_>, ctx: &SceneColorContext<'_>) -> SidebarColor {
-    let first_carbon = sub.iter().find(|a| a.is_ca());
-    let Some(fc) = first_carbon else {
-        return SidebarColor::Other;
-    };
-
-    match ColorIndex::from(fc.repr.colors.cartoon_or_base()) {
-        ColorIndex::ByChain => SidebarColor::Color(ctx.palette.chains.get(sub.chain_id())),
-        ColorIndex::BySS | ColorIndex::ByResidueType | ColorIndex::ByResidueIndex => {
-            SidebarColor::Multicolor
-        }
-        _ => {
-            // Named color or ByElement — check if all CAs share one color
-            uniform_ca_color(sub, ctx)
-        }
-    }
-}
-
-/// If all CA atoms in the subchain resolve to the same color, return it.
-/// Otherwise return Multicolor. Returns Other if no CAs found.
-fn uniform_ca_color(sub: &SubchainView<'_>, ctx: &SceneColorContext<'_>) -> SidebarColor {
-    let mut first: Option<[u8; 3]> = None;
-    let mut first_color = Color::WHITE;
-    for atom in sub.iter() {
-        if !atom.is_ca() {
-            continue;
-        }
-        let color = resolve_atom_color(atom, ctx);
-        let key = [
-            (color.r * 255.0) as u8,
-            (color.g * 255.0) as u8,
-            (color.b * 255.0) as u8,
-        ];
-        match first {
-            None => {
-                first = Some(key);
-                first_color = color;
-            }
-            Some(k) if k != key => return SidebarColor::Multicolor,
-            _ => {}
-        }
-    }
-    first
-        .map(|_| SidebarColor::Color(first_color))
-        .unwrap_or(SidebarColor::Other)
-}
-
-/// Resolve a single atom's effective cartoon color for sidebar purposes.
-fn resolve_atom_color(atom: &Atom, ctx: &SceneColorContext<'_>) -> Color {
-    match ColorIndex::from(atom.repr.colors.cartoon_or_base()) {
-        ColorIndex::ByElement | ColorIndex::Atomic => ctx.palette.element.get(atom.element as u8),
-        ColorIndex::ByChain => {
-            if atom.state.flags.is_biomolecule() && atom.element.is_carbon() {
-                ctx.palette.chains.get(&atom.residue.chain)
-            } else {
-                ctx.palette.element.get(atom.element as u8)
-            }
-        }
-        ColorIndex::Named(idx) => ctx.named_palette.get_by_index(idx).unwrap_or(Color::WHITE),
-        _ => Color::new(0.5, 0.5, 0.5),
     }
 }
 
@@ -892,6 +854,67 @@ mod tests {
             .filter(|e| e.chain_id == view.chain_id())
             .count() as u32;
         build_selector_clause(&view, total, chain_count)
+    }
+
+    #[test]
+    fn sidebar_and_sequence_use_the_same_cartoon_policy() {
+        use super::super::sequence::{build_seq_object, SequenceColorContext};
+        use patinae_scene::{ColorResolver, RepColorDefaults};
+        let named = NamedPalette::default();
+        let palette = ThemedPalette::dark();
+        let mut molecule = ObjectMolecule::new("obj");
+        let mut atom = poly_atom("A", "ALA", 1, "CA");
+        atom.ss_type = patinae_mol::SecondaryStructure::Helix;
+        atom.b_factor = 23.0;
+        molecule.add_atom(atom);
+        let mut settings = Settings::default();
+        for global in [
+            ColorValue::INHERIT,
+            ColorValue::ELEMENT,
+            ColorValue::CHAIN,
+            ColorValue::SECONDARY_STRUCTURE,
+            ColorValue::B_FACTOR,
+            ColorValue::RESIDUE_TYPE,
+            ColorValue::RESIDUE_INDEX,
+            ColorValue::rgb(0, 0, 2),
+            ColorValue::palette(2),
+        ] {
+            settings.cartoon.color = global;
+            let resolver = ColorResolver::new(&named, &palette).with_molecule(&molecule);
+            let [r, g, b, _] = resolver.resolve_cartoon_with_defaults(
+                &molecule.atoms_slice()[0],
+                &RepColorDefaults::from_settings(&settings),
+            );
+            let expected = Color::new(r, g, b).to_rgb8();
+            let sequence = build_seq_object(
+                "obj",
+                &molecule,
+                &SequenceColorContext {
+                    named_palette: &named,
+                    palette: &palette,
+                    settings: &settings,
+                },
+            );
+            assert_eq!(
+                sequence.chains[0].residues[0].viewer_color, expected,
+                "{global}"
+            );
+            let object = MoleculeObject::with_name(molecule.clone(), "obj");
+            let sidebar = build_scene_object(
+                "obj",
+                &object,
+                true,
+                &SceneColorContext {
+                    named_palette: &named,
+                    palette: &palette,
+                    settings: &settings,
+                },
+            );
+            let SidebarColor::Color(actual) = sidebar.subchains[0].color else {
+                panic!("single residue must have uniform color")
+            };
+            assert_eq!(actual.to_rgb8(), expected, "{global}");
+        }
     }
 
     #[test]
@@ -1188,11 +1211,11 @@ mod tests {
         let second = AtomIndex(1);
         let mut first_style = LabelEntityPresentation::default();
         first_style
-            .set_color(ColorIndex::Named(1))
+            .set_color(ColorValue::palette(1))
             .expect("named label color");
         let mut second_style = LabelEntityPresentation::default();
         second_style
-            .set_color(ColorIndex::Named(2))
+            .set_color(ColorValue::palette(2))
             .expect("named label color");
 
         let mut registry = ObjectRegistry::default();

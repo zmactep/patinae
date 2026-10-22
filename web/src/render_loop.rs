@@ -1,9 +1,10 @@
 //! Frame rendering — drives `patinae_render::RenderState` via the shared
 //! `patinae_scene::bridge` helpers (same path patinae uses).
 
+use patinae_color::resolve_literal_color;
 use patinae_render::RenderSyncTimings;
 use patinae_scene::bridge::{
-    frame_uniforms_from_session, resolve_setting_color, CachedRenderScene,
+    frame_uniforms_from_session, CachedRenderScene,
 };
 use patinae_scene::Session;
 use patinae_settings::{Settings, ShadingMode};
@@ -70,7 +71,7 @@ pub fn render_frame(
     let t0 = performance_now_ms();
     // Silhouette setting.
     let common = &session.settings.shading.common;
-    let silhouette_ink = resolve_setting_color(
+    let silhouette_ink = resolve_literal_color(
         common.silhouette_color,
         &session.named_palette,
         [0.0, 0.0, 0.0, 1.0],

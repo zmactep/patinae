@@ -3,6 +3,7 @@
 //! Provides the `ray` command and ray tracing settings. All raytracing logic
 //! (BVH, compute shaders, primitive collection) lives in this plugin.
 
+use patinae_color::ColorValue;
 use patinae_plugin::{define_plugin_settings, patinae_plugin};
 
 // Raytracer engine modules
@@ -30,7 +31,7 @@ define_plugin_settings! {
         shadow: bool = true, name = "ray_shadow";
         mode: i32 = 0, name = "ray_trace_mode";
         fog: f32 = -1.0, name = "ray_trace_fog";
-        color: i32 = -6, name = "ray_trace_color";
+        color: ColorValue = ColorValue::INHERIT, name = "ray_trace_color";
         opaque_background: i32 = -1, name = "ray_opaque_background";
         transparency_shadows: bool = true, name = "ray_transparency_shadows";
         depth_factor: f32 = 0.1, name = "ray_trace_depth_factor",

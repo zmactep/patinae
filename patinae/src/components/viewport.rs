@@ -9,6 +9,7 @@
 mod capture;
 mod frame;
 use frame::*;
+use patinae_color::resolve_literal_color;
 mod picking;
 mod preparation;
 mod recovery;
@@ -35,7 +36,7 @@ use patinae_scene::{Camera, CaptureRenderer, ObjectRegistry, PickHit, Session, V
 use patinae_settings::{ResolvedSettings, Settings, ShadingMode};
 
 use patinae_scene::bridge::{
-    frame_uniforms_from_camera, frame_uniforms_from_session, resolve_pick, resolve_setting_color,
+    frame_uniforms_from_camera, frame_uniforms_from_session, resolve_pick,
     visit_render_scene_deferred, CachedRenderScene, ProjectedAnnotationLabel, ProjectedSceneLabels,
     ResolvedSceneMarkers, ResolvedSceneStrokes,
 };

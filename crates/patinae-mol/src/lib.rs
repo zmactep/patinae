@@ -65,7 +65,7 @@ mod subchain;
 // Re-export main types
 pub use atom::{
     Atom, AtomBuilder, AtomColors, AtomRepresentation, AtomResidue, AtomState, RepMask,
-    ResidueLabelChain, ResidueLabels, COLOR_BY_CHAIN, COLOR_UNSET,
+    ResidueLabelChain, ResidueLabels,
 };
 pub use bond::{Bond, BondOrder, BondStereo, SymOp};
 pub use bonding::DEFAULT_BOND_TOLERANCE;
@@ -86,6 +86,7 @@ pub use instancing::{
 };
 pub use iterator::atoms_same_chain_id;
 pub use molecule::{MoleculeBuilder, ObjectMolecule};
+pub use patinae_color::ColorValue;
 pub use residue::{
     atoms_same_residue, atoms_same_segment, classify_residue, is_amino_acid, is_capping_group,
     is_ion, is_lipid, is_nucleotide, is_standard_amino_acid, is_standard_nucleotide, is_water,

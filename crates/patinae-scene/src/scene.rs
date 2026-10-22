@@ -5,9 +5,8 @@
 
 use ahash::AHashMap;
 use bitflags::bitflags;
-use patinae_color::ColorIndex;
+use patinae_color::ColorValue;
 use patinae_mol::RepMask;
-use patinae_settings::UniqueId;
 use serde::{Deserialize, Serialize};
 
 use crate::camera::{Camera, SceneView};
@@ -41,23 +40,11 @@ impl Default for SceneStoreMask {
     }
 }
 
-/// Per-atom stored properties in a scene
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SceneAtomData {
-    /// Atom color
-    pub color: ColorIndex,
-    /// Visible representations
-    pub visible_reps: RepMask,
-    /// Object-level draw mask. Missing in older scenes; fallback is visible_reps.
-    #[serde(default)]
-    pub draw_reps: Option<RepMask>,
-}
-
 /// Per-atom stored properties within an object
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScenePerAtomData {
-    /// Atom color (i32 matching Atom.color)
-    pub color: i32,
+    /// All atom color assignments, including representation overrides
+    pub colors: patinae_mol::AtomColors,
     /// Visible representations
     pub visible_reps: RepMask,
 }
@@ -68,7 +55,7 @@ pub struct SceneObjectData {
     /// Object enabled state
     pub enabled: bool,
     /// Object color
-    pub color: ColorIndex,
+    pub color: ColorValue,
     /// Visible representations
     pub visible_reps: RepMask,
     /// Object-level draw mask.
@@ -102,8 +89,6 @@ pub struct Scene {
     pub message: String,
     /// Optional thumbnail image (PNG data)
     pub thumbnail: Option<Vec<u8>>,
-    /// Per-atom data (keyed by unique_id)
-    pub atom_data: AHashMap<UniqueId, SceneAtomData>,
     /// Per-object data (keyed by object name)
     pub object_data: AHashMap<String, SceneObjectData>,
 }
@@ -118,7 +103,6 @@ impl Scene {
             frame: 0,
             message: String::new(),
             thumbnail: None,
-            atom_data: AHashMap::new(),
             object_data: AHashMap::new(),
         }
     }
@@ -158,7 +142,7 @@ impl Scene {
                             .molecule()
                             .atoms()
                             .map(|atom| ScenePerAtomData {
-                                color: atom.repr.colors.base,
+                                colors: atom.repr.colors.clone(),
                                 visible_reps: atom.repr.visible_reps,
                             })
                             .collect()
@@ -219,7 +203,7 @@ impl Scene {
                     if atoms.len() == per_atom.len() {
                         for (atom, stored) in atoms.iter_mut().zip(per_atom.iter()) {
                             if self.storemask.contains(SceneStoreMask::COLOR) {
-                                atom.repr.colors.base = stored.color;
+                                atom.repr.colors = stored.colors.clone();
                             }
                             if self.storemask.contains(SceneStoreMask::REP) {
                                 atom.repr.visible_reps = stored.visible_reps;
@@ -507,6 +491,55 @@ mod tests {
     use super::*;
     use crate::camera::Camera;
     use crate::object::ObjectRegistry;
+
+    #[test]
+    fn recall_restores_every_atom_color_field() {
+        let mut mol = patinae_mol::ObjectMolecule::new("mol");
+        mol.add_atom(patinae_mol::Atom::default());
+        let mut registry = ObjectRegistry::new();
+        registry.add(crate::MoleculeObject::new(mol));
+        let fields = [
+            "cartoon_color",
+            "ribbon_color",
+            "stick_color",
+            "line_color",
+            "surface_color",
+            "mesh_color",
+            "sphere_color",
+            "dot_color",
+            "ellipsoid_color",
+        ];
+        let original = {
+            let mol = registry.get_molecule_mut("mol").unwrap().molecule_mut();
+            let (_, colors) = mol.get_atom_colors_mut(patinae_mol::AtomIndex(0)).unwrap();
+            colors.base = patinae_color::ColorValue::rgb(1, 2, 3);
+            for (index, name) in fields.iter().enumerate() {
+                *patinae_mol::AtomColors::representation_field(name).unwrap()(colors) =
+                    patinae_color::ColorValue::palette(index as u32);
+            }
+            colors.clone()
+        };
+        let mut camera = Camera::new();
+        let saved = Scene::capture("saved", SceneStoreMask::COLOR, &camera, &registry);
+        *registry
+            .get_molecule_mut("mol")
+            .unwrap()
+            .molecule_mut()
+            .get_atom_colors_mut(patinae_mol::AtomIndex(0))
+            .unwrap()
+            .1 = Default::default();
+        saved.apply(&mut camera, &mut registry, false, 0.0);
+        assert_eq!(
+            registry
+                .get_molecule("mol")
+                .unwrap()
+                .molecule()
+                .atoms_slice()[0]
+                .repr
+                .colors,
+            original
+        );
+    }
 
     #[test]
     fn test_scene_store_recall() {

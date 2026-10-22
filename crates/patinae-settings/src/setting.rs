@@ -17,7 +17,7 @@ pub enum SettingType {
     Float = 3,
     /// Three-component float vector (e.g., positions, light directions)
     Float3 = 4,
-    /// Color index (resolved via patinae-color crate)
+    /// Tagged color value (resolved via patinae-color)
     Color = 5,
     /// String value
     String = 6,
@@ -117,9 +117,8 @@ pub enum SettingValue {
     Float(f32),
     /// Three-component float vector
     Float3([f32; 3]),
-    /// Color index. Negative values are reserved sentinel entries.
-    /// -1 = default, -2 = atomic, -3 = object, etc.
-    Color(i32),
+    /// Tagged color value: RGB, palette, scheme, or inheritance.
+    Color(ColorValue),
     /// String value
     String(String),
 }
@@ -153,7 +152,6 @@ impl SettingValue {
             SettingValue::Int(v) => Some(*v),
             SettingValue::Bool(v) => Some(if *v { 1 } else { 0 }),
             SettingValue::Float(v) => Some(*v as i32),
-            SettingValue::Color(v) => Some(*v),
             _ => None,
         }
     }
@@ -176,11 +174,10 @@ impl SettingValue {
         }
     }
 
-    /// Try to get as color index
-    pub fn as_color(&self) -> Option<i32> {
+    /// Try to get a tagged color value
+    pub fn as_color(&self) -> Option<ColorValue> {
         match self {
             SettingValue::Color(v) => Some(*v),
-            SettingValue::Int(v) => Some(*v),
             _ => None,
         }
     }
@@ -206,8 +203,6 @@ impl SettingValue {
             // Int-compatible types
             (SettingValue::Bool(_), SettingType::Int) => true,
             (SettingValue::Int(_), SettingType::Bool) => true,
-            (SettingValue::Color(_), SettingType::Int) => true,
-            (SettingValue::Int(_), SettingType::Color) => true,
             // Float-compatible types
             (SettingValue::Int(_), SettingType::Float) => true,
             (SettingValue::Bool(_), SettingType::Float) => true,
@@ -259,24 +254,8 @@ impl From<&str> for SettingValue {
     }
 }
 
-/// Newtype wrapper for color-index settings. Stores the session-format `i32`;
-/// the wrapper exists so that `SettingKind` reports `SettingType::Color`
-/// rather than `Int`, which drives parsing
-/// (color names, `[r,g,b]` vectors) and CLI completion (palette + scheme
-/// suggestions). Values: `-1` = unset/inherit, non-negative = palette index.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct Color(pub i32);
-
-impl Color {
-    /// Sentinel "unset / inherit from parent" used by all `*_color` defaults.
-    pub const UNSET: Self = Self(-1);
-}
-
-impl Default for Color {
-    fn default() -> Self {
-        Self::UNSET
-    }
-}
+/// Shared tagged color value used by settings and molecular atoms.
+pub use patinae_color::ColorValue;
 
 /// Named value variants for settings with a fixed set of allowed values.
 /// Each pair is (display_name, setting_value).
@@ -406,7 +385,12 @@ impl Setting {
     }
 
     /// Create a new color setting
-    pub const fn new_color(id: u16, name: &'static str, level: SettingLevel, default: i32) -> Self {
+    pub const fn new_color(
+        id: u16,
+        name: &'static str,
+        level: SettingLevel,
+        default: ColorValue,
+    ) -> Self {
         Setting {
             id,
             name,
@@ -512,6 +496,36 @@ impl Setting {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn obsolete_object_color_fields_are_rejected() {
+        assert!(serde_json::from_str::<crate::groups::StickOverrides>(
+            r#"{"radius":null,"transparency":null,"valence":null,"color":33554435}"#
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn tagged_color_roundtrips_without_palette_or_scheme_collisions() {
+        for color in [
+            ColorValue::rgb(0, 0, 2),
+            ColorValue::palette(2),
+            ColorValue::scheme(2),
+            ColorValue::INHERIT,
+            ColorValue::palette(0xffffff),
+            ColorValue::scheme(0xffffff),
+            ColorValue::from_bits(0xfe123456),
+            ColorValue::from_bits(0xffffffff),
+            ColorValue::from_bits(0x80000000),
+        ] {
+            let value = SettingValue::Color(color);
+            let json = serde_json::to_string(&value).unwrap();
+            assert_eq!(serde_json::from_str::<SettingValue>(&json).unwrap(), value);
+        }
+        for old in ["-1", "2", r#"{"Named":2}"#, r#""BySS""#] {
+            assert!(serde_json::from_str::<ColorValue>(old).is_err());
+        }
+    }
 
     #[test]
     fn test_setting_type_display() {

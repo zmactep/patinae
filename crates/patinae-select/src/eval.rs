@@ -148,21 +148,18 @@ fn eval_expr(expr: &SelectionExpr, ctx: &EvalContext) -> EvalResult<SelectionRes
                     && atom.repr.visible_reps.is_visible(*rep_mask)
             })
         }),
-        SelectionExpr::Color(pattern) => eval_property(ctx, |atom, _| {
-            pattern.matches(&atom.repr.colors.base.to_string(), !ctx.options.ignore_case)
-        }),
-        SelectionExpr::CartoonColor(pattern) => eval_property(ctx, |atom, _| {
-            pattern.matches(
-                &atom.repr.colors.cartoon_or_base().to_string(),
-                !ctx.options.ignore_case,
-            )
-        }),
-        SelectionExpr::RibbonColor(pattern) => eval_property(ctx, |atom, _| {
-            pattern.matches(
-                &atom.repr.colors.ribbon_or_base().to_string(),
-                !ctx.options.ignore_case,
-            )
-        }),
+        SelectionExpr::Color(pattern) => {
+            let matcher = ColorMatcher::new(pattern, ctx);
+            eval_property(ctx, |atom, _| matcher.matches(atom.repr.colors.base))
+        }
+        SelectionExpr::CartoonColor(pattern) => {
+            let matcher = ColorMatcher::new(pattern, ctx);
+            eval_property(ctx, |atom, _| matcher.matches(atom.repr.colors.cartoon))
+        }
+        SelectionExpr::RibbonColor(pattern) => {
+            let matcher = ColorMatcher::new(pattern, ctx);
+            eval_property(ctx, |atom, _| matcher.matches(atom.repr.colors.ribbon))
+        }
         SelectionExpr::Label(pattern) => eval_property(ctx, |_, info| {
             ctx.atom_labels(info.global_idx)
                 .any(|label| pattern.matches(label, !ctx.options.ignore_case))
@@ -313,6 +310,45 @@ fn eval_expr(expr: &SelectionExpr, ctx: &EvalContext) -> EvalResult<SelectionRes
             }
         }
         SelectionExpr::Macro(spec) => eval_macro(ctx, spec),
+    }
+}
+
+/// Compile names and literals once, before scanning atoms.
+enum ColorMatcher<'a> {
+    Exact(Option<patinae_color::ColorValue>),
+    List(Vec<Self>),
+    Range(u32, u32),
+    Text(&'a Pattern, &'a patinae_color::NamedPalette, bool),
+}
+
+impl<'a> ColorMatcher<'a> {
+    fn new(pattern: &'a Pattern, ctx: &'a EvalContext) -> Self {
+        match pattern {
+            Pattern::Exact(text) => Self::Exact(ctx.palette().parse_color(text).ok()),
+            Pattern::List(items) => Self::List(items.iter().map(|p| Self::new(p, ctx)).collect()),
+            Pattern::Range(start, end) => match (start.parse(), end.parse()) {
+                (Ok(start), Ok(end)) => Self::Range(start, end),
+                _ => Self::Text(pattern, ctx.palette(), !ctx.options.ignore_case),
+            },
+            _ => Self::Text(pattern, ctx.palette(), !ctx.options.ignore_case),
+        }
+    }
+
+    fn matches(&self, color: patinae_color::ColorValue) -> bool {
+        match self {
+            Self::Exact(value) => *value == Some(color),
+            Self::List(items) => items.iter().any(|item| item.matches(color)),
+            Self::Range(start, end) => color
+                .palette_index()
+                .is_some_and(|id| (*start..=*end).contains(&id)),
+            Self::Text(pattern, palette, sensitive) => {
+                pattern.matches(&palette.format_color(color), *sensitive)
+                    || pattern.matches(&color.to_string(), *sensitive)
+                    || color
+                        .palette_index()
+                        .is_some_and(|id| pattern.matches(&id.to_string(), *sensitive))
+            }
+        }
     }
 }
 

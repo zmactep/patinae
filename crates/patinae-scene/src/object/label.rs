@@ -3,7 +3,7 @@
 //! Label entities store semantic anchors and text. World positions and overlay
 //! primitives are derived by the annotation resolver.
 
-use patinae_color::{ColorIndex, NamedPalette};
+use patinae_color::{ColorValue, NamedPalette};
 use patinae_mol::AtomRemap;
 use patinae_settings::Settings;
 use serde::{Deserialize, Serialize};
@@ -274,22 +274,24 @@ fn label_default_color(named_palette: &NamedPalette) -> [f32; 3] {
 }
 
 fn resolve_label_color(
-    color: Option<ColorIndex>,
+    color: Option<ColorValue>,
     named_palette: &NamedPalette,
     fallback: [f32; 3],
 ) -> [f32; 3] {
-    let Some(ColorIndex::Named(index)) = color else {
+    let Some(color) = color else {
         return fallback;
     };
-    named_palette
-        .get_by_index(index)
-        .map(|color| [color.r, color.g, color.b])
-        .unwrap_or(fallback)
+    let [r, g, b, _] = patinae_color::resolve_literal_color(
+        color,
+        named_palette,
+        [fallback[0], fallback[1], fallback[2], 1.0],
+    );
+    [r, g, b]
 }
 
-const fn named_color_index(color: Option<ColorIndex>) -> Option<u32> {
+const fn named_color_index(color: Option<ColorValue>) -> Option<u32> {
     match color {
-        Some(ColorIndex::Named(index)) => Some(index),
+        Some(color) => color.palette_index(),
         _ => None,
     }
 }
@@ -588,7 +590,7 @@ impl LabelObject {
     /// # Errors
     ///
     /// Returns an error when `color` is atom-dependent.
-    pub fn try_set_color(&mut self, color: ColorIndex) -> Result<(), AnnotationPresentationError> {
+    pub fn try_set_color(&mut self, color: ColorValue) -> Result<(), AnnotationPresentationError> {
         self.presentation.set_color(color)?;
         self.state.color = color;
         for entity in &mut self.entities {
@@ -604,7 +606,7 @@ impl LabelObject {
     ///
     /// Panics when `color` is atom-dependent. Use [`Self::try_set_color`] for
     /// fallible input handling.
-    pub fn set_color(&mut self, color: ColorIndex) {
+    pub fn set_color(&mut self, color: ColorValue) {
         self.try_set_color(color)
             .expect("annotation object colors must be named");
     }
@@ -616,7 +618,7 @@ impl LabelObject {
     /// Returns an error when `inherited_color` is atom-dependent.
     pub fn has_mixed_colors(
         &self,
-        inherited_color: ColorIndex,
+        inherited_color: ColorValue,
     ) -> Result<bool, AnnotationPresentationError> {
         has_mixed_annotation_colors(
             inherited_color,
@@ -814,7 +816,7 @@ mod tests {
         let palette = NamedPalette::default();
         let red = palette.get_by_name("red").unwrap().0;
         let mut presentation = LabelEntityPresentation::default();
-        presentation.set_color(ColorIndex::Named(red)).unwrap();
+        presentation.set_color(ColorValue::palette(red)).unwrap();
         presentation.set_size(20.0).unwrap();
         presentation.set_visible(false);
         let entity = LabelEntity::with_presentation(
@@ -888,7 +890,7 @@ mod tests {
     fn object_color_clears_entity_color_overrides() {
         let mut presentation = LabelEntityPresentation::default();
         presentation
-            .set_color(ColorIndex::Named(2))
+            .set_color(ColorValue::palette(2))
             .expect("entity color");
         let mut object = LabelObject::with_entities(
             "labels",
@@ -899,9 +901,9 @@ mod tests {
             )],
         );
 
-        object.set_color(ColorIndex::Named(7));
+        object.set_color(ColorValue::palette(7));
 
-        assert_eq!(object.presentation().color(), Some(ColorIndex::Named(7)));
+        assert_eq!(object.presentation().color(), Some(ColorValue::palette(7)));
         assert_eq!(object.entities()[0].presentation().color(), None);
     }
 
@@ -916,7 +918,7 @@ mod tests {
     fn snapshot_constructor_exposes_read_only_state_and_normalizes_color() {
         let mut presentation = LabelObjectPresentation::default();
         presentation
-            .set_color(ColorIndex::Named(7))
+            .set_color(ColorValue::palette(7))
             .expect("object color");
         let revisions = LabelRevisions {
             geometry: 2,
@@ -931,8 +933,11 @@ mod tests {
         );
 
         assert_eq!(snapshot.entities()[0].text(), "CA");
-        assert_eq!(snapshot.state().color, ColorIndex::Named(7));
-        assert_eq!(snapshot.presentation().color(), Some(ColorIndex::Named(7)));
+        assert_eq!(snapshot.state().color, ColorValue::palette(7));
+        assert_eq!(
+            snapshot.presentation().color(),
+            Some(ColorValue::palette(7))
+        );
         assert_eq!(snapshot.revisions(), revisions);
     }
 
@@ -941,12 +946,12 @@ mod tests {
         let shared = anchor(1);
         let mut first_presentation = LabelEntityPresentation::default();
         first_presentation
-            .set_color(ColorIndex::Named(2))
+            .set_color(ColorValue::palette(2))
             .expect("first color");
         first_presentation.set_size(11.0).expect("first size");
         let mut last_presentation = LabelEntityPresentation::default();
         last_presentation
-            .set_color(ColorIndex::Named(3))
+            .set_color(ColorValue::palette(3))
             .expect("last color");
         last_presentation.set_size(18.0).expect("last size");
         let mut object = LabelObject::with_entities(
@@ -973,7 +978,7 @@ mod tests {
         assert_eq!(restored.entities()[0].presentation().size(), Some(18.0));
         assert_eq!(
             restored.entities()[1].presentation().color(),
-            Some(ColorIndex::Named(2))
+            Some(ColorValue::palette(2))
         );
     }
 
@@ -981,7 +986,7 @@ mod tests {
     fn mixed_color_state_is_discoverable() {
         let mut override_color = LabelEntityPresentation::default();
         override_color
-            .set_color(ColorIndex::Named(2))
+            .set_color(ColorValue::palette(2))
             .expect("entity color");
         let object = LabelObject::with_entities(
             "labels",
@@ -992,7 +997,7 @@ mod tests {
         );
 
         assert!(object
-            .has_mixed_colors(ColorIndex::Named(1))
+            .has_mixed_colors(ColorValue::palette(1))
             .expect("named inherited color"));
     }
 }

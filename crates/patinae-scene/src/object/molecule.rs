@@ -190,33 +190,54 @@ impl MoleculeObject {
 
     /// Color selected atoms, returning the number whose stored colors changed.
     ///
-    /// Preserve explicit representation colors. The default cartoon chain scheme
-    /// switches to base-color inheritance when atoms are explicitly recolored.
+    /// Change only base colors; representation assignments are independent.
     /// Only changed colors invalidate the renderer's color cache. Existing
     /// dirty flags are preserved; coordinates and representations are untouched.
-    pub fn color_selection(&mut self, selected: &SelectionResult, color: i32) -> usize {
+    pub fn color_selection(
+        &mut self,
+        selected: &SelectionResult,
+        color: patinae_mol::ColorValue,
+    ) -> usize {
+        self.assign_color(selected, color, |colors| &mut colors.base, false)
+    }
+
+    /// Assign a representation color to selected atoms, preserving other fields.
+    pub fn set_representation_color(
+        &mut self,
+        selected: &SelectionResult,
+        name: &str,
+        color: patinae_color::ColorValue,
+    ) -> Option<usize> {
+        let field = patinae_mol::AtomColors::representation_field(name)?;
+        Some(self.assign_color(selected, color, field, name == "cartoon_nucleic_acid_color"))
+    }
+
+    fn assign_color(
+        &mut self,
+        selected: &SelectionResult,
+        color: patinae_color::ColorValue,
+        field: fn(&mut patinae_mol::AtomColors) -> &mut patinae_color::ColorValue,
+        nucleic_only: bool,
+    ) -> usize {
         let mut changed = 0;
-        let mut set_color = |atom: &mut Atom| {
-            let colors = &mut atom.repr.colors;
-            let inherits_chain = colors.cartoon == patinae_mol::COLOR_BY_CHAIN;
-            if colors.base != color || inherits_chain {
-                colors.base = color;
-                if inherits_chain {
-                    colors.cartoon = patinae_mol::COLOR_UNSET;
-                }
+        let mut assign = |flags: patinae_mol::AtomFlags, colors: &mut patinae_mol::AtomColors| {
+            if nucleic_only && !flags.contains(patinae_mol::AtomFlags::NUCLEIC) {
+                return;
+            }
+            let current = field(colors);
+            if *current != color {
+                *current = color;
                 changed += 1;
             }
         };
         if selected.atom_count() == self.molecule.atom_count() && selected.is_all() {
-            // Whole-object styling can walk contiguous atoms without decoding
-            // every selected bit and looking up each atom separately.
-            for atom in self.molecule.atoms_mut() {
-                set_color(atom);
+            for (flags, colors) in self.molecule.atom_colors_mut() {
+                assign(flags, colors);
             }
         } else {
             for index in selected.indices() {
-                if let Some(atom) = self.molecule.get_atom_mut(index) {
-                    set_color(atom);
+                if let Some((flags, colors)) = self.molecule.get_atom_colors_mut(index) {
+                    assign(flags, colors);
                 }
             }
         }
@@ -702,7 +723,10 @@ mod tests {
             .colors
             .clone();
         object.clear_dirty();
-        assert_eq!(object.color_selection(&selected, 4), 1);
+        assert_eq!(
+            object.color_selection(&selected, patinae_mol::ColorValue::palette(4)),
+            1
+        );
         assert_eq!(object.dirty_flags(), DirtyFlags::COLOR);
         assert_eq!(
             object
@@ -714,7 +738,10 @@ mod tests {
             untouched
         );
         object.clear_dirty();
-        assert_eq!(object.color_selection(&selected, 4), 0);
+        assert_eq!(
+            object.color_selection(&selected, patinae_mol::ColorValue::palette(4)),
+            0
+        );
         assert_eq!(object.dirty_flags(), DirtyFlags::empty());
         // An explicit representation color survives a repeated base color.
         object
@@ -723,9 +750,12 @@ mod tests {
             .unwrap()
             .repr
             .colors
-            .ellipsoid = 7;
+            .ellipsoid = patinae_mol::ColorValue::palette(7);
         object.invalidate(DirtyFlags::COORDS);
-        assert_eq!(object.color_selection(&selected, 4), 0);
+        assert_eq!(
+            object.color_selection(&selected, patinae_mol::ColorValue::palette(4)),
+            0
+        );
         assert_eq!(object.dirty_flags(), DirtyFlags::COORDS);
         assert_eq!(
             object
@@ -735,7 +765,7 @@ mod tests {
                 .repr
                 .colors
                 .ellipsoid,
-            7
+            patinae_mol::ColorValue::palette(7)
         );
     }
 
@@ -757,7 +787,10 @@ mod tests {
             ],
         });
         let selected = all_atoms(&object);
-        assert_eq!(object.color_selection(&selected, 4), 2);
+        assert_eq!(
+            object.color_selection(&selected, patinae_mol::ColorValue::palette(4)),
+            2
+        );
         let before_coords: Vec<_> = (0..2).map(|i| object.display_coord(AtomIndex(i))).collect();
         let before_reps: Vec<_> = object
             .molecule()
@@ -765,7 +798,10 @@ mod tests {
             .map(|a| a.repr.visible_reps)
             .collect();
         object.clear_dirty();
-        assert_eq!(object.color_selection(&selected, 4), 0);
+        assert_eq!(
+            object.color_selection(&selected, patinae_mol::ColorValue::palette(4)),
+            0
+        );
         assert_eq!(object.dirty_flags(), DirtyFlags::empty());
 
         // The full-object path preserves overrides and counts changed source
@@ -776,11 +812,17 @@ mod tests {
             .unwrap()
             .repr
             .colors
-            .ellipsoid = 9;
+            .ellipsoid = patinae_mol::ColorValue::palette(9);
         object.invalidate(DirtyFlags::COORDS);
-        assert_eq!(object.color_selection(&selected, 4), 0);
+        assert_eq!(
+            object.color_selection(&selected, patinae_mol::ColorValue::palette(4)),
+            0
+        );
         assert_eq!(object.dirty_flags(), DirtyFlags::COORDS);
-        assert_eq!(object.color_selection(&selected, 5), 2);
+        assert_eq!(
+            object.color_selection(&selected, patinae_mol::ColorValue::palette(5)),
+            2
+        );
         assert_eq!(object.dirty_flags(), DirtyFlags::COLOR | DirtyFlags::COORDS);
         assert_eq!(object.displayed_atom_count(), 4);
         assert_eq!(
@@ -798,14 +840,26 @@ mod tests {
             before_reps
         );
         let atoms = object.molecule().atoms_slice();
-        assert_eq!(atoms[0].repr.colors.ellipsoid, patinae_mol::COLOR_UNSET);
-        assert_eq!(atoms[1].repr.colors.ellipsoid, 9);
+        assert_eq!(
+            atoms[0].repr.colors.ellipsoid,
+            patinae_color::ColorValue::INHERIT
+        );
+        assert_eq!(
+            atoms[1].repr.colors.ellipsoid,
+            patinae_mol::ColorValue::palette(9)
+        );
     }
 
     #[test]
     fn coloring_mismatched_selection_lengths_keeps_indexed_semantics() {
         let mut object = MoleculeObject::new(create_test_molecule());
-        assert_eq!(object.color_selection(&SelectionResult::all(1), 4), 1);
+        assert_eq!(
+            object.color_selection(
+                &SelectionResult::all(1),
+                patinae_mol::ColorValue::palette(4)
+            ),
+            1
+        );
         assert_ne!(
             object
                 .molecule()
@@ -814,12 +868,15 @@ mod tests {
                 .repr
                 .colors
                 .base,
-            4
+            patinae_mol::ColorValue::palette(4)
         );
         // A mask can select as many atoms as the molecule contains yet omit a
         // real atom and include an out-of-range index instead.
         let oversized = SelectionResult::from_indices(3, [AtomIndex(0), AtomIndex(2)].into_iter());
-        assert_eq!(object.color_selection(&oversized, 5), 1);
+        assert_eq!(
+            object.color_selection(&oversized, patinae_mol::ColorValue::palette(5)),
+            1
+        );
         assert_ne!(
             object
                 .molecule()
@@ -828,11 +885,23 @@ mod tests {
                 .repr
                 .colors
                 .base,
-            5
+            patinae_mol::ColorValue::palette(5)
         );
-        assert_eq!(object.color_selection(&SelectionResult::all(3), 5), 1);
+        assert_eq!(
+            object.color_selection(
+                &SelectionResult::all(3),
+                patinae_mol::ColorValue::palette(5)
+            ),
+            1
+        );
         object.clear_dirty();
-        assert_eq!(object.color_selection(&SelectionResult::none(2), 9), 0);
+        assert_eq!(
+            object.color_selection(
+                &SelectionResult::none(2),
+                patinae_mol::ColorValue::palette(9)
+            ),
+            0
+        );
         assert_eq!(object.dirty_flags(), DirtyFlags::empty());
     }
 

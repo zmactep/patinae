@@ -20,7 +20,7 @@
 //!
 //! Color resolution happens here on the host: per-atom base RGBA plus
 //! representation-specific packed RGB overrides are computed through
-//! `patinae_color::ColorResolver` directly into the renderer's staging buffer
+//! `crate::ColorResolver` directly into the renderer's staging buffer
 //! when an object needs a color update. The renderer applies per-rep alpha (e.g.
 //! `sphere_transparency`) on top.
 
@@ -38,7 +38,7 @@ pub use annotations::{
     ProjectedSceneLabels, ResolvedSceneAnnotations,
 };
 pub use cache::{CachedRenderFrame, CachedRenderScene};
-pub use colors::{resolve_setting_color, ResolvedSceneColors};
+pub use colors::ResolvedSceneColors;
 pub use frame::{frame_uniforms_from_camera, frame_uniforms_from_session};
 pub use markers::{ResolvedSceneMarkers, MARKER_RECENT};
 pub use objects::{visit_render_objects, visit_render_scene, visit_render_scene_deferred};
@@ -135,15 +135,15 @@ mod tests {
         let mut selections = SelectionManager::new();
         let mut markers = ResolvedSceneMarkers::default();
 
-        markers.rebuild(&mut selections, &registry, None);
+        markers.rebuild(&mut selections, &registry, &NamedPalette::default(), None);
         assert!(markers.is_dirty("obj"));
 
-        markers.rebuild(&mut selections, &registry, None);
+        markers.rebuild(&mut selections, &registry, &NamedPalette::default(), None);
         assert!(!markers.is_dirty("obj"));
 
         let selected = SelectionResult::from_indices(2, std::iter::once(AtomIndex(1)));
         selections.define_with_results("sel", "name B", vec![("obj".to_string(), selected)]);
-        markers.rebuild(&mut selections, &registry, None);
+        markers.rebuild(&mut selections, &registry, &NamedPalette::default(), None);
 
         assert!(markers.is_dirty("obj"));
         assert!(markers.dirty_flags("obj").contains(DirtyFlags::SELECTION));
@@ -167,10 +167,18 @@ mod tests {
         let mut selections = SelectionManager::new();
         let mut markers = ResolvedSceneMarkers::default();
 
-        markers.rebuild_with_recent(&mut selections, &registry, &[], (0, 0), None);
         markers.rebuild_with_recent(
             &mut selections,
             &registry,
+            &NamedPalette::default(),
+            &[],
+            (0, 0),
+            None,
+        );
+        markers.rebuild_with_recent(
+            &mut selections,
+            &registry,
+            &NamedPalette::default(),
             &[("obj".to_string(), AtomIndex(1))],
             (0, 1),
             None,
@@ -193,6 +201,7 @@ mod tests {
         markers.rebuild_with_recent(
             &mut selections,
             &registry,
+            &NamedPalette::default(),
             &[
                 ("obj".to_string(), AtomIndex(1)),
                 ("obj".to_string(), AtomIndex(0)),
@@ -212,7 +221,14 @@ mod tests {
             )
         );
 
-        markers.rebuild_with_recent(&mut selections, &registry, &[], (0, 3), None);
+        markers.rebuild_with_recent(
+            &mut selections,
+            &registry,
+            &NamedPalette::default(),
+            &[],
+            (0, 3),
+            None,
+        );
         assert_eq!(markers.get("obj"), Some([0, 0].as_slice()));
         assert_eq!(
             markers.updates("obj"),
@@ -247,10 +263,18 @@ mod tests {
         };
         let mut markers = ResolvedSceneMarkers::default();
 
-        markers.rebuild_with_recent(&mut selections, &registry, &[], (0, 0), Some(&hover));
         markers.rebuild_with_recent(
             &mut selections,
             &registry,
+            &NamedPalette::default(),
+            &[],
+            (0, 0),
+            Some(&hover),
+        );
+        markers.rebuild_with_recent(
+            &mut selections,
+            &registry,
+            &NamedPalette::default(),
             &[("obj".to_string(), AtomIndex(1))],
             (0, 1),
             Some(&hover),
@@ -266,7 +290,14 @@ mod tests {
             )
         );
 
-        markers.rebuild_with_recent(&mut selections, &registry, &[], (0, 2), Some(&hover));
+        markers.rebuild_with_recent(
+            &mut selections,
+            &registry,
+            &NamedPalette::default(),
+            &[],
+            (0, 2),
+            Some(&hover),
+        );
         assert_eq!(
             markers.updates("obj"),
             Some(
@@ -286,11 +317,11 @@ mod tests {
         let mut selections = SelectionManager::new();
         let mut markers = ResolvedSceneMarkers::default();
 
-        markers.rebuild(&mut selections, &registry, None);
+        markers.rebuild(&mut selections, &registry, &NamedPalette::default(), None);
 
         let selected_b = SelectionResult::from_indices(2, std::iter::once(AtomIndex(1)));
         selections.define_with_results("sel", "name B", vec![("obj".to_string(), selected_b)]);
-        markers.rebuild(&mut selections, &registry, None);
+        markers.rebuild(&mut selections, &registry, &NamedPalette::default(), None);
         assert_eq!(markers.get("obj"), Some([0, 1].as_slice()));
         assert_eq!(
             markers.updates("obj"),
@@ -305,7 +336,7 @@ mod tests {
 
         let selected_a = SelectionResult::from_indices(2, std::iter::once(AtomIndex(0)));
         selections.define_with_results("sel", "name A", vec![("obj".to_string(), selected_a)]);
-        markers.rebuild(&mut selections, &registry, None);
+        markers.rebuild(&mut selections, &registry, &NamedPalette::default(), None);
         assert_eq!(markers.get("obj"), Some([1, 0].as_slice()));
         assert_eq!(
             markers.updates("obj"),
@@ -325,7 +356,7 @@ mod tests {
         );
 
         assert!(selections.remove("sel"));
-        markers.rebuild(&mut selections, &registry, None);
+        markers.rebuild(&mut selections, &registry, &NamedPalette::default(), None);
         assert_eq!(markers.get("obj"), Some([0, 0].as_slice()));
         assert_eq!(
             markers.updates("obj"),
@@ -346,14 +377,19 @@ mod tests {
         let mut selections = SelectionManager::new();
         let mut markers = ResolvedSceneMarkers::default();
 
-        markers.rebuild(&mut selections, &registry, None);
+        markers.rebuild(&mut selections, &registry, &NamedPalette::default(), None);
         assert!(markers.updates("obj").is_none());
 
         let hover_a = HoverTarget {
             object: "obj".to_string(),
             selection: SelectionResult::from_indices(2, std::iter::once(AtomIndex(0))),
         };
-        markers.rebuild(&mut selections, &registry, Some(&hover_a));
+        markers.rebuild(
+            &mut selections,
+            &registry,
+            &NamedPalette::default(),
+            Some(&hover_a),
+        );
         assert!(markers.dirty_flags("obj").contains(DirtyFlags::HOVER));
         assert!(!markers.dirty_flags("obj").contains(DirtyFlags::SELECTION));
         assert_eq!(markers.get("obj"), Some([2, 0].as_slice()));
@@ -373,7 +409,12 @@ mod tests {
             object: "obj".to_string(),
             selection: SelectionResult::from_indices(2, std::iter::once(AtomIndex(1))),
         };
-        markers.rebuild(&mut selections, &registry, Some(&hover_b));
+        markers.rebuild(
+            &mut selections,
+            &registry,
+            &NamedPalette::default(),
+            Some(&hover_b),
+        );
         assert_eq!(markers.get("obj"), Some([0, 2].as_slice()));
         assert_eq!(
             markers.updates("obj"),
@@ -407,11 +448,11 @@ mod tests {
         );
         let mut selections = SelectionManager::new();
         let mut markers = ResolvedSceneMarkers::default();
-        markers.rebuild(&mut selections, &registry, None);
+        markers.rebuild(&mut selections, &registry, &NamedPalette::default(), None);
 
         let selected = SelectionResult::from_indices(2, std::iter::once(AtomIndex(0)));
         selections.define_with_results("sel", "name A", vec![("obj".to_string(), selected)]);
-        markers.rebuild(&mut selections, &registry, None);
+        markers.rebuild(&mut selections, &registry, &NamedPalette::default(), None);
 
         let mut dirty = DirtyFlags::empty();
         visit_render_objects(
@@ -447,8 +488,13 @@ mod tests {
             selection: SelectionResult::from_indices(2, std::iter::once(AtomIndex(0))),
         };
         let mut markers = ResolvedSceneMarkers::default();
-        markers.rebuild(&mut selections, &registry, None);
-        markers.rebuild(&mut selections, &registry, Some(&hover));
+        markers.rebuild(&mut selections, &registry, &NamedPalette::default(), None);
+        markers.rebuild(
+            &mut selections,
+            &registry,
+            &NamedPalette::default(),
+            Some(&hover),
+        );
 
         let mut dirty = DirtyFlags::empty();
         visit_render_objects(

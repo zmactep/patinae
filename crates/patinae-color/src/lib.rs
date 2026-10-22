@@ -14,12 +14,17 @@ mod named;
 mod resolver;
 mod scheme;
 mod theme;
+mod value;
 
-pub use color::{Color, ColorIndex, SCHEME_NAMES};
+pub use color::Color;
 pub use constants::*;
 pub use error::ColorError;
 pub use gradient::Gradient;
 pub use named::NamedPalette;
-pub use resolver::ColorResolver;
-pub use scheme::{ChainPalette, ColorScheme, ElementPalette, ResiduePalette, SsPalette};
+pub use resolver::resolve_literal_color;
+pub use scheme::{
+    ids as scheme_id, ChainPalette, ElementPalette, ResiduePalette, SchemeDescriptor, SsPalette,
+    SCHEMES, SCHEME_NAMES,
+};
 pub use theme::ThemedPalette;
+pub use value::{ColorKind, ColorValue, MAX_COLOR_ID};

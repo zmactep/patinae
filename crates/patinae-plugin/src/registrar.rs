@@ -2540,7 +2540,7 @@ fn setting_value_to_abi(value: &patinae_settings::SettingValue) -> AbiSettingVal
         },
         patinae_settings::SettingValue::Color(value) => AbiSettingValue {
             tag: SETTING_VALUE_COLOR,
-            int_value: *value,
+            int_value: value.to_bits() as i32,
             ..AbiSettingValue::NONE
         },
         patinae_settings::SettingValue::String(value) => AbiSettingValue {

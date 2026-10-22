@@ -3,10 +3,10 @@ use std::path::{Path, PathBuf};
 
 use once_cell::sync::Lazy;
 
-use patinae_color::ColorResolver;
 use patinae_color::NamedPalette;
 use patinae_color::ThemedPalette;
 use patinae_mol::ObjectMolecule;
+use patinae_scene::ColorResolver;
 
 fn project_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))

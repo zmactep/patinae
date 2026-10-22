@@ -63,7 +63,7 @@ impl CaptureRenderer for ViewportRenderer {
         // Apply the silhouette setting before render.
         let common = &settings.shading.common;
         let silhouette_ink =
-            resolve_setting_color(common.silhouette_color, named, [0.0, 0.0, 0.0, 1.0]);
+            resolve_literal_color(common.silhouette_color, named, [0.0, 0.0, 0.0, 1.0]);
         if common.silhouettes {
             self.state
                 .set_silhouette(true, common.silhouette_width, silhouette_ink);

@@ -255,9 +255,12 @@ fn apply_atom_property_change(
             (changed, false)
         }
         ("color", wire::WireAtomPropertyValue::I32(value)) => {
-            let changed = atom.repr.colors.base != *value;
+            let Ok(value) = patinae_mol::ColorValue::try_from_bits(*value as u32) else {
+                return AtomPropertyChangeOutcome::default();
+            };
+            let changed = atom.repr.colors.base != value;
             if changed {
-                atom.repr.colors.base = *value;
+                atom.repr.colors.base = value;
             }
             (changed, false)
         }

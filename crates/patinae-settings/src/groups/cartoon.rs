@@ -1,7 +1,7 @@
 //! Cartoon representation settings (object-overridable).
 
 use crate::define_settings_group;
-use crate::Color;
+use crate::ColorValue;
 
 define_settings_group! {
     /// Cartoon representation parameters.
@@ -51,12 +51,6 @@ define_settings_group! {
         round_helices: bool = true,
             name = "cartoon_round_helices",
             side_effects = [RepresentationRebuild];
-        color: Color = Color::UNSET,
-            name = "cartoon_color",
-            side_effects = [ColorRebuild];
-        nucleic_acid_color: Color = Color::UNSET,
-            name = "cartoon_nucleic_acid_color",
-            side_effects = [ColorRebuild];
         transparency: f32 = 0.0,
             name = "cartoon_transparency",
             min = 0.0, max = 1.0,
@@ -88,5 +82,13 @@ define_settings_group! {
             name = "cartoon_arrow_tip_scale",
             min = 0.0, max = 5.0,
             side_effects = [RepresentationRebuild];
+        @global {
+            color: ColorValue = ColorValue::INHERIT,
+                name = "cartoon_color",
+                side_effects = [ColorRebuild];
+            nucleic_acid_color: ColorValue = ColorValue::INHERIT,
+                name = "cartoon_nucleic_acid_color",
+                side_effects = [ColorRebuild];
+        }
     }
 }

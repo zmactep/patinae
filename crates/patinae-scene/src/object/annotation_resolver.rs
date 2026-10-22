@@ -5,8 +5,8 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 
 use ahash::AHashSet;
 use lin_alg::f32::Vec3;
-use patinae_color::{Color as RgbColor, ColorIndex, NamedPalette};
-use patinae_settings::{Color as SettingColor, Settings};
+use patinae_color::NamedPalette;
+use patinae_settings::Settings;
 
 use super::{
     AtomAnchor, LabelAlignment, LinePattern, MeasurementEntity, MeasurementKind, MeasurementObject,
@@ -195,7 +195,7 @@ pub fn resolve_annotation_bundles(
                         .color()
                         .or(label.presentation().color())
                         .map_or(global_color, |color| {
-                            resolve_named_color(color, named, global_color)
+                            patinae_color::resolve_literal_color(color, named, global_color)
                         });
                     let size = valid_label_size(
                         entity
@@ -331,7 +331,7 @@ fn resolve_measurement_bundle(
             .or(measurement.presentation().color())
             .map_or(fallback_color, |color| {
                 with_alpha(
-                    resolve_named_color(color, context.named, fallback_color),
+                    patinae_color::resolve_literal_color(color, context.named, fallback_color),
                     1.0 - measurement_settings.dash_transparency.clamp(0.0, 1.0),
                 )
             });
@@ -473,7 +473,7 @@ fn measurement_kind_color(
         MeasurementKind::Dihedral => settings.dihedral_color,
     };
     with_alpha(
-        resolve_setting_color(setting, named, cyan),
+        patinae_color::resolve_literal_color(setting, named, cyan),
         1.0 - settings.dash_transparency.clamp(0.0, 1.0),
     )
 }
@@ -488,30 +488,6 @@ fn annotation_default_color(named: &NamedPalette) -> [f32; 4] {
             0xEE as f32 / 255.0,
             1.0,
         ])
-}
-
-fn resolve_setting_color(
-    setting: SettingColor,
-    named: &NamedPalette,
-    fallback: [f32; 4],
-) -> [f32; 4] {
-    if setting.0 < 0 {
-        return fallback;
-    }
-    named
-        .get_by_index(setting.0 as u32)
-        .unwrap_or_else(|| RgbColor::from_packed_rgb(setting.0))
-        .to_rgba(fallback[3])
-}
-
-fn resolve_named_color(color: ColorIndex, named: &NamedPalette, fallback: [f32; 4]) -> [f32; 4] {
-    match color {
-        ColorIndex::Named(index) => named
-            .get_by_index(index)
-            .map(|color| color.to_rgba(fallback[3]))
-            .unwrap_or(fallback),
-        _ => fallback,
-    }
 }
 
 fn with_alpha(mut color: [f32; 4], alpha: f32) -> [f32; 4] {

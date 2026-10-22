@@ -1,6 +1,6 @@
 //! Measurement rendering settings.
 
-use crate::{define_settings_group, Color};
+use crate::{define_settings_group, ColorValue};
 
 define_settings_group! {
     /// Distance, angle, and dihedral display parameters.
@@ -50,13 +50,13 @@ define_settings_group! {
             name = "label_dihedral_digits",
             min = -1, max = 9,
             side_effects = [ViewportUpdate];
-        dash_color: Color = Color::UNSET,
+        dash_color: ColorValue = ColorValue::INHERIT,
             name = "dash_color",
             side_effects = [ColorRebuild];
-        angle_color: Color = Color::UNSET,
+        angle_color: ColorValue = ColorValue::INHERIT,
             name = "angle_color",
             side_effects = [ColorRebuild];
-        dihedral_color: Color = Color::UNSET,
+        dihedral_color: ColorValue = ColorValue::INHERIT,
             name = "dihedral_color",
             side_effects = [ColorRebuild];
         dash_transparency: f32 = 0.0,

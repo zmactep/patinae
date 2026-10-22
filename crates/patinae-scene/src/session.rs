@@ -319,8 +319,12 @@ impl Session {
 
     /// Resolves every valid recent path to an object-local atom index.
     pub fn resolved_recent_atoms(&self) -> Vec<(String, patinae_mol::AtomIndex)> {
-        let contexts =
-            recent_atom_evaluation_contexts(&self.registry, &self.selections, &self.settings);
+        let contexts = recent_atom_evaluation_contexts(
+            &self.registry,
+            &self.selections,
+            &self.settings,
+            &self.named_palette,
+        );
         self.recent_atoms
             .paths()
             .filter_map(|path| resolve_recent_atom_in_contexts(path, &contexts))
@@ -329,8 +333,12 @@ impl Session {
 
     /// Resolves durable recent paths including their assembly copy identities.
     pub fn resolved_recent_atom_anchors(&self) -> Vec<crate::AtomAnchor> {
-        let contexts =
-            recent_atom_evaluation_contexts(&self.registry, &self.selections, &self.settings);
+        let contexts = recent_atom_evaluation_contexts(
+            &self.registry,
+            &self.selections,
+            &self.settings,
+            &self.named_palette,
+        );
         self.recent_atoms
             .paths()
             .filter_map(|path| {
@@ -345,8 +353,12 @@ impl Session {
     }
 
     fn resolve_recent_atom(&self, path: &str) -> Option<(String, patinae_mol::AtomIndex)> {
-        let contexts =
-            recent_atom_evaluation_contexts(&self.registry, &self.selections, &self.settings);
+        let contexts = recent_atom_evaluation_contexts(
+            &self.registry,
+            &self.selections,
+            &self.settings,
+            &self.named_palette,
+        );
         resolve_recent_atom_in_contexts(path, &contexts)
     }
 
@@ -355,8 +367,12 @@ impl Session {
             return false;
         }
 
-        let contexts =
-            recent_atom_evaluation_contexts(&self.registry, &self.selections, &self.settings);
+        let contexts = recent_atom_evaluation_contexts(
+            &self.registry,
+            &self.selections,
+            &self.settings,
+            &self.named_palette,
+        );
 
         let mut changed = self.recent_atoms.reconcile_paths(|path| {
             let (instance, source_path) = split_instance_path(path);
@@ -447,8 +463,12 @@ impl Session {
         let molecule =
             patinae_mol::materialize_molecule(object.molecule(), object.display_state(), &table)
                 .map_err(|error| error.to_string())?;
-        let contexts =
-            recent_atom_evaluation_contexts(&self.registry, &self.selections, &self.settings);
+        let contexts = recent_atom_evaluation_contexts(
+            &self.registry,
+            &self.selections,
+            &self.settings,
+            &self.named_palette,
+        );
         let replacements = self
             .recent_atoms
             .paths()
@@ -496,6 +516,7 @@ impl Session {
                 name,
                 &object_names,
                 options,
+                &self.named_palette,
             );
             context.instances = Some(&table);
             context.active_instance = Some(copy as u32);
@@ -869,6 +890,7 @@ fn recent_atom_evaluation_contexts<'a>(
     registry: &'a ObjectRegistry,
     selections: &SelectionManager,
     settings: &Settings,
+    palette: &'a NamedPalette,
 ) -> Vec<EvalContext<'a>> {
     let object_names = registry.names().map(ToOwned::to_owned).collect::<Vec<_>>();
     let options = SelectionOptions {
@@ -885,6 +907,7 @@ fn recent_atom_evaluation_contexts<'a>(
                 object_name,
                 &object_names,
                 options,
+                palette,
             ))
         })
         .collect()

@@ -90,6 +90,9 @@ impl Command for RayCommand {
             |name, default| ctx.setting_bool(name, default),
             |name, default| ctx.setting_int(name, default),
             |name, default| ctx.setting_float(name, default),
+            ctx.setting_value("ray_trace_color")
+                .and_then(|v| v.as_color())
+                .unwrap_or_default(),
         );
 
         // Determine output dimensions

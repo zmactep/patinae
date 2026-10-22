@@ -8,6 +8,7 @@
 //! - [`AtomRepresentation`] - Display/visualization settings
 //! - [`Atom`] - Core identity and physical/chemical properties
 
+pub use patinae_color::ColorValue;
 use serde::{Deserialize, Serialize};
 
 use crate::element::Element;
@@ -127,173 +128,88 @@ impl RepMask {
     }
 }
 
-/// Sentinel value indicating "no color override" (use base color)
-pub const COLOR_UNSET: i32 = i32::MIN;
-
-/// Color by element (CPK coloring)
-pub const COLOR_BY_ELEMENT: i32 = -1;
-
-/// Color by chain
-pub const COLOR_BY_CHAIN: i32 = -2;
-
 /// Per-atom color settings for different representations
 ///
-/// Contains the base color index and optional per-representation color overrides.
-/// When a representation-specific color is `COLOR_UNSET`, the base color is used instead.
-/// Uses sentinel values instead of `Option<i32>` for memory efficiency (4 bytes vs 8 bytes per field).
+/// Contains a base color value and per-representation color overrides.
+/// Inherited fields are resolved by scene policy: global representation, base, automatic default.
+/// Each tagged value occupies four bytes, including its inheritance state.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AtomColors {
-    /// Base color index (resolved via patinae-color crate)
-    /// -1 = by element, -2 = by chain, -3 = by ss, -4 = by b-factor
-    pub base: i32,
+    /// Base color value (resolved via patinae-color crate)
+    pub base: ColorValue,
 
-    /// Cartoon-specific color (COLOR_UNSET = use base)
-    pub cartoon: i32,
+    /// Cartoon-specific color (inherit = use global representation color, then base)
+    pub cartoon: ColorValue,
 
-    /// Ribbon-specific color (COLOR_UNSET = use base)
-    pub ribbon: i32,
+    /// Ribbon-specific color (inherit = use global representation color, then base)
+    pub ribbon: ColorValue,
 
-    /// Stick-specific color (COLOR_UNSET = use base)
-    pub stick: i32,
+    /// Stick-specific color (inherit = use global representation color, then base)
+    pub stick: ColorValue,
 
-    /// Line-specific color (COLOR_UNSET = use base)
-    pub line: i32,
+    /// Line-specific color (inherit = use global representation color, then base)
+    pub line: ColorValue,
 
-    /// Surface-specific color (COLOR_UNSET = use base)
-    pub surface: i32,
+    /// Surface-specific color (inherit = use global representation color, then base)
+    pub surface: ColorValue,
 
-    /// Mesh-specific color (COLOR_UNSET = use base)
-    pub mesh: i32,
+    /// Mesh-specific color (inherit = use global representation color, then base)
+    pub mesh: ColorValue,
 
-    /// Sphere-specific color (COLOR_UNSET = use base)
-    pub sphere: i32,
+    /// Sphere-specific color (inherit = use global representation color, then base)
+    pub sphere: ColorValue,
 
-    /// Dot-specific color (COLOR_UNSET = use base)
-    pub dot: i32,
+    /// Dot-specific color (inherit = use global representation color, then base)
+    pub dot: ColorValue,
 
-    /// Ellipsoid-specific color (COLOR_UNSET = use base)
-    pub ellipsoid: i32,
+    /// Ellipsoid-specific color (inherit = use global representation color, then base)
+    pub ellipsoid: ColorValue,
 }
 
 impl Default for AtomColors {
     fn default() -> Self {
         AtomColors {
-            base: COLOR_BY_ELEMENT,
-            cartoon: COLOR_BY_CHAIN,
-            ribbon: COLOR_UNSET,
-            stick: COLOR_UNSET,
-            line: COLOR_UNSET,
-            surface: COLOR_UNSET,
-            mesh: COLOR_UNSET,
-            sphere: COLOR_UNSET,
-            dot: COLOR_UNSET,
-            ellipsoid: COLOR_UNSET,
+            base: ColorValue::INHERIT,
+            cartoon: ColorValue::INHERIT,
+            ribbon: ColorValue::INHERIT,
+            stick: ColorValue::INHERIT,
+            line: ColorValue::INHERIT,
+            surface: ColorValue::INHERIT,
+            mesh: ColorValue::INHERIT,
+            sphere: ColorValue::INHERIT,
+            dot: ColorValue::INHERIT,
+            ellipsoid: ColorValue::INHERIT,
         }
     }
 }
 
 impl AtomColors {
-    /// Create a new AtomColors with default values (CPK base, cartoon by chain)
+    /// Create a new AtomColors with inherited colors
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Create AtomColors with a specific base color index
-    pub fn with_base(base: i32) -> Self {
+    /// Create AtomColors with a specific base color value
+    pub fn with_base(base: ColorValue) -> Self {
         AtomColors {
             base,
             ..Default::default()
         }
     }
 
-    /// Get the effective color for cartoon representation
-    #[inline]
-    pub fn cartoon_or_base(&self) -> i32 {
-        if self.cartoon != COLOR_UNSET {
-            self.cartoon
-        } else {
-            self.base
-        }
-    }
-
-    /// Get the effective color for ribbon representation
-    #[inline]
-    pub fn ribbon_or_base(&self) -> i32 {
-        if self.ribbon != COLOR_UNSET {
-            self.ribbon
-        } else {
-            self.base
-        }
-    }
-
-    /// Get the effective color for stick representation
-    #[inline]
-    pub fn stick_or_base(&self) -> i32 {
-        if self.stick != COLOR_UNSET {
-            self.stick
-        } else {
-            self.base
-        }
-    }
-
-    /// Get the effective color for line representation
-    #[inline]
-    pub fn line_or_base(&self) -> i32 {
-        if self.line != COLOR_UNSET {
-            self.line
-        } else {
-            self.base
-        }
-    }
-
-    /// Get the effective color for surface representation
-    #[inline]
-    pub fn surface_or_base(&self) -> i32 {
-        if self.surface != COLOR_UNSET {
-            self.surface
-        } else {
-            self.base
-        }
-    }
-
-    /// Get the effective color for mesh representation
-    #[inline]
-    pub fn mesh_or_base(&self) -> i32 {
-        if self.mesh != COLOR_UNSET {
-            self.mesh
-        } else {
-            self.base
-        }
-    }
-
-    /// Get the effective color for sphere representation
-    #[inline]
-    pub fn sphere_or_base(&self) -> i32 {
-        if self.sphere != COLOR_UNSET {
-            self.sphere
-        } else {
-            self.base
-        }
-    }
-
-    /// Get the effective color for dot representation
-    #[inline]
-    pub fn dot_or_base(&self) -> i32 {
-        if self.dot != COLOR_UNSET {
-            self.dot
-        } else {
-            self.base
-        }
-    }
-
-    /// Get the effective color for ellipsoid representation
-    #[inline]
-    pub fn ellipsoid_or_base(&self) -> i32 {
-        if self.ellipsoid != COLOR_UNSET {
-            self.ellipsoid
-        } else {
-            self.base
+    pub fn representation_field(name: &str) -> Option<fn(&mut Self) -> &mut ColorValue> {
+        match name {
+            "cartoon_color" | "cartoon_nucleic_acid_color" => Some(|colors| &mut colors.cartoon),
+            "ribbon_color" => Some(|colors| &mut colors.ribbon),
+            "stick_color" => Some(|colors| &mut colors.stick),
+            "line_color" => Some(|colors| &mut colors.line),
+            "surface_color" => Some(|colors| &mut colors.surface),
+            "mesh_color" => Some(|colors| &mut colors.mesh),
+            "sphere_color" => Some(|colors| &mut colors.sphere),
+            "dot_color" => Some(|colors| &mut colors.dot),
+            "ellipsoid_color" => Some(|colors| &mut colors.ellipsoid),
+            _ => None,
         }
     }
 }
@@ -996,6 +912,21 @@ mod tests {
     use super::*;
 
     #[test]
+    fn atom_colors_use_only_tagged_values() {
+        assert_eq!(std::mem::size_of::<AtomColors>(), 40);
+        let bytes = rmp_serde::to_vec(&[-1_i32, -2, i32::MIN, -7, 2, -3, -4, -5, -6, -8]).unwrap();
+        assert!(rmp_serde::from_slice::<AtomColors>(&bytes).is_err());
+        let mut colors = AtomColors::default();
+        assert_eq!(colors.base, ColorValue::INHERIT);
+        assert_eq!(colors.cartoon, ColorValue::INHERIT);
+        colors.base = ColorValue::rgb(0, 0, 2);
+        colors.stick = ColorValue::scheme(0xffffff);
+        colors.sphere = ColorValue::from_bits(0xfe123456);
+        let bytes = rmp_serde::to_vec_named(&colors).unwrap();
+        assert_eq!(rmp_serde::from_slice::<AtomColors>(&bytes).unwrap(), colors);
+    }
+
+    #[test]
     fn test_atom_new() {
         let atom = Atom::new("CA", Element::Carbon);
         assert_eq!(&*atom.name, "CA");
@@ -1081,7 +1012,7 @@ mod tests {
     #[test]
     fn test_atom_representation_default() {
         let repr = AtomRepresentation::default();
-        assert_eq!(repr.colors.base, COLOR_BY_ELEMENT);
+        assert_eq!(repr.colors.base, ColorValue::INHERIT);
         assert!(repr.visible_reps.is_visible(RepMask::LINES));
         assert!(!repr.masked);
     }

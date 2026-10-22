@@ -93,7 +93,7 @@ impl ViewportRenderer {
 
         // 6) Silhouette pass on/off from settings.
         let common = &session.settings.shading.common;
-        let silhouette_ink = resolve_setting_color(
+        let silhouette_ink = resolve_literal_color(
             common.silhouette_color,
             &session.named_palette,
             [0.0, 0.0, 0.0, 1.0],

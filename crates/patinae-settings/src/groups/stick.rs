@@ -1,7 +1,7 @@
 //! Stick representation settings (object-overridable).
 
 use crate::define_settings_group;
-use crate::Color;
+use crate::ColorValue;
 
 define_settings_group! {
     /// Stick representation parameters.
@@ -10,9 +10,6 @@ define_settings_group! {
             name = "stick_radius",
             min = 0.01, max = 5.0,
             side_effects = [RepresentationRebuild];
-        color: Color = Color::UNSET,
-            name = "stick_color",
-            side_effects = [ColorRebuild];
         valence_scale: f32 = 1.0,
             name = "stick_valence_scale",
             min = 0.0, max = 5.0,
@@ -24,5 +21,10 @@ define_settings_group! {
             name = "stick_transparency",
             min = 0.0, max = 1.0,
             side_effects = [ColorRebuild];
+        @global {
+            color: ColorValue = ColorValue::INHERIT,
+                name = "stick_color",
+                side_effects = [ColorRebuild];
+        }
     }
 }

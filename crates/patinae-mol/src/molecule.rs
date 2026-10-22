@@ -93,6 +93,10 @@ pub struct ObjectMolecule {
     /// mutation that touches bonds or atom classification flags.
     #[serde(skip)]
     pub(crate) subchain_partition: OnceLock<SubchainPartition>,
+    #[serde(skip)]
+    residue_ranks: OnceLock<crate::ResidueRankTable>,
+    #[serde(skip)]
+    b_factor_range: OnceLock<(f32, f32)>,
 
     /// File-defined assembly recipes and original chain membership.
     #[serde(default)]
@@ -118,6 +122,8 @@ impl Default for ObjectMolecule {
             unique_settings: UniqueSettings::new(),
             symmetry: None,
             subchain_partition: OnceLock::new(),
+            residue_ranks: OnceLock::new(),
+            b_factor_range: OnceLock::new(),
             assembly: crate::AssemblyMetadata::default(),
             entities: Vec::new(),
         }
@@ -165,7 +171,33 @@ impl ObjectMolecule {
     /// Drop the cached [`SubchainPartition`]. Call this after any mutation
     /// that changes bonds, atom flags, or atom residue/chain identity.
     pub fn invalidate_subchain_partition(&mut self) {
-        self.subchain_partition = OnceLock::new();
+        self.subchain_partition.take();
+        self.residue_ranks.take();
+        self.b_factor_range.take();
+    }
+
+    /// Cached per-chain polymer residue ranks, built only when a scheme needs them.
+    pub fn residue_ranks(&self) -> &crate::ResidueRankTable {
+        self.residue_ranks
+            .get_or_init(|| crate::polymer_residue_ranks(self))
+    }
+
+    /// Cached finite B-factor bounds, built only when a scheme needs them.
+    pub fn b_factor_range(&self) -> (f32, f32) {
+        *self.b_factor_range.get_or_init(|| {
+            let mut range = (f32::INFINITY, f32::NEG_INFINITY);
+            for atom in &self.atoms {
+                if atom.b_factor.is_finite() {
+                    range.0 = range.0.min(atom.b_factor);
+                    range.1 = range.1.max(atom.b_factor);
+                }
+            }
+            if range.0 > range.1 {
+                (0.0, 100.0)
+            } else {
+                range
+            }
+        })
     }
 
     /// Create a molecule with pre-allocated capacity
@@ -183,6 +215,8 @@ impl ObjectMolecule {
             unique_settings: UniqueSettings::new(),
             symmetry: None,
             subchain_partition: OnceLock::new(),
+            residue_ranks: OnceLock::new(),
+            b_factor_range: OnceLock::new(),
             assembly: crate::AssemblyMetadata::default(),
             entities: Vec::new(),
         }
@@ -225,6 +259,7 @@ impl ObjectMolecule {
     /// Get a mutable reference to an atom by index
     #[inline]
     pub fn get_atom_mut(&mut self, index: AtomIndex) -> Option<&mut Atom> {
+        self.invalidate_subchain_partition();
         self.atoms.get_mut(index.as_usize())
     }
 
@@ -254,12 +289,33 @@ impl ObjectMolecule {
 
     /// Get mutable atoms slice
     pub fn atoms_slice_mut(&mut self) -> &mut [Atom] {
+        self.invalidate_subchain_partition();
         &mut self.atoms
     }
 
     /// Iterate over all atoms mutably
     pub fn atoms_mut(&mut self) -> impl Iterator<Item = &mut Atom> {
+        self.invalidate_subchain_partition();
         self.atoms.iter_mut()
+    }
+
+    /// Mutate only colors without invalidating structural or B-factor caches.
+    pub fn atom_colors_mut(
+        &mut self,
+    ) -> impl Iterator<Item = (crate::AtomFlags, &mut crate::AtomColors)> {
+        self.atoms
+            .iter_mut()
+            .map(|atom| (atom.state.flags, &mut atom.repr.colors))
+    }
+
+    /// Mutate one atom's colors without exposing its structural properties.
+    pub fn get_atom_colors_mut(
+        &mut self,
+        index: AtomIndex,
+    ) -> Option<(crate::AtomFlags, &mut crate::AtomColors)> {
+        self.atoms
+            .get_mut(index.as_usize())
+            .map(|atom| (atom.state.flags, &mut atom.repr.colors))
     }
 
     // =========================================================================
@@ -695,6 +751,7 @@ impl ObjectMolecule {
     ///
     /// Must be called after `classify_atoms()` and `generate_bonds()`.
     pub fn assign_chains(&mut self) {
+        self.invalidate_subchain_partition();
         crate::chains::assign_chains(self);
     }
 
@@ -1136,6 +1193,35 @@ mod tests {
         mol.add_coord_set(cs);
 
         mol
+    }
+
+    #[test]
+    fn scheme_caches_survive_colors_and_refresh_after_atom_edits() {
+        let mut mol = ObjectMolecule::new("cache");
+        let mut atom = Atom {
+            b_factor: 10.0,
+            ..Default::default()
+        };
+        atom.set_residue("ALA", 1, "A");
+        atom.state.flags = crate::AtomFlags::PROTEIN | crate::AtomFlags::POLYMER;
+        mol.add_atom(atom.clone());
+        atom.b_factor = 20.0;
+        atom.set_residue("ALA", 2, "A");
+        mol.add_atom(atom);
+        assert_eq!(mol.b_factor_range(), (10.0, 20.0));
+        mol.residue_ranks();
+        for (_, colors) in mol.atom_colors_mut() {
+            colors.stick = crate::ColorValue::ELEMENT;
+        }
+        assert!(mol.residue_ranks.get().is_some());
+        assert!(mol.b_factor_range.get().is_some());
+        mol.get_atom_mut(AtomIndex(0)).unwrap().b_factor = 5.0;
+        assert!(mol.residue_ranks.get().is_none());
+        assert_eq!(mol.b_factor_range(), (5.0, 20.0));
+        mol.residue_ranks();
+        mol.atoms_slice_mut()[0].set_residue("ALA", 1, "B");
+        assert!(mol.residue_ranks.get().is_none());
+        assert_eq!(mol.residue_ranks().t_for(&mol.atoms_slice()[0]), Some(0.5));
     }
 
     #[test]

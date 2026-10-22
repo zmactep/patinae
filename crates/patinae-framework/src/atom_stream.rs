@@ -528,6 +528,7 @@ fn selection_plans(
             name,
             &object_names,
             SelectionOptions::default(),
+            ctx.named_palette,
         );
         let selection =
             patinae_select::evaluate(&expr, &eval).map_err(|error| error.to_string())?;
@@ -601,7 +602,7 @@ fn atom_value(
         AtomColumn::PartialCharge => AtomValue::F32(atom.partial_charge),
         AtomColumn::FormalCharge => AtomValue::I8(atom.formal_charge),
         AtomColumn::Ss => AtomValue::Str(ss_to_str(atom.ss_type).to_string()),
-        AtomColumn::Color => AtomValue::I32(atom.repr.colors.base),
+        AtomColumn::Color => AtomValue::I32(atom.repr.colors.base.to_bits() as i32),
         AtomColumn::Type => {
             AtomValue::Str(if atom.state.hetatm { "HETATM" } else { "ATOM" }.into())
         }

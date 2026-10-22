@@ -2,7 +2,7 @@
 
 use crate::define_settings_group;
 use crate::enums::SurfaceMode;
-use crate::Color;
+use crate::ColorValue;
 
 define_settings_group! {
     /// Surface representation parameters.
@@ -18,9 +18,6 @@ define_settings_group! {
         quality: i32 = 1,
             name = "surface_quality",
             side_effects = [RepresentationRebuild];
-        color: Color = Color::UNSET,
-            name = "surface_color",
-            side_effects = [ColorRebuild];
         color_smoothing: i32 = 1,
             name = "surface_color_smoothing",
             side_effects = [ColorRebuild];
@@ -40,5 +37,10 @@ define_settings_group! {
         solvent: bool = false,
             name = "surface_solvent",
             side_effects = [RepresentationRebuild];
+        @global {
+            color: ColorValue = ColorValue::INHERIT,
+                name = "surface_color",
+                side_effects = [ColorRebuild];
+        }
     }
 }

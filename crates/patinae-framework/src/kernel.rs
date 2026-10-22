@@ -1267,8 +1267,7 @@ mod tests {
                 .unwrap();
             assert_eq!(kernel.tasks.get(id).unwrap().effects, expected, "{command}");
         }
-        // Palette insertion precedes selection validation and remains observable
-        // even if the command subsequently fails.
+        // Literal RGB needs no palette insertion, so a rejected selection has no effects.
         let id = kernel
             .tasks
             .admit(TaskSpec::new("script", "fixture"))
@@ -1277,12 +1276,12 @@ mod tests {
             .execute_task_command(id, "fixture", "color 0x123456, (", true, None, (1, 1))
             .unwrap();
         assert!(execution.result.is_err());
-        assert_eq!(kernel.tasks.get(id).unwrap().effects, TaskEffects::Applied);
+        assert_eq!(kernel.tasks.get(id).unwrap().effects, TaskEffects::None);
         kernel
             .tasks
             .finish_owned(id, "fixture", TaskOutcome::failure("test", "failed"))
             .unwrap();
-        assert_eq!(kernel.tasks.get(id).unwrap().effects, TaskEffects::Partial);
+        assert_eq!(kernel.tasks.get(id).unwrap().effects, TaskEffects::None);
 
         let id = kernel
             .tasks

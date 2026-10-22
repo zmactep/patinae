@@ -275,8 +275,9 @@ mod tests {
     use crate::render_input::SceneLod;
     use crate::representations::cartoon::tessellation::GuidePoint;
     use lin_alg::f32::Vec3;
+    use patinae_mol::ColorValue;
     use patinae_mol::SecondaryStructure;
-    use patinae_settings::{Color, Settings};
+    use patinae_settings::Settings;
 
     fn geometry_hash_for(settings: &Settings, mode: CartoonMode) -> u64 {
         let resolved = ResolvedSettings::resolve(settings, None);
@@ -407,7 +408,7 @@ mod tests {
     fn geometry_hash_ignores_cartoon_color() {
         let base = Settings::default();
         let mut changed = Settings::default();
-        changed.cartoon.color = Color(7);
+        changed.cartoon.color = ColorValue::palette(7);
 
         assert_eq!(
             geometry_hash_for(&base, CartoonMode::Cartoon),
@@ -440,7 +441,7 @@ mod tests {
     fn ribbon_geometry_hash_ignores_ribbon_color() {
         let base = Settings::default();
         let mut changed = Settings::default();
-        changed.ribbon.color = Color(7);
+        changed.ribbon.color = ColorValue::palette(7);
 
         assert_eq!(
             geometry_hash_for(&base, CartoonMode::Ribbon),

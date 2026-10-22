@@ -7,7 +7,7 @@
 //! back to an isotropic ellipsoid sized from `b_factor`.
 
 use crate::define_settings_group;
-use crate::Color;
+use crate::ColorValue;
 
 define_settings_group! {
     /// Ellipsoid representation parameters.
@@ -20,12 +20,14 @@ define_settings_group! {
             name = "ellipsoid_probability",
             min = 0.01, max = 0.99,
             side_effects = [RepresentationRebuild];
-        color: Color = Color::UNSET,
-            name = "ellipsoid_color",
-            side_effects = [ColorRebuild];
         transparency: f32 = 0.0,
             name = "ellipsoid_transparency",
             min = 0.0, max = 1.0,
             side_effects = [ColorRebuild];
+        @global {
+            color: ColorValue = ColorValue::INHERIT,
+                name = "ellipsoid_color",
+                side_effects = [ColorRebuild];
+        }
     }
 }

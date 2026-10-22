@@ -9,7 +9,7 @@
 use std::collections::HashSet;
 use std::ops::Range;
 
-use patinae_color::{Color, ColorIndex, NamedPalette, ThemedPalette};
+use patinae_color::{Color, NamedPalette, ThemedPalette};
 
 /// Everything the model needs from the outside world to rebuild its cache.
 ///
@@ -18,13 +18,13 @@ use patinae_color::{Color, ColorIndex, NamedPalette, ThemedPalette};
 pub struct SequenceColorContext<'a> {
     pub named_palette: &'a NamedPalette,
     pub palette: &'a ThemedPalette,
+    pub settings: &'a patinae_settings::Settings,
 }
 use patinae_mol::{
     is_capping_group, is_ion, is_standard_amino_acid, is_standard_nucleotide, is_water,
-    nucleotide_to_char, polymer_residue_ranks, residue_to_char, three_to_one, Atom, ObjectMolecule,
-    ResidueRankTable, COLOR_UNSET,
+    nucleotide_to_char, residue_to_char, three_to_one, Atom, ObjectMolecule,
 };
-use patinae_scene::{Object, ObjectRegistry};
+use patinae_scene::{ColorResolver, Object, ObjectRegistry, RepColorDefaults};
 
 /// Reference to a specific residue in a loaded object
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -174,9 +174,7 @@ impl SequenceModel {
                     continue;
                 }
                 let mol = mol_obj.molecule();
-                let ranks = polymer_residue_ranks(mol);
-                let b_range = mol_b_factor_range(mol);
-                let seq_obj = build_seq_object(name, mol, color_ctx, &ranks, b_range);
+                let seq_obj = build_seq_object(name, mol, color_ctx);
                 if !seq_obj.chains.is_empty() {
                     self.sequences.push(seq_obj);
                 }
@@ -235,90 +233,14 @@ pub fn compress_resi_list(values: &[i32]) -> String {
     parts.join("+")
 }
 
-/// Compute (min, max) B-factor range for a molecule.
-fn mol_b_factor_range(mol: &ObjectMolecule) -> (f32, f32) {
-    let mut min = f32::MAX;
-    let mut max = f32::MIN;
-    for atom in mol.atoms() {
-        if atom.b_factor < min {
-            min = atom.b_factor;
-        }
-        if atom.b_factor > max {
-            max = atom.b_factor;
-        }
-    }
-    if min > max {
-        (0.0, 100.0)
-    } else {
-        (min, max)
-    }
-}
-
 /// Resolve an atom's named color index to RGB, if it has a named color.
 fn resolve_named_color(atom: &Atom, named_palette: &NamedPalette) -> Option<[u8; 3]> {
-    if atom.repr.colors.base >= 0 {
-        if let Some(color) = named_palette.get_by_index(atom.repr.colors.base as u32) {
-            return Some([
-                (color.r * 255.0) as u8,
-                (color.g * 255.0) as u8,
-                (color.b * 255.0) as u8,
-            ]);
-        }
-    }
-    None
-}
-
-/// Resolve an atom's effective color index to an RGB triple, matching the 3D
-/// viewer's cartoon path: prefer `colors.cartoon` when set (cartoon is the
-/// representation used by the sequence panel's primary subjects — proteins
-/// and nucleic acids), fall back to `colors.base` otherwise.
-fn resolve_viewer_color(
-    atom: &Atom,
-    named_palette: &NamedPalette,
-    palette: &ThemedPalette,
-    residue_ranks: &ResidueRankTable,
-    b_factor_range: (f32, f32),
-) -> [u8; 3] {
-    let effective_index = if atom.repr.colors.cartoon != COLOR_UNSET {
-        atom.repr.colors.cartoon
-    } else {
-        atom.repr.colors.base
-    };
-    let color = match ColorIndex::from(effective_index) {
-        ColorIndex::ByElement | ColorIndex::Atomic => palette.element.get(atom.element as u8),
-        ColorIndex::ByChain => {
-            if atom.state.flags.is_biomolecule() && atom.element.is_carbon() {
-                palette.chains.get(&atom.residue.chain)
-            } else {
-                palette.element.get(atom.element as u8)
-            }
-        }
-        ColorIndex::BySS => palette.ss.get(atom.ss_type as u8),
-        ColorIndex::ByResidueType => palette
-            .residue
-            .get(&atom.residue.resn)
-            .unwrap_or_else(|| palette.element.get(atom.element as u8)),
-        ColorIndex::ByResidueIndex => match residue_ranks.t_for(atom) {
-            Some(t) => palette.spectrum.sample(t),
-            None => palette.element.get(atom.element as u8),
-        },
-        ColorIndex::ByBFactor => {
-            let (min, max) = b_factor_range;
-            let range = max - min;
-            if range <= 0.0 {
-                Color::WHITE
-            } else {
-                let t = ((atom.b_factor - min) / range).clamp(0.0, 1.0);
-                palette.b_factor.sample(t)
-            }
-        }
-        ColorIndex::Named(idx) => named_palette.get_by_index(idx).unwrap_or(Color::WHITE),
-    };
-    [
-        (color.r * 255.0) as u8,
-        (color.g * 255.0) as u8,
-        (color.b * 255.0) as u8,
-    ]
+    let color = atom.repr.colors.base;
+    color.as_rgb8().or_else(|| {
+        color
+            .palette_index()
+            .and_then(|id| named_palette.get_by_index(id).map(|rgb| rgb.to_rgb8()))
+    })
 }
 
 /// Build sequence data for one molecule object.
@@ -332,9 +254,10 @@ pub fn build_seq_object(
     object_name: &str,
     mol: &ObjectMolecule,
     color_ctx: &SequenceColorContext,
-    residue_ranks: &ResidueRankTable,
-    b_factor_range: (f32, f32),
 ) -> SeqObject {
+    let resolver =
+        ColorResolver::new(color_ctx.named_palette, color_ctx.palette).with_molecule(mol);
+    let defaults = RepColorDefaults::from_settings(color_ctx.settings);
     let mut chains: Vec<SeqChain> = Vec::new();
 
     for chain_view in mol.chains() {
@@ -389,13 +312,8 @@ pub fn build_seq_object(
 
             let viewer_color = repr_atom
                 .map(|a| {
-                    resolve_viewer_color(
-                        a,
-                        color_ctx.named_palette,
-                        color_ctx.palette,
-                        residue_ranks,
-                        b_factor_range,
-                    )
+                    let [r, g, b, _] = resolver.resolve_cartoon_with_defaults(a, &defaults);
+                    Color::new(r, g, b).to_rgb8()
                 })
                 .unwrap_or([200, 200, 200]);
 
@@ -512,6 +430,7 @@ pub fn collect_all_sequences(sequences: &[SeqObject]) -> (String, usize) {
 #[cfg(test)]
 mod tests {
     use lin_alg::f32::Vec3;
+    use patinae_color::ColorValue;
     use patinae_color::{NamedPalette, ThemedPalette};
     use patinae_mol::{AtomBuilder, AtomFlags, AtomIndex, MoleculeBuilder};
     use patinae_scene::{DirtyFlags, MoleculeObject, ObjectRegistry};
@@ -539,6 +458,7 @@ mod tests {
         let named_palette = NamedPalette::new();
         let palette = ThemedPalette::dark();
         let color_ctx = SequenceColorContext {
+            settings: &patinae_settings::Settings::default(),
             named_palette: &named_palette,
             palette: &palette,
         };
@@ -593,8 +513,8 @@ mod tests {
             let mol_obj = registry.get_molecule_mut("obj").unwrap();
             let mol = mol_obj.molecule_mut();
             let atom = mol.get_atom_mut(AtomIndex(0)).unwrap();
-            atom.repr.colors.base = 42;
-            atom.repr.colors.cartoon = 42;
+            atom.repr.colors.base = ColorValue::palette(42);
+            atom.repr.colors.cartoon = ColorValue::palette(42);
         }
         registry.clear_all_dirty_molecules();
 

@@ -13,7 +13,6 @@ documentation.workspace = true
 thiserror = { workspace = true }
 ahash = { workspace = true }
 serde = { workspace = true }
-patinae-mol = { workspace = true }
 
 [lints]
 workspace = true

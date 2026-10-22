@@ -495,15 +495,15 @@ fn parse_sel1(stream: &mut TokenStream, kw: Keyword) -> Result<SelectionExpr, Pa
             Ok(SelectionExpr::Rep(pattern))
         }
         Keyword::Color => {
-            let pattern = parse_pattern(stream)?;
+            let pattern = parse_pattern_with(stream, parse_color_pattern)?;
             Ok(SelectionExpr::Color(pattern))
         }
         Keyword::CartoonColor => {
-            let pattern = parse_pattern(stream)?;
+            let pattern = parse_pattern_with(stream, parse_color_pattern)?;
             Ok(SelectionExpr::CartoonColor(pattern))
         }
         Keyword::RibbonColor => {
-            let pattern = parse_pattern(stream)?;
+            let pattern = parse_pattern_with(stream, parse_color_pattern)?;
             Ok(SelectionExpr::RibbonColor(pattern))
         }
         Keyword::PepSeq => {
@@ -614,7 +614,14 @@ fn parse_int(stream: &mut TokenStream) -> Result<i32, ParseError> {
 
 /// Parse a pattern (identifier, wildcard, list, or range)
 fn parse_pattern(stream: &mut TokenStream) -> Result<Pattern, ParseError> {
-    let first = parse_single_pattern(stream)?;
+    parse_pattern_with(stream, parse_single_pattern)
+}
+
+fn parse_pattern_with(
+    stream: &mut TokenStream,
+    single: fn(&mut TokenStream) -> Result<Pattern, ParseError>,
+) -> Result<Pattern, ParseError> {
+    let first = single(stream)?;
 
     // Check for list (+ separator) or range (: separator)
     match stream.peek() {
@@ -622,13 +629,13 @@ fn parse_pattern(stream: &mut TokenStream) -> Result<Pattern, ParseError> {
             let mut patterns = vec![first];
             while matches!(stream.peek(), Some(Token::Plus)) {
                 stream.next(); // Consume +
-                patterns.push(parse_single_pattern(stream)?);
+                patterns.push(single(stream)?);
             }
             Ok(Pattern::List(patterns))
         }
         Some(Token::Colon) => {
             stream.next(); // Consume :
-            let second = parse_single_pattern(stream)?;
+            let second = single(stream)?;
             match (first, second) {
                 (Pattern::Exact(start), Pattern::Exact(end)) => Ok(Pattern::Range(start, end)),
                 _ => Err(ParseError::InvalidPattern(
@@ -638,6 +645,26 @@ fn parse_pattern(stream: &mut TokenStream) -> Result<Pattern, ParseError> {
         }
         _ => Ok(first),
     }
+}
+
+/// Preserve tagged color literals instead of interpreting their colon as a range.
+fn parse_color_pattern(stream: &mut TokenStream) -> Result<Pattern, ParseError> {
+    let first = parse_single_pattern(stream)?;
+    if let Pattern::Exact(prefix) = &first {
+        if matches!(prefix.as_str(), "palette" | "scheme" | "color")
+            && matches!(stream.peek(), Some(Token::Colon))
+        {
+            stream.next();
+            return match parse_single_pattern(stream)? {
+                Pattern::Exact(payload) => Ok(Pattern::Exact(format!("{prefix}:{payload}"))),
+                Pattern::Wildcard(payload) => Ok(Pattern::Wildcard(format!("{prefix}:{payload}"))),
+                _ => Err(ParseError::InvalidPattern(
+                    "invalid color literal".to_string(),
+                )),
+            };
+        }
+    }
+    Ok(first)
 }
 
 /// Parse a single pattern element

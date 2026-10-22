@@ -57,6 +57,8 @@ pub struct EvalContext<'a> {
 
     /// Selection matching options (case sensitivity, etc.)
     pub options: SelectionOptions,
+    /// Active named palette for color predicates.
+    pub named_palette: Option<&'a patinae_color::NamedPalette>,
     /// Optional assembly copy membership for source-indexed evaluation.
     pub instances: Option<&'a patinae_mol::InstanceTable>,
     /// Restricts geometry evaluation to a single zero-based copy.
@@ -75,6 +77,7 @@ impl<'a> EvalContext<'a> {
             total_atoms,
             molecule_offsets: vec![0],
             options: SelectionOptions::default(),
+            named_palette: None,
             instances: None,
             active_instance: None,
         }
@@ -96,6 +99,7 @@ impl<'a> EvalContext<'a> {
             total_atoms,
             molecule_offsets: offsets,
             options: SelectionOptions::default(),
+            named_palette: None,
             instances: None,
             active_instance: None,
         }
@@ -111,9 +115,17 @@ impl<'a> EvalContext<'a> {
             total_atoms: 0,
             molecule_offsets: Vec::new(),
             options: SelectionOptions::default(),
+            named_palette: None,
             instances: None,
             active_instance: None,
         }
+    }
+
+    /// Resolve color names against the active palette, or built-ins for standalone use.
+    pub fn palette(&self) -> &patinae_color::NamedPalette {
+        static DEFAULT: std::sync::LazyLock<patinae_color::NamedPalette> =
+            std::sync::LazyLock::new(patinae_color::NamedPalette::default);
+        self.named_palette.unwrap_or(&DEFAULT)
     }
 
     /// Get the total number of atoms across all molecules

@@ -5,17 +5,32 @@ use serde::{Deserialize, Serialize};
 use crate::constants::*;
 use crate::Color;
 
-/// Color scheme for coloring molecules.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ColorScheme {
-    Element,
-    Chain,
-    SecondaryStructure,
-    BFactor,
-    ResidueType,
-    ResidueIndex,
-    AtomIndex,
-    Uniform,
+/// Stable ID and accepted names of a built-in coloring scheme.
+pub struct SchemeDescriptor {
+    pub id: u32,
+    /// Canonical name first, followed by aliases.
+    pub names: &'static [&'static str],
+}
+
+macro_rules! define_schemes {
+    ($( $constant:ident = $id:literal => [$($name:literal),+]; )+) => {
+        /// Stable built-in scheme identifiers.
+        pub mod ids { $(pub const $constant: u32 = $id;)+ }
+        impl crate::ColorValue { $(pub const $constant: Self = Self::scheme($id);)+ }
+        /// Built-in schemes used by parsing and inspection.
+        pub const SCHEMES: &[SchemeDescriptor] = &[$(SchemeDescriptor { id: $id, names: &[$($name),+] }),+];
+        /// Accepted names used by command completion.
+        pub const SCHEME_NAMES: &[&str] = &[$($($name),+),+];
+    };
+}
+
+define_schemes! {
+    ELEMENT = 1 => ["element", "atomic", "cpk", "by_element"];
+    CHAIN = 2 => ["chain", "by_chain", "chainbow"];
+    SECONDARY_STRUCTURE = 3 => ["ss", "secondary_structure", "by_ss", "dssp"];
+    B_FACTOR = 4 => ["b_factor", "b", "bfactor", "by_b"];
+    RESIDUE_TYPE = 5 => ["residue_type", "residue", "by_residue", "aa_type"];
+    RESIDUE_INDEX = 6 => ["residue_index", "index", "spectrum", "rainbow"];
 }
 
 // ---------------------------------------------------------------------------

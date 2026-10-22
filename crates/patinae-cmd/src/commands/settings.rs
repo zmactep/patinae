@@ -3,8 +3,10 @@
 use crate::args::ParsedCommand;
 use crate::command::{ArgHint, Command, CommandContext, CommandRegistry, ViewerLike};
 use crate::command_help;
+use crate::commands::selecting::evaluate_selection;
 use crate::error::{CmdError, CmdResult};
 use crate::ResolvedSetting;
+use patinae_color::ColorValue;
 use patinae_scene::{DirtyFlags, MoleculeObject, Object};
 use patinae_settings::{SettingType, SettingValue, SideEffectCategory};
 
@@ -41,8 +43,9 @@ fn format_object_report(
     setting: &ResolvedSetting,
     value: &SettingValue,
     object_name: &str,
+    palette: &patinae_color::NamedPalette,
 ) -> String {
-    let raw = ResolvedSetting::format_value(value);
+    let raw = ResolvedSetting::format_value(value, palette);
     if let Some(hint_name) = setting.hint_name(value) {
         format!(
             "{} = {} ({}, object {})",
@@ -185,6 +188,30 @@ fn apply_object_side_effects(
 
 struct SetCommand;
 
+fn set_selection_color(
+    viewer: &mut dyn ViewerLike,
+    selection: &str,
+    name: &str,
+    color: ColorValue,
+) -> CmdResult<usize> {
+    let selections = evaluate_selection(viewer, selection)?;
+    let mut changed = 0;
+    for (object_name, selected) in selections {
+        if !selected.any() {
+            continue;
+        }
+        if let Some(object) = viewer.objects_mut().get_molecule_mut(&object_name) {
+            changed += object
+                .set_representation_color(&selected, name, color)
+                .expect("representation setting");
+        }
+    }
+    if changed != 0 {
+        viewer.request_redraw();
+    }
+    Ok(changed)
+}
+
 impl SetCommand {
     /// Parse a value string with per-setting overrides.
     fn parse_value<'v, 'r>(
@@ -194,45 +221,13 @@ impl SetCommand {
         value_str: &str,
     ) -> CmdResult<SettingValue> {
         // Built-in color settings resolve names and color schemes through the viewer.
-        if setting.built_in_descriptor().is_some() && setting.setting_type() == SettingType::Color {
-            // Accept [r, g, b] float vector and convert it to 0x00RRGGBB.
-            if value_str.starts_with('[') && value_str.ends_with(']') {
-                let inner = value_str[1..value_str.len() - 1].trim();
-                let parts: Vec<&str> = inner.split(',').map(|p| p.trim()).collect();
-                if parts.len() == 3 {
-                    if let (Ok(r), Ok(g), Ok(b)) = (
-                        parts[0].parse::<f32>(),
-                        parts[1].parse::<f32>(),
-                        parts[2].parse::<f32>(),
-                    ) {
-                        let packed = patinae_color::Color::new(
-                            r.clamp(0.0, 1.0),
-                            g.clamp(0.0, 1.0),
-                            b.clamp(0.0, 1.0),
-                        )
-                        .to_packed_rgb();
-                        return Ok(SettingValue::Int(packed));
-                    }
-                }
-            }
-
-            if let Ok(v) = value_str.parse::<i32>() {
-                return Ok(SettingValue::Int(v));
-            }
-            let color_index =
-                if let Some(ci) = patinae_color::ColorIndex::from_scheme_name(value_str) {
-                    i32::from(ci)
-                } else if let Some(idx) = ctx.viewer.color_index(value_str) {
-                    idx as i32
-                } else if let Some(color) = patinae_color::Color::from_hex(value_str) {
-                    ctx.viewer.named_palette_mut().set(value_str, color) as i32
-                } else {
-                    return Err(CmdError::invalid_arg(
-                        "value",
-                        format!("Unknown color: {}", value_str),
-                    ));
-                };
-            return Ok(SettingValue::Int(color_index));
+        if setting.setting_type() == SettingType::Color {
+            let color = ctx
+                .viewer
+                .named_palette()
+                .parse_color(value_str)
+                .map_err(|error| CmdError::invalid_arg("value", format!("{error}: {value_str}")))?;
+            return Ok(SettingValue::Color(color));
         }
 
         setting.parse_value(value_str)
@@ -317,6 +312,25 @@ impl SetCommand {
             ));
         }
 
+        if let Some(sel) = selection {
+            if patinae_mol::AtomColors::representation_field(&name).is_some() {
+                let color = value
+                    .as_color()
+                    .ok_or_else(|| CmdError::invalid_arg("value", "Expected a color value"))?;
+                let changed = set_selection_color(ctx.viewer, sel, &name, color)?;
+                if !ctx.quiet {
+                    ctx.print(&format!(
+                        " {} = {} (selection {}, {} atoms changed)",
+                        name,
+                        setting.format_display(&value, ctx.viewer.named_palette()),
+                        sel,
+                        changed
+                    ));
+                }
+                return Ok(());
+            }
+        }
+
         if let Some(desc) = setting.built_in_descriptor() {
             // Built-in object override
             if let Some(sel) = selection {
@@ -327,7 +341,8 @@ impl SetCommand {
                         apply_object_side_effects(mol, desc.side_effects, desc.name, &value);
                         ctx.viewer.request_redraw();
                         if !ctx.quiet {
-                            let display = setting.format_display(&value);
+                            let display =
+                                setting.format_display(&value, ctx.viewer.named_palette());
                             ctx.print(&format!(" {} = {} (object {})", name, display, sel));
                         }
                         return Ok(());
@@ -347,7 +362,7 @@ impl SetCommand {
                 apply_side_effects_from_slice(ctx, setting.side_effects(), &name, &value);
                 ctx.viewer.request_redraw();
                 if !ctx.quiet {
-                    let display = setting.format_display(&value);
+                    let display = setting.format_display(&value, ctx.viewer.named_palette());
                     ctx.print(&format!(" {} = {} (object {})", name, display, sel));
                 }
                 return Ok(());
@@ -363,7 +378,7 @@ impl SetCommand {
         ctx.viewer.request_redraw();
 
         if !ctx.quiet {
-            let display = setting.format_display(&value);
+            let display = setting.format_display(&value, ctx.viewer.named_palette());
             ctx.print(&format!(" {} = {}", name, display));
         }
 
@@ -384,21 +399,23 @@ impl Command for SetCommand {
         CMD "set"
         DESCRIPTION [
             "changes a setting value.",
+            "Representation colors are assigned to selected atoms; an object name selects all its atoms.",
         ]
         USAGE [
-            "set name [, value [, object [, state ]]]",
+            "set name [, value [, selection [, state ]]]",
         ]
         REQUIRED [
             { "name", "string", "setting name" },
         ]
         OPTIONAL [
             { "value", "string", "new value (depends on setting type)", "" },
-            { "object", "string", "apply object-overridable settings to an object", "global" },
+            { "selection", "string", "object name; representation colors also accept atom selections", "global" },
             { "state", "integer", "state for state-specific settings", "0" },
         ]
         EXAMPLES [
             "set sphere_scale, 0.5",
             "set cartoon_color, red, obj",
+            "set stick_color, atomic, sele",
             "set cartoon_color, red",
         ]
     }
@@ -481,12 +498,68 @@ impl Command for GetCommand {
             .ok_or_else(|| unknown_setting(name))?;
         let selection = args.str_arg(1, "selection");
 
+        if let Some(sel) = selection {
+            if let Some(field) = patinae_mol::AtomColors::representation_field(name) {
+                let selected = evaluate_selection(ctx.viewer, sel)?;
+                let mut uniform = None;
+                let mut mixed = false;
+                'objects: for (object, atoms) in selected {
+                    if let Some(mol) = ctx.viewer.objects().get_molecule(&object) {
+                        let mut agrees = |atom: &patinae_mol::Atom| {
+                            if name == "cartoon_nucleic_acid_color"
+                                && !atom.state.flags.contains(patinae_mol::AtomFlags::NUCLEIC)
+                            {
+                                return true;
+                            }
+                            let value = *field(&mut atom.repr.colors.clone());
+                            if uniform.is_some_and(|previous| previous != value) {
+                                return false;
+                            }
+                            uniform = Some(value);
+                            true
+                        };
+                        let molecule = mol.molecule();
+                        let same = if atoms.atom_count() == molecule.atom_count() && atoms.is_all()
+                        {
+                            molecule.atoms().all(&mut agrees)
+                        } else {
+                            atoms
+                                .indices()
+                                .filter_map(|index| molecule.get_atom(index))
+                                .all(agrees)
+                        };
+                        if !same {
+                            mixed = true;
+                            break 'objects;
+                        }
+                    }
+                }
+                let value = if mixed {
+                    "mixed".to_string()
+                } else if let Some(value) = uniform {
+                    ctx.viewer.named_palette().format_color(value)
+                } else {
+                    "empty selection".to_string()
+                };
+                ctx.print(&format!(" {name} = {value} (selection {sel})"));
+                return Ok(());
+            }
+        }
+
         if let Some(desc) = setting.built_in_descriptor() {
             if let Some(sel) = selection {
                 if desc.is_object_overridable() {
                     if let Some(mol) = ctx.viewer.objects().get_molecule(sel) {
                         if let Some(value) = setting.built_in_object_value(mol) {
-                            ctx.print(&format!(" {}", format_object_report(&setting, &value, sel)));
+                            ctx.print(&format!(
+                                " {}",
+                                format_object_report(
+                                    &setting,
+                                    &value,
+                                    sel,
+                                    ctx.viewer.named_palette()
+                                )
+                            ));
                             return Ok(());
                         }
                     } else {
@@ -499,7 +572,10 @@ impl Command for GetCommand {
         if let Some(sel) = selection {
             if setting.is_object_overridable() {
                 if let Some(value) = setting.object_value(sel).map_err(CmdError::execution)? {
-                    ctx.print(&format!(" {}", format_object_report(&setting, &value, sel)));
+                    ctx.print(&format!(
+                        " {}",
+                        format_object_report(&setting, &value, sel, ctx.viewer.named_palette())
+                    ));
                     return Ok(());
                 }
             }
@@ -508,7 +584,10 @@ impl Command for GetCommand {
         let value = setting
             .global_value(ctx.viewer)
             .map_err(CmdError::execution)?;
-        ctx.print(&format!(" {}", setting.format_report(&value)));
+        ctx.print(&format!(
+            " {}",
+            setting.format_report(&value, ctx.viewer.named_palette())
+        ));
         Ok(())
     }
 }
@@ -534,18 +613,19 @@ impl Command for UnsetCommand {
             "restores a setting to its default value.",
         ]
         USAGE [
-            "unset name [, object [, state ]]",
+            "unset name [, selection [, state ]]",
         ]
         REQUIRED [
             { "name", "string", "setting name" },
         ]
         OPTIONAL [
-            { "object", "string", "reset object override when present", "global" },
+            { "selection", "string", "object name; representation colors also accept atom selections", "global" },
             { "state", "integer", "state for state-specific settings", "0" },
         ]
         EXAMPLES [
             "unset sphere_scale",
             "unset ray_trace_mode",
+            "unset stick_color, sele",
         ]
     }
 
@@ -570,6 +650,20 @@ impl Command for UnsetCommand {
                 "selection",
                 format!("Setting '{name}' does not support object overrides"),
             ));
+        }
+
+        if let Some(sel) = selection {
+            if patinae_mol::AtomColors::representation_field(name).is_some() {
+                let changed =
+                    set_selection_color(ctx.viewer, sel, name, patinae_color::ColorValue::INHERIT)?;
+                if !ctx.quiet {
+                    ctx.print(&format!(
+                        " {} reset to inherited color (selection {}, {} atoms changed)",
+                        name, sel, changed
+                    ));
+                }
+                return Ok(());
+            }
         }
 
         if let Some(desc) = setting.built_in_descriptor() {
@@ -629,7 +723,7 @@ impl Command for UnsetCommand {
             ctx.print(&format!(
                 " {} reset to default: {}",
                 name,
-                setting.format_display(&default_value)
+                setting.format_display(&default_value, ctx.viewer.named_palette())
             ));
         }
 
@@ -734,7 +828,7 @@ impl Command for SetupCcdCommand {
 mod tests {
     use super::*;
     use crate::CommandExecutor;
-    use patinae_mol::{AtomBuilder, AtomIndex, ObjectMolecule, COLOR_UNSET};
+    use patinae_mol::{AtomBuilder, AtomIndex, ObjectMolecule};
     use patinae_scene::{Session, SessionAdapter};
     use patinae_settings::groups::RecentPickLimit;
     use patinae_settings::registry;
@@ -757,6 +851,238 @@ mod tests {
         let mut session = Session::new();
         session.registry.add(MoleculeObject::with_name(mol, name));
         session
+    }
+
+    #[test]
+    fn nucleic_cartoon_assignment_and_reset_do_not_touch_protein() {
+        let mut session = session_with_case_collisions(("A", "B"), ("CA", "P"));
+        let mol = session
+            .registry
+            .get_molecule_mut("obj")
+            .unwrap()
+            .molecule_mut();
+        mol.get_atom_mut(AtomIndex(0)).unwrap().state.flags = patinae_mol::AtomFlags::PROTEIN;
+        mol.get_atom_mut(AtomIndex(1)).unwrap().state.flags = patinae_mol::AtomFlags::NUCLEIC;
+        let mut executor = CommandExecutor::new();
+        execute(&mut session, &mut executor, "set cartoon_color, blue, obj").unwrap();
+        execute(
+            &mut session,
+            &mut executor,
+            "set cartoon_nucleic_acid_color, red, obj",
+        )
+        .unwrap();
+        let blue = session.named_palette.parse_color("blue").unwrap();
+        let red = session.named_palette.parse_color("red").unwrap();
+        let colors = |session: &Session| {
+            session
+                .registry
+                .get_molecule("obj")
+                .unwrap()
+                .molecule()
+                .atoms()
+                .map(|a| a.repr.colors.cartoon)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(colors(&session), [blue, red]);
+        execute(
+            &mut session,
+            &mut executor,
+            "unset cartoon_nucleic_acid_color, obj",
+        )
+        .unwrap();
+        assert_eq!(colors(&session), [blue, ColorValue::INHERIT]);
+    }
+
+    #[test]
+    fn color_names_and_tagged_literals_select_the_same_atoms() {
+        let mut session = session_with_single_atom_object("obj");
+        let mut executor = CommandExecutor::new();
+        let custom = session
+            .named_palette
+            .set("custom", patinae_color::Color::RED);
+        for text in [
+            "red".to_string(),
+            "custom".to_string(),
+            "#12abef".to_string(),
+            "ss".to_string(),
+        ] {
+            execute(&mut session, &mut executor, &format!("color {text}, obj")).unwrap();
+            let value = session.named_palette.parse_color(&text).unwrap();
+            for expression in [format!("color {text}"), format!("color {value}")] {
+                let mut redraw = false;
+                let viewer = SessionAdapter {
+                    session: &mut session,
+                    render_context: None,
+                    default_size: (800, 600),
+                    needs_redraw: &mut redraw,
+                };
+                let selected = evaluate_selection(&viewer, &expression).unwrap();
+                assert_eq!(
+                    selected
+                        .iter()
+                        .map(|(_, result)| result.count())
+                        .sum::<usize>(),
+                    1,
+                    "{expression}"
+                );
+            }
+        }
+        execute(
+            &mut session,
+            &mut executor,
+            &format!("bg_color palette:{custom}"),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn color_commands_share_user_facing_color_names() {
+        let mut session = session_with_single_atom_object("obj");
+        let mut executor = CommandExecutor::new();
+        let index = session.named_palette.get_by_name("burntorange").unwrap().0;
+        let custom = session
+            .named_palette
+            .set("custom", patinae_color::Color::RED);
+        for (input, expected) in [
+            ("BURNTORANGE".to_string(), "burntorange"),
+            (format!("palette:{index}"), "burntorange"),
+            (format!("palette:{custom}"), "custom"),
+            ("atomic".to_string(), "element"),
+            ("by_ss".to_string(), "ss"),
+            ("0x12ABEF".to_string(), "#12abef"),
+            ("inherit".to_string(), "inherit"),
+            ("palette:16777215".to_string(), "palette:16777215"),
+            ("scheme:16777215".to_string(), "scheme:16777215"),
+        ] {
+            for (command, message) in [
+                (
+                    format!("color {input}, obj"),
+                    format!("Color: 1 atoms colored {expected}"),
+                ),
+                (
+                    format!("set surface_color, {input}, obj"),
+                    format!("surface_color = {expected} (selection obj,"),
+                ),
+                (
+                    "get surface_color, obj".to_string(),
+                    format!("surface_color = {expected} (selection obj)"),
+                ),
+                (
+                    format!("set surface_color, {input}"),
+                    format!("surface_color = {expected}"),
+                ),
+                (
+                    "get surface_color".to_string(),
+                    format!("surface_color (color) = {expected}"),
+                ),
+            ] {
+                let mut needs_redraw = false;
+                let mut adapter = SessionAdapter {
+                    session: &mut session,
+                    render_context: None,
+                    default_size: (800, 600),
+                    needs_redraw: &mut needs_redraw,
+                };
+                let output = executor
+                    .do_with_options(&mut adapter, &command, false)
+                    .unwrap();
+                assert!(
+                    output
+                        .messages
+                        .iter()
+                        .any(|m| m.text.trim().starts_with(&message)),
+                    "{command}: {:?}",
+                    output.messages
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn object_and_equivalent_selection_assign_identical_colors() {
+        for name in [
+            "cartoon_color",
+            "ribbon_color",
+            "stick_color",
+            "sphere_color",
+            "line_color",
+            "surface_color",
+            "mesh_color",
+            "dot_color",
+            "ellipsoid_color",
+        ] {
+            let mut by_object = session_with_case_collisions(("A", "B"), ("CA", "CA"));
+            let mut by_selection = session_with_case_collisions(("A", "B"), ("CA", "CA"));
+            for (session, target) in [(&mut by_object, "obj"), (&mut by_selection, "model obj")] {
+                let mut executor = CommandExecutor::new();
+                execute(
+                    session,
+                    &mut executor,
+                    &format!("set {name}, atomic, chain A"),
+                )
+                .unwrap();
+                execute(
+                    session,
+                    &mut executor,
+                    &format!("set {name}, green, {target}"),
+                )
+                .unwrap();
+                execute(session, &mut executor, "color blue, all").unwrap();
+                let field = patinae_mol::AtomColors::representation_field(name).unwrap();
+                let green =
+                    ColorValue::palette(session.named_palette.get_by_name("green").unwrap().0);
+                for atom in session
+                    .registry
+                    .get_molecule("obj")
+                    .unwrap()
+                    .molecule()
+                    .atoms()
+                {
+                    assert_eq!(*field(&mut atom.repr.colors.clone()), green);
+                }
+                execute(session, &mut executor, &format!("unset {name}, {target}")).unwrap();
+            }
+            let colors = |session: &Session| {
+                session
+                    .registry
+                    .get_molecule("obj")
+                    .unwrap()
+                    .molecule()
+                    .atoms()
+                    .map(|a| a.repr.colors.clone())
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(colors(&by_object), colors(&by_selection));
+        }
+    }
+
+    #[test]
+    fn canonical_color_text_roundtrips_through_set() {
+        let mut session = session_with_single_atom_object("obj");
+        let mut executor = CommandExecutor::new();
+        for value in [
+            ColorValue::rgb(0, 0, 2),
+            ColorValue::palette(2),
+            ColorValue::SECONDARY_STRUCTURE,
+            ColorValue::INHERIT,
+            ColorValue::scheme(0xffffff),
+            ColorValue::from_bits(0xffffffff),
+        ] {
+            execute(
+                &mut session,
+                &mut executor,
+                &format!("set stick_color, {value}"),
+            )
+            .unwrap();
+            assert_eq!(session.settings.stick.color, value);
+        }
+        assert!(execute(&mut session, &mut executor, "set stick_color, -9").is_err());
+        assert!(execute(
+            &mut session,
+            &mut executor,
+            "set stick_color, palette:16777216"
+        )
+        .is_err());
     }
 
     fn recent_path(session: &Session, object_name: &str, atom_index: u32) -> String {
@@ -877,6 +1203,310 @@ mod tests {
     }
 
     #[test]
+    fn representation_colors_accept_named_selections_and_expressions() {
+        for (setting, read) in [
+            (
+                "cartoon_color",
+                (|c: &patinae_mol::AtomColors| c.cartoon)
+                    as fn(&patinae_mol::AtomColors) -> ColorValue,
+            ),
+            ("ribbon_color", |c| c.ribbon),
+            ("stick_color", |c| c.stick),
+            ("line_color", |c| c.line),
+            ("surface_color", |c| c.surface),
+            ("mesh_color", |c| c.mesh),
+            ("sphere_color", |c| c.sphere),
+            ("dot_color", |c| c.dot),
+            ("ellipsoid_color", |c| c.ellipsoid),
+        ] {
+            let mut session = session_with_case_collisions(("A", "B"), ("CA", "CA"));
+            let mut executor = CommandExecutor::new();
+            execute(&mut session, &mut executor, "color red, all").unwrap();
+            execute(&mut session, &mut executor, "select sele, chain A").unwrap();
+            execute(
+                &mut session,
+                &mut executor,
+                &format!("set {setting}, blue, obj"),
+            )
+            .unwrap();
+            session.registry.clear_all_dirty_objects();
+
+            execute(
+                &mut session,
+                &mut executor,
+                &format!("set {setting}, atomic, sele"),
+            )
+            .unwrap();
+            let obj = session.registry.get_molecule("obj").unwrap();
+            let atoms = obj.molecule().atoms_slice();
+            assert_eq!(
+                read(&atoms[0].repr.colors),
+                patinae_color::ColorValue::ELEMENT
+            );
+            assert_eq!(
+                read(&atoms[1].repr.colors),
+                ColorValue::palette(session.named_palette.get_by_name("blue").unwrap().0)
+            );
+            assert_ne!(atoms[0].repr.colors.base, ColorValue::ELEMENT);
+            assert!(obj.dirty_flags().is_lut_only());
+
+            execute(
+                &mut session,
+                &mut executor,
+                &format!("set {setting}, chain, sele"),
+            )
+            .unwrap();
+            execute(&mut session, &mut executor, "color green, all").unwrap();
+            let colors = &session
+                .registry
+                .get_molecule("obj")
+                .unwrap()
+                .molecule()
+                .atoms_slice()[0]
+                .repr
+                .colors;
+            assert_ne!(read(colors), ColorValue::INHERIT);
+            assert_eq!(read(colors), patinae_color::ColorValue::CHAIN);
+
+            execute(
+                &mut session,
+                &mut executor,
+                &format!("unset {setting}, chain A"),
+            )
+            .unwrap();
+            let obj = session.registry.get_molecule("obj").unwrap();
+            assert_eq!(
+                read(&obj.molecule().atoms_slice()[0].repr.colors),
+                ColorValue::INHERIT
+            );
+            let desc = registry::lookup_by_name(setting).unwrap();
+            assert_eq!(
+                desc.get(&session.settings),
+                SettingValue::Color(ColorValue::INHERIT)
+            );
+
+            // Recoloring the whole object replaces earlier selection colors,
+            // even after the named selection has been deleted.
+            let other_setting = if setting == "sphere_color" {
+                "stick_color"
+            } else {
+                "sphere_color"
+            };
+            execute(
+                &mut session,
+                &mut executor,
+                &format!("set {other_setting}, red, sele"),
+            )
+            .unwrap();
+            execute(
+                &mut session,
+                &mut executor,
+                &format!("set {setting}, atomic, sele"),
+            )
+            .unwrap();
+            let before = session
+                .registry
+                .get_molecule("obj")
+                .unwrap()
+                .molecule()
+                .atoms_slice()[0]
+                .repr
+                .colors
+                .clone();
+            execute(&mut session, &mut executor, "deselect sele").unwrap();
+            session.registry.clear_all_dirty_objects();
+            execute(
+                &mut session,
+                &mut executor,
+                &format!("set {setting}, green, obj"),
+            )
+            .unwrap();
+            let obj = session.registry.get_molecule("obj").unwrap();
+            assert!(obj.dirty_flags().is_lut_only());
+            let mut after = obj.molecule().atoms_slice()[0].repr.colors.clone();
+            assert_eq!(
+                read(&after),
+                ColorValue::palette(session.named_palette.get_by_name("green").unwrap().0),
+                "{setting}"
+            );
+            // Only the requested representation changes; base and other reps survive.
+            *patinae_mol::AtomColors::representation_field(setting).unwrap()(&mut after) =
+                read(&before);
+            assert_eq!(after, before);
+
+            // A later selection color still overrides the new object color.
+            execute(
+                &mut session,
+                &mut executor,
+                &format!("set {setting}, atomic, chain B"),
+            )
+            .unwrap();
+            let obj = session.registry.get_molecule("obj").unwrap();
+            assert_eq!(
+                read(&obj.molecule().atoms_slice()[0].repr.colors),
+                ColorValue::palette(session.named_palette.get_by_name("green").unwrap().0)
+            );
+            assert_eq!(
+                read(&obj.molecule().atoms_slice()[1].repr.colors),
+                patinae_color::ColorValue::ELEMENT
+            );
+        }
+    }
+
+    #[test]
+    fn selection_color_scope_and_inheritance_do_not_leak() {
+        let mut session = session_with_case_collisions(("A", "B"), ("CA", "CA"));
+        let other = session
+            .registry
+            .get_molecule("obj")
+            .unwrap()
+            .molecule()
+            .clone();
+        session
+            .registry
+            .add(MoleculeObject::with_name(other, "other"));
+        let mut executor = CommandExecutor::new();
+        execute(&mut session, &mut executor, "select sele, chain A").unwrap();
+        execute(&mut session, &mut executor, "set stick_color, blue").unwrap();
+        execute(&mut session, &mut executor, "set stick_color, green, obj").unwrap();
+        execute(&mut session, &mut executor, "set stick_color, red, sele").unwrap();
+        let red = ColorValue::palette(session.named_palette.get_by_name("red").unwrap().0);
+        for name in ["obj", "other"] {
+            let atoms = session
+                .registry
+                .get_molecule(name)
+                .unwrap()
+                .molecule()
+                .atoms_slice();
+            assert_eq!(atoms[0].repr.colors.stick, red);
+            assert_eq!(
+                atoms[1].repr.colors.stick,
+                if name == "obj" {
+                    ColorValue::palette(session.named_palette.get_by_name("green").unwrap().0)
+                } else {
+                    ColorValue::INHERIT
+                }
+            );
+            assert_eq!(atoms[0].repr.colors.sphere, ColorValue::INHERIT);
+        }
+        execute(
+            &mut session,
+            &mut executor,
+            "set stick_color, inherit, model obj and sele",
+        )
+        .unwrap();
+        assert_eq!(
+            session
+                .registry
+                .get_molecule("obj")
+                .unwrap()
+                .molecule()
+                .atoms_slice()[0]
+                .repr
+                .colors
+                .stick,
+            ColorValue::INHERIT
+        );
+        assert_eq!(
+            session
+                .registry
+                .get_molecule("other")
+                .unwrap()
+                .molecule()
+                .atoms_slice()[0]
+                .repr
+                .colors
+                .stick,
+            red
+        );
+        session.registry.clear_all_dirty_objects();
+        execute(&mut session, &mut executor, "set stick_color, red, chain Z").unwrap();
+        assert!(execute(
+            &mut session,
+            &mut executor,
+            "set stick_color, red, (chain A"
+        )
+        .is_err());
+        for name in ["obj", "other"] {
+            assert!(session
+                .registry
+                .get_molecule(name)
+                .unwrap()
+                .dirty_flags()
+                .is_empty());
+        }
+        assert_eq!(
+            session.settings.stick.color,
+            ColorValue::palette(session.named_palette.get_by_name("blue").unwrap().0)
+        );
+        let obj = session.registry.get_molecule("obj").unwrap();
+        assert_eq!(
+            obj.molecule().atoms_slice()[1].repr.colors.stick,
+            ColorValue::palette(session.named_palette.get_by_name("green").unwrap().0)
+        );
+    }
+
+    #[test]
+    fn atomic_representation_setting_is_distinct_from_inheritance() {
+        let mut session = session_with_single_atom_object("obj");
+        let mut executor = CommandExecutor::new();
+        execute(&mut session, &mut executor, "color red, obj").unwrap();
+        for command in ["set stick_color, atomic", "set stick_color, atomic, obj"] {
+            execute(&mut session, &mut executor, command).unwrap();
+        }
+        let obj = session.registry.get_molecule("obj").unwrap();
+        let global = session.settings.stick.color;
+        let object = obj.molecule().atoms_slice()[0].repr.colors.stick;
+        assert_ne!(global, ColorValue::INHERIT);
+        assert_eq!(global, object);
+        assert_eq!(global, patinae_color::ColorValue::ELEMENT);
+        assert_eq!(
+            obj.molecule().atoms_slice()[0].repr.colors.stick,
+            ColorValue::ELEMENT
+        );
+    }
+
+    #[test]
+    fn rgb_literals_do_not_alias_palette_indices_or_register_colors() {
+        let mut session = session_with_single_atom_object("obj");
+        let mut executor = CommandExecutor::new();
+        let palette_before = serde_json::to_value(&session.named_palette).unwrap();
+        execute(&mut session, &mut executor, "color 0x000002, obj").unwrap();
+        execute(
+            &mut session,
+            &mut executor,
+            "set stick_color, 0x000002, obj",
+        )
+        .unwrap();
+        let obj = session.registry.get_molecule("obj").unwrap();
+        assert_eq!(
+            obj.molecule().atoms_slice()[0].repr.colors.base,
+            ColorValue::rgb(0, 0, 2)
+        );
+        assert_eq!(
+            obj.molecule().atoms_slice()[0].repr.colors.stick,
+            ColorValue::rgb(0, 0, 2)
+        );
+        assert_eq!(
+            serde_json::to_value(&session.named_palette).unwrap(),
+            palette_before
+        );
+        execute(&mut session, &mut executor, "set stick_color, 2, obj").unwrap();
+        assert_eq!(
+            session
+                .registry
+                .get_molecule("obj")
+                .unwrap()
+                .molecule()
+                .atoms_slice()[0]
+                .repr
+                .colors
+                .stick,
+            ColorValue::palette(2)
+        );
+    }
+
+    #[test]
     fn global_color_setting_does_not_write_atom_color_override() {
         let mut session = session_with_single_atom_object("obj");
         let mut executor = CommandExecutor::new();
@@ -884,10 +1514,10 @@ mod tests {
         execute(&mut session, &mut executor, "set sphere_color, red").unwrap();
 
         let obj = session.registry.get_molecule("obj").unwrap();
-        assert_ne!(session.settings.sphere.color.0, COLOR_UNSET);
+        assert_ne!(session.settings.sphere.color, ColorValue::INHERIT);
         assert_eq!(
             obj.molecule().atoms_slice()[0].repr.colors.sphere,
-            COLOR_UNSET
+            ColorValue::INHERIT
         );
     }
 
@@ -918,7 +1548,7 @@ mod tests {
             .atoms_slice_mut()[0]
             .repr
             .colors
-            .sphere = 7;
+            .sphere = ColorValue::palette(7);
         let mut executor = CommandExecutor::new();
 
         execute(&mut session, &mut executor, "set sphere_color, red").unwrap();
@@ -926,10 +1556,13 @@ mod tests {
 
         let obj = session.registry.get_molecule("obj").unwrap();
         assert_eq!(
-            session.settings.sphere.color.0,
-            patinae_settings::Color::UNSET.0
+            session.settings.sphere.color,
+            patinae_color::ColorValue::INHERIT
         );
-        assert_eq!(obj.molecule().atoms_slice()[0].repr.colors.sphere, 7);
+        assert_eq!(
+            obj.molecule().atoms_slice()[0].repr.colors.sphere,
+            ColorValue::palette(7)
+        );
     }
 
     #[test]

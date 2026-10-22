@@ -54,10 +54,11 @@ impl ResolvedSceneMarkers {
     pub fn build(
         selections: &mut SelectionManager,
         registry: &ObjectRegistry,
+        palette: &patinae_color::NamedPalette,
         hover: Option<&HoverTarget>,
     ) -> Self {
         let mut s = Self::default();
-        s.rebuild(selections, registry, hover);
+        s.rebuild(selections, registry, palette, hover);
         s
     }
 
@@ -72,9 +73,10 @@ impl ResolvedSceneMarkers {
         &mut self,
         selections: &mut SelectionManager,
         registry: &ObjectRegistry,
+        palette: &patinae_color::NamedPalette,
         hover: Option<&HoverTarget>,
     ) {
-        self.rebuild_with_recent(selections, registry, &[], (0, 0), hover);
+        self.rebuild_with_recent(selections, registry, palette, &[], (0, 0), hover);
     }
 
     /// Rebuilds marker state including resolved recent atom targets.
@@ -82,6 +84,7 @@ impl ResolvedSceneMarkers {
         &mut self,
         selections: &mut SelectionManager,
         registry: &ObjectRegistry,
+        palette: &patinae_color::NamedPalette,
         recent_atoms: &[(String, patinae_mol::AtomIndex)],
         recent_observation: (u64, u64),
         hover: Option<&HoverTarget>,
@@ -112,6 +115,7 @@ impl ResolvedSceneMarkers {
             self.rebuild_selection_only(
                 selections,
                 registry,
+                palette,
                 hover,
                 selection_generation,
                 hover_hash,
@@ -164,7 +168,7 @@ impl ResolvedSceneMarkers {
         // Selection bits — `evaluate_visible` returns one (object_name,
         // SelectionResult) pair per visible host selection.
         self.last_selection_atoms.clear();
-        let visible = selections.evaluate_visible(registry, SelectionOptions::default());
+        let visible = selections.evaluate_visible(registry, SelectionOptions::default(), palette);
         for (obj_name, sel_result) in &visible {
             let Some(buf) = self.by_object.get_mut(obj_name) else {
                 continue;
@@ -330,6 +334,7 @@ impl ResolvedSceneMarkers {
         &mut self,
         selections: &mut SelectionManager,
         registry: &ObjectRegistry,
+        palette: &patinae_color::NamedPalette,
         hover: Option<&HoverTarget>,
         selection_generation: u64,
         hover_hash: u64,
@@ -341,7 +346,7 @@ impl ResolvedSceneMarkers {
             }
         }
 
-        let visible = selections.evaluate_visible(registry, SelectionOptions::default());
+        let visible = selections.evaluate_visible(registry, SelectionOptions::default(), palette);
         for (obj_name, sel_result) in &visible {
             for atom in sel_result.indices() {
                 let atom_index = atom.as_u32();

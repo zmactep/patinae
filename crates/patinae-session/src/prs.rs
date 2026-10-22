@@ -13,8 +13,8 @@ use serde::{Deserialize, Serialize};
 
 /// Current native PRS document format version.
 ///
-/// Version 6 appends logical-pixel label offsets to annotation entities.
-pub const PRS_FORMAT_VERSION: u32 = 6;
+/// Version 8 stores tagged colors on atoms, with global representation defaults.
+pub const PRS_FORMAT_VERSION: u32 = 8;
 
 /// Format version assigned to legacy raw [`Session`] files.
 pub const PRS_LEGACY_FORMAT_VERSION: u32 = 1;
@@ -363,7 +363,7 @@ fn session_value_mut(root: &mut Value) -> Result<&mut Value, PrsError> {
 fn validate_registry(registry: &Value, format_version: Option<u64>) -> Result<(), PrsError> {
     let field_count = struct_field_count(registry, "ObjectRegistrySnapshot")?;
     let valid_arity = match format_version {
-        Some(3..=6) => field_count == 11,
+        Some(3..=8) => field_count == 11,
         Some(2) => matches!(field_count, 8 | 9),
         Some(1) => (7..=9).contains(&field_count),
         Some(version) => return Err(invalid(format!("unsupported PRS format version {version}"))),
@@ -805,7 +805,7 @@ fn read_prs_bytes(path: &Path) -> Result<Vec<u8>, PrsError> {
 mod tests {
     use super::*;
     use lin_alg::f32::{Mat4, Vec3};
-    use patinae_color::ColorIndex;
+    use patinae_color::ColorValue;
     use patinae_mol::{Atom, CoordSet, Element, ObjectMolecule, RepMask};
     use patinae_scene::{
         AtomAnchor, Camera, GroupObject, LabelEntity, LabelObject, MeasurementAnchor,
@@ -835,6 +835,48 @@ mod tests {
         obj.state_mut().hide_draw_rep(RepMask::CARTOON);
         session.registry.add(obj);
         session
+    }
+
+    #[test]
+    fn tagged_colors_survive_prs_and_untagged_colors_are_rejected() {
+        let mut session = cartoon_session_with_restore();
+        session.settings.stick.color = ColorValue::rgb(0, 0, 2);
+        session.settings.sphere.color = ColorValue::palette(0xabcdef);
+        session.settings.cartoon.color = ColorValue::scheme(0xffffff);
+        let document = PrsDocumentRef {
+            prs_format_version: PRS_FORMAT_VERSION,
+            producer: PRS_PRODUCER,
+            producer_version: PRS_PRODUCER_VERSION,
+            session: &session,
+        };
+        let mut value = rmpv::decode::read_value(&mut Cursor::new(
+            rmp_serde::to_vec_named(&document).unwrap(),
+        ))
+        .unwrap();
+        let mut bytes = Vec::new();
+        rmpv::encode::write_value(&mut bytes, &value).unwrap();
+        let restored = decode_prs_document(&bytes).unwrap();
+        assert_eq!(
+            restored.session.settings.stick.color,
+            ColorValue::rgb(0, 0, 2)
+        );
+        assert_eq!(
+            restored.session.settings.sphere.color,
+            ColorValue::palette(0xabcdef)
+        );
+        assert_eq!(
+            restored.session.settings.cartoon.color,
+            ColorValue::scheme(0xffffff)
+        );
+
+        *test_map_field_mut(&mut value, "prs_format_version") = Value::from(6);
+        let settings = test_map_field_mut(test_map_field_mut(&mut value, "session"), "settings");
+        *test_map_field_mut(test_map_field_mut(settings, "sphere"), "color") =
+            Value::from(0xabcdef);
+        *test_map_field_mut(test_map_field_mut(settings, "stick"), "color") = Value::from(2);
+        bytes.clear();
+        rmpv::encode::write_value(&mut bytes, &value).unwrap();
+        assert!(decode_prs_document(&bytes).is_err());
     }
 
     fn instanced_session() -> Session {
@@ -1279,6 +1321,64 @@ mod tests {
     }
 
     #[test]
+    fn scene_representation_colors_survive_prs_round_trip() {
+        let mut session = cartoon_session_with_restore();
+        let custom = session
+            .named_palette
+            .set("saved_custom", patinae_color::Color::GREEN);
+        let color = patinae_color::ColorValue::palette(custom);
+        session
+            .registry
+            .get_molecule_mut("mol")
+            .unwrap()
+            .molecule_mut()
+            .get_atom_colors_mut(patinae_mol::AtomIndex(0))
+            .unwrap()
+            .1
+            .stick = color;
+        session.scenes.store(
+            "colors",
+            patinae_scene::SceneStoreMask::COLOR,
+            &session.camera,
+            &session.registry,
+        );
+        session
+            .registry
+            .get_molecule_mut("mol")
+            .unwrap()
+            .molecule_mut()
+            .get_atom_colors_mut(patinae_mol::AtomIndex(0))
+            .unwrap()
+            .1
+            .stick = patinae_color::ColorValue::ELEMENT;
+        let (dir, path) = temp_prs_path("scene-colors");
+        save_prs(&session, &path).unwrap();
+        let mut loaded = load_prs(&path).unwrap();
+        loaded
+            .scenes
+            .recall(
+                "colors",
+                &mut loaded.camera,
+                &mut loaded.registry,
+                false,
+                0.0,
+            )
+            .unwrap();
+        let restored = loaded
+            .registry
+            .get_molecule("mol")
+            .unwrap()
+            .molecule()
+            .atoms_slice()[0]
+            .repr
+            .colors
+            .stick;
+        assert_eq!(restored, color);
+        assert_eq!(loaded.named_palette.format_color(restored), "saved_custom");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn test_prs_round_trip() {
         let mut session = cartoon_session_with_restore();
         let mut recent_molecule = ObjectMolecule::new("recent");
@@ -1369,7 +1469,7 @@ mod tests {
                 MeasurementAnchor::new("mol", atom_index),
             ]))
             .unwrap();
-        measurement.set_color(ColorIndex::Named(6));
+        measurement.set_color(ColorValue::palette(6));
         session.registry.add(measurement);
         assert!(session.registry.add_to_group("measurements", "distance"));
         let render_id = session.registry.render_id("distance");
@@ -1386,7 +1486,7 @@ mod tests {
         let measurement = loaded.registry.get_measurement("distance").unwrap();
         assert_eq!(measurement.kind(), MeasurementKind::Distance);
         assert_eq!(measurement.len(), 1);
-        assert_eq!(measurement.state().color, ColorIndex::Named(6));
+        assert_eq!(measurement.state().color, ColorValue::palette(6));
         assert!(measurement.has_explicit_color());
         assert_eq!(measurement.revisions(), revisions);
         assert_eq!(loaded.registry.render_id("distance"), render_id);
@@ -1830,7 +1930,7 @@ mod tests {
     #[derive(Serialize)]
     struct LegacyObjectState {
         enabled: bool,
-        color: ColorIndex,
+        color: ColorValue,
         visible_reps: RepMask,
         draw_reps: Option<RepMask>,
         #[serde(with = "patinae_scene::serde_helpers::mat4_serde")]
@@ -1923,7 +2023,7 @@ mod tests {
     fn legacy_cartoon_state() -> LegacyObjectState {
         LegacyObjectState {
             enabled: true,
-            color: ColorIndex::default(),
+            color: ColorValue::default(),
             visible_reps: RepMask::CARTOON,
             draw_reps: Some(RepMask::NONE),
             transform: Mat4::new_identity(),

@@ -855,7 +855,6 @@ name = "patinae-color"
 version = "0.5.1"
 dependencies = [
  "ahash",
- "patinae-mol",
  "serde",
  "thiserror 2.0.18",
 ]
@@ -880,6 +879,7 @@ dependencies = [
  "lin_alg",
  "log",
  "patinae-algos",
+ "patinae-color",
  "patinae-settings",
  "phf",
  "rmp-serde",
@@ -933,6 +933,7 @@ dependencies = [
  "bitvec",
  "lin_alg",
  "nom",
+ "patinae-color",
  "patinae-mol",
  "phf",
  "thiserror 2.0.18",
@@ -962,6 +963,7 @@ version = "0.5.1"
 dependencies = [
  "ahash",
  "dirs",
+ "patinae-color",
  "serde",
  "serde_json",
  "tempfile",

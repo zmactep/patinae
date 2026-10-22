@@ -1053,7 +1053,7 @@ pub static SETTINGS: &[Setting] = &[
     s_int!(3, "dot_mode", Global, 0),
     s_float!(4, "solvent_radius", ObjectState, 1.4),
     s_int!(5, "sel_counter", Global, 0),
-    s_color!(6, "bg_rgb", Global, 0),
+    s_color!(6, "bg_rgb", Global, patinae_color::ColorValue::rgb(0, 0, 0)),
     s_float!(7, "ambient", Global, 0.14),
     s_float!(8, "direct", Global, 0.45),
     s_float!(9, "reflect", Global, 0.45),
@@ -1114,7 +1114,7 @@ pub static SETTINGS: &[Setting] = &[
     s_int!(63, "button_mode", Global, 0),
     s_bool!(64, "valence", Bond, true),
     s_float!(65, "nonbonded_size", ObjectState, 0.25),
-    s_color!(66, "label_color", Atom, -6),
+    s_color!(66, "label_color", Atom, patinae_color::ColorValue::INHERIT),
     s_float!(67, "ray_trace_fog", Global, -1.0),
     s_float!(68, "spheroid_scale", ObjectState, 1.0),
     s_float!(69, "ray_trace_fog_start", Global, -1.0),
@@ -1193,9 +1193,14 @@ pub static SETTINGS: &[Setting] = &[
     s_bool!(141, "suspend_updates", Global, false),
     s_bool!(142, "full_screen", Unused, false),
     s_int!(143, "surface_mode", ObjectState, 0),
-    s_color!(144, "surface_color", Atom, -1),
+    s_color!(
+        144,
+        "surface_color",
+        Atom,
+        patinae_color::ColorValue::INHERIT
+    ),
     s_int!(145, "mesh_mode", ObjectState, 0),
-    s_color!(146, "mesh_color", Atom, -1),
+    s_color!(146, "mesh_color", Atom, patinae_color::ColorValue::INHERIT),
     s_bool!(147, "auto_indicate_flags", Global, false),
     s_int!(148, "surface_debug", Global, 0),
     s_float!(149, "ray_improve_shadows", Global, 0.1),
@@ -1223,7 +1228,12 @@ pub static SETTINGS: &[Setting] = &[
     s_float!(170, "sculpt_plan_weight", ObjectState, 1.0),
     s_int!(171, "sculpting_cycles", Object, 10),
     s_float!(172, "sphere_transparency", Atom, 0.0),
-    s_color!(173, "sphere_color", Atom, -1),
+    s_color!(
+        173,
+        "sphere_color",
+        Atom,
+        patinae_color::ColorValue::INHERIT
+    ),
     s_int!(174, "sculpt_field_mask", ObjectState, 0x1FF),
     s_float!(175, "sculpt_hb_overlap", ObjectState, 1.0),
     s_float!(176, "sculpt_hb_overlap_base", ObjectState, 0.35),
@@ -1261,7 +1271,7 @@ pub static SETTINGS: &[Setting] = &[
     s_float!(207, "ray_shadow_fudge", Global, 0.001),
     s_float!(208, "ray_triangle_fudge", Global, 0.0000001),
     s_int!(209, "debug_pick", Global, 0),
-    s_color!(210, "dot_color", Atom, -1),
+    s_color!(210, "dot_color", Atom, patinae_color::ColorValue::INHERIT),
     s_float!(211, "mouse_limit", Global, 100.0),
     s_float!(212, "mouse_scale", Global, 1.3),
     s_int!(213, "transparency_mode", ObjectState, 2),
@@ -1286,13 +1296,33 @@ pub static SETTINGS: &[Setting] = &[
     s_int!(232, "float_labels", ObjectState, 0),
     s_bool!(233, "roving_detail", Global, false),
     s_float!(234, "roving_nb_spheres", Global, 8.0),
-    s_color!(235, "ribbon_color", Atom, -1),
-    s_color!(236, "cartoon_color", Atom, -1),
+    s_color!(
+        235,
+        "ribbon_color",
+        Atom,
+        patinae_color::ColorValue::INHERIT
+    ),
+    s_color!(
+        236,
+        "cartoon_color",
+        Atom,
+        patinae_color::ColorValue::INHERIT
+    ),
     s_int!(237, "ribbon_smooth", Unused, 0),
     s_bool!(238, "auto_color", Global, true),
     s_int!(239, "auto_color_next", Global, 0),
-    s_color!(240, "ray_interior_color", ObjectState, -1),
-    s_color!(241, "cartoon_highlight_color", ObjectState, -1),
+    s_color!(
+        240,
+        "ray_interior_color",
+        ObjectState,
+        patinae_color::ColorValue::INHERIT
+    ),
+    s_color!(
+        241,
+        "cartoon_highlight_color",
+        ObjectState,
+        patinae_color::ColorValue::INHERIT
+    ),
     s_float!(242, "coulomb_units_factor", Global, 557.0),
     s_float!(243, "coulomb_dielectric", Global, 2.0),
     s_bool!(244, "ray_interior_shadows", Global, false),
@@ -1433,7 +1463,12 @@ pub static SETTINGS: &[Setting] = &[
     s_bool!(359, "seq_view_overlay", Global, false),
     s_bool!(360, "auto_classify_atoms", Global, true),
     s_int!(361, "cartoon_nucleic_acid_mode", ObjectState, 4),
-    s_color!(362, "seq_view_color", ObjectState, -1),
+    s_color!(
+        362,
+        "seq_view_color",
+        ObjectState,
+        patinae_color::ColorValue::INHERIT
+    ),
     s_int!(363, "seq_view_label_mode", Global, 2),
     s_int!(364, "surface_ramp_above_mode", ObjectState, 0),
     s_bool!(365, "stereo", Global, false),
@@ -1447,7 +1482,7 @@ pub static SETTINGS: &[Setting] = &[
     s_float!(373, "slice_dynamic_grid_resolution", Object, 3.0),
     s_bool!(374, "pdb_insure_orthogonal", Global, true),
     s_float!(375, "ray_direct_shade", Global, 0.0),
-    s_color!(376, "stick_color", Bond, -1),
+    s_color!(376, "stick_color", Bond, patinae_color::ColorValue::INHERIT),
     s_float!(377, "cartoon_putty_radius", ObjectState, 0.4),
     s_float!(378, "cartoon_putty_quality", ObjectState, -1.0),
     s_float!(379, "cartoon_putty_scale_min", ObjectState, 0.6),
@@ -1501,7 +1536,12 @@ pub static SETTINGS: &[Setting] = &[
     s_int!(426, "ribbon_nucleic_acid_mode", ObjectState, 0),
     s_int!(427, "cartoon_ring_mode", Atom, 0),
     s_float!(428, "cartoon_ring_width", Atom, 0.125),
-    s_color!(429, "cartoon_ring_color", Atom, -1),
+    s_color!(
+        429,
+        "cartoon_ring_color",
+        Atom,
+        patinae_color::ColorValue::INHERIT
+    ),
     s_int!(430, "cartoon_ring_finder", ObjectState, 1),
     s_int!(431, "cartoon_tube_cap", ObjectState, 2),
     s_int!(432, "cartoon_loop_cap", ObjectState, 1),
@@ -1523,8 +1563,18 @@ pub static SETTINGS: &[Setting] = &[
     s_int!(448, "cartoon_ladder_mode", Atom, 1),
     s_float!(449, "cartoon_ladder_radius", Atom, 0.25),
     // 450-499
-    s_color!(450, "cartoon_ladder_color", Atom, -1),
-    s_color!(451, "cartoon_nucleic_acid_color", ObjectState, -1),
+    s_color!(
+        450,
+        "cartoon_ladder_color",
+        Atom,
+        patinae_color::ColorValue::INHERIT
+    ),
+    s_color!(
+        451,
+        "cartoon_nucleic_acid_color",
+        ObjectState,
+        patinae_color::ColorValue::INHERIT
+    ),
     s_float!(452, "cartoon_ring_transparency", ObjectState, -1.0),
     s_float!(453, "label_size", ObjectState, 14.0),
     s_float!(454, "spec_direct", Global, 0.0),
@@ -1540,7 +1590,12 @@ pub static SETTINGS: &[Setting] = &[
     s_float3!(464, "light5", Global, 0.3, 0.6, -0.75),
     s_float3!(465, "light6", Global, -0.3, 0.5, 0.0),
     s_float3!(466, "light7", Global, 0.9, -0.1, -0.15),
-    s_color!(467, "label_outline_color", ObjectState, -1),
+    s_color!(
+        467,
+        "label_outline_color",
+        ObjectState,
+        patinae_color::ColorValue::INHERIT
+    ),
     s_int!(468, "ray_trace_mode", Global, 0),
     s_float!(469, "ray_trace_gain", Global, 0.12),
     s_bool!(470, "selection_visible_only", Global, false),
@@ -1589,10 +1644,25 @@ pub static SETTINGS: &[Setting] = &[
     s_float!(512, "stick_valence_scale", ObjectState, 1.0),
     s_string!(513, "seq_view_alignment", Global),
     s_int!(514, "seq_view_unaligned_mode", Global, 0),
-    s_color!(515, "seq_view_unaligned_color", Global, -1),
+    s_color!(
+        515,
+        "seq_view_unaligned_color",
+        Global,
+        patinae_color::ColorValue::INHERIT
+    ),
     s_string!(516, "seq_view_fill_char", Global),
-    s_color!(517, "seq_view_fill_color", Global, 104),
-    s_color!(518, "seq_view_label_color", Global, -6),
+    s_color!(
+        517,
+        "seq_view_fill_color",
+        Global,
+        patinae_color::ColorValue::palette(104)
+    ),
+    s_color!(
+        518,
+        "seq_view_label_color",
+        Global,
+        patinae_color::ColorValue::INHERIT
+    ),
     s_float!(519, "surface_carve_normal_cutoff", ObjectState, -1.0),
     s_int!(520, "trace_atoms_mode", ObjectState, 5),
     s_bool!(521, "session_changed", Global, false),
@@ -1600,7 +1670,7 @@ pub static SETTINGS: &[Setting] = &[
     s_float!(523, "mouse_wheel_scale", Global, 0.5),
     s_float!(524, "nonbonded_transparency", Atom, 0.0),
     s_bool!(525, "ray_spec_local", Global, false),
-    s_color!(526, "line_color", Bond, -1),
+    s_color!(526, "line_color", Bond, patinae_color::ColorValue::INHERIT),
     s_float!(527, "ray_label_specular", Global, 1.0),
     s_int!(528, "mesh_skip", ObjectState, 0),
     s_int!(529, "label_digits", ObjectState, 1),
@@ -1608,9 +1678,19 @@ pub static SETTINGS: &[Setting] = &[
     s_int!(531, "label_angle_digits", ObjectState, -1),
     s_int!(532, "label_dihedral_digits", ObjectState, -1),
     s_bool!(533, "surface_negative_visible", Object, false),
-    s_color!(534, "surface_negative_color", Object, -6),
+    s_color!(
+        534,
+        "surface_negative_color",
+        Object,
+        patinae_color::ColorValue::INHERIT
+    ),
     s_bool!(535, "mesh_negative_visible", Object, false),
-    s_color!(536, "mesh_negative_color", Object, -6),
+    s_color!(
+        536,
+        "mesh_negative_color",
+        Object,
+        patinae_color::ColorValue::INHERIT
+    ),
     s_int!(537, "group_auto_mode", Global, 1),
     s_int!(538, "group_full_member_names", Global, 0),
     s_float!(539, "gradient_max_length", ObjectState, 100.0),
@@ -1620,7 +1700,12 @@ pub static SETTINGS: &[Setting] = &[
     s_float!(543, "gradient_step_size", ObjectState, 0.25),
     s_int!(544, "gradient_spacing", ObjectState, 3),
     s_float!(545, "gradient_symmetry", ObjectState, 0.0),
-    s_color!(546, "ray_trace_color", Global, -6),
+    s_color!(
+        546,
+        "ray_trace_color",
+        Global,
+        patinae_color::ColorValue::INHERIT
+    ),
     s_bool!(547, "group_arrow_prefix", Global, false),
     s_bool!(548, "suppress_hidden", Global, true),
     s_bool!(549, "session_compression", Global, false),
@@ -1645,13 +1730,33 @@ pub static SETTINGS: &[Setting] = &[
     s_int!(567, "auto_defer_builds", Global, 500),
     s_float!(568, "ellipsoid_probability", ObjectState, 0.5),
     s_float!(569, "ellipsoid_scale", Atom, 1.0),
-    s_color!(570, "ellipsoid_color", Atom, -1),
+    s_color!(
+        570,
+        "ellipsoid_color",
+        Atom,
+        patinae_color::ColorValue::INHERIT
+    ),
     s_float!(571, "ellipsoid_transparency", Atom, 0.0),
     s_int!(572, "movie_rock", Global, -1),
     s_int!(573, "cache_mode", ObjectState, 0),
-    s_color!(574, "dash_color", ObjectState, -1),
-    s_color!(575, "angle_color", ObjectState, -1),
-    s_color!(576, "dihedral_color", ObjectState, -1),
+    s_color!(
+        574,
+        "dash_color",
+        ObjectState,
+        patinae_color::ColorValue::INHERIT
+    ),
+    s_color!(
+        575,
+        "angle_color",
+        ObjectState,
+        patinae_color::ColorValue::INHERIT
+    ),
+    s_color!(
+        576,
+        "dihedral_color",
+        ObjectState,
+        patinae_color::ColorValue::INHERIT
+    ),
     s_int!(577, "grid_mode", Global, 0, 0, 3),
     s_int!(578, "cache_max", Global, 25000000),
     s_int!(579, "grid_slot", Object, -1),
@@ -1680,7 +1785,12 @@ pub static SETTINGS: &[Setting] = &[
     s_bool!(601, "image_copy_always", Global, false),
     s_int!(602, "max_ups", Global, 0),
     s_int!(603, "auto_overlay", Global, 0),
-    s_color!(604, "stick_ball_color", ObjectState, -1),
+    s_color!(
+        604,
+        "stick_ball_color",
+        ObjectState,
+        patinae_color::ColorValue::INHERIT
+    ),
     s_float!(605, "stick_h_scale", ObjectState, 0.4),
     s_float!(606, "sculpt_pyra_inv_weight", ObjectState, 10.0),
     s_bool!(607, "keep_alive", Global, false),
@@ -1727,7 +1837,12 @@ pub static SETTINGS: &[Setting] = &[
     s_bool!(648, "shaders_from_disk", Global, false),
     s_int!(649, "volume_bit_depth", Object, 16),
     // 650-699
-    s_color!(650, "volume_color", Unused, -1),
+    s_color!(
+        650,
+        "volume_color",
+        Unused,
+        patinae_color::ColorValue::INHERIT
+    ),
     s_float!(651, "volume_layers", Object, 256.0),
     s_float!(652, "volume_data_range", Object, 5.0),
     s_int!(653, "auto_defer_atom_count", Global, 0),
@@ -1740,8 +1855,18 @@ pub static SETTINGS: &[Setting] = &[
     s_string!(660, "atom_type_format", Global),
     s_bool!(661, "autoclose_dialogs", Global, true),
     s_int!(662, "bg_gradient", Global, 0),
-    s_color!(663, "bg_rgb_top", Global, 0x00004D),
-    s_color!(664, "bg_rgb_bottom", Global, 0x333380),
+    s_color!(
+        663,
+        "bg_rgb_top",
+        Global,
+        patinae_color::ColorValue::rgb(0, 0, 77)
+    ),
+    s_color!(
+        664,
+        "bg_rgb_bottom",
+        Global,
+        patinae_color::ColorValue::rgb(51, 51, 128)
+    ),
     s_bool!(665, "ray_volume", Global, false),
     s_float!(666, "ribbon_transparency", ObjectState, 0.0),
     s_int!(667, "state_counter_mode", Object, -1, -1, 2),
@@ -1800,10 +1925,20 @@ pub static SETTINGS: &[Setting] = &[
     s_bool!(719, "pdb_conect_nodup", Global, true),
     s_bool!(720, "label_connector", AtomState, false),
     s_int!(721, "label_connector_mode", AtomState, 0, 0, 4),
-    s_color!(722, "label_connector_color", AtomState, -6),
+    s_color!(
+        722,
+        "label_connector_color",
+        AtomState,
+        patinae_color::ColorValue::INHERIT
+    ),
     s_float!(723, "label_connector_width", AtomState, 2.0),
     s_float!(724, "label_connector_ext_length", AtomState, 2.5),
-    s_color!(725, "label_bg_color", AtomState, -1),
+    s_color!(
+        725,
+        "label_bg_color",
+        AtomState,
+        patinae_color::ColorValue::INHERIT
+    ),
     s_bool!(726, "use_geometry_shaders", Global, true),
     s_int!(727, "label_relative_mode", AtomState, 0, 0, 2),
     s_float3!(728, "label_screen_point", AtomState, 0.0, 0.0, 0.0),
@@ -1896,11 +2031,21 @@ pub static SETTINGS: &[Setting] = &[
     ),
     s_float!(795, "salt_bridge_distance", Global, 5.0),
     s_bool!(796, "use_tessellation_shaders", Global, true),
-    s_color!(797, "cell_color", ObjectState, -1),
+    s_color!(
+        797,
+        "cell_color",
+        ObjectState,
+        patinae_color::ColorValue::INHERIT
+    ),
     // 798-801: Silhouette settings
     s_bool!(798, "silhouettes", Global, false),
     s_float!(799, "silhouette_width", Global, 2.0, 0.5, 10.0),
-    s_color!(800, "silhouette_color", ObjectState, -1),
+    s_color!(
+        800,
+        "silhouette_color",
+        ObjectState,
+        patinae_color::ColorValue::INHERIT
+    ),
     s_float!(801, "silhouette_depth_jump", Global, 0.03, 0.001, 0.5),
     // 802-806: Shading mode and Skripkin AO controls.
     // shading_mode: 0 = classic multi-light, 1 = skripkin ambient + AO

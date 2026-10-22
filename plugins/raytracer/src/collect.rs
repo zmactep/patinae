@@ -5,58 +5,10 @@
 
 use std::collections::HashMap;
 
-use patinae_color::{NamedPalette, ThemedPalette};
 use patinae_mol::{AtomIndex, CoordSet, ObjectMolecule, RepMask};
+use patinae_scene::{ColorResolver, RepColorDefaults};
 
 use crate::primitive::{GpuCylinder, GpuSphere, PrimitiveCollector, Primitives};
-
-/// Color resolver for raytracing (simplified version)
-pub struct RayColorResolver<'a> {
-    named_palette: &'a NamedPalette,
-    palette: &'a ThemedPalette,
-}
-
-impl<'a> RayColorResolver<'a> {
-    /// Create a new color resolver
-    pub fn new(named_palette: &'a NamedPalette, palette: &'a ThemedPalette) -> Self {
-        Self {
-            named_palette,
-            palette,
-        }
-    }
-
-    /// Resolve color for an atom
-    pub fn resolve_atom(&self, atom: &patinae_mol::Atom, _molecule: &ObjectMolecule) -> [f32; 4] {
-        // Check for explicit atom color first (positive index means custom color)
-        if atom.repr.colors.base >= 0 {
-            if let Some(color) = self
-                .named_palette
-                .get_by_index(atom.repr.colors.base as u32)
-            {
-                return [color.r, color.g, color.b, 1.0];
-            }
-        }
-
-        // Try element color
-        let color = self.palette.element.get(atom.element.atomic_number());
-        if color.r != 1.0 || color.g != 0.0 || color.b != 1.0 {
-            // Not the default magenta, so it's a valid element color
-            return [color.r, color.g, color.b, 1.0];
-        }
-
-        // Try chain color for biomolecule carbons only
-        if !atom.residue.chain.is_empty()
-            && atom.state.flags.is_biomolecule()
-            && atom.element.is_carbon()
-        {
-            let color = self.palette.chains.get(&atom.residue.chain);
-            return [color.r, color.g, color.b, 1.0];
-        }
-
-        // Default to gray (carbon-like)
-        [0.56, 0.56, 0.56, 1.0]
-    }
-}
 
 /// Collect sphere primitives from a molecule
 ///
@@ -64,7 +16,8 @@ impl<'a> RayColorResolver<'a> {
 pub fn collect_spheres(
     molecule: &ObjectMolecule,
     coord_set: &CoordSet,
-    colors: &RayColorResolver,
+    colors: &ColorResolver<'_>,
+    defaults: &RepColorDefaults,
     sphere_scale: f32,
     sphere_transparency: f32,
 ) -> Vec<GpuSphere> {
@@ -84,7 +37,7 @@ pub fn collect_spheres(
         // Use per-atom sphere_scale if set, otherwise global
         let scale = atom.repr.sphere_scale.unwrap_or(sphere_scale);
         let radius = atom.effective_vdw() * scale;
-        let color = colors.resolve_atom(atom, molecule);
+        let color = colors.resolve_rep_color(atom, atom.repr.colors.sphere, defaults.sphere);
 
         // Use per-atom transparency if set, otherwise fall back to global
         let transparency = atom.repr.sphere_transparency.unwrap_or(sphere_transparency);
@@ -106,7 +59,8 @@ pub fn collect_spheres(
 pub fn collect_cylinders(
     molecule: &ObjectMolecule,
     coord_set: &CoordSet,
-    colors: &RayColorResolver,
+    colors: &ColorResolver<'_>,
+    defaults: &RepColorDefaults,
     stick_radius: f32,
     stick_transparency: f32,
 ) -> (Vec<GpuCylinder>, Vec<GpuSphere>) {
@@ -142,8 +96,8 @@ pub fn collect_cylinders(
             None => continue,
         };
 
-        let color1 = colors.resolve_atom(atom1, molecule);
-        let color2 = colors.resolve_atom(atom2, molecule);
+        let color1 = colors.resolve_rep_color(atom1, atom1.repr.colors.stick, defaults.stick);
+        let color2 = colors.resolve_rep_color(atom2, atom2.repr.colors.stick, defaults.stick);
         let radius = stick_radius * bond.order.as_float().sqrt();
 
         // Use per-atom transparency if set, otherwise fall back to global
@@ -227,7 +181,8 @@ impl Default for CollectOptions {
 pub fn collect_from_molecule(
     molecule: &ObjectMolecule,
     coord_set: &CoordSet,
-    colors: &RayColorResolver,
+    colors: &ColorResolver<'_>,
+    defaults: &RepColorDefaults,
     options: &CollectOptions,
 ) -> Primitives {
     let mut collector = PrimitiveCollector::new();
@@ -238,6 +193,7 @@ pub fn collect_from_molecule(
             molecule,
             coord_set,
             colors,
+            defaults,
             options.sphere_scale,
             options.sphere_transparency,
         );
@@ -250,6 +206,7 @@ pub fn collect_from_molecule(
             molecule,
             coord_set,
             colors,
+            defaults,
             options.stick_radius,
             options.stick_transparency,
         );

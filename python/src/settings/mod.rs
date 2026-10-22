@@ -49,7 +49,12 @@ fn setting_value_to_py(py: Python<'_>, value: &SettingValue) -> PyResult<Py<PyAn
         SettingValue::Int(i) => Ok((*i).into_pyobject(py)?.to_owned().into_any().unbind()),
         SettingValue::Float(f) => Ok((*f).into_pyobject(py)?.to_owned().into_any().unbind()),
         SettingValue::Float3(f) => Ok((f[0], f[1], f[2]).into_pyobject(py)?.into_any().unbind()),
-        SettingValue::Color(c) => Ok((*c).into_pyobject(py)?.to_owned().into_any().unbind()),
+        SettingValue::Color(c) => Ok(c
+            .to_bits()
+            .into_pyobject(py)?
+            .to_owned()
+            .into_any()
+            .unbind()),
         SettingValue::String(s) => Ok(s.clone().into_pyobject(py)?.into_any().unbind()),
     }
 }
@@ -77,8 +82,11 @@ fn py_to_setting_value(
             Ok(SettingValue::Float3([x, y, z]))
         }
         SettingType::Color => {
-            let i: i32 = value.extract()?;
-            Ok(SettingValue::Color(i))
+            let i: u32 = value.extract()?;
+            Ok(SettingValue::Color(
+                patinae_color::ColorValue::try_from_bits(i)
+                    .map_err(pyo3::exceptions::PyValueError::new_err)?,
+            ))
         }
         SettingType::String => {
             let s: String = value.extract()?;

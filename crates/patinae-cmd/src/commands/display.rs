@@ -668,24 +668,16 @@ impl Command for ColorCommand {
         args: &ParsedCommand,
     ) -> CmdResult {
         let color_name = args
-            .str_arg(0, "color")
-            .ok_or_else(|| CmdError::missing_argument("color".to_string()))?;
+            .arg(0, "color")
+            .ok_or_else(|| CmdError::missing_argument("color".to_string()))?
+            .to_string();
         let selection = args.str_arg_or(1, "selection", "all");
 
-        let resolved_color =
-            if let Some(color_index) = patinae_color::ColorIndex::from_scheme_name(color_name) {
-                color_index
-            } else if let Some(idx) = ctx.viewer.color_index(color_name) {
-                patinae_color::ColorIndex::Named(idx)
-            } else if let Some(color) = patinae_color::Color::from_hex(color_name) {
-                let index = ctx.viewer.set_named_color(color_name, color);
-                patinae_color::ColorIndex::Named(index)
-            } else {
-                return Err(CmdError::invalid_arg(
-                    "color",
-                    format!("unknown color: {}", color_name),
-                ));
-            };
+        let resolved_color = ctx
+            .viewer
+            .named_palette()
+            .parse_color(&color_name)
+            .map_err(|error| CmdError::invalid_arg("color", format!("{error}: {color_name}")))?;
 
         let annotation_type = ctx
             .viewer
@@ -696,7 +688,10 @@ impl Command for ColorCommand {
                 matches!(object_type, ObjectType::Measurement | ObjectType::Label)
             });
         if let Some(annotation_type) = annotation_type {
-            let patinae_color::ColorIndex::Named(index) = resolved_color else {
+            if !matches!(
+                resolved_color.kind(),
+                patinae_color::ColorKind::Palette | patinae_color::ColorKind::Rgb
+            ) {
                 return Err(CmdError::invalid_arg(
                     "color",
                     "annotation objects require a named or hexadecimal color",
@@ -708,26 +703,28 @@ impl Command for ColorCommand {
                     .objects_mut()
                     .get_measurement_mut(selection)
                     .expect("measurement type checked above")
-                    .set_color(patinae_color::ColorIndex::Named(index)),
+                    .set_color(resolved_color),
                 ObjectType::Label => ctx
                     .viewer
                     .objects_mut()
                     .get_label_mut(selection)
                     .expect("label type checked above")
-                    .set_color(patinae_color::ColorIndex::Named(index)),
+                    .set_color(resolved_color),
                 _ => unreachable!("annotation type filter admits only measurement and label"),
             }
             ctx.viewer.request_redraw();
             if !ctx.quiet {
                 ctx.print(&format!(
                     " Color: {} {} colored {}",
-                    annotation_type, selection, color_name
+                    annotation_type,
+                    selection,
+                    ctx.viewer.named_palette().format_color(resolved_color)
                 ));
             }
             return Ok(());
         }
 
-        let color_index = i32::from(resolved_color);
+        let color_index = resolved_color;
         let selections = evaluate_selection(ctx.viewer, selection)?;
         let mut total_colored = 0;
         for (object, selected) in selections {
@@ -743,12 +740,13 @@ impl Command for ColorCommand {
             if total_colored == 0 {
                 ctx.print_error(&format!(
                     " Color: 0 atoms colored {} (selection not found)",
-                    color_name
+                    ctx.viewer.named_palette().format_color(resolved_color)
                 ));
             } else {
                 ctx.print(&format!(
                     " Color: {} atoms colored {}",
-                    total_colored, color_name
+                    total_colored,
+                    ctx.viewer.named_palette().format_color(resolved_color)
                 ));
             }
         }
@@ -806,51 +804,38 @@ impl Command for BgColorCommand {
             return Ok(());
         }
 
-        // Try [r, g, b] vector first (from ArgValue::List)
-        if let Some(crate::args::ArgValue::List(items)) = args.get_arg(0) {
-            if items.len() == 3 {
-                if let (Some(r), Some(g), Some(b)) = (
-                    items[0].as_float().map(|v| v as f32),
-                    items[1].as_float().map(|v| v as f32),
-                    items[2].as_float().map(|v| v as f32),
-                ) {
-                    ctx.viewer.set_background_color(
-                        r.clamp(0.0, 1.0),
-                        g.clamp(0.0, 1.0),
-                        b.clamp(0.0, 1.0),
-                    );
-                    if !ctx.quiet {
-                        ctx.print(&format!(
-                            " Background color set to [{:.2}, {:.2}, {:.2}]",
-                            r, g, b
-                        ));
-                    }
-                    return Ok(());
-                }
+        let color_text = args
+            .arg(0, "color")
+            .ok_or_else(|| CmdError::missing_argument("color".to_string()))?
+            .to_string();
+        let value = ctx
+            .viewer
+            .named_palette()
+            .parse_color(&color_text)
+            .map_err(|error| CmdError::invalid_arg("color", format!("{error}: {color_text}")))?;
+        let color = match (value.as_rgb8(), value.palette_index()) {
+            (Some([r, g, b]), _) => patinae_color::Color::from_rgb8(r, g, b),
+            (_, Some(index)) => ctx
+                .viewer
+                .named_palette()
+                .get_by_index(index)
+                .ok_or_else(|| CmdError::invalid_arg("color", "unknown palette entry"))?,
+            _ => {
+                return Err(CmdError::invalid_arg(
+                    "color",
+                    "background requires a literal color",
+                ))
             }
-        }
-
-        let color_name = args
-            .str_arg(0, "color")
-            .ok_or_else(|| CmdError::missing_argument("color".to_string()))?;
-
-        // Resolve color: named colors registry, then hex
-        let color = if let Some((_, color)) = ctx.viewer.named_palette().get_by_name(color_name) {
-            color
-        } else if let Some(color) = patinae_color::Color::from_hex(color_name) {
-            color
-        } else {
-            return Err(CmdError::invalid_arg(
-                "color",
-                format!("unknown color: {}", color_name),
-            ));
         };
 
         let [r, g, b] = color.to_array();
         ctx.viewer.set_background_color(r, g, b);
 
         if !ctx.quiet {
-            ctx.print(&format!(" Background color set to {}", color_name));
+            ctx.print(&format!(
+                " Background color set to {}",
+                ctx.viewer.named_palette().format_color(value)
+            ));
         }
 
         Ok(())
@@ -939,8 +924,14 @@ impl Command for SetColorCommand {
 
             if !ctx.quiet {
                 ctx.print(&format!(
-                    " Color: \"{}\" defined as [{}, {}, {}] (index {})",
-                    color_name, r, g, b, idx
+                    " Color: \"{}\" defined as {} (index {})",
+                    ctx.viewer
+                        .named_palette()
+                        .format_color(patinae_color::ColorValue::palette(idx)),
+                    ctx.viewer
+                        .named_palette()
+                        .format_color(patinae_color::ColorValue::rgb(r, g, b)),
+                    idx
                 ));
             }
         } else {
@@ -1547,6 +1538,15 @@ mod tests {
     fn bg_color_name_sets_explicit_background() {
         let mut session = Session::new();
 
+        for command in [
+            "bg_color white",
+            "bg_color color=white",
+            "bg_color palette:0",
+            "bg_color [1, 1, 1]",
+        ] {
+            assert!(run_display_command(&mut session, command));
+            assert_eq!(session.clear_color, [1.0, 1.0, 1.0]);
+        }
         let needs_redraw = run_display_command(&mut session, "bg_color white");
 
         assert!(needs_redraw);
@@ -1590,7 +1590,7 @@ mod tests {
         let measurement = session.registry.get_measurement("distance").unwrap();
         assert_eq!(
             measurement.state().color,
-            patinae_color::ColorIndex::Named(red)
+            patinae_color::ColorValue::palette(red)
         );
         assert!(measurement.has_explicit_color());
         assert!(measurement.revisions().material > before);
@@ -1626,7 +1626,7 @@ mod tests {
         assert_eq!(measurement.revisions(), before);
         assert_eq!(
             measurement.state().color,
-            patinae_color::ColorIndex::default()
+            patinae_color::ColorValue::palette(0)
         );
         assert!(!needs_redraw);
     }
@@ -1643,7 +1643,7 @@ mod tests {
         let labels = session.registry.get_label("labels").unwrap();
         assert_eq!(
             labels.presentation().color(),
-            Some(patinae_color::ColorIndex::Named(red))
+            Some(patinae_color::ColorValue::palette(red))
         );
         assert!(labels.revisions().material > before.material);
         assert!(labels.revisions().labels > before.labels);

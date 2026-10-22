@@ -5,7 +5,7 @@ use std::sync::Arc;
 use ahash::AHashMap;
 use lin_alg::f32::{Mat4, Vec3};
 
-use patinae_color::{Color, ColorIndex, NamedPalette};
+use patinae_color::{Color, ColorValue, NamedPalette};
 use patinae_mol::{
     Atom, AtomColors, AtomIndex, AtomRepresentation, AtomResidue, BondOrder, BondStereo, CoordSet,
     Element, ObjectMolecule, RepMask, ResidueKey, SecondaryStructure, Symmetry,
@@ -26,7 +26,7 @@ use crate::SessionError;
 
 /// Caches the mapping from PSE color indices to our NamedPalette indices.
 struct PseColorMapper {
-    cache: AHashMap<i64, i32>,
+    cache: AHashMap<i64, ColorValue>,
     /// Session-defined custom colors (from the PSE "colors" list), keyed by PSE index.
     session_colors: AHashMap<i64, [f32; 3]>,
 }
@@ -45,13 +45,13 @@ impl PseColorMapper {
 
     /// Map a PSE color index to our color index.
     ///
-    /// Negative values have special meaning (-1=ByElement, etc.) and pass through.
+    /// Negative PSE color controls inherit the application color default.
     /// Positive values are looked up first in session-defined colors, then in the
     /// built-in PSE color table, registered in `NamedPalette` if needed,
     /// and the resulting local index is returned.
-    fn map(&mut self, pymol_index: i64, named_palette: &mut NamedPalette) -> i32 {
+    fn map(&mut self, pymol_index: i64, named_palette: &mut NamedPalette) -> ColorValue {
         if pymol_index < 0 {
-            return pymol_index as i32;
+            return ColorValue::INHERIT;
         }
         if let Some(&local) = self.cache.get(&pymol_index) {
             return local;
@@ -59,13 +59,13 @@ impl PseColorMapper {
         // Session colors take priority over built-in table
         let local = if let Some(&[r, g, b]) = self.session_colors.get(&pymol_index) {
             let color_name = format!("_pse_{}", pymol_index);
-            named_palette.register(&color_name, Color::new(r, g, b)) as i32
+            ColorValue::palette(named_palette.register(&color_name, Color::new(r, g, b)))
         } else if let Some((r, g, b)) = pymol_color_rgb(pymol_index) {
             let color_name = format!("_pse_{}", pymol_index);
-            named_palette.register(&color_name, Color::new(r, g, b)) as i32
+            ColorValue::palette(named_palette.register(&color_name, Color::new(r, g, b)))
         } else {
-            // Unknown PSE index — fall back to element coloring
-            -1
+            // Unknown PSE index inherits the representation default.
+            ColorValue::INHERIT
         };
         self.cache.insert(pymol_index, local);
         local
@@ -171,9 +171,9 @@ fn resolve_bg_color(
         .find(|s| s.id == patinae_settings::id::bg_rgb)?;
     if let PseSettingValue::Color(pse_index) = &bg_setting.value {
         let local_index = color_mapper.map(*pse_index, named_palette);
-        if local_index >= 0 {
+        if let Some(local_index) = local_index.palette_index() {
             return named_palette
-                .get_by_index(local_index as u32)
+                .get_by_index(local_index)
                 .map(|c| c.to_array());
         }
     }
@@ -324,12 +324,33 @@ fn convert_molecule(
         mol.add_coord_set(convert_coord_set(cs, pse_mol.atoms.len()));
     }
 
-    // Unique settings
+    // Move supported atom color settings into AtomColors after object defaults.
+    // Bond-specific and non-color settings retain their original scope.
+    let atom_ids: std::collections::HashSet<_> = pse_mol
+        .atoms
+        .iter()
+        .map(|atom| atom.unique_id as i32)
+        .filter(|&id| id != 0)
+        .collect();
+    let mut atom_color_settings: AHashMap<i32, Vec<(&str, ColorValue)>> = AHashMap::new();
     let unique_list: Vec<_> = pse
         .unique_settings
         .iter()
         .filter_map(|us| {
             let value = convert_setting_value(&us.value, color_mapper, named_palette)?;
+            if atom_ids.contains(&(us.unique_id as i32)) {
+                if let Some(definition) = patinae_settings::get_setting(us.setting_id) {
+                    if AtomColors::representation_field(definition.name).is_some() {
+                        if let Some(color) = value.as_color() {
+                            atom_color_settings
+                                .entry(us.unique_id as i32)
+                                .or_default()
+                                .push((definition.name, color));
+                            return None;
+                        }
+                    }
+                }
+            }
             Some((us.unique_id as i32, us.setting_id, value))
         })
         .collect();
@@ -357,7 +378,7 @@ fn convert_molecule(
     let state = mol_obj.state_mut();
     state.enabled = obj.visible;
     state.visible_reps = RepMask(obj_rep_mask);
-    state.color = color_index_from_pse(obj.color);
+    state.color = color_mapper.map(obj.color, named_palette);
 
     // Apply TTT matrix (molecule position/rotation from the session)
     if let Some(ref ttt) = obj.ttt {
@@ -368,8 +389,60 @@ fn convert_molecule(
     if !obj.settings.is_empty() {
         let overrides = convert_object_overrides(&obj.settings, color_mapper, named_palette);
         *mol_obj.get_or_create_overrides() = overrides;
+        let mut settings = serialize_pse_settings(&obj.settings, color_mapper, named_palette);
+        // A nucleic-specific default wins over the general cartoon default.
+        settings.sort_by_key(|setting| {
+            patinae_settings::get_setting(setting.id)
+                .is_some_and(|definition| definition.name == "cartoon_nucleic_acid_color")
+        });
+        for setting in settings {
+            let Some(definition) = patinae_settings::get_setting(setting.id) else {
+                continue;
+            };
+            let Some(field) = AtomColors::representation_field(definition.name) else {
+                continue;
+            };
+            let Some(color) = setting.value.as_color() else {
+                continue;
+            };
+            if color == ColorValue::INHERIT {
+                continue;
+            }
+            for atom in mol_obj.molecule_mut().atoms_mut() {
+                if definition.name == "cartoon_nucleic_acid_color"
+                    && !atom.state.flags.contains(patinae_mol::AtomFlags::NUCLEIC)
+                {
+                    continue;
+                }
+                *field(&mut atom.repr.colors) = color;
+            }
+        }
     }
 
+    for settings in atom_color_settings.values_mut() {
+        settings.sort_by_key(|(name, _)| *name == "cartoon_nucleic_acid_color");
+    }
+    for atom in mol_obj.molecule_mut().atoms_mut() {
+        if let Some(settings) = atom
+            .repr
+            .unique_id
+            .and_then(|id| atom_color_settings.get(&id))
+        {
+            for &(name, color) in settings {
+                if color == ColorValue::INHERIT {
+                    continue;
+                }
+                if name == "cartoon_nucleic_acid_color"
+                    && !atom.state.flags.contains(patinae_mol::AtomFlags::NUCLEIC)
+                {
+                    continue;
+                }
+                if let Some(field) = AtomColors::representation_field(name) {
+                    *field(&mut atom.repr.colors) = color;
+                }
+            }
+        }
+    }
     Ok(mol_obj)
 }
 
@@ -528,10 +601,6 @@ fn ttt_to_mat4(ttt: &[f64; 16]) -> Mat4 {
 // Color helpers
 // =============================================================================
 
-fn color_index_from_pse(color: i64) -> ColorIndex {
-    ColorIndex::from(color as i32)
-}
-
 // =============================================================================
 // Tests
 // =============================================================================
@@ -636,10 +705,57 @@ mod tests {
                 }),
             }))));
 
+        let Some(PseNameEntry::Object(object)) = pse.names[0].as_mut() else {
+            unreachable!()
+        };
+        object.settings = vec![
+            PseSetting {
+                id: 236,
+                type_code: 5,
+                value: PseSettingValue::Color(2),
+            },
+            PseSetting {
+                id: 376,
+                type_code: 5,
+                value: PseSettingValue::Color(2),
+            },
+            PseSetting {
+                id: 451,
+                type_code: 5,
+                value: PseSettingValue::Color(3),
+            },
+        ];
+        let PseObjectData::Molecule(molecule) = &mut object.data else {
+            unreachable!()
+        };
+        molecule.atoms[0].unique_id = 42;
+        pse.unique_settings.push(PseUniqueSetting {
+            unique_id: 42,
+            setting_id: 376,
+            type_code: 5,
+            value: PseSettingValue::Color(4),
+        });
+        pse.unique_settings.push(PseUniqueSetting {
+            unique_id: 42,
+            setting_id: 236,
+            type_code: 5,
+            value: PseSettingValue::Color(-1),
+        });
         let session = pse_to_session(&pse).unwrap();
         assert_eq!(session.registry.len(), 1);
         let mol_obj = session.registry.get_molecule("mol1").unwrap();
         assert_eq!(mol_obj.molecule().atom_count(), 1);
+        let colors = &mol_obj.molecule().atoms_slice()[0].repr.colors;
+        assert_eq!(
+            colors.stick,
+            session.named_palette.parse_color("_pse_4").unwrap()
+        );
+        // The nucleic object setting must not affect this protein atom.
+        assert_eq!(
+            colors.cartoon,
+            session.named_palette.parse_color("_pse_2").unwrap()
+        );
+        assert!(mol_obj.molecule().unique_settings.get(42, 376).is_none());
         assert_eq!(
             &*mol_obj.molecule().get_atom(AtomIndex(0)).unwrap().name,
             "CA"
@@ -689,13 +805,6 @@ mod tests {
         );
         let session = pse_to_session(&pse).unwrap();
         assert!(session.views.get("front").is_some());
-    }
-
-    #[test]
-    fn test_color_index_mapping() {
-        assert!(matches!(color_index_from_pse(-1), ColorIndex::ByElement));
-        assert!(matches!(color_index_from_pse(-2), ColorIndex::ByChain));
-        assert!(matches!(color_index_from_pse(5), ColorIndex::Named(5)));
     }
 
     #[test]
@@ -846,9 +955,9 @@ mod tests {
         let session = pse_to_session(&pse).unwrap();
         let mol_obj = session.registry.get_molecule("mol1").unwrap();
         let atom = mol_obj.molecule().get_atom(AtomIndex(0)).unwrap();
-        // The atom's base color should be a valid named color index (>= 0), not -1 (ByElement)
+        // The atom's base color should reference the imported palette entry.
         assert!(
-            atom.repr.colors.base >= 0,
+            atom.repr.colors.base.palette_index().is_some(),
             "expected mapped color index, got {}",
             atom.repr.colors.base
         );

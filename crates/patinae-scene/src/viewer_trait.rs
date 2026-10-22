@@ -276,7 +276,12 @@ pub trait ViewerLike {
     }
 
     /// Color source atoms, returning the number whose stored colors changed.
-    fn color_atoms(&mut self, object: &str, selected: &SelectionResult, color: i32) -> usize {
+    fn color_atoms(
+        &mut self,
+        object: &str,
+        selected: &SelectionResult,
+        color: patinae_mol::ColorValue,
+    ) -> usize {
         self.objects_mut()
             .get_molecule_mut(object)
             .map_or(0, |molecule| molecule.color_selection(selected, color))

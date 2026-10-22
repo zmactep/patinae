@@ -62,6 +62,7 @@ impl CachedRenderScene {
         self.markers.rebuild_with_recent(
             &mut session.selections,
             &session.registry,
+            &session.named_palette,
             &self.recent_atom_targets,
             recent_observation,
             session.hover_target.as_ref(),
@@ -165,10 +166,10 @@ impl<'a> CachedRenderFrame<'a> {
 mod tests {
     use crate::bridge::ResolvedSceneColors;
     use lin_alg::f32::Vec3;
-    use patinae_color::{Color, ColorIndex, ThemedPalette};
+    use patinae_color::{Color, ColorValue, ThemedPalette};
     use patinae_mol::{Atom, AtomIndex, CoordSet, DirtyFlags, Element, ObjectMolecule};
     use patinae_render::{scene_store::SceneStore, ColorLutEntry};
-    use patinae_settings::{groups::RecentPickLimit, Color as SettingColor};
+    use patinae_settings::groups::RecentPickLimit;
 
     use crate::{AtomAnchor, LabelEntity, LabelObject, MoleculeObject};
 
@@ -394,7 +395,7 @@ mod tests {
             .registry
             .get_label_mut("labels")
             .unwrap()
-            .set_color(ColorIndex::Named(1));
+            .set_color(ColorValue::palette(1));
         drop(cache.prepare(&mut session));
         assert_eq!(cache.annotation_strokes.rebuild_count(), 2);
         session.registry.clear_all_dirty_objects();
@@ -484,7 +485,8 @@ mod tests {
         check(&mut session, &mut cache, &mut store);
         clear(&mut session);
         check(&mut session, &mut cache, &mut store);
-        let red = session.named_palette.get_by_name("red").unwrap().0 as i32;
+        let red =
+            patinae_color::ColorValue::palette(session.named_palette.get_by_name("red").unwrap().0);
         let atom = session
             .registry
             .get_molecule_mut("one")
@@ -505,7 +507,7 @@ mod tests {
         check(&mut session, &mut cache, &mut store);
         clear(&mut session);
         session.palette = ThemedPalette::light();
-        session.settings.sphere.color = SettingColor(red);
+        session.settings.sphere.color = red;
         session.registry.mark_all_dirty();
         check(&mut session, &mut cache, &mut store);
         clear(&mut session);
@@ -516,7 +518,7 @@ mod tests {
             .molecule_mut_with_dirty(DirtyFlags::COLOR | DirtyFlags::TRANSPARENCY)
             .get_atom_mut(AtomIndex(0))
             .unwrap();
-        atom.repr.colors.base = ColorIndex::ByBFactor.into();
+        atom.repr.colors.base = ColorValue::B_FACTOR;
         atom.b_factor = 37.0;
         atom.repr.sphere_transparency = Some(0.4);
         check(&mut session, &mut cache, &mut store);
@@ -529,8 +531,13 @@ mod tests {
         check(&mut session, &mut cache, &mut store);
         clear(&mut session);
         let object = session.registry.get_molecule_mut("two").unwrap();
-        object.get_or_create_overrides().sphere.color = Some(SettingColor(red));
-        object.get_or_create_overrides().ribbon.color = Some(SettingColor(red));
+        for atom in object
+            .molecule_mut_with_dirty(DirtyFlags::COLOR)
+            .atoms_mut()
+        {
+            atom.repr.colors.sphere = red;
+            atom.repr.colors.ribbon = red;
+        }
         object.invalidate(DirtyFlags::COLOR);
         check(&mut session, &mut cache, &mut store);
     }
@@ -549,16 +556,16 @@ mod tests {
                 "",
             ));
             atom.state.flags = patinae_mol::AtomFlags::PROTEIN | patinae_mol::AtomFlags::POLYMER;
-            atom.repr.colors.base = ColorIndex::ByResidueIndex.into();
-            atom.repr.colors.sphere = ColorIndex::ByResidueIndex.into();
-            atom.repr.colors.stick = ColorIndex::ByChain.into();
-            atom.repr.colors.line = ColorIndex::ByBFactor.into();
-            atom.repr.colors.dot = ColorIndex::ByElement.into();
-            atom.repr.colors.cartoon = ColorIndex::ByResidueIndex.into();
-            atom.repr.colors.ribbon = ColorIndex::BySS.into();
-            atom.repr.colors.surface = ColorIndex::ByResidueType.into();
-            atom.repr.colors.mesh = ColorIndex::ByResidueIndex.into();
-            atom.repr.colors.ellipsoid = ColorIndex::ByResidueIndex.into();
+            atom.repr.colors.base = ColorValue::RESIDUE_INDEX;
+            atom.repr.colors.sphere = ColorValue::RESIDUE_INDEX;
+            atom.repr.colors.stick = ColorValue::CHAIN;
+            atom.repr.colors.line = ColorValue::B_FACTOR;
+            atom.repr.colors.dot = ColorValue::ELEMENT;
+            atom.repr.colors.cartoon = ColorValue::RESIDUE_INDEX;
+            atom.repr.colors.ribbon = ColorValue::SECONDARY_STRUCTURE;
+            atom.repr.colors.surface = ColorValue::RESIDUE_TYPE;
+            atom.repr.colors.mesh = ColorValue::RESIDUE_INDEX;
+            atom.repr.colors.ellipsoid = ColorValue::RESIDUE_INDEX;
             mol.add_atom(atom);
         }
         mol.add_coord_set(CoordSet::from_coords(vec![0.0; 24]));
@@ -598,7 +605,7 @@ mod tests {
             .unwrap()
             .repr
             .colors
-            .base = ColorIndex::ByBFactor.into();
+            .base = ColorValue::B_FACTOR;
         check(&mut session, &mut first, &mut SceneStore::new());
         clear(&mut session);
         check(&mut session, &mut second, &mut SceneStore::new());

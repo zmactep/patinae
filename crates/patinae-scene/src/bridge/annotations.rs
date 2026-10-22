@@ -209,7 +209,7 @@ fn projection_fingerprint(
 #[cfg(test)]
 mod tests {
     use lin_alg::f32::Vec3;
-    use patinae_color::{ColorIndex, NamedPalette};
+    use patinae_color::{ColorValue, NamedPalette};
     use patinae_mol::{Atom, AtomIndex, CoordSet, DirtyFlags, Element, ObjectMolecule};
     use patinae_settings::Settings;
 
@@ -547,7 +547,7 @@ mod tests {
         );
         let mut first = LabelEntityPresentation::default();
         first
-            .set_color(ColorIndex::Named(red_index))
+            .set_color(ColorValue::palette(red_index))
             .expect("named color");
         first.set_size(11.0).expect("valid size");
         let mut hidden = LabelEntityPresentation::default();
@@ -566,7 +566,7 @@ mod tests {
         );
         labels
             .presentation_mut()
-            .set_color(ColorIndex::Named(green_index))
+            .set_color(ColorValue::palette(green_index))
             .expect("named color");
         labels
             .presentation_mut()

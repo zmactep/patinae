@@ -132,6 +132,7 @@ impl SequenceBridge {
                 .set_model_generation(self.generation);
             window.global::<SequenceState>().invoke_clear_hover();
             let color_ctx = SequenceColorContext {
+                settings: &kernel.session.settings,
                 named_palette: &kernel.session.named_palette,
                 palette: &kernel.session.palette,
             };

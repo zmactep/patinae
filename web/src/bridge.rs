@@ -1696,7 +1696,7 @@ fn annotation_swatch(bundle: Option<&ResolvedAnnotationBundle>) -> ([f32; 3], bo
 mod tests {
     use super::*;
     use lin_alg::f32::Vec3;
-    use patinae_color::ColorIndex;
+    use patinae_color::ColorValue;
     use patinae_mol::{Atom, AtomIndex, CoordSet, Element, ObjectMolecule};
     use patinae_scene::{
         AtomAnchor, LabelAlignment, LabelEntity, LabelEntityPresentation, LabelObject,
@@ -1822,9 +1822,9 @@ mod tests {
         let red = session.named_palette.get_by_name("red").unwrap().0;
         let blue = session.named_palette.get_by_name("blue").unwrap().0;
         let mut red_style = LabelEntityPresentation::default();
-        red_style.set_color(ColorIndex::Named(red)).unwrap();
+        red_style.set_color(ColorValue::palette(red)).unwrap();
         let mut blue_style = LabelEntityPresentation::default();
-        blue_style.set_color(ColorIndex::Named(blue)).unwrap();
+        blue_style.set_color(ColorValue::palette(blue)).unwrap();
         session.registry.add(LabelObject::with_entities(
             "labels",
             vec![

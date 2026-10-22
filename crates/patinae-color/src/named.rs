@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::constants::*;
-use crate::Color;
+use crate::{Color, ColorValue, SCHEMES};
 use ahash::AHashMap;
 
 /// Registry of named colors
@@ -11,6 +11,8 @@ use ahash::AHashMap;
 pub struct NamedPalette {
     colors: Vec<Color>,
     by_name: AHashMap<String, u32>,
+    #[serde(skip)]
+    names_by_index: std::sync::OnceLock<Vec<Option<String>>>,
 }
 
 impl NamedPalette {
@@ -18,6 +20,7 @@ impl NamedPalette {
         let mut registry = NamedPalette {
             colors: Vec::with_capacity(256),
             by_name: AHashMap::new(),
+            names_by_index: std::sync::OnceLock::new(),
         };
         registry.register_defaults();
         registry
@@ -140,10 +143,19 @@ impl NamedPalette {
         self.register("terracotta", TERRACOTTA);
     }
 
+    /// Append a palette entry and return its stable 24-bit index.
+    ///
+    /// # Panics
+    /// Panics if all 2^24 palette entries have been allocated.
     pub fn register(&mut self, name: &str, color: Color) -> u32 {
+        assert!(
+            self.colors.len() <= crate::MAX_COLOR_ID as usize,
+            "color palette exhausted its 24-bit index space"
+        );
         let index = self.colors.len() as u32;
         self.colors.push(color);
         self.by_name.insert(name.to_lowercase(), index);
+        self.names_by_index.take();
         index
     }
 
@@ -158,7 +170,11 @@ impl NamedPalette {
     }
 
     pub fn unregister(&mut self, name: &str) -> bool {
-        self.by_name.remove(&name.to_lowercase()).is_some()
+        let removed = self.by_name.remove(&name.to_lowercase()).is_some();
+        if removed {
+            self.names_by_index.take();
+        }
+        removed
     }
 
     pub fn get_by_name(&self, name: &str) -> Option<(u32, Color)> {
@@ -169,6 +185,82 @@ impl NamedPalette {
 
     pub fn get_by_index(&self, index: u32) -> Option<Color> {
         self.colors.get(index as usize).copied()
+    }
+
+    /// Format a color using current palette names and canonical scheme names.
+    ///
+    /// RGB and inheritance use their literal notation. Unnamed palette entries,
+    /// unknown schemes, and reserved tags retain their explicit numeric notation.
+    #[must_use]
+    pub fn format_color(&self, value: ColorValue) -> String {
+        let name = if let Some(index) = value.palette_index() {
+            self.names_by_index
+                .get_or_init(|| {
+                    let mut names: Vec<Option<String>> = vec![None; self.colors.len()];
+                    for (name, &id) in &self.by_name {
+                        // Reserved literal/scheme names cannot identify palette entries.
+                        if name.parse::<ColorValue>().is_ok() {
+                            continue;
+                        }
+                        if let Some(slot) = names.get_mut(id as usize) {
+                            if slot.as_ref().is_none_or(|previous| name < previous) {
+                                *slot = Some(name.clone());
+                            }
+                        }
+                    }
+                    names
+                })
+                .get(index as usize)
+                .and_then(Option::as_deref)
+        } else if let Some(id) = value.scheme_id() {
+            SCHEMES
+                .iter()
+                .find(|scheme| scheme.id == id)
+                .and_then(|scheme| scheme.names.first().copied())
+        } else {
+            None
+        };
+        name.map(str::to_owned).unwrap_or_else(|| value.to_string())
+    }
+
+    /// Parse a color literal, scheme, palette name, or normalized RGB vector.
+    ///
+    /// # Errors
+    /// Rejects unknown names, malformed literals, and non-finite RGB components.
+    pub fn parse_color(&self, text: &str) -> Result<ColorValue, &'static str> {
+        let text = text.trim();
+        if let Ok(value) = text.parse::<ColorValue>() {
+            return Ok(value);
+        }
+        if let Some((index, _)) = self.get_by_name(text) {
+            return Ok(ColorValue::palette(index));
+        }
+        if let Some(inner) = text.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
+            let mut parts = inner.split(',');
+            let mut rgb = [0.0; 3];
+            for component in &mut rgb {
+                *component = parts
+                    .next()
+                    .ok_or("RGB requires three components")?
+                    .trim()
+                    .parse::<f32>()
+                    .map_err(|_| "invalid RGB component")?;
+                if !component.is_finite() {
+                    return Err("RGB components must be finite");
+                }
+                *component = component.clamp(0.0, 1.0);
+            }
+            if parts.next().is_some() {
+                return Err("RGB requires three components");
+            }
+            let [r, g, b] = Color::new(rgb[0], rgb[1], rgb[2]).to_rgb8();
+            return Ok(ColorValue::rgb(r, g, b));
+        }
+        if let Some(color) = Color::from_hex(text) {
+            let [r, g, b] = color.to_rgb8();
+            return Ok(ColorValue::rgb(r, g, b));
+        }
+        Err("unknown color value")
     }
 
     pub fn len(&self) -> usize {
@@ -215,6 +307,75 @@ impl Default for NamedPalette {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn one_parser_handles_all_color_input_forms() {
+        let mut palette = NamedPalette::new();
+        let custom = palette.set("custom", Color::RED);
+        for (text, value) in [
+            ("custom", ColorValue::palette(custom)),
+            ("palette:2", ColorValue::palette(2)),
+            ("2", ColorValue::palette(2)),
+            ("atomic", ColorValue::ELEMENT),
+            ("scheme:16777215", ColorValue::scheme(0xffffff)),
+            ("#12abef", ColorValue::rgb(0x12, 0xab, 0xef)),
+            ("[1, 0, 0]", ColorValue::rgb(255, 0, 0)),
+            ("inherit", ColorValue::INHERIT),
+        ] {
+            assert_eq!(palette.parse_color(text), Ok(value), "{text}");
+        }
+        for invalid in ["[NaN, 0, 0]", "[1, 2]", "palette:16777216", "unknown_name"] {
+            assert!(palette.parse_color(invalid).is_err(), "{invalid}");
+        }
+    }
+
+    #[test]
+    fn color_output_uses_current_names_and_preserves_unnamed_values() {
+        let mut palette = NamedPalette::new();
+        let index = palette.set("Custom", Color::RED);
+        let value = ColorValue::palette(index);
+        assert_eq!(palette.format_color(value), "custom");
+        palette.set("Custom", Color::BLUE);
+        assert_eq!(palette.format_color(value), "custom");
+        palette.unregister("Custom");
+        assert_eq!(palette.format_color(value), format!("palette:{index}"));
+
+        // Registering the same name again leaves the old entry unnamed.
+        let old = palette.register("duplicate", Color::RED);
+        let new = palette.register("duplicate", Color::BLUE);
+        assert_eq!(
+            palette.format_color(ColorValue::palette(old)),
+            format!("palette:{old}")
+        );
+        assert_eq!(palette.format_color(ColorValue::palette(new)), "duplicate");
+
+        let shadowed = palette.set("ss", Color::RED);
+        assert_eq!(
+            palette.format_color(ColorValue::palette(shadowed)),
+            format!("palette:{shadowed}")
+        );
+
+        for scheme in SCHEMES {
+            assert_eq!(
+                palette.format_color(ColorValue::scheme(scheme.id)),
+                scheme.names[0]
+            );
+        }
+        for value in [
+            ColorValue::rgb(0x12, 0xab, 0xef),
+            ColorValue::INHERIT,
+            ColorValue::palette(crate::MAX_COLOR_ID),
+            ColorValue::scheme(crate::MAX_COLOR_ID),
+            ColorValue::try_from_bits(0xfe12_3456).unwrap(),
+        ] {
+            let text = palette.format_color(value);
+            assert_eq!(text.parse::<ColorValue>().unwrap(), value);
+        }
+        assert_eq!(
+            palette.format_color(ColorValue::rgb(0x12, 0xab, 0xef)),
+            "#12abef"
+        );
+    }
 
     #[test]
     fn test_named_colors() {

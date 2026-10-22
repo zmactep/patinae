@@ -11,7 +11,7 @@ use crate::command_help;
 
 use crate::error::{CmdError, CmdResult};
 
-use patinae_color::ColorIndex;
+use patinae_color::ColorValue;
 use patinae_scene::{
     resolve_measurement_entity_value, MeasurementAnchor, MeasurementEntry, MeasurementKind,
     MeasurementObject, MeasurementResolveOptions, Object,
@@ -227,7 +227,7 @@ fn add_measurements_to_scene(
         let cyan = viewer.color_index("cyan").ok_or_else(|| {
             CmdError::invalid_arg("color", "default measurement color 'cyan' is unavailable")
         })?;
-        candidate.state_mut().color = ColorIndex::Named(cyan);
+        candidate.state_mut().color = ColorValue::palette(cyan);
         candidate.invalidate_material();
         viewer.objects_mut().add(candidate);
     }
@@ -944,7 +944,7 @@ mod tests {
         let cyan = session.named_palette.get_by_name("cyan").unwrap().0;
         assert_eq!(measurement.kind(), MeasurementKind::Distance);
         assert_eq!(measurement.len(), 2);
-        assert_eq!(measurement.state().color, ColorIndex::Named(cyan));
+        assert_eq!(measurement.state().color, ColorValue::palette(cyan));
     }
 
     #[test]

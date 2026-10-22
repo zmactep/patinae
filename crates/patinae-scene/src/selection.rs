@@ -256,6 +256,7 @@ impl SelectionManager {
         &mut self,
         registry: &ObjectRegistry,
         options: SelectionOptions,
+        palette: &patinae_color::NamedPalette,
     ) -> Vec<(String, SelectionResult)> {
         let has_visible = self.selections.values().any(|e| e.visible);
         if !has_visible {
@@ -263,7 +264,7 @@ impl SelectionManager {
         }
 
         // Ensure all caches are up to date
-        self.rebuild_caches(registry, options);
+        self.rebuild_caches(registry, options, palette);
 
         let object_names: Vec<String> = registry.names().map(|s| s.to_string()).collect();
         let mut results: Vec<(String, SelectionResult)> = Vec::new();
@@ -298,7 +299,12 @@ impl SelectionManager {
     }
 
     /// Rebuild stale caches for all selections across all molecules in the registry.
-    pub fn rebuild_caches(&mut self, registry: &ObjectRegistry, options: SelectionOptions) {
+    pub fn rebuild_caches(
+        &mut self,
+        registry: &ObjectRegistry,
+        options: SelectionOptions,
+        palette: &patinae_color::NamedPalette,
+    ) {
         if self.selections.is_empty() {
             return;
         }
@@ -314,6 +320,7 @@ impl SelectionManager {
                 &object_names,
                 options,
                 &self.selections,
+                palette,
             );
             // Write newly resolved results back into caches
             for (sel_name, result) in resolved {
@@ -342,6 +349,7 @@ impl SelectionManager {
         obj_name: &str,
         all_object_names: &[String],
         options: SelectionOptions,
+        palette: &'a patinae_color::NamedPalette,
     ) -> EvalContext<'a> {
         let (ctx, _) = resolve_selections(
             mol,
@@ -350,6 +358,7 @@ impl SelectionManager {
             all_object_names,
             options,
             &self.selections,
+            palette,
         );
         ctx
     }
@@ -367,10 +376,12 @@ fn resolve_selections<'a>(
     all_object_names: &[String],
     options: SelectionOptions,
     selections: &AHashMap<String, SelectionEntry>,
+    palette: &'a patinae_color::NamedPalette,
 ) -> (EvalContext<'a>, Vec<(String, SelectionResult)>) {
     let atom_count = mol.atom_count();
     let mut ctx = EvalContext::single(mol);
     ctx.options = options;
+    ctx.named_palette = Some(palette);
     ctx.set_state(Some(display_state.min(mol.state_count().saturating_sub(1))));
 
     // Implicit object-name selections
@@ -508,7 +519,8 @@ mod tests {
         let object_names = vec!["1fdl".to_string()];
         let options = SelectionOptions::default();
 
-        let ctx = manager.build_eval_context(&mol, 0, "1fdl", &object_names, options);
+        let palette = patinae_color::NamedPalette::default();
+        let ctx = manager.build_eval_context(&mol, 0, "1fdl", &object_names, options, &palette);
 
         // Evaluate "chain H or chain L"
         let expr = patinae_select::parse("chain H or chain L").unwrap();
@@ -546,7 +558,8 @@ mod tests {
         let options = SelectionOptions::default();
 
         // Define "ab" = "chain H" with cached results
-        let ctx = manager.build_eval_context(&mol, 0, "test", &object_names, options);
+        let palette = patinae_color::NamedPalette::default();
+        let ctx = manager.build_eval_context(&mol, 0, "test", &object_names, options, &palette);
         let expr = patinae_select::parse("chain H").unwrap();
         let result = patinae_select::evaluate(&expr, &ctx).unwrap();
         assert_eq!(result.count(), 1);
@@ -554,7 +567,8 @@ mod tests {
         manager.define_with_results("ab", "chain H", vec![("test".to_string(), result)]);
 
         // Now build context again — "ab" should be resolvable from cache
-        let ctx = manager.build_eval_context(&mol, 0, "test", &object_names, options);
+        let palette = patinae_color::NamedPalette::default();
+        let ctx = manager.build_eval_context(&mol, 0, "test", &object_names, options, &palette);
         assert!(
             ctx.has_selection("ab"),
             "named selection 'ab' should be in context"

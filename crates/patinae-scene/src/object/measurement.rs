@@ -640,7 +640,7 @@ impl MeasurementObject {
     /// Returns an error when `inherited_color` is atom-dependent.
     pub fn has_mixed_colors(
         &self,
-        inherited_color: patinae_color::ColorIndex,
+        inherited_color: patinae_color::ColorValue,
     ) -> Result<bool, AnnotationPresentationError> {
         has_mixed_annotation_colors(
             inherited_color,
@@ -656,7 +656,7 @@ impl MeasurementObject {
     /// Returns an error when `color` is atom-dependent.
     pub fn try_set_color(
         &mut self,
-        color: patinae_color::ColorIndex,
+        color: patinae_color::ColorValue,
     ) -> Result<(), AnnotationPresentationError> {
         self.presentation.set_color(color)?;
         for entry in &mut self.entries {
@@ -675,7 +675,7 @@ impl MeasurementObject {
     ///
     /// Panics when `color` is atom-dependent. Use [`Self::try_set_color`] for
     /// fallible input handling.
-    pub fn set_color(&mut self, color: patinae_color::ColorIndex) {
+    pub fn set_color(&mut self, color: patinae_color::ColorValue) {
         self.try_set_color(color)
             .expect("annotation object colors must be named");
     }
@@ -1065,7 +1065,7 @@ mod tests {
         ));
         let mut override_presentation = MeasurementEntityPresentation::default();
         override_presentation
-            .set_color(patinae_color::ColorIndex::Named(2))
+            .set_color(patinae_color::ColorValue::palette(2))
             .expect("entity color");
         let mut object = MeasurementObject::with_entities(
             "distances",
@@ -1086,13 +1086,13 @@ mod tests {
         )
         .expect("distance cardinality");
         assert!(object
-            .has_mixed_colors(patinae_color::ColorIndex::Named(1))
+            .has_mixed_colors(patinae_color::ColorValue::palette(1))
             .expect("named inherited color"));
 
-        object.set_color(patinae_color::ColorIndex::Named(7));
+        object.set_color(patinae_color::ColorValue::palette(7));
 
         assert!(!object
-            .has_mixed_colors(patinae_color::ColorIndex::Named(1))
+            .has_mixed_colors(patinae_color::ColorValue::palette(1))
             .expect("named inherited color"));
         assert!(object
             .entries()
@@ -1115,7 +1115,7 @@ mod tests {
         measurement
             .add_entry(MeasurementEntry::new(anchors))
             .unwrap();
-        measurement.set_color(patinae_color::ColorIndex::Named(6));
+        measurement.set_color(patinae_color::ColorValue::palette(6));
         registry.add(measurement);
         assert!(registry.add_to_group("measurements", "distance"));
         let render_id = registry.render_id("distance");
@@ -1127,7 +1127,7 @@ mod tests {
         assert_eq!(measurement.len(), 1);
         assert_eq!(
             measurement.state().color,
-            patinae_color::ColorIndex::Named(6)
+            patinae_color::ColorValue::palette(6)
         );
         assert!(measurement.has_explicit_color());
         assert_eq!(restored.render_id("distance"), render_id);

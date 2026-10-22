@@ -3,7 +3,7 @@
 use crate::define_settings_group;
 use crate::macros::{append_nested_global_descriptors, FieldDescriptor};
 use crate::shading_mode::ShadingMode;
-use crate::Color;
+use crate::ColorValue;
 
 /// Top-level shading container. Global-only (not object-overridable).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -84,7 +84,7 @@ define_settings_group! {
             name = "silhouette_width",
             min = 0.1, max = 10.0,
             side_effects = [SceneInvalidate];
-        silhouette_color: Color = Color::UNSET,
+        silhouette_color: ColorValue = ColorValue::INHERIT,
             name = "silhouette_color",
             side_effects = [SceneInvalidate];
         silhouette_depth_jump: f32 = 0.03,

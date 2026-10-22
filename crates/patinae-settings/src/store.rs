@@ -70,6 +70,16 @@ impl GlobalSettings {
             });
         }
 
+        let value = if setting.setting_type == crate::SettingType::Color {
+            SettingValue::Color(
+                value
+                    .as_color()
+                    .ok_or(SettingError::type_mismatch("color"))?,
+            )
+        } else {
+            value
+        };
+
         // Range check for numeric types
         if let (Some(min), Some(max)) = (setting.min, setting.max) {
             if min != max {
@@ -155,9 +165,11 @@ impl GlobalSettings {
             .unwrap_or([0.0, 0.0, 0.0])
     }
 
-    /// Get a color index setting
-    pub fn get_color(&self, id: u16) -> i32 {
-        self.get(id).and_then(|v| v.as_color()).unwrap_or(-1)
+    /// Get a tagged color setting
+    pub fn get_color(&self, id: u16) -> crate::ColorValue {
+        self.get(id)
+            .and_then(|v| v.as_color())
+            .unwrap_or(crate::ColorValue::INHERIT)
     }
 
     /// Get a string setting
@@ -192,7 +204,7 @@ impl GlobalSettings {
     }
 
     /// Set a color setting
-    pub fn set_color(&mut self, id: u16, value: i32) -> Result<(), SettingError> {
+    pub fn set_color(&mut self, id: u16, value: crate::ColorValue) -> Result<(), SettingError> {
         self.set(id, SettingValue::Color(value))
     }
 
@@ -446,6 +458,16 @@ impl UniqueSettings {
                 actual: value.setting_type().to_string().leak(),
             });
         }
+
+        let value = if setting.setting_type == crate::SettingType::Color {
+            SettingValue::Color(
+                value
+                    .as_color()
+                    .ok_or(SettingError::type_mismatch("color"))?,
+            )
+        } else {
+            value
+        };
 
         // Check if we already have this setting for this unique_id
         if let Some(&first_offset) = self.id_to_offset.get(&unique_id) {

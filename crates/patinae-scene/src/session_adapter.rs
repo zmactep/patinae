@@ -123,7 +123,7 @@ impl<'a> ViewerLike for SessionAdapter<'a> {
         &mut self,
         object: &str,
         selected: &patinae_select::SelectionResult,
-        color: i32,
+        color: patinae_mol::ColorValue,
     ) -> usize {
         let changed = self
             .session

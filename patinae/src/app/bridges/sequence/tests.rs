@@ -27,6 +27,7 @@ fn measure_sequence_scroll() {
         bridge.model.rebuild_cache(
             &kernel.session.registry,
             &SequenceColorContext {
+                settings: &patinae_settings::Settings::default(),
                 named_palette: &kernel.session.named_palette,
                 palette: &kernel.session.palette,
             },

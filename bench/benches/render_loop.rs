@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use lin_alg::f32::Vec3;
-use patinae_color::{ColorResolver, NamedPalette, ThemedPalette};
+use patinae_color::{NamedPalette, ThemedPalette};
 use patinae_mol::{
     Atom, AtomIndex, AtomResidue, BondOrder, CoordSet, DirtyFlags, Element, ObjectMolecule, RepMask,
 };
@@ -32,6 +32,7 @@ use patinae_render::{
     RenderMemorySelectionInput, RenderObjectInput, RenderState, RenderSyncTimings, SceneLod,
     IDENTITY_TRANSFORM,
 };
+use patinae_scene::ColorResolver;
 use patinae_settings::{ResolvedSettings, Settings};
 
 fn project_root() -> PathBuf {

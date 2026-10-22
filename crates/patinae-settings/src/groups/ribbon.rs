@@ -1,7 +1,7 @@
 //! Ribbon representation settings (object-overridable).
 
 use crate::define_settings_group;
-use crate::Color;
+use crate::ColorValue;
 
 define_settings_group! {
     /// Ribbon representation parameters.
@@ -25,8 +25,10 @@ define_settings_group! {
             name = "ribbon_radius",
             min = 0.0, max = 5.0,
             side_effects = [RepresentationRebuild];
-        color: Color = Color::UNSET,
-            name = "ribbon_color",
-            side_effects = [ColorRebuild];
+        @global {
+            color: ColorValue = ColorValue::INHERIT,
+                name = "ribbon_color",
+                side_effects = [ColorRebuild];
+        }
     }
 }

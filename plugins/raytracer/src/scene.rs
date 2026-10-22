@@ -89,14 +89,8 @@ fn resolve_raytrace_settings(
         )
     };
 
-    let ray_trace_color = if ray.color >= 0 {
-        named_palette
-            .get_by_index(ray.color as u32)
-            .map(|c| c.to_rgba(1.0))
-            .unwrap_or([0.0, 0.0, 0.0, 1.0])
-    } else {
-        [0.0, 0.0, 0.0, 1.0]
-    };
+    let ray_trace_color =
+        patinae_color::resolve_literal_color(ray.color, named_palette, [0.0, 0.0, 0.0, 1.0]);
 
     let light_count = match settings.shading.mode {
         patinae_settings::ShadingMode::Skripkin => 1,

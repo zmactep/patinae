@@ -6165,7 +6165,9 @@ fn setting_value_from_abi(value: AbiSettingValue, field: &str) -> Result<Setting
         SETTING_VALUE_INT => Ok(SettingValue::Int(value.int_value)),
         SETTING_VALUE_FLOAT => Ok(SettingValue::Float(value.float_values[0])),
         SETTING_VALUE_FLOAT3 => Ok(SettingValue::Float3(value.float_values)),
-        SETTING_VALUE_COLOR => Ok(SettingValue::Color(value.int_value)),
+        SETTING_VALUE_COLOR => patinae_settings::ColorValue::try_from_bits(value.int_value as u32)
+            .map(SettingValue::Color)
+            .map_err(|error| format!("{field}: {error}")),
         SETTING_VALUE_STRING => Ok(SettingValue::String(copy_str(
             value.string_value,
             &format!("{field}.string"),
@@ -6194,6 +6196,33 @@ fn side_effect_from_abi(value: u8) -> Result<SideEffectCategory, String> {
 
 #[cfg(test)]
 mod loader_tests {
+    #[test]
+    fn tagged_color_abi_preserves_signed_carrier_bits() {
+        use super::*;
+        for bits in [
+            0x01000002u32,
+            0x02000002,
+            0x03000002,
+            0x04000000,
+            0x80000000,
+            0xffffffff,
+        ] {
+            let wire = AbiSettingValue {
+                tag: SETTING_VALUE_COLOR,
+                int_value: bits as i32,
+                ..AbiSettingValue::NONE
+            };
+            let value = setting_value_from_abi(wire, "test color").unwrap();
+            assert_eq!(value.as_color().unwrap().to_bits(), bits);
+        }
+        let untagged = AbiSettingValue {
+            tag: SETTING_VALUE_COLOR,
+            int_value: 2,
+            ..AbiSettingValue::NONE
+        };
+        assert!(setting_value_from_abi(untagged, "test color").is_err());
+    }
+
     use super::*;
     use patinae_mol::AtomIndex;
     use patinae_scene::GpuFragmentState;

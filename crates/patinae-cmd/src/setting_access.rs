@@ -165,7 +165,7 @@ impl ResolvedSetting {
 
     /// Format a raw setting value for command output.
     #[must_use]
-    pub fn format_value(value: &SettingValue) -> String {
+    pub fn format_value(value: &SettingValue, palette: &patinae_color::NamedPalette) -> String {
         match value {
             SettingValue::Bool(value) => {
                 if *value {
@@ -179,23 +179,34 @@ impl ResolvedSetting {
             SettingValue::Float3(value) => {
                 format!("[{:.3}, {:.3}, {:.3}]", value[0], value[1], value[2])
             }
-            SettingValue::Color(value) => value.to_string(),
+            SettingValue::Color(value) => palette.format_color(*value),
             SettingValue::String(value) => value.clone(),
         }
     }
 
     /// Format a value using value-hint names when available.
     #[must_use]
-    pub fn format_display(&self, value: &SettingValue) -> String {
+    pub fn format_display(
+        &self,
+        value: &SettingValue,
+        palette: &patinae_color::NamedPalette,
+    ) -> String {
+        if let SettingValue::Color(color) = value {
+            return palette.format_color(*color);
+        }
         self.hint_name(value)
             .map(str::to_string)
-            .unwrap_or_else(|| Self::format_value(value))
+            .unwrap_or_else(|| Self::format_value(value, palette))
     }
 
     /// Format a value with command-style type and hint metadata.
     #[must_use]
-    pub fn format_report(&self, value: &SettingValue) -> String {
-        let raw = Self::format_value(value);
+    pub fn format_report(
+        &self,
+        value: &SettingValue,
+        palette: &patinae_color::NamedPalette,
+    ) -> String {
+        let raw = Self::format_value(value, palette);
         if let Some(hint_name) = self.hint_name(value) {
             format!("{} = {} ({hint_name})", self.name(), raw)
         } else {
@@ -502,15 +513,10 @@ fn parse_setting_value(value: &str, setting_type: SettingType) -> CmdResult<Sett
                 .map_err(|_| CmdError::invalid_arg("value", "Invalid z component"))?;
             Ok(SettingValue::Float3([x, y, z]))
         }
-        SettingType::Color => value.parse::<i32>().map(SettingValue::Color).map_err(|_| {
-            CmdError::invalid_arg(
-                "value",
-                format!(
-                    "Invalid color value '{}'. Expected a color index (integer)",
-                    value
-                ),
-            )
-        }),
+        SettingType::Color => value
+            .parse::<patinae_color::ColorValue>()
+            .map(SettingValue::Color)
+            .map_err(|error| CmdError::invalid_arg("value", error)),
         SettingType::String => Ok(SettingValue::String(value.to_string())),
         SettingType::Blank => Err(CmdError::invalid_arg(
             "value",

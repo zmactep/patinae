@@ -50,7 +50,7 @@ use std::num::NonZeroU16;
 
 use ahash::{AHashMap, AHashSet};
 use lin_alg::f32::{Mat4, Vec3};
-use patinae_color::ColorIndex;
+use patinae_color::ColorValue;
 use patinae_mol::{AtomIndex, RepMask};
 use patinae_settings::ObjectOverrides;
 use serde::{Deserialize, Serialize};
@@ -183,7 +183,7 @@ pub struct ObjectState {
     /// Whether the object is enabled/visible
     pub enabled: bool,
     /// Default object color
-    pub color: ColorIndex,
+    pub color: ColorValue,
     /// Representations that exist on at least one atom.
     pub visible_reps: RepMask,
     /// Object-level draw mask for representation visibility.
@@ -203,7 +203,7 @@ impl Default for ObjectState {
     fn default() -> Self {
         Self {
             enabled: true,
-            color: ColorIndex::default(),
+            color: ColorValue::palette(0),
             visible_reps: RepMask::default(),
             draw_reps: RepMask::default(),
             transform: Mat4::new_identity(),
@@ -211,6 +211,10 @@ impl Default for ObjectState {
             instances: None,
         }
     }
+}
+
+fn default_object_color() -> ColorValue {
+    ColorValue::palette(0)
 }
 
 fn default_enabled() -> bool {
@@ -230,8 +234,8 @@ impl<'de> Deserialize<'de> for ObjectState {
         struct WireObjectState {
             #[serde(default = "default_enabled")]
             enabled: bool,
-            #[serde(default)]
-            color: ColorIndex,
+            #[serde(default = "default_object_color")]
+            color: ColorValue,
             #[serde(default)]
             visible_reps: RepMask,
             #[serde(default)]
@@ -1957,7 +1961,7 @@ mod tests {
             ],
         );
         labels.state_mut().enabled = false;
-        labels.set_color(ColorIndex::Named(7));
+        labels.set_color(ColorValue::palette(7));
         registry.add(labels);
         registry.add_to_group("annotations", "labels");
         let render_id = registry.render_id("labels");
@@ -1975,7 +1979,7 @@ mod tests {
             ["first", "second", "duplicate"]
         );
         assert!(!labels.state().enabled);
-        assert_eq!(labels.presentation().color(), Some(ColorIndex::Named(7)));
+        assert_eq!(labels.presentation().color(), Some(ColorValue::palette(7)));
         assert_eq!(labels.revisions(), revisions);
         assert_eq!(restored.render_id("labels"), render_id);
         assert_eq!(restored.parent_group("labels"), Some("annotations"));

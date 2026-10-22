@@ -124,10 +124,14 @@ macro_rules! define_plugin_settings {
     (@setting_type i32) => { $crate::__private::SettingType::Int };
     (@setting_type f32) => { $crate::__private::SettingType::Float };
 
+    (@setting_type ColorValue) => { $crate::__private::SettingType::Color };
+
     // --- Wrap value into SettingValue ---
     (@wrap bool, $val:expr) => { $crate::__private::SettingValue::Bool($val) };
     (@wrap i32, $val:expr) => { $crate::__private::SettingValue::Int($val) };
     (@wrap f32, $val:expr) => { $crate::__private::SettingValue::Float($val) };
+
+    (@wrap ColorValue, $val:expr) => { $crate::__private::SettingValue::Color($val) };
 
     // --- Unwrap SettingValue into typed field ---
     (@unwrap $field:expr, bool, $val:expr) => {
@@ -138,6 +142,10 @@ macro_rules! define_plugin_settings {
     };
     (@unwrap $field:expr, f32, $val:expr) => {
         if let Some(v) = $val.as_float() { $field = v; }
+    };
+
+    (@unwrap $field:expr, ColorValue, $val:expr) => {
+        if let Some(v) = $val.as_color() { $field = v; }
     };
 
     // --- Optional f32 ---

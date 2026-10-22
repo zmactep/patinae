@@ -270,13 +270,13 @@ mod tests {
     fn test_object_override_roundtrip() {
         let mut overrides = ObjectOverrides::default();
         overrides.stick.radius = Some(0.8);
-        overrides.cartoon.color = Some(crate::Color(5));
+        overrides.cartoon.sampling = Some(5);
 
         let list = export_object_overrides(&overrides);
         let restored = import_object_overrides(&list);
 
         assert_eq!(restored.stick.radius, Some(0.8));
-        assert_eq!(restored.cartoon.color, Some(crate::Color(5)));
+        assert_eq!(restored.cartoon.sampling, Some(5));
     }
 
     #[test]

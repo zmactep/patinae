@@ -9,7 +9,7 @@
 //! 5. Descriptor entries for the string-based `set`/`get` command registry
 
 use crate::error::SettingError;
-use crate::setting::{Color, SettingType, SettingValue};
+use crate::setting::{ColorValue, SettingType, SettingValue};
 use crate::side_effects::SideEffectCategory;
 
 /// Trait that maps Rust types to `SettingType`/`SettingValue` conversions.
@@ -70,20 +70,16 @@ impl SettingKind for [f32; 3] {
     }
 }
 
-impl SettingKind for Color {
+impl SettingKind for ColorValue {
     fn setting_type() -> SettingType {
         SettingType::Color
     }
-    // Storage stays an int — PSE wire format uses `SettingValue::Int(i32)`.
-    // The wrapper exists so the registry advertises `SettingType::Color`,
-    // which drives parsing and CLI completion.
+    // Keep the color category through dynamic APIs as well as typed storage.
     fn wrap(&self) -> SettingValue {
-        SettingValue::Int(self.0)
+        SettingValue::Color(*self)
     }
     fn unwrap_value(v: SettingValue) -> Result<Self, SettingError> {
-        v.as_int()
-            .map(Color)
-            .ok_or(SettingError::type_mismatch("color (int index)"))
+        v.as_color().ok_or(SettingError::type_mismatch("color"))
     }
 }
 
@@ -134,7 +130,7 @@ pub struct FieldDescriptor<G, O = ()> {
     unset_override: Option<OverrideUnset<O>>,
 }
 
-impl<G: 'static> FieldDescriptor<G, ()> {
+impl<G: 'static, O: 'static> FieldDescriptor<G, O> {
     /// Create a global-only descriptor for one field of `G`.
     pub fn global<T: SettingKind + 'static>(
         name: &'static str,
@@ -542,7 +538,7 @@ pub trait Merge: Clone {
 ///         radius: f32 = 0.25, name = "stick_radius",
 ///             min = 0.01, max = 5.0,
 ///             side_effects = [RepresentationRebuild];
-///         color: i32 = -1, name = "stick_color",
+///         color: ColorValue = ColorValue::INHERIT, name = "stick_color",
 ///             side_effects = [ColorRebuild];
 ///     }
 /// }
@@ -573,6 +569,11 @@ macro_rules! define_settings_group {
                     $(, side_effects = [$($se:ident),* $(,)?])?
                     ;
             )*
+            $(@global {
+                $( $global_field:ident : $global_ty:ty = $global_default:expr,
+                    name = $global_name:expr,
+                    side_effects = [$($global_se:ident),*]; )*
+            })?
         }
     ) => {
         #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -582,17 +583,20 @@ macro_rules! define_settings_group {
                 $(#[$field_meta])*
                 pub $field: $ty,
             )*
+            $($(pub $global_field: $global_ty,)*)?
         }
 
         impl Default for $Name {
             fn default() -> Self {
                 Self {
                     $( $field: $default, )*
+                    $($($global_field: $global_default,)*)?
                 }
             }
         }
 
         #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
         pub struct $Overrides {
             $(
                 pub $field: Option<$ty>,
@@ -602,9 +606,10 @@ macro_rules! define_settings_group {
         impl $crate::macros::Merge for $Name {
             type Overrides = $Overrides;
 
-            fn with_overrides(&self, o: &$Overrides) -> Self {
+            fn with_overrides(&self, _o: &$Overrides) -> Self {
                 Self {
-                    $( $field: o.$field.unwrap_or(self.$field.clone()), )*
+                    $( $field: _o.$field.unwrap_or(self.$field.clone()), )*
+                    $($($global_field: self.$global_field.clone(),)*)?
                 }
             }
         }
@@ -628,6 +633,12 @@ macro_rules! define_settings_group {
                             &[$($($crate::SideEffectCategory::$se),*)?],
                         ),
                     )*
+                    $($(
+                        $crate::macros::FieldDescriptor::<Self, $Overrides>::global::<$global_ty>(
+                            $global_name, |s| &s.$global_field, |s| &mut s.$global_field,
+                            None, None, &[], &[$($crate::SideEffectCategory::$global_se),*],
+                        ),
+                    )*)?
                 ]
             }
         }
@@ -711,7 +722,7 @@ mod tests {
                 name = "stick_radius",
                 min = 0.01, max = 5.0,
                 side_effects = [RepresentationRebuild];
-            color: i32 = -1,
+            color: ColorValue = ColorValue::INHERIT,
                 name = "stick_color",
                 side_effects = [ColorRebuild];
         }
@@ -742,7 +753,7 @@ mod tests {
     fn test_group_defaults() {
         let s = TestStick::default();
         assert_eq!(s.radius, 0.25);
-        assert_eq!(s.color, -1);
+        assert_eq!(s.color, ColorValue::INHERIT);
     }
 
     #[test]
@@ -758,7 +769,7 @@ mod tests {
         let o = TestStickOverrides::default();
         let merged = base.with_overrides(&o);
         assert_eq!(merged.radius, 0.25);
-        assert_eq!(merged.color, -1);
+        assert_eq!(merged.color, ColorValue::INHERIT);
     }
 
     #[test]
@@ -770,7 +781,7 @@ mod tests {
         };
         let merged = base.with_overrides(&o);
         assert_eq!(merged.radius, 0.5);
-        assert_eq!(merged.color, -1);
+        assert_eq!(merged.color, ColorValue::INHERIT);
     }
 
     #[test]
@@ -791,7 +802,7 @@ mod tests {
         assert_eq!(descs[0].side_effects.len(), 1);
 
         assert_eq!(descs[1].name, "stick_color");
-        assert_eq!(descs[1].setting_type, SettingType::Int);
+        assert_eq!(descs[1].setting_type, SettingType::Color);
         assert!(descs[1].min.is_none());
     }
 
@@ -805,17 +816,23 @@ mod tests {
 
     #[test]
     fn test_color_setting_kind() {
-        use crate::setting::Color;
-        assert_eq!(<Color as SettingKind>::setting_type(), SettingType::Color);
-        // Storage roundtrips via SettingValue::Int (PSE wire-compatible).
-        assert_eq!(Color(7).wrap(), SettingValue::Int(7));
+        use crate::setting::ColorValue;
         assert_eq!(
-            <Color as SettingKind>::unwrap_value(SettingValue::Int(7)).unwrap(),
-            Color(7),
+            <ColorValue as SettingKind>::setting_type(),
+            SettingType::Color
         );
-        // Default == UNSET
-        assert_eq!(Color::default(), Color::UNSET);
-        assert_eq!(Color::UNSET.0, -1);
+        // Typed values preserve the color category through dynamic APIs.
+        assert_eq!(
+            ColorValue::palette(7).wrap(),
+            SettingValue::Color(ColorValue::palette(7))
+        );
+        assert_eq!(
+            <ColorValue as SettingKind>::unwrap_value(SettingValue::Color(ColorValue::palette(7)))
+                .unwrap(),
+            ColorValue::palette(7),
+        );
+        // The default color inherits.
+        assert_eq!(ColorValue::default(), ColorValue::INHERIT);
     }
 
     #[test]

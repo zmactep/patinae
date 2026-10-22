@@ -272,6 +272,7 @@ pub(crate) fn visit_selected_instances(
                 obj_name,
                 &object_names,
                 options,
+                viewer.named_palette(),
             );
             ctx.instances = table;
             ctx.active_instance = instance;

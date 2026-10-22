@@ -211,8 +211,14 @@ mod tests {
             ("antialias", SettingValue::Int(0)),
             ("opaque_background", SettingValue::Bool(true)),
             ("orthoscopic", SettingValue::Bool(true)),
-            ("silhouette_color", SettingValue::Int(7)),
-            ("cartoon_nucleic_acid_color", SettingValue::Int(8)),
+            (
+                "silhouette_color",
+                SettingValue::Color(crate::ColorValue::palette(7)),
+            ),
+            (
+                "cartoon_nucleic_acid_color",
+                SettingValue::Color(crate::ColorValue::palette(8)),
+            ),
             ("ribbon_sampling", SettingValue::Int(3)),
             ("ribbon_power", SettingValue::Float(3.0)),
             ("ribbon_power_b", SettingValue::Float(0.9)),

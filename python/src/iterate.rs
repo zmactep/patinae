@@ -37,7 +37,7 @@ pub fn set_atom_locals(
 
     // State
     locals.set_item("ss", ss_to_str(atom.ss_type))?;
-    locals.set_item("color", atom.repr.colors.base)?;
+    locals.set_item("color", atom.repr.colors.base.to_bits())?;
     locals.set_item("hetatm", atom.state.hetatm)?;
     locals.set_item("type", if atom.state.hetatm { "HETATM" } else { "ATOM" })?;
 
@@ -102,8 +102,9 @@ pub fn apply_locals_to_atom(locals: &Bound<'_, PyDict>, atom: &mut Atom) -> PyRe
 
     // color
     if let Some(val) = locals.get_item("color")? {
-        let v: i32 = val.extract()?;
-        atom.repr.colors.base = v;
+        let v: u32 = val.extract()?;
+        atom.repr.colors.base = patinae_color::ColorValue::try_from_bits(v)
+            .map_err(pyo3::exceptions::PyValueError::new_err)?;
     }
 
     // element

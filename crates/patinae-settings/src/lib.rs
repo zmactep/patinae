@@ -21,7 +21,7 @@
 //! - `Int` - Integer values
 //! - `Float` - Single-precision floats
 //! - `Float3` - Three-component float vectors (positions, directions)
-//! - `Color` - Color indices (resolved via patinae-color)
+//! - `ColorValue` - Tagged RGB, palette, scheme, and inheritance values
 //! - `String` - String values
 //!
 //! # Example
@@ -69,7 +69,7 @@ pub use enums::{
     ThemeMode,
 };
 pub use error::SettingError;
-pub use setting::{Color, Setting, SettingLevel, SettingType, SettingValue};
+pub use setting::{ColorValue, Setting, SettingLevel, SettingType, SettingValue};
 pub use shading_mode::ShadingMode;
 pub use side_effects::SideEffectCategory;
 pub use store::{GlobalSettings, SerializedSetting, UniqueId, UniqueSettings};
