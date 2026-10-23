@@ -5,7 +5,7 @@
        plugins plugins-install \
        python-release python-dev \
        icon icon-windows app app-full \
-       sign sign-full notarize dmg dmg-full dmg-package \
+       sign sign-full sign-existing notarize dmg dmg-full dmg-package \
        bundle-windows \
        web-build web-dev web-clean \
        widget-assets widget-build \
@@ -37,7 +37,6 @@ APP_CONTENTS   := $(APP_DIR)/Contents
 APP_MACOS      := $(APP_CONTENTS)/MacOS
 APP_RESOURCES  := $(APP_CONTENTS)/Resources
 APP_PLUGINS    := $(APP_CONTENTS)/PlugIns
-APP_ZIP        := $(APP_ROOT)/$(APP_NAME).zip
 
 DMG_STAGE      := $(TARGET_DIR)/dmg-stage
 DMG_PATH       := $(TARGET_DIR)/$(APP_NAME).dmg
@@ -262,50 +261,22 @@ app-full: patinae plugins icon python-release
 
 sign: app
 	@echo "── Signing $(APP_NAME).app ──"
-	@if [ ! -f $(ENV_FILE) ]; then echo "⚠ Signing skipped: $(ENV_FILE) not found"; exit 0; fi; \
-	. ./$(ENV_FILE); \
-	if [ -z "$$PATINAE_APPLE_TEAMID" ]; then echo "⚠ Signing skipped: PATINAE_APPLE_TEAMID not set"; exit 0; fi; \
-	codesign --force --options runtime \
-	    --sign "Developer ID Application: $$PATINAE_APPLE_TEAMID" $(APP_DIR) && \
-	codesign --verify --verbose $(APP_DIR) && \
-	echo "✓ Signed"
+	@$(MAKE) sign-existing || echo "⚠ Signing failed — continuing with packaging"
 
 sign-full: app-full
-	@echo "── Deep-signing $(APP_NAME).app ──"
-	@if [ ! -f $(ENV_FILE) ]; then echo "⚠ Signing skipped: $(ENV_FILE) not found"; exit 0; fi; \
-	. ./$(ENV_FILE); \
-	if [ -z "$$PATINAE_APPLE_TEAMID" ]; then echo "⚠ Signing skipped: PATINAE_APPLE_TEAMID not set"; exit 0; fi; \
-	IDENTITY="Developer ID Application: $$PATINAE_APPLE_TEAMID"; \
-	find $(APP_RESOURCES)/python \
-	     $(APP_RESOURCES)/python-venv \
-	     $(APP_PLUGINS) \
-	  -type f \( -name '*.dylib' -o -name '*.so' \) 2>/dev/null | \
-	  xargs -I{} codesign --force --options runtime --sign "$$IDENTITY" {} && \
-	codesign --force --options runtime --sign "$$IDENTITY" \
-	  $(APP_RESOURCES)/python/bin/python3 && \
-	codesign --force --options runtime --sign "$$IDENTITY" $(APP_DIR) && \
-	codesign --verify --verbose --deep $(APP_DIR) && \
-	echo "✓ Signed (deep)"
+	@echo "── Signing full $(APP_NAME).app ──"
+	@$(MAKE) sign-existing || echo "⚠ Signing failed — continuing with packaging"
+
+# Strict, standalone operation for retries without recompiling the app.
+sign-existing:
+	@ENV_FILE="$(abspath $(ENV_FILE))" bash macos/sign-app.sh "$(APP_DIR)"
 
 # ── Notarize & DMG ───────────────────────────────────────────────
 
 notarize:
 	@echo "── Notarizing $(APP_NAME).app ──"
-	@if [ ! -f $(ENV_FILE) ]; then echo "⚠ Notarization skipped: $(ENV_FILE) not found"; exit 0; fi; \
-	. ./$(ENV_FILE); \
-	if [ -z "$$PATINAE_APPLE_EMAIL" ] || [ -z "$$PATINAE_APPLE_TEAMID" ] || [ -z "$$PATINAE_APPLE_APP_PASS" ]; then \
-	    echo "⚠ Notarization skipped: missing credentials in $(ENV_FILE)"; exit 0; \
-	fi; \
-	ditto -c -k --keepParent $(APP_DIR) $(APP_ZIP) && \
-	xcrun notarytool submit $(APP_ZIP) \
-	    --apple-id "$$PATINAE_APPLE_EMAIL" \
-	    --team-id "$$PATINAE_APPLE_TEAMID" \
-	    --password "$$PATINAE_APPLE_APP_PASS" \
-	    --wait && \
-	xcrun stapler staple $(APP_DIR) && \
-	echo "✓ Notarized & stapled" || \
-	echo "⚠ Notarization failed — continuing without it"; \
-	rm -f $(APP_ZIP)
+	@ENV_FILE="$(abspath $(ENV_FILE))" bash macos/notarize.sh "$(APP_DIR)" || \
+	  echo "⚠ Notarization failed — continuing without it"
 
 # Shared: notarize the app, then package it with the branded Finder layout.
 define create-dmg
@@ -416,6 +387,7 @@ help:
 	@echo "  app-full         Full .app (+ plugins + Python + venv)"
 	@echo "  sign / sign-full Code-sign the .app"
 	@echo "  dmg / dmg-full   Distributable DMG (signed + notarized)"
+	@echo "  sign-existing    Sign an assembled .app without rebuilding (strict)"
 	@echo "  dmg-package      Styled DMG from existing APP_DIR (requires create-dmg)"
 	@echo ""
 	@echo "Windows bundle:"
@@ -434,5 +406,7 @@ help:
 	@echo ""
 	@echo "Signing credentials (.env):"
 	@echo "  PATINAE_APPLE_TEAMID    Apple Developer Team ID"
+	@echo "  PATINAE_APPLE_SIGNING_IDENTITY  Certificate SHA-1 (optional if unambiguous)"
+	@echo "  PATINAE_APPLE_NOTARY_PROFILE    notarytool Keychain profile (optional)"
 	@echo "  PATINAE_APPLE_EMAIL     Apple ID email"
 	@echo "  PATINAE_APPLE_APP_PASS  App-specific password"
