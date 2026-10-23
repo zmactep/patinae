@@ -340,9 +340,13 @@ fn actual_ui_hover_tooltip_and_responsive_bounds() {
             },
         ]))));
     render();
+    // Six sidebar buttons have five small gaps; the top and separator use three medium gaps.
     let plugin_position = slint::LogicalPosition::new(
         geometry.get_sidebar_w() / 2.0,
-        app.get_scene_y() + 8.0 * spacing.get_md() + 6.5 * geometry.get_icon_size(),
+        app.get_scene_y()
+            + 3.0 * spacing.get_md()
+            + 5.0 * spacing.get_sm()
+            + 6.5 * geometry.get_icon_size(),
     );
     app.window().dispatch_event(WindowEvent::PointerMoved {
         position: plugin_position,
@@ -418,7 +422,7 @@ fn actual_ui_hover_tooltip_and_responsive_bounds() {
                 geometry.get_sidebar_w() / 2.0,
                 app.get_scene_y()
                     + spacing.get_md()
-                    + index as f32 * (geometry.get_icon_size() + spacing.get_md())
+                    + index as f32 * (geometry.get_icon_size() + spacing.get_sm())
                     + geometry.get_icon_size() / 2.0,
             );
             app.window()
