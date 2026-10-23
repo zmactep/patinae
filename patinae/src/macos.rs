@@ -24,8 +24,9 @@ pub fn configure_titlebar_attributes(attrs: WindowAttributes) -> WindowAttribute
 ///
 /// Retrieves the native window handle via the Slint winit accessor,
 /// then calls `setBackgroundColor:` with an sRGB `NSColor`.
-pub fn set_background_color(slint_window: &slint::Window, r: f32, g: f32, b: f32) {
-    slint_window.with_winit_window(|winit_window| {
+/// Returns whether the color was applied; the native window may not exist yet.
+pub fn set_background_color(slint_window: &slint::Window, r: f32, g: f32, b: f32) -> bool {
+    let applied = slint_window.with_winit_window(|winit_window| {
         let handle = winit_window.window_handle().ok()?;
         let RawWindowHandle::AppKit(appkit) = handle.as_raw() else {
             return None;
@@ -45,4 +46,5 @@ pub fn set_background_color(slint_window: &slint::Window, r: f32, g: f32, b: f32
 
         Some(())
     });
+    applied.flatten().is_some()
 }
