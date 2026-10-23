@@ -672,3 +672,92 @@ fn actual_ui_hover_tooltip_and_responsive_bounds() {
         }
     }
 }
+
+#[test]
+fn color_popover_reset_hover_and_click_preserve_scope() {
+    let window = MinimalSoftwareWindow::new(RepaintBufferType::NewBuffer);
+    let clock = Rc::new(Cell::new(Duration::ZERO));
+    slint::platform::set_platform(Box::new(TestPlatform {
+        window: window.clone(),
+        clock: clock.clone(),
+    }))
+    .unwrap();
+    let app = AppWindow::new().unwrap();
+    app.window()
+        .set_size(slint::LogicalSize::new(1512.0, 945.0));
+    app.global::<LayoutState>().set_empty_mode(false);
+    let objects = app.global::<ObjectsState>();
+    objects.set_popover_source("object".into());
+    objects.set_popover_anchor_y(100.0);
+    let geometry = app.global::<ComponentMetrics>();
+    let tooltip = app.global::<TooltipState>();
+    app.show().unwrap();
+    let render = || {
+        app.window().request_redraw();
+        window.draw_if_needed(|renderer| {
+            let size = window.size();
+            let mut pixels = vec![
+                slint::platform::software_renderer::Rgb565Pixel::default();
+                (size.width * size.height) as usize
+            ];
+            renderer.render(&mut pixels, size.width as usize);
+        });
+    };
+    clock.set(Duration::from_secs(1));
+    slint::platform::update_timers_and_animations();
+    render();
+    objects.set_popover_kind("C".into());
+    objects.set_popover_scope("surface".into());
+    objects.set_popover_target("fixture and chain A and polymer".into());
+    objects.set_popover_color_cartoon(true);
+    let executed = Rc::new(RefCell::new(Vec::new()));
+    let commands = executed.clone();
+    let weak = app.as_weak();
+    objects.on_popover_execute(move || {
+        commands.borrow_mut().push(
+            weak.unwrap()
+                .global::<ObjectsState>()
+                .get_popover_cmd_preview()
+                .to_string(),
+        );
+    });
+    render();
+    let reset_command = "unset cartoon_color, fixture and chain A and polymer";
+    // Locate the real reset hit area by its hover behavior, independent of tile layout.
+    let popover_left = app.get_scene_x() + app.get_scene_width()
+        - geometry.get_popover_w()
+        - app.global::<Spacing>().get_sm();
+    let mut reset_position = None;
+    'find_reset: for y in (0..300).step_by(4) {
+        for x in (0..geometry.get_popover_w() as usize).step_by(4) {
+            let position = slint::LogicalPosition::new(popover_left + x as f32, y as f32);
+            objects.set_popover_cmd_preview("".into());
+            app.window()
+                .dispatch_event(WindowEvent::PointerMoved { position });
+            if objects.get_popover_cmd_preview() == reset_command {
+                reset_position = Some(position);
+                break 'find_reset;
+            }
+        }
+    }
+    let reset_position = reset_position.expect("cartoon reset must have a hoverable hit area");
+    clock.set(clock.get() + Duration::from_secs(1));
+    slint::platform::update_timers_and_animations();
+    render();
+    assert_eq!(tooltip.get_text(), reset_command);
+    assert!(tooltip.get_visible());
+    // Clicking must set its own command even if another preview was left behind.
+    objects.set_popover_cmd_preview("color blue, fixture".into());
+    app.window().dispatch_event(WindowEvent::PointerPressed {
+        position: reset_position,
+        button: slint::platform::PointerEventButton::Left,
+    });
+    app.window().dispatch_event(WindowEvent::PointerReleased {
+        position: reset_position,
+        button: slint::platform::PointerEventButton::Left,
+    });
+    assert_eq!(&*executed.borrow(), &[reset_command]);
+    assert_eq!(objects.get_popover_scope(), "surface");
+    assert_eq!(objects.get_popover_kind(), "C");
+    objects.set_popover_color_cartoon(false);
+}

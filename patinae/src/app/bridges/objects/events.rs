@@ -571,6 +571,9 @@ pub(in crate::app) fn dispatch(
                 os.set_popover_display_label(label.into());
                 os.set_popover_cmd_preview("".into());
             }
+            if os.get_popover_kind() == "C" {
+                sync_color_assignments(&os, kernel);
+            }
         }
         Event::PopoverClose => {
             let Some(w) = weak.upgrade() else { return };
@@ -792,6 +795,7 @@ pub(in crate::app) fn dispatch(
                     os.set_popover_scope("all".into());
                     os.set_popover_solid_only(!capabilities.representations);
                     open_pill_popover(&os, "C", &target);
+                    sync_color_assignments(&os, kernel);
                 }
                 "representation" if capabilities.representations => {
                     if os.get_popover_kind() == "R" {

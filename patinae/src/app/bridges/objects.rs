@@ -1,5 +1,7 @@
 mod actions;
 use actions::*;
+mod colors;
+use colors::*;
 mod models;
 use models::*;
 mod selection;
@@ -268,6 +270,9 @@ impl ObjectsBridge {
         let os = window.global::<ObjectsState>();
         self.sync_dock(window);
         let popover_kind = os.get_popover_kind();
+        if popover_kind == "C" && (scene_changed || sel_changed) {
+            sync_color_assignments(&os, kernel);
+        }
         if recent_changed && matches!(popover_kind.as_str(), "AM" | "AL") {
             os.set_popover_kind("".into());
         } else if scene_changed && popover_kind == "AM" {

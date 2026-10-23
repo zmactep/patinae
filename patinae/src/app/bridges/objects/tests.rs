@@ -9,6 +9,181 @@ use patinae_scene::{
 use patinae_settings::groups::RecentPickLimit;
 use std::collections::HashMap;
 
+fn color_popover_kernel() -> AppKernel {
+    let mut molecule = ObjectMolecule::new("mol");
+    for (chain, residue) in [("A", 1), ("A", 2), ("B", 1), ("B", 2)] {
+        molecule.add_atom(
+            AtomBuilder::new()
+                .name("CA")
+                .element(Element::Carbon)
+                .resn("GLY")
+                .resv(residue)
+                .chain(chain)
+                .build(),
+        );
+    }
+    molecule.add_coord_set(CoordSet::from_vec3(&[Vec3::new(0.0, 0.0, 0.0); 4]));
+    let mut kernel = AppKernel::new();
+    kernel
+        .session
+        .registry
+        .add(MoleculeObject::with_name(molecule.clone(), "mol"));
+    kernel
+        .session
+        .registry
+        .add(MoleculeObject::with_name(molecule, "other"));
+    kernel
+}
+
+fn assigned_colors(kernel: &mut AppKernel, target: &str) -> RepMask {
+    kernel.mutate_viewer(None, (0, 0), |viewer| color_assignments(viewer, target))
+}
+
+fn color_command(kernel: &mut AppKernel, command: &str) {
+    kernel
+        .execute_command(command, false, None, (800, 600))
+        .unwrap();
+}
+
+#[test]
+fn color_popover_resets_each_representation_in_the_requested_scope() {
+    for (setting, rep) in [
+        ("line_color", RepMask::LINES),
+        ("stick_color", RepMask::STICKS),
+        ("sphere_color", RepMask::SPHERES),
+        ("cartoon_color", RepMask::CARTOON),
+        ("ribbon_color", RepMask::RIBBON),
+        ("surface_color", RepMask::SURFACE),
+        ("mesh_color", RepMask::MESH),
+        ("dot_color", RepMask::DOTS),
+    ] {
+        let mut kernel = color_popover_kernel();
+        assert_eq!(assigned_colors(&mut kernel, "mol"), RepMask::NONE);
+        // A global representation color is inherited, not a local assignment.
+        color_command(&mut kernel, &format!("set {setting}, red"));
+        color_command(&mut kernel, "color red, mol");
+        assert_eq!(assigned_colors(&mut kernel, "mol"), RepMask::NONE);
+        color_command(&mut kernel, &format!("set {setting}, red, mol"));
+        assert_eq!(assigned_colors(&mut kernel, "mol"), rep, "{setting}");
+        assert_eq!(assigned_colors(&mut kernel, "mol and chain B"), rep);
+        assert_eq!(assigned_colors(&mut kernel, "other"), RepMask::NONE);
+        color_command(
+            &mut kernel,
+            &format!("set {setting}, blue, mol and chain A"),
+        );
+        color_command(&mut kernel, "set ellipsoid_color, green, mol");
+        color_command(&mut kernel, &format!("unset {setting}, mol and chain A"));
+        assert_eq!(
+            assigned_colors(&mut kernel, "mol and chain A"),
+            RepMask::NONE
+        );
+        assert_eq!(assigned_colors(&mut kernel, "mol and chain B"), rep);
+        assert_eq!(assigned_colors(&mut kernel, "mol"), rep);
+        let other_colors = kernel
+            .session
+            .registry
+            .get_molecule("mol")
+            .unwrap()
+            .molecule()
+            .atoms()
+            .map(|atom| (atom.repr.colors.base, atom.repr.colors.ellipsoid))
+            .collect::<Vec<_>>();
+        color_command(&mut kernel, &format!("unset {setting}, mol"));
+        assert_eq!(assigned_colors(&mut kernel, "mol"), RepMask::NONE);
+        assert_eq!(
+            kernel
+                .session
+                .registry
+                .get_molecule("mol")
+                .unwrap()
+                .molecule()
+                .atoms()
+                .map(|atom| (atom.repr.colors.base, atom.repr.colors.ellipsoid))
+                .collect::<Vec<_>>(),
+            other_colors,
+        );
+    }
+}
+
+#[test]
+fn color_popover_finds_schemes_partial_colors_and_named_or_combined_targets() {
+    let mut kernel = color_popover_kernel();
+    color_command(
+        &mut kernel,
+        "set cartoon_color, ss, mol and chain A and resi 1",
+    );
+    color_command(
+        &mut kernel,
+        "set stick_color, blue, mol and chain A and resi 2",
+    );
+    color_command(
+        &mut kernel,
+        "set cartoon_color, green, mol and chain A and resi 2",
+    );
+    color_command(&mut kernel, "select chosen, mol and chain A");
+    let expected = RepMask::CARTOON.union(RepMask::STICKS);
+    assert_eq!(assigned_colors(&mut kernel, "chosen"), expected);
+    assert_eq!(
+        assigned_colors(&mut kernel, "mol and chain B"),
+        RepMask::NONE
+    );
+    assert_eq!(
+        assigned_colors(&mut kernel, "(chosen) or (other)"),
+        expected
+    );
+    assert_eq!(
+        assigned_colors(&mut kernel, "mol and resi 99"),
+        RepMask::NONE
+    );
+    assert_eq!(assigned_colors(&mut kernel, "missing"), RepMask::NONE);
+    color_command(&mut kernel, "unset cartoon_color, chosen");
+    assert_eq!(assigned_colors(&mut kernel, "chosen"), RepMask::STICKS);
+    color_command(&mut kernel, "select chosen, mol and chain B");
+    assert_eq!(assigned_colors(&mut kernel, "chosen"), RepMask::NONE);
+}
+
+#[test]
+fn color_popover_sync_refreshes_after_same_rgb_assignments_and_selection_changes() {
+    i_slint_backend_testing::init_no_event_loop();
+    let window = AppWindow::new().unwrap();
+    let os = window.global::<ObjectsState>();
+    let mut kernel = color_popover_kernel();
+    let mut bridge = ObjectsBridge::new();
+    bridge.attach(&window);
+    color_command(&mut kernel, "color red, mol");
+    color_command(&mut kernel, "select chosen, mol and chain A");
+    os.set_popover_kind("C".into());
+    os.set_popover_target("chosen".into());
+    os.set_popover_scope("all-c".into());
+    bridge.sync(&mut kernel, &window);
+    assert!(!os.get_popover_color_cartoon());
+    kernel.session.registry.clear_all_dirty_molecules();
+    // The visible color stays red; the new stored assignment still needs a cross.
+    color_command(&mut kernel, "set cartoon_color, red, chosen");
+    bridge.sync(&mut kernel, &window);
+    assert!(os.get_popover_color_cartoon());
+    assert_eq!(os.get_popover_scope(), "all-c");
+    kernel.session.registry.clear_all_dirty_molecules();
+    color_command(&mut kernel, "select chosen, mol and chain B");
+    bridge.sync(&mut kernel, &window);
+    assert!(!os.get_popover_color_cartoon());
+    os.set_popover_target("mol".into());
+    sync_color_assignments(&os, &mut kernel);
+    assert!(os.get_popover_color_cartoon());
+    os.set_popover_target("other".into());
+    sync_color_assignments(&os, &mut kernel);
+    assert!(!os.get_popover_color_cartoon());
+    os.set_popover_target("mol".into());
+    sync_color_assignments(&os, &mut kernel);
+    color_command(&mut kernel, "unset cartoon_color, mol");
+    bridge.sync(&mut kernel, &window);
+    assert!(!os.get_popover_color_cartoon());
+    os.set_popover_color_cartoon(true);
+    os.set_popover_solid_only(true);
+    sync_color_assignments(&os, &mut kernel);
+    assert!(!os.get_popover_color_cartoon());
+}
+
 fn recent_atoms(paths: &[&str]) -> RecentAtoms {
     let mut recent = RecentAtoms::new();
     for path in paths {

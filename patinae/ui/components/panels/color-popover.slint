@@ -1,4 +1,5 @@
-import { IconTile } from "../../controls/button.slint";
+import { Control, IconTile } from "../../controls/button.slint";
+import { UiIcon } from "../../primitives/icon.slint";
 import { TooltipAnchor } from "../../controls/tooltip.slint";
 import { TooltipState } from "../../states/tooltip-state.slint";
 import { Representations } from "../../icons/representations.slint";
@@ -168,12 +169,54 @@ component ScopeButton inherits Rectangle {
 
 // ── Scope icon button (rep-toggle style + scope behavior) ─────────
 
-component ScopeIconButton inherits IconTile {
+component ScopeIconButton inherits Rectangle {
     in property <string> scope-id;
+    in property <string> label;
+    in property <image> icon;
     in property <bool> disabled;
-    enabled: !root.disabled;
-    active: root.enabled && ObjectsState.popover-scope == root.scope-id;
-    clicked => { ObjectsState.popover-scope = root.scope-id; }
+    in property <bool> has-color;
+    in property <string> setting-name;
+    property <string> reset-command: "unset " + root.setting-name + ", " + ObjectsState.popover-target;
+    horizontal-stretch: 1;
+    preferred-width: 0px;
+    min-width: 0px;
+    height: tile.height;
+
+    tile := IconTile {
+        width: parent.width;
+        enabled: !root.disabled;
+        label: root.label;
+        icon: root.icon;
+        active: self.enabled && ObjectsState.popover-scope == root.scope-id;
+        clicked => { ObjectsState.popover-scope = root.scope-id; }
+    }
+
+    // A sibling above the tile keeps reset clicks out of its scope handler.
+    if root.has-color: Control {
+        x: parent.width - self.width - 2px;
+        y: 2px;
+        width: 16px;
+        height: 16px;
+        label: "Reset " + root.label + " color";
+        tooltip: root.reset-command;
+        changed hovered => {
+            if self.hovered {
+                ObjectsState.popover-cmd-preview = root.reset-command;
+            }
+        }
+        clicked => {
+            ObjectsState.popover-cmd-preview = root.reset-command;
+            ObjectsState.popover-execute();
+        }
+        UiIcon {
+            x: 4px;
+            y: 4px;
+            width: 8px;
+            height: 8px;
+            source: @image-url("../../icons/lucide/x.svg");
+            tint: parent.tint;
+        }
+    }
 }
 
 // ── Color popover ──────────────────────────────────────────────────
@@ -270,6 +313,19 @@ export component ColorPopover inherits Rectangle {
                     label: Representations.items[self.index].label;
                     icon: Representations.items[self.index].icon;
                     disabled: Representations.items[self.index].biopolymer && !root.is-bio;
+                    has-color: self.scope-id == "lines" ? ObjectsState.popover-color-lines
+                        : self.scope-id == "sticks" ? ObjectsState.popover-color-sticks
+                        : self.scope-id == "spheres" ? ObjectsState.popover-color-spheres
+                        : self.scope-id == "cartoon" ? ObjectsState.popover-color-cartoon
+                        : self.scope-id == "ribbon" ? ObjectsState.popover-color-ribbon
+                        : self.scope-id == "surface" ? ObjectsState.popover-color-surface
+                        : self.scope-id == "mesh" ? ObjectsState.popover-color-mesh
+                        : ObjectsState.popover-color-dots;
+                    setting-name: self.scope-id == "lines" ? "line_color"
+                        : self.scope-id == "sticks" ? "stick_color"
+                        : self.scope-id == "spheres" ? "sphere_color"
+                        : self.scope-id == "dots" ? "dot_color"
+                        : self.scope-id + "_color";
                 }
             }
         }
