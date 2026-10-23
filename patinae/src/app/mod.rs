@@ -63,7 +63,7 @@ use patinae_scene::{
 use patinae_select::build_sele_command;
 use patinae_settings::{
     paths::{PatinaercPath, PatinaercSource},
-    MouseSelectionMode, ThemeMode,
+    MouseSelectionMode,
 };
 
 use crate::bridges::input::{InputBridge, PendingClick};
@@ -115,7 +115,7 @@ struct App {
     sequence: SequenceBridge,
     viewport: ViewportBridge,
     platform: PlatformBridge,
-    prev_theme: ThemeMode,
+    theme: bridges::theme::ThemeBridge,
     last_animation_instant: Cell<Option<Instant>>,
     startup_actions: VecDeque<StartupAction>,
     transient_notification: Option<(String, Instant)>,
@@ -149,7 +149,7 @@ impl App {
             sequence: SequenceBridge::new(),
             viewport: ViewportBridge::new(800, 500),
             platform: PlatformBridge::new(),
-            prev_theme: ThemeMode::Dark,
+            theme: bridges::theme::ThemeBridge::default(),
             last_animation_instant: Cell::new(None),
             startup_actions: VecDeque::new(),
             transient_notification: None,

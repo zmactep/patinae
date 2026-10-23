@@ -46,6 +46,7 @@ pub(crate) enum Event {
     },
     CancelTask(String),
     ToggleTheme,
+    ThemeChanged,
 }
 
 pub(crate) fn setup_callbacks(sender: events::EventSender, window: &AppWindow) {
@@ -222,15 +223,13 @@ pub(super) fn dispatch(event: Event, app: &mut App, window: &AppWindow) {
             }
         }
         Event::ToggleTheme => {
-            let next = if app.kernel.session.settings.ui.theme == ThemeMode::Dark {
-                "light"
-            } else {
-                "dark"
-            };
+            use patinae_settings::SettingEnum as _;
+            let next = app.kernel.session.settings.ui.theme.next().name();
             app.kernel
                 .bus
                 .execute_command_silent(format!("set theme, {next}"));
         }
+        Event::ThemeChanged => app.theme.system_changed(),
     }
 }
 

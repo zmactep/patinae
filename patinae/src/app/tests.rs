@@ -22,7 +22,7 @@ fn adapter_limits(
     }
 }
 
-fn temp_startup_path(name: &str) -> PathBuf {
+pub(super) fn temp_startup_path(name: &str) -> PathBuf {
     let nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .expect("system clock should be after Unix epoch")

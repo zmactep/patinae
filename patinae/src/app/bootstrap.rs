@@ -21,6 +21,14 @@ pub(crate) fn run(started: Instant) -> Result<(), Box<dyn std::error::Error>> {
     let mut app_state = App::new();
     let discovery = patinae_plugin_host::PluginDiscovery::from_process_env();
     let config = discovery.load_config();
+    let selected_theme = config
+        .as_ref()
+        .map(|config| config.theme)
+        .unwrap_or_default();
+    app_state.kernel.session.settings.ui.theme = selected_theme;
+    app_state
+        .theme
+        .configure(discovery.config_path(), selected_theme);
     let repl_at_top = config
         .as_ref()
         .is_ok_and(|config| config.repl_position == patinae_settings::config::ReplPosition::Top);
@@ -61,16 +69,11 @@ pub(crate) fn run(started: Instant) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(not(target_os = "macos"))]
     window.global::<LayoutState>().set_mod_key("Ctrl".into());
 
-    #[cfg(target_os = "macos")]
     {
-        let dark = crate::macos::is_system_dark_mode();
-        let mode = if dark {
-            ThemeMode::Dark
-        } else {
-            ThemeMode::Light
-        };
-        app.borrow_mut().kernel.session.settings.ui.theme = mode;
-        // sync_theme on first frame will set Slint dark-mode + palette + bg
+        let mut state = app.borrow_mut();
+        let App { kernel, theme, .. } = &mut *state;
+        crate::bridges::theme::sync_theme(kernel, &window.global::<Theme>(), &window, theme);
+        state.platform.sync(&window);
     }
 
     // Push fixed solid-color swatches once (theme-independent)

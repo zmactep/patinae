@@ -6,9 +6,7 @@
 use objc2::rc::Id;
 use std::path::PathBuf;
 
-use objc2_app_kit::{
-    NSApplication, NSColor, NSModalResponseOK, NSOpenPanel, NSSavePanel, NSView, NSWindow,
-};
+use objc2_app_kit::{NSColor, NSModalResponseOK, NSOpenPanel, NSSavePanel, NSView, NSWindow};
 use objc2_foundation::{MainThreadMarker, NSArray, NSString};
 use patinae_framework::topics::SaveFileRequest;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -16,17 +14,6 @@ use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use slint::winit_030::winit::platform::macos::WindowAttributesExtMacOS;
 use slint::winit_030::winit::window::WindowAttributes;
 use slint::winit_030::WinitWindowAccessor;
-
-/// Returns `true` if the system appearance is dark mode.
-pub fn is_system_dark_mode() -> bool {
-    let mtm = MainThreadMarker::new().expect("must be called from main thread");
-    let app = NSApplication::sharedApplication(mtm);
-    let appearance = app.effectiveAppearance();
-    // SAFETY: effectiveAppearance returns a live NSAppearance for the shared
-    // application, and this function is constrained to the main thread above.
-    let name = unsafe { appearance.name() };
-    name.to_string().contains("Dark")
-}
 
 /// Called once at window-creation time via the `BackendSelector` hook.
 /// Enables the transparent title bar and hides the title text.

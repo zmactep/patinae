@@ -26,6 +26,7 @@ pub(super) fn install(sender: events::EventSender, window: &AppWindow) {
                 return EventResult::PreventDefault;
             }
             let input = match event {
+                WindowEvent::ThemeChanged(_) => Some(Event::ThemeChanged),
                 WindowEvent::CursorMoved { position, .. } => {
                     cursor = (position.x as f32, position.y as f32);
                     let local = (

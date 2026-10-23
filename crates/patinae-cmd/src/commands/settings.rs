@@ -854,6 +854,38 @@ mod tests {
     }
 
     #[test]
+    fn theme_commands_support_system_and_reset_to_system() {
+        use patinae_settings::{SettingEnum as _, ThemeMode};
+        let mut session = Session::new();
+        let mut executor = CommandExecutor::new();
+        assert_eq!(session.settings.ui.theme, ThemeMode::System);
+        for mode in [ThemeMode::Dark, ThemeMode::Light, ThemeMode::System] {
+            execute(
+                &mut session,
+                &mut executor,
+                &format!("set theme, {}", mode.name()),
+            )
+            .unwrap();
+            assert_eq!(session.settings.ui.theme, mode);
+            let mut needs_redraw = false;
+            let mut adapter = SessionAdapter {
+                session: &mut session,
+                render_context: None,
+                default_size: (800, 600),
+                needs_redraw: &mut needs_redraw,
+            };
+            let output = executor
+                .do_with_options(&mut adapter, "get theme", false)
+                .unwrap();
+            assert!(output.messages.iter().any(|m| m.text.contains(mode.name())));
+        }
+        execute(&mut session, &mut executor, "set theme, dark").unwrap();
+        execute(&mut session, &mut executor, "unset theme").unwrap();
+        assert_eq!(session.settings.ui.theme, ThemeMode::System);
+        assert!(execute(&mut session, &mut executor, "set theme, unknown").is_err());
+    }
+
+    #[test]
     fn nucleic_cartoon_assignment_and_reset_do_not_touch_protein() {
         let mut session = session_with_case_collisions(("A", "B"), ("CA", "P"));
         let mol = session

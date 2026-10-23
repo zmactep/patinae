@@ -403,6 +403,58 @@ fn actual_ui_hover_tooltip_and_responsive_bounds() {
     let host = Rc::new(RefCell::new(crate::app::App::new()));
     let sender = host.borrow().events.clone();
     sender.bind(&host, &app);
+    let theme_sender = sender.clone();
+    app.global::<Theme>().on_toggle_theme(move || {
+        theme_sender.send(crate::app::events::GuiEvent::Input(
+            crate::app::input_events::Event::ToggleTheme,
+        ));
+    });
+    let theme_position = slint::LogicalPosition::new(
+        geometry.get_sidebar_w() / 2.0,
+        app.window().size().height as f32 / app.window().scale_factor()
+            - spacing.get_md()
+            - spacing.get_sm()
+            - 1.5 * geometry.get_icon_size(),
+    );
+    for (current, next, expected) in [
+        ("System", "Dark", patinae_settings::ThemeMode::Dark),
+        ("Dark", "Light", patinae_settings::ThemeMode::Light),
+        ("Light", "System", patinae_settings::ThemeMode::System),
+    ] {
+        app.window().dispatch_event(WindowEvent::PointerMoved {
+            position: theme_position,
+        });
+        render();
+        clock.set(clock.get() + Duration::from_secs(1));
+        slint::platform::update_timers_and_animations();
+        render();
+        assert_eq!(
+            tooltip.get_text(),
+            format!("Theme: {current}. Switch to {next}")
+        );
+        for event in [
+            WindowEvent::PointerPressed {
+                position: theme_position,
+                button: slint::platform::PointerEventButton::Left,
+            },
+            WindowEvent::PointerReleased {
+                position: theme_position,
+                button: slint::platform::PointerEventButton::Left,
+            },
+        ] {
+            app.window().dispatch_event(event);
+        }
+        sender.drain();
+        let mut host = host.borrow_mut();
+        assert_eq!(host.kernel.session.settings.ui.theme, expected);
+        let crate::app::App { kernel, theme, .. } = &mut *host;
+        crate::bridges::theme::sync_theme(kernel, &app.global::<Theme>(), &app, theme);
+        drop(host);
+        app.window().dispatch_event(WindowEvent::PointerMoved {
+            position: slint::LogicalPosition::new(500.0, 300.0),
+        });
+        render();
+    }
     crate::bridges::layout::setup_callbacks(sender.clone(), &app);
     host.borrow().objects.attach(&app);
     let sync_dock = || {

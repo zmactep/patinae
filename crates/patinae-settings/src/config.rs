@@ -3,6 +3,7 @@
 //! Missing `plugin` enables discovery; an explicit empty list disables plugins.
 //! Updates preserve unrelated TOML values and comments and replace files atomically.
 
+use crate::{SettingEnum as _, ThemeMode};
 use serde::Deserialize;
 use std::{
     io::Write,
@@ -32,11 +33,30 @@ pub struct PluginEntry {
 /// Application preferences, separate from molecular session settings.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 pub struct AppConfig {
+    /// Appearance preference, following the operating system by default.
+    #[serde(default, deserialize_with = "deserialize_theme")]
+    pub theme: ThemeMode,
     /// Input placement, defaulting to the bottom.
     #[serde(default)]
     pub repl_position: ReplPosition,
     /// Ordered allowlist; `None` means automatic discovery.
     pub plugin: Option<Vec<PluginEntry>>,
+}
+
+// Config strings are lowercase; session serialization retains its existing enum format.
+fn deserialize_theme<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<ThemeMode, D::Error> {
+    let name = String::deserialize(deserializer)?;
+    match name.as_str() {
+        "dark" => Ok(ThemeMode::Dark),
+        "light" => Ok(ThemeMode::Light),
+        "system" => Ok(ThemeMode::System),
+        _ => Err(serde::de::Error::unknown_variant(
+            &name,
+            &["dark", "light", "system"],
+        )),
+    }
 }
 
 /// A configuration failure with its file and original cause.
@@ -122,6 +142,7 @@ fn document(path: &Path) -> Result<(DocumentMut, bool), ConfigError> {
         None => {
             let mut doc = DocumentMut::new();
             doc["repl_position"] = value("bottom");
+            doc["theme"] = value("system");
             Ok((doc, false))
         }
     }
@@ -210,9 +231,74 @@ pub fn initialize_config(path: &Path) -> Result<AppConfig, ConfigError> {
     parse(path, &doc.to_string())
 }
 
+/// Saves the theme preference while preserving unrelated configuration and comments.
+///
+/// # Errors
+/// Returns an error for invalid documents, invalid paths, or filesystem failures.
+pub fn save_theme(path: &Path, theme: ThemeMode) -> Result<(), ConfigError> {
+    let (mut doc, exists) = document(path)?;
+    let decor = doc
+        .get("theme")
+        .and_then(Item::as_value)
+        .map(|v| v.decor().clone());
+    let mut replacement = toml_edit::Value::from(theme.name());
+    if let Some(decor) = decor {
+        *replacement.decor_mut() = decor;
+    }
+    doc["theme"] = Item::Value(replacement);
+    save(path, &doc, exists)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn theme_round_trips_preserve_comments_plugins_and_session_encoding() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "# preferences\ntheme = 'system' # appearance\nrepl_position = 'top'\n\n[[plugin]]\npath = 'custom/plugin'\n\n[future]\nanswer = 42\n").unwrap();
+        for mode in [ThemeMode::Dark, ThemeMode::Light, ThemeMode::System] {
+            save_theme(&path, mode).unwrap();
+            let config = read_config(&path).unwrap().unwrap();
+            assert_eq!(config.theme, mode);
+            assert_eq!(config.repl_position, ReplPosition::Top);
+            assert_eq!(config.plugin.unwrap()[0].path, "custom/plugin");
+            let text = std::fs::read_to_string(&path).unwrap();
+            assert!(text.contains("# preferences"));
+            assert!(text.contains("# appearance"));
+            assert!(text.contains("answer = 42"));
+        }
+        save_plugins(&path, &[]).unwrap();
+        assert_eq!(
+            read_config(&path).unwrap().unwrap().theme,
+            ThemeMode::System
+        );
+        assert_eq!(serde_json::to_string(&ThemeMode::Dark).unwrap(), "\"Dark\"");
+        assert_eq!(
+            serde_json::from_str::<ThemeMode>("\"Light\"").unwrap(),
+            ThemeMode::Light
+        );
+        assert_eq!(ThemeMode::Dark.to_i32(), 0);
+        assert_eq!(ThemeMode::Light.to_i32(), 1);
+        assert_eq!(ThemeMode::System.to_i32(), 2);
+    }
+
+    #[test]
+    fn theme_save_creates_missing_config_and_extends_legacy_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nested/config.toml");
+        save_theme(&path, ThemeMode::Light).unwrap();
+        assert_eq!(read_config(&path).unwrap().unwrap().theme, ThemeMode::Light);
+        std::fs::write(&path, "repl_position = 'top'\nplugin = []\n").unwrap();
+        assert_eq!(
+            read_config(&path).unwrap().unwrap().theme,
+            ThemeMode::System
+        );
+        save_theme(&path, ThemeMode::Dark).unwrap();
+        assert_eq!(read_config(&path).unwrap().unwrap().theme, ThemeMode::Dark);
+        assert_eq!(read_config(&path).unwrap().unwrap().plugin, Some(vec![]));
+    }
 
     #[test]
     fn defaults_and_positions_preserve_the_missing_empty_distinction() {
@@ -223,7 +309,7 @@ mod tests {
         assert_eq!(config, AppConfig::default());
         assert_eq!(
             std::fs::read_to_string(&path).unwrap(),
-            "repl_position = \"bottom\"\n"
+            "repl_position = \"bottom\"\ntheme = \"system\"\n"
         );
         for (text, position, entries) in [
             ("", ReplPosition::Bottom, None),
@@ -238,6 +324,7 @@ mod tests {
             assert_eq!(
                 read_config(&path).unwrap().unwrap(),
                 AppConfig {
+                    theme: ThemeMode::System,
                     repl_position: position,
                     plugin: entries
                 }
@@ -253,6 +340,8 @@ mod tests {
             "[",
             "repl_position = 'left'",
             "repl_position = 1",
+            "theme = 'auto'",
+            "theme = 2",
             "[[plugins]]\npath='x'",
             "[[plugin]]",
             "[[plugin]]\npath = 42",
@@ -269,6 +358,7 @@ mod tests {
                 "{text}"
             );
             assert!(save_plugins(&path, &[]).is_err(), "{text}");
+            assert!(save_theme(&path, ThemeMode::Dark).is_err(), "{text}");
             assert!(initialize_config(&path).is_err(), "{text}");
             assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
         }
@@ -319,6 +409,12 @@ mod tests {
         std::os::unix::fs::symlink(&target, &path).unwrap();
         save_plugins(&path, &[]).unwrap();
         assert!(path.is_symlink());
+        save_theme(&path, ThemeMode::Light).unwrap();
+        assert!(path.is_symlink());
+        assert_eq!(
+            read_config(&target).unwrap().unwrap().theme,
+            ThemeMode::Light
+        );
         assert_eq!(
             read_config(&target).unwrap().unwrap().repl_position,
             ReplPosition::Top
@@ -328,5 +424,6 @@ mod tests {
         assert!(read_config(&path).is_err());
         assert!(initialize_config(&path).is_err());
         assert!(save_plugins(&path, &[]).is_err());
+        assert!(save_theme(&path, ThemeMode::Dark).is_err());
     }
 }

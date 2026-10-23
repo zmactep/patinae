@@ -74,8 +74,10 @@ export component Sidebar inherits Surface {
         y: parent.height - self.preferred-height - Spacing.md;
         spacing: Spacing.sm;
         SidebarButton {
-            label: "Switch theme"; icon: Icons.contrast;
-            active: !Theme.dark-mode;
+            label: Theme.mode == "dark" ? "Theme: Dark. Switch to Light"
+                : Theme.mode == "light" ? "Theme: Light. Switch to System"
+                : "Theme: System. Switch to Dark";
+            icon: Theme.mode == "dark" ? Icons.moon : Theme.mode == "light" ? Icons.sun : Icons.monitor;
             clicked => { Theme.toggle-theme(); }
         }
         SidebarButton {

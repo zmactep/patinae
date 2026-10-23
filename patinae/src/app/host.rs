@@ -63,6 +63,11 @@ impl App {
             .as_mut()
             .map(|r| r as &mut dyn CaptureRenderer);
         let unhandled = self.kernel.process_messages(rc, viewport_size);
+        if let Err(error) = self.theme.persist(self.kernel.session.settings.ui.theme) {
+            let message = format!("Theme changed, but the preference could not be saved: {error}");
+            log::warn!("{message}");
+            self.kernel.output.print_warning(message);
+        }
         if unhandled.iter().any(|m| matches!(m, AppMessage::Quit)) {
             self.events.send(events::GuiEvent::Close);
         }

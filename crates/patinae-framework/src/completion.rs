@@ -763,6 +763,10 @@ mod tests {
             selection_names: &selection_names,
             dynamic_settings: None,
         };
+        let input = "set theme, sys";
+        let result = generate_completions(input, input.len(), &ctx);
+        assert_eq!(result.suggestions.len(), 1);
+        assert_eq!(result.suggestions[0].text, "system");
 
         for (input, expected) in [
             ("set cartoon_smooth_l", "cartoon_smooth_loops"),

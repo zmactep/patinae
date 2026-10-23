@@ -3,6 +3,66 @@ use patinae_mol::AtomIndex;
 use patinae_scene::{AtomAnchor, LabelEntity, LabelObject};
 
 #[test]
+fn theme_button_commands_and_restart_share_persisted_preference() {
+    use patinae_settings::{config::read_config, ThemeMode};
+    i_slint_backend_testing::init_no_event_loop();
+    let window = AppWindow::new().unwrap();
+    let mut app = App::new();
+    let path = super::super::tests::temp_startup_path("theme-config");
+    app.theme.configure(path.clone(), ThemeMode::System);
+    for expected in [ThemeMode::Dark, ThemeMode::Light, ThemeMode::System] {
+        dispatch(Event::ToggleTheme, &mut app, &window);
+        app.process_commands(&window);
+        assert_eq!(app.kernel.session.settings.ui.theme, expected);
+        let config = read_config(&path).unwrap().unwrap();
+        assert_eq!(config.theme, expected);
+        let mut restarted = App::new();
+        restarted.kernel.session.settings.ui.theme = config.theme;
+        restarted.theme.configure(path.clone(), config.theme);
+        assert_eq!(restarted.kernel.session.settings.ui.theme, expected);
+    }
+    app.kernel.bus.execute_command_silent("set theme, light");
+    app.process_commands(&window);
+    assert_eq!(read_config(&path).unwrap().unwrap().theme, ThemeMode::Light);
+    app.kernel.bus.execute_command_silent("set theme, system");
+    app.process_commands(&window);
+    dispatch(Event::ThemeChanged, &mut app, &window);
+    app.process_commands(&window);
+    assert_eq!(
+        read_config(&path).unwrap().unwrap().theme,
+        ThemeMode::System
+    );
+    std::fs::write(&path, "invalid = [").unwrap();
+    dispatch(Event::ToggleTheme, &mut app, &window);
+    app.process_commands(&window);
+    assert_eq!(app.kernel.session.settings.ui.theme, ThemeMode::Dark);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "invalid = [");
+    let warnings = app
+        .kernel
+        .output
+        .buffer
+        .iter()
+        .filter(|m| m.text.contains("could not be saved"))
+        .count();
+    assert_eq!(warnings, 1);
+    app.process_commands(&window);
+    assert_eq!(
+        app.kernel
+            .output
+            .buffer
+            .iter()
+            .filter(|m| m.text.contains("could not be saved"))
+            .count(),
+        warnings
+    );
+    assert!(
+        app.theme.persist(ThemeMode::Dark).is_ok(),
+        "failed saves must not repeat every host tick"
+    );
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
 fn callbacks_preserve_annotation_release_endpoint_and_modifiers_at_hidpi() {
     i_slint_backend_testing::init_no_event_loop();
     for scale in [1.0, 1.5, 2.0] {

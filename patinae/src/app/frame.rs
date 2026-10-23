@@ -10,7 +10,7 @@ impl App {
             &mut self.kernel,
             &app.global::<Theme>(),
             app,
-            &mut self.prev_theme,
+            &mut self.theme,
         );
         if theme_changed {
             self.kernel.session.registry.mark_all_dirty();

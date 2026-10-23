@@ -3,6 +3,7 @@ import { FoundationPalette } from "palette.slint";
 export struct NamedColor { name: string, swatch: color }
 
 export global Theme {
+    in-out property <string> mode: "system";
     in-out property <bool> dark-mode: true;
     callback toggle-theme();
 

@@ -6,7 +6,7 @@ use crate::enums::MouseSelectionMode;
 define_settings_group! {
     /// User interface and interaction settings.
     group_global UiSettings {
-        theme: crate::enums::ThemeMode = crate::enums::ThemeMode::Dark,
+        theme: crate::enums::ThemeMode = crate::enums::ThemeMode::System,
             name = "theme",
             hints = crate::enums::ThemeMode,
             side_effects = [ColorRebuild, SceneInvalidate];

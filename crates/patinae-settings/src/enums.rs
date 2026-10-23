@@ -197,17 +197,30 @@ impl_setting_enum! {
 )]
 #[repr(i32)]
 pub enum ThemeMode {
-    #[default]
     Dark = 0,
     Light = 1,
+    #[default]
+    System = 2,
 }
 
 impl_setting_enum! {
     ThemeMode {
         Dark = 0 => "dark",
         Light = 1 => "light",
+        System = 2 => "system",
     }
-    default: Dark
+    default: System
+}
+
+impl ThemeMode {
+    /// Returns the next preference in the sidebar button's cycle.
+    pub fn next(self) -> Self {
+        match self {
+            Self::Dark => Self::Light,
+            Self::Light => Self::System,
+            Self::System => Self::Dark,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
