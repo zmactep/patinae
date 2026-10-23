@@ -30,13 +30,11 @@ impl App {
     }
 
     /// Route a native menu Open selection through the shared file router.
-    #[cfg(target_os = "macos")]
     pub(super) fn route_menu_open_file(&mut self, path: PathBuf) {
         self.route_native_file(path.as_path(), NativeFileSource::MenuOpen);
     }
 
     /// Route a native menu Run Script selection through the shared file router.
-    #[cfg(target_os = "macos")]
     pub(super) fn route_menu_run_script(&mut self, path: PathBuf) {
         self.route_native_file(path.as_path(), NativeFileSource::MenuRunScript);
     }
@@ -193,11 +191,6 @@ impl App {
 
         self.file_actions.recent_files.refresh(app);
     }
-}
-
-#[cfg(target_os = "macos")]
-pub(super) fn choose_save_file_path(app: &AppWindow, request: &SaveFileRequest) -> Option<String> {
-    crate::macos::save_file_path(app.window(), request)
 }
 
 pub(super) fn save_file_response_event(request: &SaveFileRequest, path: String) -> PanelEvent {

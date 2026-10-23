@@ -9,11 +9,9 @@ use patinae_io::FileFormat;
 pub(crate) enum NativeFileSource {
     /// File path supplied on the process command line.
     StartupArgv,
-    /// Future native menu Open action.
-    #[cfg(target_os = "macos")]
+    /// Native menu Open action.
     MenuOpen,
-    /// Future native menu Run Script action.
-    #[cfg(target_os = "macos")]
+    /// Native menu Run Script action.
     MenuRunScript,
     /// File dropped onto the native window.
     DragDrop,
@@ -25,9 +23,7 @@ impl NativeFileSource {
     fn label(self) -> &'static str {
         match self {
             Self::StartupArgv => "startup file",
-            #[cfg(target_os = "macos")]
             Self::MenuOpen => "menu Open file",
-            #[cfg(target_os = "macos")]
             Self::MenuRunScript => "menu Run Script file",
             Self::DragDrop => "dropped file",
             Self::RecentFile => "recent file",

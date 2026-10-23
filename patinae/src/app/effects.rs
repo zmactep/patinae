@@ -59,15 +59,21 @@ impl Effect {
                 }
             }
             Self::PluginSave(request) => {
-                #[cfg(target_os = "macos")]
-                let path = super::files::choose_save_file_path(window, &request);
-                #[cfg(not(target_os = "macos"))]
-                let path = None;
-                #[cfg(not(target_os = "macos"))]
-                sender.send(GuiEvent::Warning(
-                    "Save dialog is unavailable on this platform; use ray with a filename.".into(),
-                ));
-                sender.send(GuiEvent::SaveResponse { request, path });
+                let failure = GuiEvent::SaveResponse {
+                    request: request.clone(),
+                    path: None,
+                };
+                let window = window.clone_strong();
+                spawn_dialog(sender, Some(failure), async move {
+                    let path = crate::native_file_dialogs::save_file(
+                        window.window(),
+                        &request.title,
+                        &request.default_file_name,
+                    )
+                    .await
+                    .map(|path| path.to_string_lossy().into_owned());
+                    Some(GuiEvent::SaveResponse { request, path })
+                });
             }
             Self::OpenUrl(url) => {
                 if let Err(error) = webbrowser::open(&url) {
@@ -120,48 +126,71 @@ impl Effect {
             Self::FocusRepl => window.invoke_focus_repl(),
             Self::DismissRepl => window.invoke_dismiss_repl(),
             Self::OpenFile { script } => {
-                #[cfg(target_os = "macos")]
-                if let Some(path) =
-                    crate::macos::open_file_path(if script { "Run Script" } else { "Open" })
-                {
-                    sender.send(GuiEvent::FileChosen { path, script });
-                }
-                #[cfg(not(target_os = "macos"))]
-                {
-                    let _ = script;
-                    sender.send(GuiEvent::Warning(
-                        "Open dialog is unavailable on this platform; use the REPL.".into(),
-                    ));
-                }
+                let window = window.clone_strong();
+                spawn_dialog(sender, None, async move {
+                    crate::native_file_dialogs::open_file(
+                        window.window(),
+                        if script { "Run Script" } else { "Open" },
+                    )
+                    .await
+                    .map(|path| GuiEvent::FileChosen { path, script })
+                });
             }
             Self::SaveFile {
                 title,
                 default_name,
                 command,
             } => {
-                #[cfg(target_os = "macos")]
-                if let Some(path) = crate::macos::save_file_path_with_default(&title, &default_name)
-                {
-                    sender.send(GuiEvent::Command(format!(
-                        "{command} {}",
-                        crate::native_file_actions::quote_command_arg(&path.to_string_lossy())
-                    )));
-                }
-                #[cfg(not(target_os = "macos"))]
-                {
-                    let _ = default_name;
-                    sender.send(GuiEvent::Warning(format!("{title} dialog is unavailable on this platform; use {command} in the REPL.")));
-                }
+                let window = window.clone_strong();
+                spawn_dialog(sender, None, async move {
+                    crate::native_file_dialogs::save_file(window.window(), &title, &default_name)
+                        .await
+                        .map(|path| {
+                            GuiEvent::Command(format!(
+                                "{command} {}",
+                                crate::native_file_actions::quote_command_arg(
+                                    &path.to_string_lossy()
+                                )
+                            ))
+                        })
+                });
             }
             Self::PickPlugins => {
-                #[cfg(target_os = "macos")]
-                let result = Ok(crate::macos::open_plugin_paths().unwrap_or_default());
-                #[cfg(not(target_os = "macos"))]
-                let result = Err("Plugin file picker is unavailable on this platform.".into());
-                sender.send(GuiEvent::PluginList(
-                    super::bridges::plugin_list::events::Event::Picked(result),
-                ));
+                let failure =
+                    GuiEvent::PluginList(super::bridges::plugin_list::events::Event::Picked(Err(
+                        "Could not start the plugin file picker.".into(),
+                    )));
+                let window = window.clone_strong();
+                spawn_dialog(sender, Some(failure), async move {
+                    let result = Ok(crate::native_file_dialogs::pick_plugins(window.window())
+                        .await
+                        .unwrap_or_default());
+                    Some(GuiEvent::PluginList(
+                        super::bridges::plugin_list::events::Event::Picked(result),
+                    ))
+                });
             }
         }
+    }
+}
+
+/// Returns dialog completion to the ordered inbox without holding app borrows.
+pub(super) fn spawn_dialog(
+    sender: &EventSender,
+    failure: Option<GuiEvent>,
+    future: impl std::future::Future<Output = Option<GuiEvent>> + 'static,
+) {
+    let next = sender.clone();
+    if let Err(error) = slint::spawn_local(async move {
+        if let Some(event) = future.await {
+            next.send(event);
+        }
+    }) {
+        if let Some(event) = failure {
+            sender.send(event);
+        }
+        sender.send(GuiEvent::Warning(format!(
+            "Could not start file dialog: {error}"
+        )));
     }
 }

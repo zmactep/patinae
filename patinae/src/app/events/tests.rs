@@ -12,6 +12,126 @@ fn fixture() -> (Rc<RefCell<App>>, AppWindow, EventSender) {
 }
 
 #[test]
+fn selected_scripts_keep_their_menu_origin_while_startup_is_pending() {
+    let (app, _window, sender) = fixture();
+    let path = std::env::temp_dir().join("dialog-selected script.pml");
+    for (script, source) in [
+        (
+            false,
+            crate::native_file_actions::NativeFileSource::MenuOpen,
+        ),
+        (
+            true,
+            crate::native_file_actions::NativeFileSource::MenuRunScript,
+        ),
+    ] {
+        sender.send(GuiEvent::FileChosen {
+            path: path.clone(),
+            script,
+        });
+        sender.drain();
+        assert_eq!(
+            app.borrow_mut()
+                .file_actions
+                .deferred_file_actions
+                .pop_front(),
+            Some((path.clone(), source))
+        );
+    }
+}
+
+#[test]
+fn cancelled_dialogs_release_their_pending_state() {
+    let (app, window, sender) = fixture();
+    app.borrow_mut().file_actions.save_file_dialog_scheduled = true;
+    sender.send(GuiEvent::SaveResponse {
+        request: super::super::SaveFileRequest {
+            panel_id: "render".into(),
+            reply_control_id: "output".into(),
+            title: "Save render".into(),
+            default_file_name: "render.png".into(),
+            allowed_extensions: vec!["png".into()],
+        },
+        path: None,
+    });
+    let plugins = window.global::<crate::PluginListState>();
+    plugins.set_picking(true);
+    sender.send(GuiEvent::PluginList(
+        bridges::plugin_list::events::Event::Picked(Ok(Vec::new())),
+    ));
+    sender.drain();
+    assert!(!app.borrow().file_actions.save_file_dialog_scheduled);
+    assert!(!plugins.get_picking());
+}
+
+#[test]
+fn pending_dialog_allows_ui_events_and_delivers_completion_through_the_inbox() {
+    const CHILD: &str = "PATINAE_ASYNC_DIALOG_TEST";
+    if std::env::var_os(CHILD).is_none() {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "app::events::tests::pending_dialog_allows_ui_events_and_delivers_completion_through_the_inbox",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
+    i_slint_backend_testing::init_integration_test_with_mock_time();
+    let window = AppWindow::new().unwrap();
+    let app = Rc::new(RefCell::new(App::new()));
+    let sender = app.borrow().events.clone();
+    sender.bind(&app, &window);
+    let next = sender.clone();
+    let state = app.clone();
+    let ready = Rc::new(Cell::new(false));
+    let completed = ready.clone();
+    super::super::effects::spawn_dialog(&sender, None, async move {
+        let mut scheduled = false;
+        std::future::poll_fn(move |cx| {
+            if ready.get() {
+                return std::task::Poll::Ready(());
+            }
+            if !scheduled {
+                scheduled = true;
+                let ready = ready.clone();
+                let state = state.clone();
+                let next = next.clone();
+                let wake = cx.waker().clone();
+                slint::spawn_local(async move {
+                    // A pending native dialog must not hold an application borrow.
+                    drop(state.borrow_mut());
+                    next.send(GuiEvent::Repl(bridges::repl::events::Event::Submit(
+                        "set stick_radius, 0.4".into(),
+                    )));
+                    ready.set(true);
+                    wake.wake();
+                })
+                .unwrap();
+            }
+            std::task::Poll::Pending
+        })
+        .await;
+        Some(GuiEvent::Close)
+    });
+    slint::run_event_loop().unwrap();
+    assert!(completed.get());
+    assert!(sender.0.closed.get());
+    assert_eq!(
+        app.borrow().kernel.command_line.history,
+        ["set stick_radius, 0.4"]
+    );
+}
+
+#[test]
 fn representation_popover_reads_the_requested_kind_on_first_open_and_switch() {
     let (app, window, sender) = fixture();
     let molecule = patinae_mol::MoleculeBuilder::new("mol")

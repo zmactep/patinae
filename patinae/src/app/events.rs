@@ -255,14 +255,11 @@ impl App {
             GuiEvent::Command(command) => self.kernel.bus.execute_command(command),
             GuiEvent::Warning(message) => self.kernel.bus.print_warning(message),
             GuiEvent::FileChosen { path, script } => {
-                #[cfg(target_os = "macos")]
                 if script {
                     self.route_menu_run_script(path);
                 } else {
                     self.route_menu_open_file(path);
                 }
-                #[cfg(not(target_os = "macos"))]
-                let _ = (path, script);
             }
             GuiEvent::Objects(event) => bridges::objects::events::dispatch(
                 event,

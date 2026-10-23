@@ -15,6 +15,26 @@ permissions:
   contents: read
 
 jobs:
+  desktop:
+    name: Desktop (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+      - name: Check desktop GUI
+        run: cargo clippy --locked -p patinae --all-targets -- -D warnings
+      - name: Test GUI event dispatch
+        run: cargo test --locked -p patinae --bin patinae app::events::tests -- --test-threads=1
+
   build:
     runs-on: ubuntu-latest
 

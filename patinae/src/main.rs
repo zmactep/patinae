@@ -10,6 +10,7 @@ mod fetch;
 #[cfg(target_os = "macos")]
 mod macos;
 mod native_file_actions;
+mod native_file_dialogs;
 use app::native_menu;
 mod plugin_startup;
 mod recent_files;
