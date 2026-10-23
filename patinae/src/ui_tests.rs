@@ -675,6 +675,82 @@ fn actual_ui_hover_tooltip_and_responsive_bounds() {
             assert!(!repl.get_focused());
         }
     }
+    // Rename through real pointer/key events, production callbacks, and commands.
+    crate::bridges::objects::setup_callbacks(sender.clone(), &app);
+    app.invoke_dismiss_repl();
+    objects.set_popover_kind("".into());
+    app.window()
+        .set_size(slint::LogicalSize::new(1512.0, 945.0));
+    sync_dock();
+    objects.set_dock_scroll_y(0.0);
+    render();
+    let key = |text: slint::SharedString| {
+        app.window()
+            .dispatch_event(WindowEvent::KeyPressed { text: text.clone() });
+        app.window()
+            .dispatch_event(WindowEvent::KeyReleased { text });
+    };
+    for (kind, old_name, new_name) in [
+        ("object", "drag_fixture", "renamed_object"),
+        ("selection", "sele", "renamed_selection"),
+    ] {
+        let mut row_y = app.get_scene_y();
+        let mut found = false;
+        for row in objects.get_dock_rows().iter() {
+            if row.kind == kind && (row.object.name == old_name || row.selection.name == old_name) {
+                found = true;
+                break;
+            }
+            row_y += if row.kind == "header" {
+                geometry.get_section_header_h()
+            } else {
+                geometry.get_row_h()
+            };
+        }
+        assert!(found, "rename fixture must be visible: {old_name}");
+        let row_x = 1512.0 - 180.0;
+        row_y += geometry.get_row_h() / 2.0;
+        for cancel in [true, false] {
+            clock.set(clock.get() + Duration::from_secs(1));
+            slint::platform::update_timers_and_animations();
+            click(row_x, row_y);
+            render();
+            assert_eq!(objects.get_name_input_action(), "");
+            clock.set(clock.get() + Duration::from_millis(100));
+            slint::platform::update_timers_and_animations();
+            click(row_x, row_y);
+            render();
+            assert_eq!(objects.get_name_input_action(), "rename");
+            assert_eq!(objects.get_name_input_target(), old_name);
+            assert_eq!(objects.get_name_input_text(), old_name);
+            for character in new_name.chars() {
+                key(character.to_string().into());
+            }
+            assert_eq!(
+                objects.get_name_input_text(),
+                new_name,
+                "the editor must receive focus and select the old name"
+            );
+            key(if cancel {
+                slint::platform::Key::Escape.into()
+            } else {
+                slint::platform::Key::Return.into()
+            });
+            sync_dock();
+            render();
+            assert_eq!(objects.get_name_input_action(), "");
+            let host = host.borrow();
+            let contains = |name| {
+                if kind == "object" {
+                    host.kernel.session.registry.contains(name)
+                } else {
+                    host.kernel.session.selections.contains(name)
+                }
+            };
+            assert_eq!(contains(old_name), cancel);
+            assert_eq!(contains(new_name), !cancel);
+        }
+    }
 }
 
 #[test]

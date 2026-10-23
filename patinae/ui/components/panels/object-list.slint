@@ -324,6 +324,11 @@ export component ObjectRow inherits Rectangle {
                 ObjectsState.object-clicked(root.obj.name,
                                             obj-header.click-shift, obj-header.click-meta);
             }
+            double-clicked => {
+                if root.obj.can-rename {
+                    ObjectsState.begin-rename(root.obj.name);
+                }
+            }
         }
 
         RowActions {

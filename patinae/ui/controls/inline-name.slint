@@ -5,7 +5,7 @@ export component InlineName inherits Rectangle {
     border-width: Shape.border-stroke; border-color: Theme.border-focus;
     border-radius: Shape.radius-sm;
     forward-focus: field;
-    init => { field.focus(); }
+    init => { field.focus(); field.select-all(); }
     field := TextInput {
         x: Spacing.xs; width: max(0px, parent.width - 2 * Spacing.xs); height: parent.height;
         text <=> ObjectsState.name-input-text;

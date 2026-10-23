@@ -70,6 +70,7 @@ export component SelectionRowItem inherits PanelRow {
             ObjectsState.selection-clicked(root.data.name,
                                            root.click-shift, root.click-meta);
         }
+        double-clicked => { ObjectsState.begin-rename(root.data.name); }
     }
 
     RowActions {

@@ -301,6 +301,14 @@ export global ObjectsState {
     in-out property <string> name-input-title: "";    // popup header, e.g. "Rename 1abc"
     callback name-input-confirm();
 
+    public function begin-rename(name: string) {
+        root.name-input-target = name;
+        root.name-input-text = name;
+        root.name-input-title = "Rename " + name;
+        root.popover-kind = "";
+        root.name-input-action = "rename";
+    }
+
     // ── Action pill callbacks (level-agnostic, Rust dispatches) ──
     callback action-zoom();
     callback action-orient();
