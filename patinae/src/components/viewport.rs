@@ -13,6 +13,7 @@ use patinae_color::resolve_literal_color;
 mod picking;
 mod preparation;
 mod recovery;
+#[cfg(not(target_os = "windows"))]
 pub(crate) use preparation::render_memory_policy_for_device;
 use preparation::*;
 
