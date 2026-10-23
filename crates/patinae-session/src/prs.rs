@@ -11,6 +11,8 @@ use patinae_scene::Session;
 use rmpv::Value;
 use serde::{Deserialize, Serialize};
 
+mod legacy_colors;
+
 /// Current native PRS document format version.
 ///
 /// Version 8 stores tagged colors on atoms, with global representation defaults.
@@ -163,6 +165,7 @@ fn stage_prs_payload(bytes: &[u8]) -> Result<Vec<u8>, PrsError> {
     }
 
     migrate_positional_compatibility(&mut root)?;
+    legacy_colors::migrate(&mut root)?;
     let (format_version, session) = session_value(&root)?;
     let registry = struct_field(session, "registry", 0, "Session")?;
     validate_registry(registry, format_version)?;
@@ -818,6 +821,21 @@ mod tests {
     use std::fs;
     use std::path::PathBuf;
 
+    #[test]
+    #[ignore = "requires the local user session in _tests"]
+    fn local_1bna_v3_loads_and_resaves() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../_tests/1bna_new_v3.prs");
+        let original = fs::read(&path).unwrap();
+        let document = load_prs_document(&path).expect("legacy 1bna session must load");
+        assert_eq!(document.session.registry.names().count(), 2);
+        let (dir, upgraded_path) = temp_prs_path("1bna-v3-upgraded");
+        save_prs(&document.session, &upgraded_path).unwrap();
+        let upgraded = load_prs_document(&upgraded_path).unwrap();
+        assert_eq!(upgraded.prs_format_version, PRS_FORMAT_VERSION);
+        assert_eq!(upgraded.session.registry.names().count(), 2);
+        assert_eq!(fs::read(&path).unwrap(), original);
+        fs::remove_dir_all(dir).unwrap();
+    }
     fn temp_prs_path(name: &str) -> (PathBuf, PathBuf) {
         let dir =
             std::env::temp_dir().join(format!("patinae_prs_test_{}_{}", name, std::process::id()));
@@ -838,7 +856,7 @@ mod tests {
     }
 
     #[test]
-    fn tagged_colors_survive_prs_and_untagged_colors_are_rejected() {
+    fn tagged_colors_survive_prs_and_only_legacy_documents_accept_untagged_colors() {
         let mut session = cartoon_session_with_restore();
         session.settings.stick.color = ColorValue::rgb(0, 0, 2);
         session.settings.sphere.color = ColorValue::palette(0xabcdef);
@@ -869,7 +887,6 @@ mod tests {
             ColorValue::scheme(0xffffff)
         );
 
-        *test_map_field_mut(&mut value, "prs_format_version") = Value::from(6);
         let settings = test_map_field_mut(test_map_field_mut(&mut value, "session"), "settings");
         *test_map_field_mut(test_map_field_mut(settings, "sphere"), "color") =
             Value::from(0xabcdef);
@@ -877,6 +894,19 @@ mod tests {
         bytes.clear();
         rmpv::encode::write_value(&mut bytes, &value).unwrap();
         assert!(decode_prs_document(&bytes).is_err());
+
+        *test_map_field_mut(&mut value, "prs_format_version") = Value::from(6);
+        bytes.clear();
+        rmpv::encode::write_value(&mut bytes, &value).unwrap();
+        let restored = decode_prs_document(&bytes).unwrap();
+        assert_eq!(
+            restored.session.settings.stick.color,
+            ColorValue::palette(2)
+        );
+        assert_eq!(
+            restored.session.settings.sphere.color,
+            ColorValue::rgb(0xab, 0xcd, 0xef)
+        );
     }
 
     fn instanced_session() -> Session {

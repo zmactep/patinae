@@ -47,6 +47,9 @@ pub struct ScenePerAtomData {
     pub colors: patinae_mol::AtomColors,
     /// Visible representations
     pub visible_reps: RepMask,
+    /// Legacy scenes restore only the base color, preserving representation edits.
+    #[serde(default)]
+    pub base_color_only: bool,
 }
 
 /// Per-object stored properties in a scene
@@ -144,6 +147,7 @@ impl Scene {
                             .map(|atom| ScenePerAtomData {
                                 colors: atom.repr.colors.clone(),
                                 visible_reps: atom.repr.visible_reps,
+                                base_color_only: false,
                             })
                             .collect()
                     } else {
@@ -203,7 +207,11 @@ impl Scene {
                     if atoms.len() == per_atom.len() {
                         for (atom, stored) in atoms.iter_mut().zip(per_atom.iter()) {
                             if self.storemask.contains(SceneStoreMask::COLOR) {
-                                atom.repr.colors = stored.colors.clone();
+                                if stored.base_color_only {
+                                    atom.repr.colors.base = stored.colors.base;
+                                } else {
+                                    atom.repr.colors = stored.colors.clone();
+                                }
                             }
                             if self.storemask.contains(SceneStoreMask::REP) {
                                 atom.repr.visible_reps = stored.visible_reps;

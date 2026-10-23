@@ -19,6 +19,8 @@ pub enum ColorKind {
     Palette = 2,
     Scheme = 3,
     Inherit = 4,
+    /// Use the atom's base color without a global representation override.
+    Base = 5,
     Unknown = 255,
 }
 
@@ -29,6 +31,8 @@ pub struct ColorValue(u32);
 
 impl ColorValue {
     pub const INHERIT: Self = Self(0x0400_0000);
+    /// Follow the atom's base color, bypassing global representation defaults.
+    pub const BASE: Self = Self(0x0400_0001);
 
     /// Parse a built-in scheme name or one of its aliases.
     pub fn from_scheme_name(name: &str) -> Option<Self> {
@@ -148,6 +152,7 @@ impl ColorValue {
             2 => ColorKind::Palette,
             3 => ColorKind::Scheme,
             4 if self.0 == Self::INHERIT.0 => ColorKind::Inherit,
+            4 if self.0 == Self::BASE.0 => ColorKind::Base,
             _ => ColorKind::Unknown,
         }
     }
@@ -169,6 +174,8 @@ impl std::fmt::Display for ColorValue {
             write!(f, "scheme:{id}")
         } else if *self == Self::INHERIT {
             f.write_str("inherit")
+        } else if *self == Self::BASE {
+            f.write_str("base")
         } else {
             write!(f, "color:0x{:08x}", self.0)
         }
@@ -189,6 +196,9 @@ impl std::str::FromStr for ColorValue {
         let text = text.trim();
         if text == "inherit" {
             return Ok(Self::INHERIT);
+        }
+        if text == "base" {
+            return Ok(Self::BASE);
         }
         if let Some(id) = text.strip_prefix("palette:") {
             return id
@@ -251,7 +261,8 @@ mod tests {
     fn tagged_values_preserve_all_bits() {
         assert_eq!(std::mem::size_of::<ColorKind>(), 1);
         for bits in [
-            0x01000000, 0x01ffffff, 0x02ffffff, 0x03ffffff, 0xfe123456, 0xffffffff, 0x80000000,
+            0x01000000, 0x01ffffff, 0x02ffffff, 0x03ffffff, 0x04000000, 0x04000001, 0xfe123456,
+            0xffffffff, 0x80000000,
         ] {
             let value = ColorValue::try_from_bits(bits).unwrap();
             assert_eq!(value.to_bits(), bits);

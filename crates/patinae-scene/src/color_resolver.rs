@@ -83,10 +83,13 @@ impl<'a> ColorResolver<'a> {
     }
 
     fn resolve_base(&self, atom: &Atom) -> Color {
-        self.resolve_value(
-            Self::inherited(atom.repr.colors.base, ColorValue::ELEMENT),
-            atom,
-        )
+        let base = atom.repr.colors.base;
+        let base = if base == ColorValue::INHERIT || base == ColorValue::BASE {
+            ColorValue::ELEMENT
+        } else {
+            base
+        };
+        self.resolve_value(base, atom)
     }
 
     fn resolve_value(&self, color: ColorValue, atom: &Atom) -> Color {
@@ -134,6 +137,9 @@ impl<'a> ColorResolver<'a> {
             assigned,
             Self::inherited(global, Self::inherited(atom.repr.colors.base, automatic)),
         );
+        if value == ColorValue::BASE {
+            return self.resolve_atom(atom);
+        }
         self.resolve_value(value, atom).to_rgba(self.default_alpha)
     }
 
@@ -247,6 +253,16 @@ mod tests {
             [0.0, 1.0, 0.0, 1.0]
         );
         assert_eq!(resolver.resolve_cartoon(&atom), [0.0, 0.0, 1.0, 1.0]);
+        atom.repr.colors.cartoon = ColorValue::BASE;
+        assert_eq!(
+            resolver.resolve_cartoon_with_default(&atom, global),
+            [0.0, 0.0, 1.0, 1.0]
+        );
+        atom.repr.colors.base = ColorValue::rgb(255, 0, 0);
+        assert_eq!(
+            resolver.resolve_cartoon_with_default(&atom, global),
+            [1.0, 0.0, 0.0, 1.0]
+        );
     }
 
     #[test]
