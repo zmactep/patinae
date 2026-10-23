@@ -53,9 +53,10 @@ use patinae_framework::plugin_ui::{PanelEvent, PanelEventKind, PanelValue};
 use patinae_framework::topics::{self, SaveFileRequest, SAVE_FILE_REQUEST_TOPIC};
 use patinae_plugin_host::PluginHost;
 use patinae_render::{
-    bytes_to_mib, required_limits_for_memory_policy, FrameStatsHistory, RenderMemoryPolicy,
-    RenderMemoryProfile, RENDER_COMPUTE_STORAGE_BUFFERS_PER_STAGE,
+    bytes_to_mib, FrameStatsHistory, RenderMemoryProfile, RENDER_COMPUTE_STORAGE_BUFFERS_PER_STAGE,
 };
+#[cfg(any(not(target_os = "windows"), test))]
+use patinae_render::{required_limits_for_memory_policy, RenderMemoryPolicy};
 use patinae_scene::{
     bridge::ProjectedAnnotationLabel, canonical_atom_path_for_hit, expand_pick_to_selection,
     pick_expression_for_hit, CaptureRenderer, KeyBinding, PickHit, ViewportImage,
@@ -74,7 +75,9 @@ use crate::bridges::plugins::PluginBridge;
 use crate::bridges::repl::ReplBridge;
 use crate::bridges::sequence::SequenceBridge;
 use crate::bridges::viewport::ViewportBridge;
-use crate::components::viewport::{render_memory_policy_for_device, ViewportRenderer};
+#[cfg(not(target_os = "windows"))]
+use crate::components::viewport::render_memory_policy_for_device;
+use crate::components::viewport::ViewportRenderer;
 #[cfg(not(target_os = "windows"))]
 use crate::display_recovery::log_selected_gpu;
 use crate::display_recovery::{log_window_event, request_display_recovery_redraw, DisplayRecovery};

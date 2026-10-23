@@ -56,7 +56,7 @@ pub(super) fn patinae_wgpu_instance(
 #[cfg(target_os = "windows")]
 pub(super) fn patinae_wgpu_configuration(
 ) -> Result<slint::wgpu_30::WGPUConfiguration, Box<dyn std::error::Error>> {
-    let mut settings = patinae_wgpu_settings();
+    let settings = patinae_wgpu_settings();
     // Slint's automatic path selects the adapter after creating the window
     // surface. On Windows this avoids choosing a headless-incompatible adapter
     // before winit has a surface, while still giving Patinae native compute and
