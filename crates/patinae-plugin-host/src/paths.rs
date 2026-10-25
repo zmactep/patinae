@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashSet,
+    path::{Path, PathBuf},
+};
 
 use patinae_settings::{
     config::{initialize_config, read_config, AppConfig},
@@ -48,34 +51,49 @@ fn plugin_document(path: &Path, config: AppConfig) -> Option<PluginConfigDocumen
     })
 }
 
-/// Selects configured libraries or scans the supplied directories.
-fn plugin_library_paths(
-    config_path: &Path,
-    config: AppConfig,
-    directories: &[PathBuf],
-) -> Vec<PathBuf> {
-    if let Some(document) = plugin_document(config_path, config) {
-        let mut seen = std::collections::HashSet::new();
-        return document
-            .entries
-            .into_iter()
-            .map(|entry| entry.resolved_path)
-            .filter(|path| seen.insert(library_identity(path)))
-            .collect();
+/// A bundled library identified independently of the installation's absolute path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BundledPlugin {
+    /// Layout-qualified filename, such as `adjacent/libhello_plugin.dylib`.
+    pub id: String,
+    /// Library path in this installation.
+    pub path: PathBuf,
+}
+
+/// Discovered bundled libraries and the ordered user selection.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PluginCatalog {
+    /// Bundled libraries, including disabled ones.
+    pub bundled: Vec<BundledPlugin>,
+    /// User libraries, excluding aliases of bundled libraries.
+    pub user: Vec<PathBuf>,
+}
+
+impl PluginCatalog {
+    /// Selects enabled bundled libraries followed by user libraries.
+    pub fn library_paths(&self, disabled: &[String]) -> Vec<PathBuf> {
+        self.bundled
+            .iter()
+            .filter(|plugin| !disabled.contains(&plugin.id))
+            .map(|plugin| plugin.path.clone())
+            .chain(self.user.iter().cloned())
+            .collect()
     }
-    scan_plugin_dirs(directories)
 }
 
 pub(crate) fn scan_plugin_dirs(directories: &[PathBuf]) -> Vec<PathBuf> {
     let mut paths = Vec::new();
     for directory in directories {
         match std::fs::read_dir(directory) {
-            Ok(entries) => paths.extend(
-                entries
+            Ok(entries) => {
+                let mut libraries: Vec<_> = entries
                     .flatten()
                     .map(|entry| entry.path())
-                    .filter(|path| is_plugin_library_path(path)),
-            ),
+                    .filter(|path| is_plugin_library_path(path) && path.is_file())
+                    .collect();
+                libraries.sort();
+                paths.extend(libraries);
+            }
             Err(error) => log::debug!("Plugin directory {directory:?}: {error}"),
         }
     }
@@ -140,11 +158,49 @@ impl PluginDiscovery {
     }
 
     pub(crate) fn library_paths(&self) -> Result<Vec<PathBuf>, String> {
-        Ok(plugin_library_paths(
-            &self.config_path(),
-            self.load_config()?,
-            &self.standard_plugin_dirs(),
-        ))
+        let config = self.load_config()?;
+        Ok(self
+            .catalog(&config)
+            .library_paths(&config.disabled_bundled_plugins))
+    }
+
+    /// Discovers both groups without loading libraries or modifying configuration.
+    pub fn catalog(&self, config: &AppConfig) -> PluginCatalog {
+        let mut seen = HashSet::new();
+        let mut bundled = Vec::new();
+        if let Some(exe) = &self.executable_path {
+            for (kind, directory) in executable_plugin_dirs(exe, cfg!(target_os = "macos")) {
+                for path in scan_plugin_dirs(&[directory]) {
+                    let Some(filename) = path.file_name().and_then(|name| name.to_str()) else {
+                        continue;
+                    };
+                    if seen.insert(library_identity(&path)) {
+                        bundled.push(BundledPlugin {
+                            id: format!("{kind}/{filename}"),
+                            path,
+                        });
+                    }
+                }
+            }
+        }
+        let user = match &config.plugin {
+            Some(entries) => {
+                let config_path = self.config_path();
+                let directory = config_path.parent().unwrap_or_else(|| Path::new("."));
+                entries
+                    .iter()
+                    .map(|entry| directory.join(&entry.path))
+                    .collect()
+            }
+            None => scan_plugin_dirs(&[self.paths.plugin_dir()]),
+        };
+        PluginCatalog {
+            bundled,
+            user: user
+                .into_iter()
+                .filter(|path| seen.insert(library_identity(path)))
+                .collect(),
+        }
     }
 
     /// Returns the standard plugin search directories.
@@ -181,16 +237,27 @@ fn push_unique(dirs: &mut Vec<PathBuf>, dir: PathBuf) {
 }
 
 fn push_executable_plugin_dirs(dirs: &mut Vec<PathBuf>, exe: &Path, include_bundle_plugins: bool) {
+    for (_, directory) in executable_plugin_dirs(exe, include_bundle_plugins) {
+        push_unique(dirs, directory);
+    }
+}
+
+fn executable_plugin_dirs(
+    exe: &Path,
+    include_bundle_plugins: bool,
+) -> Vec<(&'static str, PathBuf)> {
+    let mut dirs = Vec::new();
     let Some(parent) = exe.parent() else {
-        return;
+        return dirs;
     };
-    push_unique(dirs, parent.join("plugins"));
+    dirs.push(("adjacent", parent.join("plugins")));
 
     if include_bundle_plugins && parent.file_name().and_then(|s| s.to_str()) == Some("MacOS") {
         if let Some(contents) = parent.parent() {
-            push_unique(dirs, contents.join("PlugIns"));
+            dirs.push(("macos", contents.join("PlugIns")));
         }
     }
+    dirs
 }
 
 #[cfg(target_os = "windows")]
@@ -413,7 +480,7 @@ mod tests {
     }
 
     #[test]
-    fn missing_allowlist_scans_all_dirs_but_empty_list_disables_loading() {
+    fn missing_allowlist_scans_all_dirs_but_empty_list_disables_only_user() {
         let root = tempfile::tempdir().unwrap();
         let discovery = fixture_discovery(root.path());
         let dirs = discovery.standard_plugin_dirs();
@@ -425,10 +492,101 @@ mod tests {
             std::fs::write(dir.join("readme.txt"), "ignore").unwrap();
             expected.push(library);
         }
+        expected.reverse(); // Bundled libraries precede user libraries.
         assert_eq!(discovery.library_paths().unwrap(), expected);
         assert!(discovery.config_path().is_file());
         std::fs::write(discovery.config_path(), "repl_position='top'\nplugin=[]").unwrap();
+        assert_eq!(discovery.library_paths().unwrap(), expected[..1]);
+    }
+
+    #[test]
+    fn bundled_selection_survives_relocation_and_new_libraries_default_to_enabled() {
+        let root = tempfile::tempdir().unwrap();
+        let extension = std::env::consts::DLL_EXTENSION;
+        let disabled = format!("adjacent/a.{extension}");
+        for location in ["first", "moved"] {
+            let location = root.path().join(location);
+            let discovery = fixture_discovery(&location);
+            let bundled = location.join("bin/plugins");
+            std::fs::create_dir_all(&bundled).unwrap();
+            for name in ["z", "a", "b"] {
+                std::fs::write(bundled.join(format!("{name}.{extension}")), "fixture").unwrap();
+            }
+            std::fs::create_dir(bundled.join(format!("directory.{extension}"))).unwrap();
+            let text = format!(
+                "disabled_bundled_plugins = ['{disabled}', 'adjacent/future']\n[[plugin]]\npath='bin/plugins/a.{extension}'\n[[plugin]]\npath='missing-user'"
+            );
+            std::fs::write(discovery.config_path(), text).unwrap();
+            let config = discovery.load_config().unwrap();
+            let catalog = discovery.catalog(&config);
+            assert_eq!(catalog.bundled.len(), 3);
+            assert_eq!(catalog.bundled[0].id, disabled);
+            assert_eq!(catalog.user, vec![location.join("missing-user")]);
+            assert_eq!(
+                discovery.library_paths().unwrap(),
+                vec![
+                    bundled.join(format!("b.{extension}")),
+                    bundled.join(format!("z.{extension}")),
+                    location.join("missing-user"),
+                ]
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bundled_aliases_are_deduplicated_and_cannot_be_enabled_through_user_paths() {
+        let root = tempfile::tempdir().unwrap();
+        let discovery = fixture_discovery(root.path());
+        let bundled = root.path().join("bin/plugins");
+        std::fs::create_dir_all(&bundled).unwrap();
+        let filename = format!("a.{}", std::env::consts::DLL_EXTENSION);
+        let library = bundled.join(&filename);
+        std::fs::write(&library, "fixture").unwrap();
+        std::os::unix::fs::symlink(
+            &library,
+            bundled.join(format!("z.{}", std::env::consts::DLL_EXTENSION)),
+        )
+        .unwrap();
+        std::os::unix::fs::symlink(&library, root.path().join("alias")).unwrap();
+        std::fs::write(
+            discovery.config_path(),
+            format!("disabled_bundled_plugins=['adjacent/{filename}']\n[[plugin]]\npath='alias'"),
+        )
+        .unwrap();
+        let config = discovery.load_config().unwrap();
+        let catalog = discovery.catalog(&config);
+        assert_eq!(catalog.bundled.len(), 1);
+        assert!(catalog.user.is_empty());
         assert!(discovery.library_paths().unwrap().is_empty());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_bundle_uses_distinct_layout_ids_and_stable_directory_order() {
+        let root = tempfile::tempdir().unwrap();
+        let contents = root.path().join("Patinae.app/Contents");
+        let adjacent = contents.join("MacOS/plugins");
+        let plugins = contents.join("PlugIns");
+        for directory in [&adjacent, &plugins] {
+            std::fs::create_dir_all(directory).unwrap();
+            std::fs::write(directory.join("same.dylib"), "fixture").unwrap();
+        }
+        let discovery =
+            fixture_discovery(root.path()).with_executable_path(contents.join("MacOS/patinae"));
+        let catalog = discovery.catalog(&AppConfig::default());
+        assert_eq!(
+            catalog
+                .bundled
+                .iter()
+                .map(|plugin| plugin.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["adjacent/same.dylib", "macos/same.dylib"]
+        );
+        assert_eq!(
+            catalog.library_paths(&["macos/same.dylib".into()]),
+            vec![adjacent.join("same.dylib")]
+        );
     }
 
     #[test]

@@ -17,7 +17,11 @@ pub use loader::{
     validate_declaration_versions, BackgroundPluginLoader, PluginLoadEvent, PreparedPlugin,
 };
 pub use panels::{PanelFrame, PanelStatus};
-pub use paths::{is_plugin_library_path, library_identity, standard_plugin_dirs, PluginDiscovery};
+#[doc(inline)]
+pub use paths::{
+    is_plugin_library_path, library_identity, standard_plugin_dirs, BundledPlugin, PluginCatalog,
+    PluginDiscovery,
+};
 #[doc(inline)]
 pub use paths::{read_plugin_config, PluginConfigDocument, PluginConfigEntry};
 pub use patinae_plugin::registrar::CommandResult;

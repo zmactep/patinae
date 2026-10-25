@@ -1,4 +1,5 @@
 import { TextButton, IconButton } from "../controls/button.slint";
+import { Toggle } from "../controls/toggle.slint";
 import { Icons } from "../icons/icons.slint";
 import { Theme, Typography, Spacing, Shape } from "../foundations/foundations.slint";
 import { ScrollView } from "std-widgets.slint";
@@ -55,67 +56,100 @@ export component PluginListDialog inherits Rectangle {
                 content-width: self.visible-width;
                 VerticalLayout {
                     spacing: Spacing.sm;
-                    if PluginListState.rows.length == 0: Text {
-                        text: "No plugins";
+                    Text {
+                        text: "Bundled";
+                        color: Theme.text-primary;
+                        font-size: Typography.body-small.size;
+                        font-weight: 700;
+                    }
+                    if PluginListState.bundled-count == 0: Text {
+                        text: "No bundled plugins";
                         color: Theme.text-muted;
                         font-size: Typography.body-small.size;
                     }
-                    for row[index] in PluginListState.rows: Rectangle {
-                        min-height: row-layout.preferred-height;
-                        background: Theme.surface-control;
-                        border-radius: Shape.radius-sm;
-                        row-layout := HorizontalLayout {
-                            padding: Spacing.sm;
-                            spacing: Spacing.sm;
-                            VerticalLayout {
-                                spacing: 4px;
-                                Text {
-                                    text: row.title + (row.missing ? " — Not loaded" : "");
-                                    color: row.missing ? Theme.status-error : Theme.text-primary;
-                                    font-size: Typography.body-small.size;
-                                    font-weight: 600;
-                                    wrap: word-wrap;
+                    for row[index] in PluginListState.rows: VerticalLayout {
+                        spacing: Spacing.sm;
+                        if index == PluginListState.bundled-count: Text {
+                            text: "User";
+                            color: Theme.text-primary;
+                            font-size: Typography.body-small.size;
+                            font-weight: 700;
+                        }
+                        Rectangle {
+                            min-height: row-layout.preferred-height;
+                            background: Theme.surface-control;
+                            border-radius: Shape.radius-sm;
+                            row-layout := HorizontalLayout {
+                                padding: Spacing.sm;
+                                spacing: Spacing.sm;
+                                VerticalLayout {
+                                    spacing: 4px;
+                                    Text {
+                                        text: row.title + (!row.enabled ? " — Disabled" : row.missing ? " — Not loaded" : "");
+                                        color: (row.enabled && row.missing) ? Theme.status-error : Theme.text-primary;
+                                        font-size: Typography.body-small.size;
+                                        font-weight: 600;
+                                        wrap: word-wrap;
+                                    }
+                                    if row.description != "": Text {
+                                        text: row.description;
+                                        color: (row.enabled && row.missing) ? Theme.status-error : Theme.text-muted;
+                                        font-size: Typography.label.size;
+                                        wrap: word-wrap;
+                                    }
+                                    if row.description != "": Rectangle {
+                                        height: 4px;
+                                    }
+                                    Text {
+                                        text: row.path;
+                                        font-family: "monospace";
+                                        font-size: Typography.label.size;
+                                        color: (row.enabled && row.missing) ? Theme.status-error : Theme.text-muted;
+                                        wrap: word-wrap;
+                                    }
                                 }
-                                if row.description != "": Text {
-                                    text: row.description;
-                                    color: row.missing ? Theme.status-error : Theme.text-muted;
-                                    font-size: Typography.label.size;
-                                    wrap: word-wrap;
+                                if row.bundled: Toggle {
+                                    active: row.enabled;
+                                    label: "Enabled";
+                                    accessible-label: "Enable " + row.title;
+                                    enabled: !PluginListState.applying && !PluginListState.damaged;
+                                    clicked => { PluginListState.set-enabled(index, !row.enabled); }
                                 }
-                                if row.description != "": Rectangle {
-                                    height: 4px;
-                                }
-                                Text {
-                                    text: row.path;
-                                    font-family: "monospace";
-                                    font-size: Typography.label.size;
-                                    color: row.missing ? Theme.status-error : Theme.text-muted;
-                                    wrap: word-wrap;
-                                }
-                            }
-                            Rectangle {
-                                width: 28px;
-                                height: 28px;
-                                border-radius: Shape.radius-sm;
-                                background: trash-touch.has-hover ? Theme.status-error.with-alpha(0.12) : transparent;
-                                accessible-role: button;
-                                accessible-label: "Remove " + row.title;
-                                accessible-action-default => { PluginListState.remove(index); }
-                                Path {
-                                    x: 5px; y: 5px; width: 18px; height: 18px;
-                                    viewbox-width: 24; viewbox-height: 24;
-                                    stroke: trash-touch.has-hover ? Theme.status-error : Theme.text-muted;
-                                    stroke-width: 1.5px;
-                                    fill: transparent;
-                                    commands: "M 3 6 L 21 6 M 9 6 L 9 3 L 15 3 L 15 6 M 5 6 L 6 21 L 18 21 L 19 6 M 10 10 L 10 17 M 14 10 L 14 17";
-                                }
-                                trash-touch := TouchArea {
-                                    enabled: !PluginListState.applying;
-                                    mouse-cursor: pointer;
-                                    clicked => { PluginListState.remove(index); }
+                                if !row.bundled: Rectangle {
+                                    width: 28px;
+                                    height: 28px;
+                                    border-radius: Shape.radius-sm;
+                                    background: trash-touch.has-hover ? Theme.status-error.with-alpha(0.12) : transparent;
+                                    accessible-role: button;
+                                    accessible-label: "Remove " + row.title;
+                                    accessible-action-default => { PluginListState.remove(index); }
+                                    Path {
+                                        x: 5px; y: 5px; width: 18px; height: 18px;
+                                        viewbox-width: 24; viewbox-height: 24;
+                                        stroke: trash-touch.has-hover ? Theme.status-error : Theme.text-muted;
+                                        stroke-width: 1.5px;
+                                        fill: transparent;
+                                        commands: "M 3 6 L 21 6 M 9 6 L 9 3 L 15 3 L 15 6 M 5 6 L 6 21 L 18 21 L 19 6 M 10 10 L 10 17 M 14 10 L 14 17";
+                                    }
+                                    trash-touch := TouchArea {
+                                        enabled: !PluginListState.applying && !PluginListState.damaged;
+                                        mouse-cursor: pointer;
+                                        clicked => { PluginListState.remove(index); }
+                                    }
                                 }
                             }
                         }
+                    }
+                    if PluginListState.rows.length == PluginListState.bundled-count: Text {
+                        text: "User";
+                        color: Theme.text-primary;
+                        font-size: Typography.body-small.size;
+                        font-weight: 700;
+                    }
+                    if PluginListState.rows.length == PluginListState.bundled-count: Text {
+                        text: "No user plugins";
+                        color: Theme.text-muted;
+                        font-size: Typography.body-small.size;
                     }
                     Rectangle { vertical-stretch: 1; }
                 }
@@ -137,7 +171,7 @@ export component PluginListDialog inherits Rectangle {
                 spacing: Spacing.sm;
                 DialogButton {
                     label: "Add";
-                    enabled: !PluginListState.picking && !PluginListState.applying;
+                    enabled: !PluginListState.picking && !PluginListState.applying && !PluginListState.damaged;
                     clicked => { PluginListState.add(); }
                 }
                 Text {

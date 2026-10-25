@@ -3,6 +3,8 @@ export struct PluginListRow {
     description: string,
     path: string,
     missing: bool,
+    bundled: bool,
+    enabled: bool,
 }
 
 export global PluginListState {
@@ -16,8 +18,10 @@ export global PluginListState {
     in-out property <bool> applying: false;
     in-out property <string> loading-status;
     in-out property <[PluginListRow]> rows;
+    in-out property <int> bundled-count;
     callback open();
     callback remove(int);
+    callback set-enabled(int, bool);
     callback add();
     callback save();
     callback close();

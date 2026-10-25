@@ -13,6 +13,7 @@ pub(crate) enum Event {
     Close,
     Add,
     Remove(PathBuf),
+    SetEnabled(PathBuf, bool),
     Save,
     Picked(Result<Vec<PathBuf>, String>),
 }
@@ -40,6 +41,22 @@ pub(crate) fn setup_callbacks(sender: EventSender, window: &AppWindow) {
             }
         }
     });
+    let s = sender.clone();
+    let weak = window.as_weak();
+    state.on_set_enabled(move |i, enabled| {
+        if let Some(w) = weak.upgrade() {
+            if let Some(row) = w
+                .global::<PluginListState>()
+                .get_rows()
+                .row_data(i as usize)
+            {
+                s.send(GuiEvent::PluginList(Event::SetEnabled(
+                    PathBuf::from(row.path.as_str()),
+                    enabled,
+                )));
+            }
+        }
+    });
     state.on_save(move || sender.send(GuiEvent::PluginList(Event::Save)));
 }
 
@@ -50,7 +67,7 @@ pub(in crate::app) fn dispatch(event: Event, app: &mut App, window: &AppWindow) 
         Event::Open => {
             if !app.plugin_runtime.plugin_list.applying() {
                 app.plugin_runtime.plugin_list = PluginList::read(
-                    &patinae_settings::paths::PathResolver::from_process_env().config_file(),
+                    &PluginDiscovery::from_process_env(),
                     &loaded_entries(&app.plugin_runtime.plugins),
                 );
             }
@@ -91,6 +108,9 @@ pub(in crate::app) fn dispatch(event: Event, app: &mut App, window: &AppWindow) 
                 return;
             }
             app.plugin_runtime.plugin_list.save();
+        }
+        Event::SetEnabled(path, enabled) => {
+            app.plugin_runtime.plugin_list.set_enabled(&path, enabled);
         }
     }
     app.plugin_runtime.plugin_list.publish(window);

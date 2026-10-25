@@ -1,6 +1,7 @@
 //! Native application configuration.
 //!
-//! Missing `plugin` enables discovery; an explicit empty list disables plugins.
+//! Missing `plugin` enables user discovery; an empty list disables user plugins.
+//! Bundled plugins are discovered independently and can be disabled by stable ID.
 //! Updates preserve unrelated TOML values and comments and replace files atomically.
 
 use crate::{SettingEnum as _, ThemeMode};
@@ -41,6 +42,9 @@ pub struct AppConfig {
     pub repl_position: ReplPosition,
     /// Ordered allowlist; `None` means automatic discovery.
     pub plugin: Option<Vec<PluginEntry>>,
+    /// Disabled bundled library IDs, relative to their installation layout.
+    #[serde(default)]
+    pub disabled_bundled_plugins: Vec<String>,
 }
 
 // Config strings are lowercase; session serialization retains its existing enum format.
@@ -202,6 +206,20 @@ fn save(path: &Path, doc: &DocumentMut, replace: bool) -> Result<(), ConfigError
 /// # Errors
 /// Returns an error for invalid paths, damaged existing documents, or filesystem failures.
 pub fn save_plugins(path: &Path, libraries: &[PathBuf]) -> Result<(), ConfigError> {
+    save_plugin_preferences(path, libraries, None)
+}
+
+/// Saves user libraries and bundled preferences together, preserving unrelated settings.
+///
+/// `None` preserves the existing bundled preferences.
+///
+/// # Errors
+/// Returns an error for invalid paths, damaged documents, or filesystem failures.
+pub fn save_plugin_preferences(
+    path: &Path,
+    libraries: &[PathBuf],
+    disabled_bundled_plugins: Option<&[String]>,
+) -> Result<(), ConfigError> {
     let entries = libraries
         .iter()
         .map(|library| {
@@ -216,6 +234,10 @@ pub fn save_plugins(path: &Path, libraries: &[PathBuf]) -> Result<(), ConfigErro
         .collect::<Result<Vec<_>, _>>()?;
     let (mut doc, exists) = document(path)?;
     replace_plugins(&mut doc, &entries);
+    if let Some(disabled) = disabled_bundled_plugins {
+        doc["disabled_bundled_plugins"] =
+            value(disabled.iter().map(String::as_str).collect::<Array>());
+    }
     save(path, &doc, exists)
 }
 
@@ -252,6 +274,39 @@ pub fn save_theme(path: &Path, theme: ThemeMode) -> Result<(), ConfigError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn plugin_preferences_save_atomically_and_preserve_other_settings() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "# keep this\ntheme='dark'\nrepl_position='top'\nplugin=[]\ndisabled_bundled_plugins=['adjacent/unknown']\n[future]\nanswer=42\n").unwrap();
+        let disabled = vec!["adjacent/unknown".into(), "macos/test.dylib".into()];
+        save_plugin_preferences(&path, &[PathBuf::from("custom")], Some(&disabled)).unwrap();
+        let config = read_config(&path).unwrap().unwrap();
+        assert_eq!(config.disabled_bundled_plugins, disabled);
+        assert_eq!(config.plugin.unwrap()[0].path, "custom");
+        assert_eq!(config.theme, ThemeMode::Dark);
+        assert_eq!(config.repl_position, ReplPosition::Top);
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("# keep this"));
+        assert!(text.contains("answer=42"));
+        assert!(save_plugin_preferences(&path, &[PathBuf::new()], Some(&[])).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
+        save_plugins(&path, &[]).unwrap();
+        assert_eq!(
+            read_config(&path)
+                .unwrap()
+                .unwrap()
+                .disabled_bundled_plugins,
+            disabled
+        );
+        std::fs::write(&path, "disabled_bundled_plugins = false").unwrap();
+        assert!(save_plugin_preferences(&path, &[], Some(&[])).is_err());
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "disabled_bundled_plugins = false"
+        );
+    }
 
     #[test]
     fn theme_round_trips_preserve_comments_plugins_and_session_encoding() {
@@ -326,7 +381,8 @@ mod tests {
                 AppConfig {
                     theme: ThemeMode::System,
                     repl_position: position,
-                    plugin: entries
+                    plugin: entries,
+                    disabled_bundled_plugins: Vec::new(),
                 }
             );
         }

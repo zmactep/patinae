@@ -1,4 +1,4 @@
-//! Editable plugin allowlist backed by live library identities.
+//! Bundled plugin switches and an editable user allowlist.
 
 #[cfg(test)]
 use std::path::Path;
@@ -6,8 +6,11 @@ use std::{collections::HashSet, path::PathBuf};
 
 use crate::{AppWindow, PluginListRow, PluginListState};
 use patinae_cmd::LoadedPluginCapability;
+#[cfg(test)]
+use patinae_plugin_host::read_plugin_config;
 use patinae_plugin_host::{
-    library_identity as identity, read_plugin_config, PluginApplication, PluginHost,
+    library_identity as identity, BundledPlugin, PluginApplication, PluginCatalog, PluginDiscovery,
+    PluginHost,
 };
 use slint::{ComponentHandle, ModelRc, VecModel};
 
@@ -42,6 +45,8 @@ enum DocumentState {
 struct PluginListDraft {
     target: PathBuf,
     entries: Vec<PathBuf>,
+    bundled: Vec<BundledPlugin>,
+    disabled_bundled: Vec<String>,
     removed: HashSet<PathBuf>,
     document: DocumentState,
     dirty: bool,
@@ -57,28 +62,38 @@ pub(crate) struct PluginList {
 }
 
 impl PluginList {
-    fn read(config_path: &std::path::Path, loaded: &[Entry]) -> Self {
+    fn read(discovery: &PluginDiscovery, loaded: &[Entry]) -> Self {
+        let config_path = discovery.config_path();
         let mut list = Self {
             draft: PluginListDraft {
-                target: config_path.to_owned(),
+                target: config_path.clone(),
                 ..Default::default()
             },
             loaded: loaded.to_vec(),
             ..Default::default()
         };
-        match read_plugin_config(config_path) {
-            Ok(document) => {
-                list.draft.entries = loaded.iter().map(|entry| identity(&entry.path)).collect();
-                if let Some(document) = document {
-                    let loaded_paths: HashSet<_> = list.draft.entries.iter().cloned().collect();
-                    for entry in document.entries {
-                        let path = identity(&entry.resolved_path);
-                        if !loaded_paths.contains(&path) {
-                            list.draft.entries.push(path);
-                        }
-                    }
-                } else {
+        match patinae_settings::config::read_config(&config_path) {
+            Ok(config) => {
+                let config = config.unwrap_or_default();
+                if config.plugin.is_none() {
                     list.draft.document = DocumentState::Missing;
+                }
+                let catalog = discovery.catalog(&config);
+                list.draft.bundled = catalog
+                    .bundled
+                    .into_iter()
+                    .map(|mut plugin| {
+                        plugin.path = identity(&plugin.path);
+                        plugin
+                    })
+                    .collect();
+                list.draft.disabled_bundled = config.disabled_bundled_plugins;
+                list.draft.entries = catalog.user.iter().map(|path| identity(path)).collect();
+                for entry in loaded {
+                    let path = identity(&entry.path);
+                    if !list.is_bundled(&path) && !list.draft.entries.contains(&path) {
+                        list.draft.entries.push(path);
+                    }
                 }
             }
             Err(error) => {
@@ -94,6 +109,38 @@ impl PluginList {
         matches!(self.draft.document, DocumentState::Damaged(_))
     }
 
+    fn is_bundled(&self, path: &std::path::Path) -> bool {
+        self.draft.bundled.iter().any(|plugin| plugin.path == path)
+    }
+
+    fn set_enabled(&mut self, path: &std::path::Path, enabled: bool) {
+        if self.damaged() || self.applying() {
+            return;
+        }
+        let Some(plugin) = self.draft.bundled.iter().find(|plugin| plugin.path == path) else {
+            return;
+        };
+        let disabled = self.draft.disabled_bundled.contains(&plugin.id);
+        if enabled == !disabled {
+            return;
+        }
+        if enabled {
+            self.draft.disabled_bundled.retain(|id| id != &plugin.id);
+        } else {
+            self.draft.disabled_bundled.push(plugin.id.clone());
+        }
+        self.draft.dirty = true;
+        self.save_error.clear();
+    }
+
+    fn desired_paths(&self) -> Vec<PathBuf> {
+        PluginCatalog {
+            bundled: self.draft.bundled.clone(),
+            user: self.draft.entries.clone(),
+        }
+        .library_paths(&self.draft.disabled_bundled)
+    }
+
     fn refresh_loaded(&mut self, loaded: &[Entry]) -> bool {
         if self.loaded == loaded {
             return false;
@@ -104,7 +151,10 @@ impl PluginList {
         }
         for plugin in loaded {
             let path = identity(&plugin.path);
-            if !self.draft.removed.contains(&path) && !self.draft.entries.contains(&path) {
+            if !self.is_bundled(&path)
+                && !self.draft.removed.contains(&path)
+                && !self.draft.entries.contains(&path)
+            {
                 self.draft.entries.push(path);
             }
         }
@@ -112,7 +162,10 @@ impl PluginList {
     }
 
     fn remove(&mut self, index: usize) {
-        if index >= self.draft.entries.len() {
+        if self.damaged() || self.applying() || index >= self.draft.entries.len() {
+            return;
+        }
+        if self.is_bundled(&self.draft.entries[index]) {
             return;
         }
         let path = self.draft.entries.remove(index);
@@ -124,7 +177,7 @@ impl PluginList {
     }
 
     fn add(&mut self, paths: Vec<PathBuf>) {
-        if paths.is_empty() {
+        if self.damaged() || self.applying() || paths.is_empty() {
             return;
         }
         let mut errors = Vec::new();
@@ -141,7 +194,7 @@ impl PluginList {
                 continue;
             }
             let path = identity(&path);
-            if self.draft.entries.contains(&path) {
+            if self.is_bundled(&path) || self.draft.entries.contains(&path) {
                 continue;
             }
             self.draft.removed.remove(&path);
@@ -152,12 +205,16 @@ impl PluginList {
     }
 
     fn save(&mut self) {
-        match patinae_settings::config::save_plugins(&self.draft.target, &self.draft.entries) {
+        match patinae_settings::config::save_plugin_preferences(
+            &self.draft.target,
+            &self.draft.entries,
+            Some(&self.draft.disabled_bundled),
+        ) {
             Ok(()) => {
                 self.draft.document = DocumentState::Ready;
                 self.draft.dirty = false;
                 self.save_error.clear();
-                self.application.queue(self.draft.entries.clone());
+                self.application.queue(self.desired_paths());
             }
             Err(error) => self.save_error = error.to_string(),
         }
@@ -207,9 +264,17 @@ impl PluginList {
 
     fn rows(&self) -> Vec<PluginListRow> {
         self.draft
-            .entries
+            .bundled
             .iter()
-            .map(|path| {
+            .map(|plugin| {
+                (
+                    &plugin.path,
+                    true,
+                    !self.draft.disabled_bundled.contains(&plugin.id),
+                )
+            })
+            .chain(self.draft.entries.iter().map(|path| (path, false, true)))
+            .map(|(path, bundled, enabled)| {
                 let metadata = self
                     .loaded
                     .iter()
@@ -233,6 +298,8 @@ impl PluginList {
                     description: description.into(),
                     path: path.display().to_string().into(),
                     missing: metadata.is_none(),
+                    bundled,
+                    enabled,
                 }
             })
             .collect()
@@ -254,6 +321,7 @@ impl PluginList {
         state.set_error(self.error().into());
         state.set_damaged(self.damaged());
         state.set_dirty(self.draft.dirty);
+        state.set_bundled_count(self.draft.bundled.len() as i32);
         state.set_rows(ModelRc::new(VecModel::from(self.rows())));
     }
 
@@ -305,7 +373,17 @@ mod tests {
         }
 
         fn read(&self, loaded: &[Entry]) -> PluginList {
-            PluginList::read(&self.0.join("config.toml"), loaded)
+            PluginList::read(&self.discovery(), loaded)
+        }
+
+        fn discovery(&self) -> PluginDiscovery {
+            PluginDiscovery::new(patinae_settings::paths::PathResolver::new(
+                patinae_settings::paths::PathResolverInput {
+                    config_dir: Some(self.0.clone()),
+                    ..Default::default()
+                },
+            ))
+            .with_executable_path(self.0.join("bin/patinae"))
         }
     }
 
@@ -432,6 +510,39 @@ pub static PATINAE_PLUGIN_DECLARATION: PluginDeclaration = PluginDeclaration {{
         list.save();
         apply_saved(&mut list, &mut host, &mut kernel);
         assert_eq!(host.plugin_count(), 0);
+
+        // Discover the same fixture as bundled, then disable and re-enable it live.
+        let bundled_dir = fixture.0.join("bin/plugins");
+        std::fs::create_dir_all(&bundled_dir).unwrap();
+        let bundled_path = bundled_dir.join(active.file_name().unwrap());
+        std::fs::copy(&active, &bundled_path).unwrap();
+        let bundled_path = identity(&bundled_path);
+        let mut list = fixture.read(&loaded_entries(&host));
+        assert_eq!(list.rows().len(), 1);
+        assert!(list.rows()[0].bundled);
+        assert!(list.rows()[0].enabled);
+        list.save();
+        apply_saved(&mut list, &mut host, &mut kernel);
+        assert_eq!(host.plugin_count(), 1);
+        list.set_enabled(&bundled_path, false);
+        assert_eq!(host.plugin_count(), 1, "switches remain drafts until Save");
+        list.save();
+        apply_saved(&mut list, &mut host, &mut kernel);
+        assert_eq!(host.plugin_count(), 0);
+        assert_eq!(list.rows().len(), 1);
+        assert!(!list.rows()[0].enabled);
+        assert!(bundled_path.is_file());
+        let mut list = fixture.read(&loaded_entries(&host));
+        assert!(
+            !list.rows()[0].enabled,
+            "reopening must preserve disabled state"
+        );
+        list.set_enabled(&bundled_path, true);
+        list.save();
+        apply_saved(&mut list, &mut host, &mut kernel);
+        assert_eq!(host.plugin_count(), 1);
+        assert!(!list.rows()[0].missing);
+        assert!(list.rows()[0].enabled);
     }
 
     fn apply_saved(
@@ -582,9 +693,53 @@ pub static PATINAE_PLUGIN_DECLARATION: PluginDeclaration = PluginDeclaration {{
         let rows = list.rows();
         assert_eq!(rows.len(), 3);
         assert!(!rows[0].missing);
-        assert!(!rows[1].missing);
-        assert!(rows[2].missing);
-        assert_eq!(rows[2].title, "missing.dylib");
+        assert!(rows[1].missing);
+        assert!(!rows[2].missing);
+        assert_eq!(rows[1].title, "missing.dylib");
+    }
+
+    #[test]
+    fn bundled_drafts_preserve_disabled_unknown_ids_and_reject_user_aliases() {
+        let fixture = Fixture::new();
+        let directory = fixture.0.join("bin/plugins");
+        std::fs::create_dir_all(&directory).unwrap();
+        let filename = format!("bundled.{}", std::env::consts::DLL_EXTENSION);
+        let library = directory.join(&filename);
+        std::fs::write(&library, "fixture").unwrap();
+        let library = identity(&library);
+        fixture.write(&format!("disabled_bundled_plugins=['adjacent/future']\n[[plugin]]\npath='bin/plugins/{filename}'\n[[plugin]]\npath='missing-user'"));
+        let mut list = fixture.read(&[]);
+        assert_eq!(list.rows().len(), 2);
+        assert!(list.rows()[0].bundled);
+        assert!(!list.rows()[1].bundled);
+        list.add(vec![library.clone()]);
+        assert_eq!(list.draft.entries.len(), 1);
+        list.set_enabled(&library, false);
+        assert!(list.draft.dirty);
+        assert!(list.refresh_loaded(&[loaded(library.clone())]));
+        assert!(!list.rows()[0].enabled);
+        assert_eq!(list.draft.entries.len(), 1);
+        // Even an incorrectly routed removal cannot remove a bundled library.
+        list.draft.entries.push(library.clone());
+        list.remove(1);
+        assert_eq!(list.draft.entries.len(), 2);
+        list.draft.entries.pop();
+        list.save();
+        let config = patinae_settings::config::read_config(&list.draft.target)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            config.disabled_bundled_plugins,
+            vec!["adjacent/future".to_owned(), format!("adjacent/{filename}")]
+        );
+        assert_eq!(config.plugin.unwrap().len(), 1);
+        assert_eq!(
+            list.desired_paths(),
+            vec![identity(&fixture.0.join("missing-user"))]
+        );
+        let reopened = fixture.read(&[]);
+        assert!(!reopened.rows()[0].enabled);
+        assert!(library.is_file());
     }
 
     #[test]

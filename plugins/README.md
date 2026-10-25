@@ -51,10 +51,18 @@ to `~/.patinae/plugins/`. For another destination, use
 
 ## Choose which plugins to load
 
-By default, Patinae finds plugins automatically. Use the **Plugins** dialog to
-add or remove libraries, then click **Save** to apply the changes.
+By default, Patinae finds plugins automatically. The **Plugins** dialog shows
+**Bundled** first and **User** below it. Bundled libraries come from the
+installation and have an **Enabled** switch; they cannot be removed from the
+list. User libraries can be added or removed from the list. Removing a user
+entry does not delete its file. Click **Save** to load or unload plugins without
+restarting the app. Disabled bundled libraries remain visible.
 
-You can also edit `~/.patinae/config.toml`. For example, to load only Hello on
+Bundled plugins are discovered even when a user list is configured. New bundled
+plugins are enabled by default. A library listed in both groups appears only
+under Bundled, including when the user path is a symlink to that library.
+
+You can also edit `~/.patinae/config.toml`. For example, to select Hello as a user plugin on
 macOS, add:
 
 ```toml
@@ -66,9 +74,21 @@ Add one `[[plugin]]` entry per library, in the order you want them loaded.
 Use the appropriate filename for your platform. Paths are relative to the
 folder containing `config.toml`; absolute paths also work.
 
-To disable all plugins, replace the list with `plugin = []`. To restore
-automatic discovery, remove the `plugin` list entirely. Restart Patinae after
-editing the file by hand.
+To disable all **user** plugins, replace the list with `plugin = []`. To restore
+user discovery, remove the `plugin` list entirely. Bundled plugins are controlled
+separately by a top-level setting (place it before any TOML table):
+
+```toml
+plugin = []
+disabled_bundled_plugins = ["macos/libhello_plugin.dylib"]
+```
+
+IDs consist of `adjacent/<filename>` for libraries in `plugins/` next to the
+executable, or `macos/<filename>` for libraries in `Contents/PlugIns/`. They
+survive moving the installation. The dialog writes these IDs automatically;
+unknown disabled IDs are retained if a later build restores a library. An
+explicit user entry cannot override a bundled library's disabled state.
+Restart Patinae after editing the file by hand.
 
 For older installations, see [Move an old plugin list to config.toml](../docs/migrate-plugins-config.md).
 
@@ -79,14 +99,15 @@ For older installations, see [Move an old plugin list to config.toml](../docs/mi
 overrides the user plugin folder alone. Patinae also searches `plugins/` next
 to the executable and `Contents/PlugIns/` in macOS app bundles.
 
-An explicit list in `config.toml` replaces automatic discovery. The Makefile
+An explicit user list in `config.toml` replaces only user discovery. The Makefile
 uses `PLUGIN_INSTALL_DIR` for installation, independently of these runtime
 settings.
 
 ## If a plugin does not load
 
 Check the startup log for the library path and error. If you have a plugin list
-in `config.toml`, make sure the library is included. A configuration error stops
+in `config.toml`, make sure user libraries are included and bundled libraries
+are not disabled. A configuration error stops
 plugin loading until the file is fixed.
 
 For a library compatibility error, rebuild the app and plugin from the same
