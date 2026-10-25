@@ -7,6 +7,5 @@
 # set process environment variables for the plugin runtime. Other lines
 # remain command fallbacks whose stdout (trimmed) is added to PATH.
 path ../python
-path ../python-venv/Scripts
-env VIRTUAL_ENV ../python-venv
+env PYTHONHOME ../python
 python -c "import sys; print(sys.base_prefix)"

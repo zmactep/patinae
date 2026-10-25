@@ -523,8 +523,10 @@ jobs:
         include:
           - os: windows-latest
             name: windows-x86_64
+            arch: x86_64
           - os: windows-11-arm
             name: windows-arm64
+            arch: arm64
 
     steps:
       - name: Checkout
@@ -575,16 +577,57 @@ jobs:
       - name: Build bundle
         run: make bundle-windows
 
+      - name: Test launcher
+        run: |
+          rustc --edition=2021 --test -D warnings windows/launcher.rs -o target/launcher-tests.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Launcher test compilation failed' }
+          ./target/launcher-tests.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Launcher tests failed' }
+
+      - name: Test relocated bundle
+        run: ./windows/test-bundle.ps1 -Arch ${{ matrix.arch }}
+
+      - name: Install Inno Setup 7.1.0
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $setup = Join-Path $env:RUNNER_TEMP 'innosetup-7.1.0-x64.exe'
+          Invoke-WebRequest 'https://github.com/jrsoftware/issrc/releases/download/is-7_1_0/innosetup-7.1.0-x64.exe' -OutFile $setup
+          $signature = Get-AuthenticodeSignature $setup
+          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'O=Pyrsys B\.V\.') {
+            throw 'Inno Setup publisher signature verification failed'
+          }
+          $directory = Join-Path $env:RUNNER_TEMP 'Inno Setup'
+          $process = Start-Process $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=`"$directory`"" -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Inno Setup installation failed: $($process.ExitCode)" }
+          "ISCC=$directory\ISCC.exe" >> $env:GITHUB_ENV
+
+      - name: Build installer
+        run: make installer-windows WINDOWS_ARCH=${{ matrix.arch }}
+
+      - name: Test installer lifecycle
+        run: ./windows/test-installer.ps1 -Arch ${{ matrix.arch }}
+
+      - name: Upload installer test logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: installer-test-logs-${{ matrix.name }}
+          path: target/installer-test-logs/*.log
+          if-no-files-found: ignore
+
       - name: Package bundle
         run: |
           cd target/bundle
           7z a ../../patinae-bundle-${{ matrix.name }}.zip Patinae
+          if ($LASTEXITCODE -ne 0) { throw 'Bundle archive creation failed' }
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
           name: patinae-bundle-${{ matrix.name }}
-          path: patinae-bundle-${{ matrix.name }}.zip
+          path: |
+            patinae-bundle-${{ matrix.name }}.zip
+            target/installers/patinae-setup-${{ matrix.name }}.exe
           if-no-files-found: error
 
   publish-pypi:
@@ -640,6 +683,8 @@ jobs:
           # Move all archives (executables + plugins)
           find artifacts -type f -name 'patinae-*.tar.gz' -exec mv {} release/ \;
           find artifacts -type f -name 'patinae-*.zip' -exec mv {} release/ \;
+          # Only setup executables are public assets, not loose bundle binaries.
+          find artifacts -type f -name 'patinae-setup-windows-*.exe' -exec mv {} release/ \;
           # Move DMG
           find artifacts -type f -name '*.dmg' -exec mv {} release/ \;
           # Move wheels

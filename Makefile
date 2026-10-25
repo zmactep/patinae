@@ -6,7 +6,7 @@
        python-release python-dev \
        icon icon-windows app app-full \
        sign sign-full sign-existing notarize dmg dmg-full dmg-package \
-       bundle-windows \
+       bundle-windows installer-windows \
        web-build web-dev web-clean \
        widget-assets widget-build \
        version
@@ -47,7 +47,8 @@ ICONSET        := $(APP_ROOT)/AppIcon.iconset
 ICNS           := $(APP_ROOT)/AppIcon.icns
 ICO            := images/patinae.ico
 PLIST_TPL      := macos/Info.plist.in
-WINDOWS_LAUNCHER := windows/$(APP_NAME).vbs
+WINDOWS_ARCH    ?=
+RUSTC          ?= rustc
 
 PYTHON_VERSION := 3.13
 PYTHON_VENV    := $(APP_ROOT)/python-venv
@@ -298,16 +299,12 @@ dmg-full: sign-full
 
 bundle-windows: patinae plugins python-release
 	@echo ── Assembling Windows bundle ──
-	powershell -NoProfile -Command "if (Test-Path '$(BUNDLE_DIR)') { Remove-Item -Recurse -Force '$(BUNDLE_DIR)' }"
-	$(MKDIRP) "$(BUNDLE_DIR)\plugins"
-	powershell -NoProfile -Command "Copy-Item '$(WINDOWS_BINARY)' '$(BUNDLE_DIR)/'"
-	powershell -NoProfile -Command "Copy-Item '$(PLUGIN_STAGE_DIR)/*_plugin.dll' '$(BUNDLE_DIR)/plugins/' -ErrorAction SilentlyContinue"
-	powershell -NoProfile -Command "Copy-Item 'plugins/*/*.deps' '$(BUNDLE_DIR)/plugins/' -ErrorAction SilentlyContinue"
-	powershell -NoProfile -Command "Copy-Item -Recurse '$(PYTHON_DIST)' '$(BUNDLE_DIR)/python'"
-	$(UV) venv --python-preference only-managed --python $(PYTHON_VERSION) "$(BUNDLE_DIR)\python-venv"
-	$(UV) pip install --python "$(BUNDLE_DIR)/python-venv/Scripts/python.exe" $(WHEEL_GLOB)
-	powershell -NoProfile -Command "Copy-Item '$(WINDOWS_LAUNCHER)' '$(BUNDLE_DIR)/'"
-	@echo ✓ $(BUNDLE_DIR)
+	$(RUSTC) --edition=2021 -O -C target-feature=+crt-static windows/launcher.rs -o "$(RELEASE_DIR)/Patinae-launcher.exe"
+	powershell -NoProfile -ExecutionPolicy Bypass -File windows/bundle.ps1 -PythonDist "$(PYTHON_DIST)" -Version "$(VERSION)" -BundleDir "$(BUNDLE_DIR)" -ReleaseDir "$(RELEASE_DIR)" -Uv "$(UV)"
+
+# Package an existing bundle; do not rebuild it or require network access.
+installer-windows:
+	powershell -NoProfile -ExecutionPolicy Bypass -File windows/build-installer.ps1 -Arch "$(WINDOWS_ARCH)" -BundleDir "$(BUNDLE_DIR)"
 
 # ── Web ──────────────────────────────────────────────────────────
 
@@ -391,7 +388,8 @@ help:
 	@echo "  dmg-package      Styled DMG from existing APP_DIR (requires create-dmg)"
 	@echo ""
 	@echo "Windows bundle:"
-	@echo "  bundle-windows   Bundle (exe + plugins + Python + venv + launcher)"
+	@echo "  bundle-windows   Bundle (exe + plugins + Python + native launcher)"
+	@echo "  installer-windows Package bundle as Setup.exe (WINDOWS_ARCH=x86_64 or arm64)"
 	@echo ""
 	@echo "Version:"
 	@echo "  version V=X.Y.Z Update version across crates, packages, and README badge"
