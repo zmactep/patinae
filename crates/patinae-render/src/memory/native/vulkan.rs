@@ -1,8 +1,7 @@
 use ash::vk;
 
-use patinae_render::{NativeGpuMemoryBudget, NativeMemoryBudgetSource};
+use super::{NativeGpuMemoryBudget, NativeMemoryBudgetSource};
 
-#[cfg(target_os = "linux")]
 pub(super) fn adapter_budget(adapter: &wgpu::Adapter) -> Option<NativeGpuMemoryBudget> {
     // SAFETY: Query only the physical device belonging to this live HAL adapter.
     let hal = unsafe { adapter.as_hal::<wgpu::hal::api::Vulkan>() }?;
@@ -43,11 +42,12 @@ fn snapshot(
                 .flags
                 .contains(vk::MemoryHeapFlags::DEVICE_LOCAL)
         })
-        .filter(|&index| budget.heap_budget[index] > 0)
-        .map(|index| NativeGpuMemoryBudget {
-            budget_bytes: budget.heap_budget[index].min(memory.memory_heaps[index].size),
-            usage_bytes: budget.heap_usage[index],
-            source: NativeMemoryBudgetSource::VulkanHeap,
+        .filter_map(|index| {
+            NativeGpuMemoryBudget::new(
+                budget.heap_budget[index].min(memory.memory_heaps[index].size),
+                budget.heap_usage[index],
+                NativeMemoryBudgetSource::VulkanHeap,
+            )
         })
         .max_by_key(|budget| budget.headroom_bytes())
 }

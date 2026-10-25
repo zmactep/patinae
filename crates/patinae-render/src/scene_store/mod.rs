@@ -34,9 +34,10 @@ use std::collections::{HashMap, HashSet};
 
 use bytemuck::{Pod, Zeroable};
 
-use crate::lut_buffer::{growable_capacity_entries, BufferFlushStats, GrowableStorageBuffer};
+use crate::lut_buffer::{BufferFlushStats, GrowableStorageBuffer};
 use crate::memory::GpuMemoryUsage;
-use crate::memory_policy::{SceneStoreCompactionPolicy, SceneStoreGrowthPolicy};
+use crate::memory::{checked_buffer_capacity, BufferSizeError};
+use crate::memory::{SceneStoreCompactionPolicy, SceneStoreGrowthPolicy};
 use crate::picking::ObjectId;
 use crate::render_input::ColorLutEntry;
 
@@ -1134,23 +1135,27 @@ impl SceneStore {
 
     /// Upload all pending writes and (re)build the bind group. Idempotent
     /// when nothing changed since the last call.
+    ///
+    /// # Errors
+    /// Returns a size error before allocating or uploading any scene buffer.
     pub fn flush(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         layout: &SceneStoreLayout,
         growth: SceneStoreGrowthPolicy,
-    ) -> SceneStoreFlushStats {
+    ) -> Result<SceneStoreFlushStats, BufferSizeError> {
         self.rebuild_instance_entries();
-        let atoms_grew = self.atoms.ensure_capacity(device, growth);
-        let coords_grew = self.coords.ensure_capacity(device, growth);
-        let bonds_grew = self.bonds.ensure_capacity(device, growth);
-        let color_grew = self.color_lut.ensure_capacity(device, growth);
-        let mask_grew = self.mask_lut.ensure_capacity(device, growth);
-        let marker_grew = self.marker_lut.ensure_capacity(device, growth);
-        let csr_off_grew = self.csr_offsets.ensure_capacity(device, growth);
-        let csr_idx_grew = self.csr_indices.ensure_capacity(device, growth);
-        let obj_table_grew = self.ensure_obj_table_capacity(device, growth);
+        self.validate_gpu_capacities(&device.limits(), growth)?;
+        let atoms_grew = self.atoms.ensure_capacity(device, growth)?;
+        let coords_grew = self.coords.ensure_capacity(device, growth)?;
+        let bonds_grew = self.bonds.ensure_capacity(device, growth)?;
+        let color_grew = self.color_lut.ensure_capacity(device, growth)?;
+        let mask_grew = self.mask_lut.ensure_capacity(device, growth)?;
+        let marker_grew = self.marker_lut.ensure_capacity(device, growth)?;
+        let csr_off_grew = self.csr_offsets.ensure_capacity(device, growth)?;
+        let csr_idx_grew = self.csr_indices.ensure_capacity(device, growth)?;
+        let obj_table_grew = self.ensure_obj_table_capacity(device, growth)?;
 
         self.atoms.flush(queue);
         self.coords.flush(queue);
@@ -1203,10 +1208,46 @@ impl SceneStore {
             self.object_coords_bind_capacities = object_coords_caps;
         }
 
-        SceneStoreFlushStats::from_marker_flush(
+        Ok(SceneStoreFlushStats::from_marker_flush(
             marker_flush,
             marker_grew,
             self.fragmentation_stats(),
+        ))
+    }
+
+    fn validate_gpu_capacities(
+        &self,
+        limits: &wgpu::Limits,
+        growth: SceneStoreGrowthPolicy,
+    ) -> Result<(), BufferSizeError> {
+        self.atoms.planned_capacity(limits, growth)?;
+        self.coords.planned_capacity(limits, growth)?;
+        self.bonds.planned_capacity(limits, growth)?;
+        self.color_lut.planned_capacity(limits, growth)?;
+        self.mask_lut.planned_capacity(limits, growth)?;
+        self.marker_lut.planned_capacity(limits, growth)?;
+        self.csr_offsets.planned_capacity(limits, growth)?;
+        self.csr_indices.planned_capacity(limits, growth)?;
+        self.obj_table_planned_capacity(limits, growth)?;
+        Ok(())
+    }
+
+    fn obj_table_planned_capacity(
+        &self,
+        limits: &wgpu::Limits,
+        growth: SceneStoreGrowthPolicy,
+    ) -> Result<usize, BufferSizeError> {
+        // Each binding covers one ObjectEntry, not the entire uniform buffer.
+        // Dynamic offsets are u32, even on devices supporting larger buffers.
+        checked_buffer_capacity(
+            "patinae.scene_store.obj_table",
+            self.obj_table_cpu
+                .len()
+                .div_ceil(ObjectEntry::STRIDE as usize),
+            (self.obj_table_capacity_bytes / ObjectEntry::STRIDE) as usize,
+            ObjectEntry::STRIDE as usize,
+            growth,
+            limits.max_buffer_size.min(u64::from(u32::MAX)),
         )
     }
 
@@ -1214,20 +1255,12 @@ impl SceneStore {
         &mut self,
         device: &wgpu::Device,
         growth: SceneStoreGrowthPolicy,
-    ) -> bool {
+    ) -> Result<bool, BufferSizeError> {
+        let new_cap_entries = self.obj_table_planned_capacity(&device.limits(), growth)?;
         let needed = self.obj_table_cpu.len().max(ObjectEntry::STRIDE as usize) as u64;
         if needed <= self.obj_table_capacity_bytes && self.obj_table_gpu.is_some() {
-            return false;
+            return Ok(false);
         }
-        let needed_entries = needed.div_ceil(ObjectEntry::STRIDE) as usize;
-        let current_entries = (self.obj_table_capacity_bytes / ObjectEntry::STRIDE) as usize;
-        let new_cap_entries = growable_capacity_entries(
-            needed_entries,
-            current_entries,
-            ObjectEntry::STRIDE as usize,
-            growth,
-        )
-        .max(8);
         let new_cap = (new_cap_entries as u64).saturating_mul(ObjectEntry::STRIDE);
         self.obj_table_gpu = Some(device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("patinae.scene_store.obj_table"),
@@ -1240,7 +1273,7 @@ impl SceneStore {
         if !self.obj_table_cpu.is_empty() {
             self.obj_table_dirty = Some((0, self.obj_table_cpu.len()));
         }
-        true
+        Ok(true)
     }
 
     fn rebuild_bind_group(&mut self, device: &wgpu::Device, layout: &SceneStoreLayout) {
@@ -1374,6 +1407,33 @@ impl Default for SceneStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scene_capacity_preflight_rejects_late_buffer_before_gpu_allocation() {
+        let mut store = SceneStore::new();
+        let limits = wgpu::Limits {
+            max_buffer_size: 1024,
+            max_storage_buffer_binding_size: 1024,
+            ..Default::default()
+        };
+        let growth = SceneStoreGrowthPolicy::PowerOfTwo;
+        store.csr_indices.resize(257, 0);
+        let error = store.validate_gpu_capacities(&limits, growth).unwrap_err();
+        assert_eq!(error.label, "patinae.scene_store.csr_indices");
+        assert!(store.atoms.buffer().is_none());
+        assert!(store.csr_indices.buffer().is_none());
+        assert_eq!(store.atoms.capacity_entries(), 0);
+        store.csr_indices.resize(256, 0);
+        assert!(store.validate_gpu_capacities(&limits, growth).is_ok());
+        store.obj_table_cpu.resize(1280, 0);
+        assert_eq!(
+            store
+                .validate_gpu_capacities(&limits, growth)
+                .unwrap_err()
+                .label,
+            "patinae.scene_store.obj_table"
+        );
+    }
 
     fn buffer(stats: &SceneStoreMemoryStats, kind: SceneStoreBufferKind) -> SceneStoreBufferStats {
         stats

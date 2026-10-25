@@ -3,7 +3,7 @@
 //! The renderer cannot query portable driver VRAM usage today, so this module
 //! accounts for resources from descriptors and known buffer capacities.
 
-use crate::byte_units::bytes_to_mib;
+use crate::memory::bytes_to_mib;
 
 /// Number of tracked GPU memory categories.
 pub const GPU_MEMORY_CATEGORY_COUNT: usize = 12;

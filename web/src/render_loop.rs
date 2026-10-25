@@ -3,9 +3,7 @@
 
 use patinae_color::resolve_literal_color;
 use patinae_render::RenderSyncTimings;
-use patinae_scene::bridge::{
-    frame_uniforms_from_session, CachedRenderScene,
-};
+use patinae_scene::bridge::{frame_uniforms_from_session, CachedRenderScene};
 use patinae_scene::Session;
 use patinae_settings::{Settings, ShadingMode};
 
@@ -30,6 +28,8 @@ pub enum WebSurfaceStatus {
     Timeout,
     Occluded,
     Validation,
+    /// Scene data exceeds a hard device limit; another frame cannot fix it.
+    ResourceLimit,
 }
 
 /// Render one frame to the canvas surface.
@@ -62,7 +62,8 @@ pub fn render_frame(
     timings.prepare_ms = elapsed_ms(t0);
     let t0 = performance_now_ms();
     gpu.state
-        .sync_with_timer(&frame.render_input(), performance_now_ms);
+        .sync_with_timer(&frame.render_input(), performance_now_ms)
+        .map_err(|_| WebSurfaceStatus::ResourceLimit)?;
     timings.sync_ms = elapsed_ms(t0);
     timings.sync_detail = gpu.state.last_sync_timings();
     drop(frame);

@@ -17,7 +17,8 @@ use crate::compute::surface_vdw_sdf::SurfaceVdwSdfCompute;
 use crate::context::RenderContext;
 use crate::frame::FrameTargets;
 use crate::map_contour::MapEntry;
-use crate::memory_policy::RenderMemoryPolicy;
+use crate::memory::RenderMemoryPolicy;
+use crate::memory::{RepBudgetDiagnostic, RepBudgetRequest, RepBudgetWarningKey};
 use crate::passes::atlas_ao::AtlasAoPass;
 use crate::passes::selection_dots::AtomMarkersPass;
 use crate::passes::shadow::DirectionalShadowPass;
@@ -42,7 +43,6 @@ use crate::postprocess::marking::{MarkingBindGroups, MarkingPass};
 use crate::postprocess::silhouette::{SilhouetteParams, SilhouettePass};
 use crate::postprocess::ssao_compose::SsaoComposePass;
 use crate::render_input::SceneLod;
-use crate::representation_budget::{RepBudgetDiagnostic, RepBudgetRequest, RepBudgetWarningKey};
 use crate::representations::{DrawPhase, Representation};
 use crate::scene_store::{
     SceneStore, SceneStoreCompactionStats, SceneStoreFragmentationStats, SceneStoreLayout,
@@ -308,6 +308,7 @@ pub(super) struct LightingRuntime {
 }
 
 pub(super) struct MemoryRuntime {
+    pub(super) sync_error: Option<crate::BufferSizeError>,
     pub(super) policy: RenderMemoryPolicy,
     pub(super) pending_warnings: Vec<String>,
     pub(super) rep_budget_diagnostics: Vec<RepBudgetDiagnostic>,

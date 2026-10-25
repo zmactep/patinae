@@ -40,7 +40,7 @@ mod memory_render_parity {
 
     use crate::capture::capture_rgba;
     use crate::{
-        required_limits_for_memory_policy, AtomColorSource, ColorLutEntry, ObjectId, PickingMode,
+        required_device_limits, AtomColorSource, ColorLutEntry, ObjectId, PickingMode,
         RenderAtomColors, RenderConfig, RenderInput, RenderMemoryPolicy, RenderObjectInput,
         RenderState, SceneLod, IDENTITY_TRANSFORM,
     };
@@ -138,10 +138,13 @@ mod memory_render_parity {
                 .expect("GPU adapter required; this test must not silently skip");
         eprintln!("GPU parity adapter: {:?}", adapter.get_info());
         let memory = RenderMemoryPolicy::performance();
-        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            required_limits: required_limits_for_memory_policy(&adapter.limits(), memory),
-            ..Default::default()
-        }))
+        let (device, queue) = pollster::block_on(
+            adapter.request_device(&wgpu::DeviceDescriptor {
+                required_limits: required_device_limits(&adapter.limits())
+                    .expect("GPU must support renderer compute requirements"),
+                ..Default::default()
+            }),
+        )
         .unwrap();
         let mut state = RenderState::with_config(
             Arc::new(device),
@@ -325,7 +328,7 @@ mod memory_render_parity {
                     canonical_geometry(&actual_export),
                     canonical_geometry(&expected_export)
                 );
-                state.render_artifact_snapshot(&input);
+                state.render_artifact_snapshot(&input).unwrap();
                 state
                     .for_each_trace_geometry_chunk(&input, &options, &mut |_| Ok(()))
                     .unwrap();

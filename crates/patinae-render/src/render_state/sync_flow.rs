@@ -1,17 +1,18 @@
 use super::math::hash_object_ids;
 use super::state::*;
-use crate::byte_units::bytes_to_mib;
 use crate::map_contour::MapEntry;
+use crate::memory::bytes_to_mib;
 use crate::memory::GpuMemoryUsage;
+use crate::memory::{
+    current_warning_keys, plan_rep_budget, RepBudgetDiagnostic, RepBudgetInput, RepBuildDecision,
+    RepQualityLevel,
+};
 use crate::picking::pass::PickingParams;
 use crate::picking::RepKind;
 use crate::render_input::{RenderInput, RenderMapInput, RenderObjectInput, RenderStrokeInput};
-use crate::representation_budget::{
-    current_warning_keys, plan_rep_budget, RepBudgetDiagnostic, RepBudgetInput, RepBudgetRequest,
-    RepBuildDecision, RepMemoryEstimate, RepQualityLevel,
-};
 use crate::representations::catalog::{self, RepCatalogEntry};
 use crate::scene_store::SceneStoreCompactionStats;
+use crate::BufferSizeError;
 use patinae_mol::{AtomIndex, DirtyFlags};
 use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -32,23 +33,56 @@ impl RepSyncOutcome {
 impl RenderState {
     /// Pull-based scene update. Rebuilds dirty representations and uploads
     /// material LUTs.
-    pub fn sync(&mut self, input: &RenderInput) {
-        self.sync_impl(input, None);
+    ///
+    /// # Errors
+    /// Returns a resource size error; callers must not render the failed update.
+    pub fn sync(&mut self, input: &RenderInput) -> Result<(), BufferSizeError> {
+        self.sync_checked(input, None)
     }
 
-    pub fn sync_with_timer<F>(&mut self, input: &RenderInput, mut now_ms: F)
+    /// Synchronizes the scene with timing instrumentation.
+    ///
+    /// # Errors
+    /// Returns a resource size error; callers must not render the failed update.
+    pub fn sync_with_timer<F>(
+        &mut self,
+        input: &RenderInput,
+        mut now_ms: F,
+    ) -> Result<(), BufferSizeError>
     where
         F: FnMut() -> f64,
     {
         let timer: &mut dyn FnMut() -> f64 = &mut now_ms;
-        self.sync_impl(input, Some(timer));
+        self.sync_checked(input, Some(timer))
+    }
+
+    fn sync_checked(
+        &mut self,
+        input: &RenderInput,
+        now_ms: Option<&mut dyn FnMut() -> f64>,
+    ) -> Result<(), BufferSizeError> {
+        let result = self.sync_impl(input, now_ms);
+        if let Err(error) = result {
+            if self.memory.sync_error != Some(error) {
+                let message =
+                    format!("Rendering paused: {error}. Reduce the scene size to resume.");
+                log::warn!("{message}");
+                self.memory.pending_warnings.push(message);
+            }
+        }
+        self.memory.sync_error = result.err();
+        result
     }
 
     pub fn last_sync_timings(&self) -> RenderSyncTimings {
         self.last_sync_timings
     }
 
-    fn sync_impl(&mut self, input: &RenderInput, mut now_ms: Option<&mut dyn FnMut() -> f64>) {
+    fn sync_impl(
+        &mut self,
+        input: &RenderInput,
+        mut now_ms: Option<&mut dyn FnMut() -> f64>,
+    ) -> Result<(), BufferSizeError> {
         #[cfg(feature = "stats")]
         {
             self.stats.frame_begin();
@@ -71,7 +105,8 @@ impl RenderState {
 
         let object_hash = hash_object_ids(input.objects.iter().map(|o| o.object_id.0));
 
-        let marker_dirty = object_hash != self.scene.marker_object_hash
+        let marker_dirty = self.memory.sync_error.is_some()
+            || object_hash != self.scene.marker_object_hash
             || input.objects.iter().any(|o| {
                 !self.scene.scene_store.has_slot(o.object_id)
                     || o.dirty.intersects(
@@ -129,12 +164,13 @@ impl RenderState {
             self.scene.lod = input.lod;
         }
 
-        let mut scene_changed = !evict_object_ids.is_empty() || lod_dirty;
-        let mut picking_cache_dirty = !evict_object_ids.is_empty();
-        let mut draw_order_dirty = !evict_object_ids.is_empty();
+        let retry = self.memory.sync_error.is_some();
+        let mut scene_changed = retry || !evict_object_ids.is_empty() || lod_dirty;
+        let mut picking_cache_dirty = retry || !evict_object_ids.is_empty();
+        let mut draw_order_dirty = retry || !evict_object_ids.is_empty();
         let mut map_order_dirty = false;
         let mut stroke_order_dirty = false;
-        let mut bounds_dirty = !evict_object_ids.is_empty();
+        let mut bounds_dirty = retry || !evict_object_ids.is_empty();
 
         let scene_affecting_dirty = patinae_mol::DirtyFlags::COORDS
             | patinae_mol::DirtyFlags::REPS
@@ -163,7 +199,7 @@ impl RenderState {
 
             let slot_was_new = !self.scene.scene_store.has_slot(obj.object_id);
 
-            let effective_dirty = if was_evicted || slot_was_new {
+            let effective_dirty = if retry || was_evicted || slot_was_new {
                 // Brand-new slot OR slot replaced under same id ⇒ rewrite
 
                 // everything (atoms, coords, color, mask, marker, bonds, csr,
@@ -213,10 +249,11 @@ impl RenderState {
             bounds_dirty = true;
             object_offsets_changed = true;
         }
-        let mut scene_store_compaction = if self
-            .scene
-            .scene_store
-            .should_compact(self.memory.policy.scene_store.compaction)
+        let mut scene_store_compaction = if retry
+            || self
+                .scene
+                .scene_store
+                .should_compact(self.memory.policy.scene_store.compaction)
         {
             self.scene.scene_store.compact()
         } else {
@@ -238,7 +275,7 @@ impl RenderState {
             &self.ctx.queue,
             &self.scene.scene_layout,
             self.memory.policy.scene_store.growth,
-        );
+        )?;
         scene_store_compaction.finish_after_flush(flush_stats.fragmentation.capacity_bytes);
         flush_stats.compaction = scene_store_compaction;
         timings.scene_store_flush_ms = sync_elapsed(&mut now_ms, t0);
@@ -353,7 +390,7 @@ impl RenderState {
                     hidden_cache_allowed_by_budget(
                         *key,
                         &budget_plans,
-                        self.memory.policy.reps.enabled,
+                        self.memory.policy.budget_bytes.is_some(),
                     )
                 })
                 .collect();
@@ -553,6 +590,7 @@ impl RenderState {
         self.stats.mark_sync_end();
 
         self.last_sync_timings = timings;
+        Ok(())
     }
 
     fn sync_rep(
@@ -570,6 +608,13 @@ impl RenderState {
     ) -> RepSyncOutcome {
         let kind = rep_catalog.kind;
         let key = (obj.object_id.0, kind);
+        // A rejected sync may have consumed CPU-side changes without updating
+        // existing geometry. Rebuild it on the first successful retry as well.
+        let object_dirty = if self.memory.sync_error.is_some() {
+            DirtyFlags::ALL
+        } else {
+            obj.dirty
+        };
 
         let entry_existed = self.scene.reps.contains_key(&key);
         let budget_dirty = if entry_existed {
@@ -588,12 +633,11 @@ impl RenderState {
         // chain copies; rotating the camera redraws the same geometry
         // without any per-rep CPU work.
 
-        if entry_existed && obj.dirty.is_empty() && !lod_dirty && !budget_dirty {
+        if entry_existed && object_dirty.is_empty() && !lod_dirty && !budget_dirty {
             return RepSyncOutcome::Unchanged;
         }
 
-        let marker_or_draw_only = obj
-            .dirty
+        let marker_or_draw_only = object_dirty
             .difference(
                 patinae_mol::DirtyFlags::SELECTION
                     | patinae_mol::DirtyFlags::HOVER
@@ -642,7 +686,7 @@ impl RenderState {
         // Force a full rebuild on first sight so the rep has buffers.
 
         let effective_dirty = if entry_existed {
-            let mut dirty = obj.dirty;
+            let mut dirty = object_dirty;
             if lod_dirty {
                 dirty |= patinae_mol::DirtyFlags::LOD;
             }
@@ -678,19 +722,10 @@ impl RenderState {
             .map(|obj| catalog::active_entries(obj.draw_reps).count())
             .sum();
         let mut requests = Vec::with_capacity(active_rep_count);
-        let estimate_allocations = self.memory.policy.reps.enabled;
-        if !estimate_allocations {
-            self.memory.rep_budget_request_cache.clear();
-        }
         let mut active_budget_keys = HashSet::with_capacity(active_rep_count);
         for obj in input.objects {
             for rep in catalog::active_entries(obj.draw_reps) {
                 let key = (obj.object_id.0, rep.kind);
-                if !estimate_allocations {
-                    requests.push(cheap_budget_request(obj, rep));
-                    continue;
-                }
-
                 active_budget_keys.insert(key);
                 let dirty = effective_dirty_by_object
                     .get(&obj.object_id.0)
@@ -710,11 +745,9 @@ impl RenderState {
                 requests.push(request);
             }
         }
-        if estimate_allocations {
-            self.memory
-                .rep_budget_request_cache
-                .retain(|key, _| active_budget_keys.contains(key));
-        }
+        self.memory
+            .rep_budget_request_cache
+            .retain(|key, _| active_budget_keys.contains(key));
         let snapshot = self.memory_snapshot();
         let fixed_reserved_bytes = snapshot
             .total_capacity_bytes()
@@ -750,24 +783,6 @@ impl RenderState {
 
 fn should_reuse_budget_request(rep: &'static RepCatalogEntry, dirty: DirtyFlags) -> bool {
     dirty.is_empty() || !rep.budget_estimate_invalidated_by(dirty)
-}
-
-fn cheap_budget_request(
-    obj: &RenderObjectInput<'_>,
-    rep: &'static RepCatalogEntry,
-) -> RepBudgetRequest {
-    RepBudgetRequest::new(
-        obj.object_id,
-        rep.kind,
-        vec![RepMemoryEstimate {
-            required_bytes: 0,
-            scratch_bytes: 0,
-            capacity_bytes: 0,
-            quality: RepQualityLevel::Full,
-            can_chunk: false,
-            can_skip: true,
-        }],
-    )
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -810,12 +825,9 @@ fn hidden_cache_allowed_by_budget(
     decisions: &HashMap<(u32, RepKind), RepBudgetPlan>,
     budget_enforced: bool,
 ) -> bool {
-    if !budget_enforced {
-        return true;
-    }
     decisions
         .get(&key)
-        .is_some_and(|plan| !plan.decision.is_skip())
+        .map_or(!budget_enforced, |plan| !plan.decision.is_skip())
 }
 
 fn replaceable_rep_capacity_bytes(scene: &SceneRuntime) -> u64 {
@@ -1060,6 +1072,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn performance_does_not_retain_a_cache_rejected_by_device_limits() {
+        let key = (1, RepKind::Surface);
+        let mut plans = HashMap::new();
+        assert!(hidden_cache_allowed_by_budget(key, &plans, false));
+        assert!(!hidden_cache_allowed_by_budget(key, &plans, true));
+        plans.insert(
+            key,
+            RepBudgetPlan {
+                decision: RepBuildDecision::Skip {
+                    reason: crate::memory::RepSkipReason::DeviceLimitExceeded,
+                },
+                quality: RepQualityLevel::Full,
+            },
+        );
+        assert!(!hidden_cache_allowed_by_budget(key, &plans, false));
+        assert!(!hidden_cache_allowed_by_budget(key, &plans, true));
+    }
+
+    #[test]
     fn rep_key_set_changed_detects_same_length_key_replacement() {
         let keep = HashSet::from([(2, RepKind::Sphere)]);
 
@@ -1121,12 +1152,12 @@ mod tests {
     }
 
     #[test]
-    fn budget_request_cache_reuses_geometry_reps_on_coords_dirty() {
+    fn budget_request_cache_refreshes_geometry_bounds_on_coords_dirty() {
         let cartoon = catalog::entry(RepKind::Cartoon).expect("cartoon catalog entry");
         let surface = catalog::entry(RepKind::Surface).expect("surface catalog entry");
 
-        assert!(should_reuse_budget_request(cartoon, DirtyFlags::COORDS));
-        assert!(should_reuse_budget_request(surface, DirtyFlags::COORDS));
+        assert!(!should_reuse_budget_request(cartoon, DirtyFlags::COORDS));
+        assert!(!should_reuse_budget_request(surface, DirtyFlags::COORDS));
     }
 
     #[test]

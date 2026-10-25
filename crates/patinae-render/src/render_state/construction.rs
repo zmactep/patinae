@@ -479,6 +479,7 @@ impl RenderState {
             },
 
             memory: MemoryRuntime {
+                sync_error: None,
                 policy: memory_policy,
                 pending_warnings: memory_warnings,
                 rep_budget_diagnostics: Vec::new(),

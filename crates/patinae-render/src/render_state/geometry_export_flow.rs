@@ -45,7 +45,8 @@ impl RenderState {
         {
             return Err(GeometryExportError::InstancedObject);
         }
-        self.sync(input);
+        self.sync(input)
+            .map_err(|error| GeometryExportError::Gpu(error.to_string()))?;
         let staged_objects: Vec<_> = input
             .objects
             .iter()
@@ -194,7 +195,8 @@ impl RenderState {
         {
             return Err(GeometryExportError::InstancedObject);
         }
-        self.sync(input);
+        self.sync(input)
+            .map_err(|error| GeometryExportError::Gpu(error.to_string()))?;
         let staged_objects: Vec<_> = input
             .objects
             .iter()

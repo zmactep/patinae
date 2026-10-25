@@ -15,8 +15,8 @@ use patinae_settings::ResolvedSettings;
 
 use crate::compute::line_build::{indirect_seed, LineBuildParams, LineBuildPipeline};
 use crate::memory::{buffer_usage, GpuMemoryUsage};
+use crate::memory::{RepMemoryEstimate, RepQualityLevel};
 use crate::picking::RepKind;
-use crate::representation_budget::{RepMemoryEstimate, RepQualityLevel};
 use crate::representations::cullable::CullableBuffers;
 use crate::representations::{BuildCtx, CullPlan, CullPlanCtx};
 // Constant width used to bound visible lines under camera cull. Lines have

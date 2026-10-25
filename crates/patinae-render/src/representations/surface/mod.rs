@@ -48,11 +48,11 @@ use crate::compute::surface_ses_morph::{
 };
 use crate::compute::surface_vdw_sdf::{SdfParams, SurfaceVdwSdfCompute, SurfaceVdwSdfInputs};
 use crate::memory::{buffer_usage, GpuMemoryUsage};
+use crate::memory::{RepBuildDecision, RepMemoryEstimate, RepQualityLevel};
 use crate::picking::RepKind;
 use crate::pipelines::mesh::MeshParamsLayout;
 use crate::pipelines::surface::{SurfaceParams, SurfaceParamsLayout};
 use crate::render_input::{RenderObjectInput, SceneLod};
-use crate::representation_budget::{RepBuildDecision, RepMemoryEstimate, RepQualityLevel};
 use crate::representations::surface::constants::{SAS_ALPHA, SAS_ISO};
 use crate::representations::{BuildCtx, DrawPhase, Representation};
 use patinae_mol::{Atom, AtomIndex, DirtyFlags, RepMask};
@@ -1788,13 +1788,13 @@ mod tests {
         let adapter = pollster::block_on(instance.request_adapter(&Default::default()))
             .expect("GPU adapter required; do not silently skip");
         eprintln!("Surface oracle adapter: {:?}", adapter.get_info());
-        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            required_limits: crate::required_limits_for_memory_policy(
-                &adapter.limits(),
-                crate::RenderMemoryPolicy::performance(),
-            ),
-            ..Default::default()
-        }))
+        let (device, queue) = pollster::block_on(
+            adapter.request_device(&wgpu::DeviceDescriptor {
+                required_limits: crate::required_device_limits(&adapter.limits())
+                    .expect("GPU must support renderer compute requirements"),
+                ..Default::default()
+            }),
+        )
         .unwrap();
         let layout = SceneStoreLayout::new(&device);
         let density = SurfaceDensityCompute::new(&device, &layout);

@@ -9,10 +9,10 @@
 //! The WBOIT targets are always available, while picking uses a low-resolution
 //! target to reduce per-frame bandwidth.
 
+use crate::memory::FrameTargetPolicy;
 use crate::memory::{
     estimate_texture_2d_bytes, GpuMemoryCategory, GpuMemoryLedger, GpuMemoryUsage,
 };
-use crate::memory_policy::FrameTargetPolicy;
 
 pub const ACCUM_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 pub const REVEAL_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R16Float;

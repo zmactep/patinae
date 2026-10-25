@@ -20,6 +20,9 @@ impl ViewportRenderer {
         if let Some(warning) = self.apply_runtime_memory_policy(session) {
             return ViewportRenderOutcome::recovery(Some(warning), true);
         }
+        if self.recovery.is_blocked() {
+            return ViewportRenderOutcome::recovery(None, false);
+        }
 
         if let Some(image) = self.viewport_gpu_image.as_ref() {
             return match slint::Image::try_from(image.texture.clone()) {
@@ -44,6 +47,11 @@ impl ViewportRenderer {
             },
             Err(ViewportRenderFailure::OutOfMemory) => self.recover_after_oom(session),
             Err(ViewportRenderFailure::DeviceLost) => self.block_after_device_loss(),
+            // The renderer queues a deduplicated warning. Unlike OOM, a hard
+            // resource limit cannot be fixed by lowering the quality profile.
+            Err(ViewportRenderFailure::ResourceLimit) => {
+                ViewportRenderOutcome::recovery(None, false)
+            }
         }
     }
 
@@ -52,7 +60,7 @@ impl ViewportRenderer {
         session: &mut Session,
         width: u32,
         height: u32,
-    ) -> wgpu::Texture {
+    ) -> Result<wgpu::Texture, patinae_render::BufferSizeError> {
         // Resize state's internal targets if the viewport changed.
         let resized = self.last_viewport_size != Some((width, height));
         if resized {
@@ -78,7 +86,7 @@ impl ViewportRenderer {
         // picking name lookup. The frame input borrows from `session` only
         // until `RenderState::sync` returns.
         let frame = self.render_scene.prepare(session);
-        self.state.sync(&frame.render_input());
+        self.state.sync(&frame.render_input())?;
         drop(frame);
         // patinae-render reps track dirty internally; consume the host-side
         // flag set by commands so SceneModel::sync stops perpetually
@@ -128,7 +136,8 @@ impl ViewportRenderer {
         // writing into a fresh one lets the GPU pipeline both passes
         // instead of serialising on the read fence.
         let color_texture_ring = self
-            .memory_policy
+            .config
+            .memory
             .frame_targets
             .viewport_handoff_ring
             .max(1);
@@ -202,7 +211,7 @@ impl ViewportRenderer {
             eprintln!("[patinae] gpu submit+wait: {:.2} ms", dt_ms);
         }
 
-        self.color_textures[idx].clone()
+        Ok(self.color_textures[idx].clone())
     }
 }
 pub(super) fn effective_fxaa(settings: &Settings) -> bool {

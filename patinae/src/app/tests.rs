@@ -3,8 +3,7 @@ use lin_alg::f32::Vec3;
 use patinae_cmd::{AnnotationRequest, MeasurementRequest, MeasurementTarget};
 use patinae_mol::{Atom, AtomIndex, Element, ObjectMolecule};
 use patinae_render::{
-    gib_to_bytes, mib_to_bytes, PERFORMANCE_MAX_BUFFER_SIZE,
-    PERFORMANCE_MAX_STORAGE_BUFFER_BINDING_SIZE,
+    gib_to_bytes, mib_to_bytes, DEVICE_BUFFER_TARGET_BYTES, DEVICE_STORAGE_BINDING_TARGET_BYTES,
 };
 use patinae_scene::{KeyCode, Modifiers, MoleculeObject, ObjectType, PickHit};
 
@@ -15,6 +14,7 @@ fn adapter_limits(
     slint::wgpu_30::wgpu::Limits {
         max_buffer_size,
         max_storage_buffer_binding_size,
+        max_storage_buffers_per_shader_stage: 10,
         max_texture_dimension_1d: 16_384,
         max_texture_dimension_2d: 32_768,
         max_texture_dimension_3d: 2_048,
@@ -326,9 +326,9 @@ fn wgpu_settings_requests_compute_capable_limits() {
 
 #[test]
 fn wgpu_required_limits_clamp_to_intel_storage_limit() {
-    let adapter_limits = adapter_limits(PERFORMANCE_MAX_BUFFER_SIZE, gib_to_bytes(1) - 4);
+    let adapter_limits = adapter_limits(DEVICE_BUFFER_TARGET_BYTES, gib_to_bytes(1) - 4);
 
-    let required = patinae_wgpu_required_limits(&adapter_limits, RenderMemoryPolicy::performance());
+    let required = required_device_limits(&adapter_limits).unwrap();
 
     assert_eq!(required.max_storage_buffer_binding_size, 1_073_741_820);
     assert!(
@@ -340,12 +340,12 @@ fn wgpu_required_limits_clamp_to_intel_storage_limit() {
 fn wgpu_required_limits_preserve_high_end_target() {
     let adapter_limits = adapter_limits(gib_to_bytes(8), u64::MAX);
 
-    let required = patinae_wgpu_required_limits(&adapter_limits, RenderMemoryPolicy::performance());
+    let required = required_device_limits(&adapter_limits).unwrap();
 
-    assert_eq!(required.max_buffer_size, PERFORMANCE_MAX_BUFFER_SIZE);
+    assert_eq!(required.max_buffer_size, DEVICE_BUFFER_TARGET_BYTES);
     assert_eq!(
         required.max_storage_buffer_binding_size,
-        PERFORMANCE_MAX_STORAGE_BUFFER_BINDING_SIZE
+        DEVICE_STORAGE_BINDING_TARGET_BYTES
     );
 }
 
@@ -355,7 +355,7 @@ fn wgpu_required_limits_use_adapter_resolution_limits() {
     let adapter_storage_binding_size = mib_to_bytes(512);
     let adapter_limits = adapter_limits(adapter_buffer_size, adapter_storage_binding_size);
 
-    let required = patinae_wgpu_required_limits(&adapter_limits, RenderMemoryPolicy::lite());
+    let required = required_device_limits(&adapter_limits).unwrap();
 
     assert_eq!(required.max_buffer_size, adapter_buffer_size);
     assert_eq!(

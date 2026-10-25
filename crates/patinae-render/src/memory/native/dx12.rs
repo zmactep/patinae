@@ -3,7 +3,7 @@ use windows::Win32::Graphics::Dxgi::{
     DXGI_MEMORY_SEGMENT_GROUP_LOCAL, DXGI_QUERY_VIDEO_MEMORY_INFO,
 };
 
-use patinae_render::{NativeGpuMemoryBudget, NativeMemoryBudgetSource};
+use super::{NativeGpuMemoryBudget, NativeMemoryBudgetSource};
 
 pub(super) fn device_budget(device: &wgpu::Device) -> Option<NativeGpuMemoryBudget> {
     // SAFETY: Retain the device while reading its adapter identity.
@@ -22,9 +22,9 @@ fn snapshot(adapter: &IDXGIAdapter3) -> Option<NativeGpuMemoryBudget> {
     let mut info = DXGI_QUERY_VIDEO_MEMORY_INFO::default();
     // SAFETY: wgpu uses node zero; the output pointer remains valid for the call.
     unsafe { adapter.QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &mut info) }.ok()?;
-    (info.Budget > 0).then_some(NativeGpuMemoryBudget {
-        budget_bytes: info.Budget,
-        usage_bytes: info.CurrentUsage,
-        source: NativeMemoryBudgetSource::DxgiLocal,
-    })
+    NativeGpuMemoryBudget::new(
+        info.Budget,
+        info.CurrentUsage,
+        NativeMemoryBudgetSource::DxgiLocal,
+    )
 }

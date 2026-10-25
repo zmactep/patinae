@@ -61,6 +61,9 @@ impl RenderState {
     /// Run the full frame: culling, lighting, optional visual overlays,
     /// visible geometry, postprocess, and stats resolution.
     pub fn render(&mut self, target: &wgpu::TextureView, encoder: &mut wgpu::CommandEncoder) {
+        if self.memory.sync_error.is_some() {
+            return;
+        }
         #[cfg(feature = "stats")]
         self.stats.mark_record_start();
 

@@ -23,10 +23,10 @@ use crate::compute::ellipsoid_build::{
     indirect_seed, EllipsoidBuildEntry, EllipsoidBuildParams, EllipsoidBuildPipeline,
 };
 use crate::memory::{buffer_usage, GpuMemoryUsage};
+use crate::memory::{RepMemoryEstimate, RepQualityLevel};
 use crate::picking::RepKind;
 use crate::pipelines::ellipsoid::{EllipsoidParams, EllipsoidParamsLayout};
 use crate::render_input::RenderObjectInput;
-use crate::representation_budget::{RepMemoryEstimate, RepQualityLevel};
 use crate::representations::cullable::CullableBuffers;
 use crate::representations::{BuildCtx, CullPlan, CullPlanCtx, Representation};
 

@@ -1,12 +1,9 @@
-use crate::byte_units::gib_to_bytes;
 use crate::frame::{DEPTH_FORMAT, PICKING_FORMAT};
 use crate::memory::{estimate_texture_2d_bytes, GpuMemoryCategory, GpuMemorySnapshot};
-use crate::memory_policy::{RenderMemoryPolicy, RenderMemoryProfile};
+use crate::memory::{RenderMemoryPolicy, RenderMemoryProfile};
 use crate::picking::pass::PickingParams;
 use crate::picking::readback::PICKING_READBACK_BUFFER_BYTES;
 
-const LITE_PICKING_BUDGET_BYTES: u64 = gib_to_bytes(1);
-const BALANCED_PICKING_BUDGET_BYTES: u64 = gib_to_bytes(2);
 const PICKING_ATOM_PRESSURE_BYTES: u64 = 512;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,12 +28,7 @@ pub(super) fn effective_picking_budget_bytes(policy: RenderMemoryPolicy) -> Opti
     if !policy.picking.hit_test_enabled {
         return Some(0);
     }
-    match policy.profile {
-        RenderMemoryProfile::Performance => None,
-        RenderMemoryProfile::Balanced => Some(BALANCED_PICKING_BUDGET_BYTES),
-        RenderMemoryProfile::Lite => Some(LITE_PICKING_BUDGET_BYTES),
-        RenderMemoryProfile::Manual { bytes } => Some(bytes),
-    }
+    policy.budget_bytes
 }
 
 pub(super) fn fixed_reserved_without_picking(snapshot: &GpuMemorySnapshot) -> u64 {
@@ -102,7 +94,8 @@ fn estimate_picking_bytes(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::byte_units::mib_to_bytes;
+    use crate::memory::gib_to_bytes;
+    use crate::memory::mib_to_bytes;
 
     #[test]
     fn small_scene_fits_lite_headroom() {

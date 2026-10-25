@@ -13,9 +13,6 @@ use patinae_color::resolve_literal_color;
 mod picking;
 mod preparation;
 mod recovery;
-#[cfg(not(target_os = "windows"))]
-pub(crate) use preparation::render_memory_policy_for_device;
-use preparation::*;
 
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -26,12 +23,10 @@ use patinae_color::{NamedPalette, ThemedPalette};
 use patinae_render::picking::readback::PendingPick;
 use patinae_render::{
     copy_rgba_buffer_to_viewport_texture, estimate_texture_2d_bytes, is_wgpu_oom,
-    render_memory_policy_from_settings, select_render_memory_policy_with_budget, DisplayedGeometry,
-    GeometryExportOptions, GpuMemoryCategory, GpuMemorySnapshot, GpuMemoryUsage, GpuViewportImage,
-    RenderArtifactSnapshot, RenderConfig, RenderInput, RenderMemoryPolicy, RenderMemoryProfile,
-    RenderMemoryRecoveryAction, RenderMemoryRecoveryStage, RenderMemorySelectionInput, RenderState,
-    RenderSyncTimings, SceneLod, TraceGeometryChunk, PERFORMANCE_MAX_STORAGE_BUFFER_BINDING_SIZE,
-    PERFORMANCE_MIN_BUFFER_SIZE,
+    render_memory_policy_from_settings, DisplayedGeometry, GeometryExportOptions,
+    GpuMemoryCategory, GpuMemorySnapshot, GpuMemoryUsage, GpuViewportImage, RenderArtifactSnapshot,
+    RenderConfig, RenderInput, RenderMemoryPolicy, RenderMemoryProfile, RenderMemoryRecoveryAction,
+    RenderMemoryRecoveryStage, RenderState, RenderSyncTimings, SceneLod, TraceGeometryChunk,
 };
 use patinae_scene::{Camera, CaptureRenderer, ObjectRegistry, PickHit, Session, ViewerError};
 use patinae_settings::{ResolvedSettings, Settings, ShadingMode};
@@ -87,6 +82,7 @@ impl WgpuErrorFlags {
 enum ViewportRenderFailure {
     OutOfMemory,
     DeviceLost,
+    ResourceLimit,
 }
 
 pub(crate) struct ViewportRenderOutcome {
@@ -148,9 +144,6 @@ pub struct ViewportRenderer {
     color_textures_next: usize,
     /// Transient renderer-owned ray output texture for viewport `ray`.
     viewport_gpu_image: Option<GpuViewportImage>,
-    /// Construction-time memory policy for native viewport handoff resources.
-    memory_policy: RenderMemoryPolicy,
-    warned_unsupported_memory_policy: bool,
 }
 
 /// GPU-only preparation result; live scene caches are created on attachment.
@@ -201,7 +194,7 @@ impl ViewportRenderer {
 
     /// Return the renderer memory profile selected at construction.
     pub fn memory_profile(&self) -> RenderMemoryProfile {
-        self.memory_policy.profile
+        self.config.memory.profile
     }
 
     /// Return a renderer memory snapshot including desktop handoff textures.

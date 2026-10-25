@@ -16,10 +16,10 @@ pub mod stick;
 pub mod surface;
 mod viewport_lod;
 
+use crate::memory::{RepBuildDecision, RepQualityLevel};
 use crate::picking::RepKind;
 use crate::render_input::RenderObjectInput;
 use crate::render_state::state::GeometryRuntime;
-use crate::representation_budget::{RepBuildDecision, RepQualityLevel};
 use crate::GpuMemoryUsage;
 
 use patinae_mol::DirtyFlags;

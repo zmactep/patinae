@@ -11,6 +11,8 @@ documentation.workspace = true
 
 [features]
 default = []
+# Read-only native budget queries. Browser and other portable clients opt out.
+native-memory = ["dep:objc2-metal", "dep:ash", "dep:windows"]
 # Build-time instrumentation: per-pass GPU timestamps + CPU phase markers
 # exposed via `RenderState::take_frame_stats()`. Off by default so production
 # builds don't pay for `TIMESTAMP_QUERY` feature requests or query writes in
@@ -40,3 +42,12 @@ winit = "0.30"
 
 [lints]
 workspace = true
+
+[target.'cfg(target_vendor = "apple")'.dependencies]
+objc2-metal = { version = "0.3.2", optional = true, default-features = false, features = ["std", "MTLDevice"] }
+
+[target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
+ash = { version = "0.38", optional = true, default-features = false }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.62", optional = true, features = ["Win32_Graphics_Dxgi"] }

@@ -45,10 +45,10 @@ use wgpu::util::DeviceExt;
 
 use crate::compute::cartoon_extrude::{ExtrudeParams, ExtrudePointGpu};
 use crate::memory::{buffer_usage, GpuMemoryUsage};
+use crate::memory::{RepMemoryEstimate, RepQualityLevel};
 use crate::picking::RepKind;
 use crate::pipelines::cartoon::{CartoonParams, CartoonParamsLayout};
 use crate::render_input::RenderObjectInput;
-use crate::representation_budget::{RepMemoryEstimate, RepQualityLevel};
 use crate::representations::cartoon::backbone::{extract_filtered_backbone, BackboneAtom};
 use crate::representations::cartoon::nucleic::{
     count_nucleic_residues, prepare_nucleic_geometry, MAX_VERTICES_PER_NUCLEOTIDE,
@@ -61,7 +61,7 @@ use crate::representations::mesh::StdVertex;
 use crate::representations::{BuildCtx, Representation};
 use patinae_mol::DirtyFlags;
 
-use crate::byte_units::bytes_to_gib;
+use crate::memory::bytes_to_gib;
 
 const LARGE_CARTOON_BACKBONE_THRESHOLD: usize = 16_384;
 const LARGE_CARTOON_SEGMENT_THRESHOLD: usize = 64;
@@ -271,7 +271,7 @@ fn apply_ribbon_pipeline_settings(pipeline: &mut PipelineSettings, ribbon: &Ribb
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::byte_units::{gib_to_bytes, mib_to_bytes};
+    use crate::memory::{gib_to_bytes, mib_to_bytes};
     use crate::render_input::SceneLod;
     use crate::representations::cartoon::tessellation::GuidePoint;
     use lin_alg::f32::Vec3;

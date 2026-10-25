@@ -9,7 +9,7 @@ use patinae_mol::DirtyFlags;
 use crate::context::RenderContext;
 use crate::frame::DEPTH_FORMAT;
 use crate::memory::{buffer_usage, GpuMemoryUsage};
-use crate::memory_policy::{RenderMemoryPolicy, RenderMemoryProfile};
+use crate::memory::{RenderMemoryPolicy, RenderMemoryProfile};
 use crate::picking::ObjectId;
 use crate::render_input::{MarkerUpdate, RecentAtomMarker};
 use crate::scene_store::marker::{MARKER_RECENT, MARKER_SELECTED};
@@ -629,8 +629,8 @@ fn selection_dot_radius_px(marking_width: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::byte_units::mib_to_bytes;
-    use crate::memory_policy::RenderMemoryPolicy;
+    use crate::memory::mib_to_bytes;
+    use crate::memory::RenderMemoryPolicy;
     use crate::scene_store::marker::MARKER_HOVER;
 
     #[test]

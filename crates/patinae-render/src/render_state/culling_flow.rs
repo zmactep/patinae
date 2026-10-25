@@ -158,13 +158,13 @@ mod tests {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
         let adapter = pollster::block_on(instance.request_adapter(&Default::default()))
             .expect("GPU adapter required; do not silently skip");
-        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            required_limits: crate::required_limits_for_memory_policy(
-                &adapter.limits(),
-                crate::RenderMemoryPolicy::performance(),
-            ),
-            ..Default::default()
-        }))
+        let (device, queue) = pollster::block_on(
+            adapter.request_device(&wgpu::DeviceDescriptor {
+                required_limits: crate::required_device_limits(&adapter.limits())
+                    .expect("GPU must support renderer compute requirements"),
+                ..Default::default()
+            }),
+        )
         .unwrap();
         let mut renderer = RenderState::with_config(
             Arc::new(device),
@@ -216,13 +216,15 @@ mod tests {
                 lod: SceneLod::Auto,
                 dirty,
             };
-            renderer.sync(&RenderInput {
-                objects: &[object],
-                maps: &[],
-                strokes: &[],
-                settings: &settings,
-                lod: SceneLod::Auto,
-            });
+            renderer
+                .sync(&RenderInput {
+                    objects: &[object],
+                    maps: &[],
+                    strokes: &[],
+                    settings: &settings,
+                    lod: SceneLod::Auto,
+                })
+                .unwrap();
             assert_eq!(renderer.scene.scene_dirty, expect_dirty, "{dirty:?}");
             assert_eq!(
                 should_dispatch_cull(

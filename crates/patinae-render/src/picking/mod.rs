@@ -8,7 +8,7 @@ pub mod pass;
 pub mod readback;
 pub mod reproject;
 
-use crate::memory_policy::RenderMemoryPolicy;
+use crate::memory::RenderMemoryPolicy;
 
 pub use pass::{decode_pixel, PickingPass};
 pub use readback::PickingReadback;

@@ -3,7 +3,7 @@ use super::picking_budget::{plan_picking_budget, uses_lazy_manual_picking};
 use super::state::PickingTextureSource;
 use super::state::RepPickingState;
 use super::RenderState;
-use crate::byte_units::bytes_to_mib;
+use crate::memory::bytes_to_mib;
 use crate::passes::lighting::identity_mat4;
 use crate::picking::pass::PickingParams;
 use crate::picking::readback::PickingReadback;
@@ -445,7 +445,7 @@ impl RenderState {
         y: u32,
         target: PickReadbackTarget,
     ) -> Option<PendingPick> {
-        if !self.hit_test_picking_available() {
+        if self.memory.sync_error.is_some() || !self.hit_test_picking_available() {
             return None;
         }
         self.ensure_id_pass();
@@ -503,6 +503,9 @@ impl RenderState {
     }
 
     pub fn try_collect_pick(&self, pending: &PendingPick) -> Option<Option<PickHit>> {
+        if self.memory.sync_error.is_some() {
+            return Some(None);
+        }
         if !self.hit_test_picking_available() {
             return Some(None);
         }
@@ -520,6 +523,9 @@ impl RenderState {
     }
 
     pub fn pick(&mut self, x: u32, y: u32) -> Option<PickHit> {
+        if self.memory.sync_error.is_some() {
+            return None;
+        }
         if !self.hit_test_picking_available() {
             return None;
         }

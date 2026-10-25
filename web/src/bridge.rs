@@ -323,7 +323,6 @@ async fn create_web_viewer(
             click_submitted: 0,
             click_completed: 0,
             last_hover_submit_ms: f64::NEG_INFINITY,
-            warned_unsupported_memory_policy: false,
             pending_warnings: Vec::new(),
             pending_output: Vec::new(),
             tasks: browser_task_runner(),
@@ -394,7 +393,6 @@ struct WebState {
     click_submitted: u64,
     click_completed: u64,
     last_hover_submit_ms: f64,
-    warned_unsupported_memory_policy: bool,
     pending_warnings: Vec<String>,
     pending_output: Vec<OutputMsg>,
 }
@@ -682,6 +680,10 @@ impl WebState {
         let t0 = performance_now_ms();
         self.refresh_recovery_for_scene_change();
         self.apply_runtime_memory_policy();
+        if self.recovery.is_blocked() {
+            self.needs_redraw = false;
+            return;
+        }
         // Drain any GPU pick readbacks that completed since the last frame.
         let poll_t0 = performance_now_ms();
         self.poll_pending_picks();
@@ -702,6 +704,10 @@ impl WebState {
             Err(e) => {
                 log::warn!("Render error: {:?}", e);
                 match e {
+                    render_loop::WebSurfaceStatus::ResourceLimit => {
+                        // A scene or setting change can trigger a new attempt.
+                        self.needs_redraw = false;
+                    }
                     render_loop::WebSurfaceStatus::Lost
                     | render_loop::WebSurfaceStatus::Outdated => {
                         if let Some(gpu) = &mut self.gpu {
@@ -727,35 +733,16 @@ impl WebState {
     fn apply_runtime_memory_policy(&mut self) {
         let requested =
             render_memory_policy_from_settings(&self.session.settings, self.auto_memory_policy);
-        let Some(current) = self.gpu.as_ref().map(|gpu| gpu.config.memory) else {
-            return;
-        };
-        if requested == current {
+        if self.gpu.is_none() || !self.recovery.request_profile(requested.profile) {
             return;
         }
-        let supported = self
-            .gpu
-            .as_ref()
-            .is_some_and(|gpu| gpu.supports_memory_policy(requested));
-        if !supported {
-            if !self.warned_unsupported_memory_policy {
-                self.pending_warnings.push(format!(
-                    "Renderer memory profile {} requires GPU limits unavailable on this device; keeping {}.",
-                    requested.profile, current.profile
-                ));
-                self.warned_unsupported_memory_policy = true;
-            }
-            return;
-        }
-
         if let Some(gpu) = self.gpu.as_mut() {
             gpu.rebuild_with_memory_policy(requested);
             gpu.resize(self.width, self.height);
         }
         self.clear_pending_gpu_picks();
-        self.warned_unsupported_memory_policy = false;
-        self.recovery.reset(requested.profile);
         self.session.registry.mark_all_dirty();
+        self.last_registry_generation = self.session.registry.generation();
         self.needs_redraw = true;
         self.pending_warnings.push(format!(
             "Renderer memory profile switched to {} by user setting.",
@@ -790,6 +777,7 @@ impl WebState {
         }
         self.clear_pending_gpu_picks();
         self.session.registry.mark_all_dirty();
+        self.last_registry_generation = self.session.registry.generation();
         self.needs_redraw = true;
         log::info!(
             "WebGPU memory recovery reset after scene generation changed; baseline profile={}",

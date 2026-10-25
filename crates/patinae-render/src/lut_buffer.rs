@@ -3,10 +3,11 @@
 //! Used for color, mask, and selection LUTs. Reallocates only when growth is
 //! required; writes are amortised O(N) per `flush`.
 
+use crate::memory::{checked_buffer_capacity, BufferSizeError};
 use bytemuck::Pod;
 
 use crate::memory::GpuMemoryUsage;
-use crate::memory_policy::SceneStoreGrowthPolicy;
+use crate::memory::SceneStoreGrowthPolicy;
 
 // Sparse hover updates normally touch one or two marker entries. If a caller
 // dirties many disjoint ranges, a single full upload is cheaper than issuing a
@@ -144,20 +145,39 @@ impl<T: Pod> GrowableStorageBuffer<T> {
         }
     }
 
+    pub(crate) fn planned_capacity(
+        &self,
+        limits: &wgpu::Limits,
+        growth: SceneStoreGrowthPolicy,
+    ) -> Result<usize, BufferSizeError> {
+        checked_buffer_capacity(
+            self.label,
+            self.cpu.len(),
+            self.capacity,
+            std::mem::size_of::<T>(),
+            growth,
+            limits
+                .max_buffer_size
+                .min(limits.max_storage_buffer_binding_size),
+        )
+    }
+
     /// Ensure the GPU buffer holds at least `cpu.len()` entries. Returns
     /// `true` iff a reallocation occurred — the caller must rebuild any bind
     /// group that referenced the old buffer.
+    ///
+    /// # Errors
+    /// Returns an error before allocation if the data exceeds device limits.
     pub fn ensure_capacity(
         &mut self,
         device: &wgpu::Device,
         growth: SceneStoreGrowthPolicy,
-    ) -> bool {
+    ) -> Result<bool, BufferSizeError> {
+        let new_cap = self.planned_capacity(&device.limits(), growth)?;
         let needed = self.cpu.len().max(1);
         if needed <= self.capacity && self.gpu.is_some() {
-            return false;
+            return Ok(false);
         }
-        let new_cap =
-            growable_capacity_entries(needed, self.capacity, std::mem::size_of::<T>(), growth);
         let size = (new_cap * std::mem::size_of::<T>()) as u64;
         let usages = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST;
         self.gpu = Some(device.create_buffer(&wgpu::BufferDescriptor {
@@ -169,7 +189,7 @@ impl<T: Pod> GrowableStorageBuffer<T> {
         self.capacity = new_cap;
         // Whole buffer is dirty after reallocation.
         self.dirty = DirtySpans::Full;
-        true
+        Ok(true)
     }
 
     /// Upload the dirty range to the GPU. No-op if clean.
@@ -232,41 +252,6 @@ impl<T: Pod> GrowableStorageBuffer<T> {
     }
 }
 
-pub(crate) fn growable_capacity_entries(
-    needed: usize,
-    current: usize,
-    item_size: usize,
-    policy: SceneStoreGrowthPolicy,
-) -> usize {
-    let needed = needed.max(1);
-    let min_capacity = 64;
-    match policy {
-        SceneStoreGrowthPolicy::PowerOfTwo => needed.next_power_of_two().max(min_capacity),
-        SceneStoreGrowthPolicy::Moderate { max_slack_bytes } => {
-            let grown = current.saturating_add(current.div_ceil(2));
-            clamp_growth_capacity(needed, grown, item_size, max_slack_bytes).max(min_capacity)
-        }
-        SceneStoreGrowthPolicy::Tight { max_slack_bytes } => {
-            let grown = needed.saturating_add(needed.div_ceil(8));
-            clamp_growth_capacity(needed, grown, item_size, max_slack_bytes).max(min_capacity)
-        }
-    }
-}
-
-fn clamp_growth_capacity(
-    needed: usize,
-    grown: usize,
-    item_size: usize,
-    max_slack_bytes: u64,
-) -> usize {
-    let item_size = item_size.max(1) as u64;
-    let slack_entries = (max_slack_bytes / item_size)
-        .try_into()
-        .unwrap_or(usize::MAX);
-    let cap = needed.saturating_add(slack_entries);
-    grown.max(needed).min(cap)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -296,40 +281,5 @@ mod tests {
         }
 
         assert_eq!(buffer.dirty, DirtySpans::Full);
-    }
-
-    #[test]
-    fn power_of_two_growth_preserves_previous_capacity_strategy() {
-        let capacity = growable_capacity_entries(65, 64, 4, SceneStoreGrowthPolicy::PowerOfTwo);
-
-        assert_eq!(capacity, 128);
-    }
-
-    #[test]
-    fn moderate_growth_uses_one_and_half_x_with_slack_cap() {
-        let capacity = growable_capacity_entries(
-            1_100,
-            1_024,
-            4,
-            SceneStoreGrowthPolicy::Moderate {
-                max_slack_bytes: 128,
-            },
-        );
-
-        assert_eq!(capacity, 1_132);
-    }
-
-    #[test]
-    fn tight_growth_uses_requested_size_plus_small_slack() {
-        let capacity = growable_capacity_entries(
-            1_000,
-            512,
-            4,
-            SceneStoreGrowthPolicy::Tight {
-                max_slack_bytes: 10_000,
-            },
-        );
-
-        assert_eq!(capacity, 1_125);
     }
 }

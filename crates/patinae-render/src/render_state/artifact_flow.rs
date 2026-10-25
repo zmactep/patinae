@@ -45,11 +45,14 @@ impl RenderState {
     /// pipeline details stay private to `patinae-render`.
     /// Inputs must be explicit: hosts must require materialization before
     /// exporting instanced objects through this artifact ABI.
+    ///
+    /// # Errors
+    /// Returns a resource size error rather than exporting a partially synced scene.
     pub fn render_artifact_snapshot(
         &mut self,
         input: &RenderInput<'_>,
-    ) -> RenderArtifactSnapshot<'_> {
-        self.sync(input);
+    ) -> Result<RenderArtifactSnapshot<'_>, crate::BufferSizeError> {
+        self.sync(input)?;
 
         let mut buffers = Vec::new();
         let mut reps = Vec::new();
@@ -227,7 +230,7 @@ impl RenderState {
             }
         }
 
-        RenderArtifactSnapshot {
+        Ok(RenderArtifactSnapshot {
             layout_version: RENDER_ARTIFACT_LAYOUT_VERSION,
             scene_generation: 0,
             scene_bounds_min,
@@ -235,7 +238,7 @@ impl RenderState {
             cull_pass_initialized: self.scene.cull_pass_initialized,
             buffers,
             reps,
-        }
+        })
     }
 }
 

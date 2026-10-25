@@ -3816,7 +3816,6 @@ name = "patinae"
 version = "0.5.2"
 dependencies = [
  "ab_glyph",
- "ash",
  "copypasta",
  "env_logger",
  "i-slint-backend-testing",
@@ -3825,7 +3824,6 @@ dependencies = [
  "log",
  "objc2 0.5.2",
  "objc2-app-kit 0.2.2",
- "objc2-metal 0.3.2",
  "patinae-cmd",
  "patinae-color",
  "patinae-framework",
@@ -3847,7 +3845,6 @@ dependencies = [
  "tokio",
  "webbrowser",
  "wgpu",
- "windows",
 ]
 
 [[package]]
@@ -4032,12 +4029,14 @@ dependencies = [
 name = "patinae-render"
 version = "0.5.2"
 dependencies = [
+ "ash",
  "bytemuck",
  "half",
  "image",
  "lin_alg",
  "log",
  "naga 30.0.1",
+ "objc2-metal 0.3.2",
  "patinae-algos",
  "patinae-io",
  "patinae-mol",
@@ -4046,6 +4045,7 @@ dependencies = [
  "rayon",
  "thiserror 2.0.18",
  "wgpu",
+ "windows",
  "winit",
 ]
 

@@ -88,15 +88,103 @@ fn object<'a>(
 }
 
 #[test]
+#[ignore = "requires a real GPU; validates resource failure, atomic scene upload, and recovery"]
+fn gpu_scene_resource_limit_stops_upload_and_recovers_after_scene_shrinks() {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+    let adapter = pollster::block_on(instance.request_adapter(&Default::default())).unwrap();
+    let mut limits = crate::required_device_limits(&adapter.limits())
+        .expect("GPU must support renderer compute requirements");
+    limits.max_buffer_size = 1 << 20;
+    limits.max_storage_buffer_binding_size = 64 << 10;
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        required_limits: limits,
+        ..Default::default()
+    }))
+    .unwrap();
+    let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let mut renderer = RenderState::with_config(
+        Arc::new(device),
+        Arc::new(queue),
+        wgpu::TextureFormat::Rgba8Unorm,
+        (16, 16),
+        RenderConfig {
+            memory: RenderMemoryPolicy::performance(),
+            ..Default::default()
+        },
+    );
+    let mut builder = MoleculeBuilder::new("too large for test limits");
+    for _ in 0..5000 {
+        builder = builder.add_atom(Atom::new("C", Element::Carbon), Vec3::new(0.0, 0.0, 0.0));
+    }
+    let molecule = builder.build();
+    let colors = vec![[0.4, 0.4, 0.4, 1.0]; molecule.atom_count()];
+    let settings = ResolvedSettings::resolve(&Settings::default(), None);
+    let objects_for_large = [object(&molecule, &colors, RepMask::SPHERES, 1, None)];
+    let input = RenderInput {
+        objects: &objects_for_large,
+        maps: &[],
+        strokes: &[],
+        settings: &settings,
+        lod: SceneLod::Auto,
+    };
+    renderer.take_memory_warnings();
+    assert!(renderer.sync(&input).is_err());
+    assert_eq!(renderer.scene.scene_store.memory_stats().capacity_bytes, 0);
+    assert_eq!(renderer.take_memory_warnings().len(), 1);
+    assert!(renderer.sync(&input).is_err());
+    assert!(renderer.take_memory_warnings().is_empty());
+    assert!(renderer.pick(0, 0).is_none());
+    assert!(renderer.render_artifact_snapshot(&input).is_err());
+    let uniforms = renderer.uniforms;
+    assert!(capture_rgba(&mut renderer, 16, 16, &uniforms, &input).is_err());
+    // No dirty flags are required to recover after shrinking the failed object
+    // under the same id, or after replacing it with a different object.
+    let small = MoleculeBuilder::new("small")
+        .add_atom(Atom::new("C", Element::Carbon), Vec3::new(0.0, 0.0, 0.0))
+        .build();
+    let mut small_object = object(&small, &colors[..1], RepMask::SPHERES, 1, None);
+    small_object.dirty = DirtyFlags::empty();
+    let objects = [small_object];
+    let input = RenderInput {
+        objects: &objects,
+        ..input
+    };
+    assert!(renderer.sync(&input).is_ok());
+    assert!(renderer.memory.sync_error.is_none());
+    assert_eq!(renderer.scene.draw_order.len(), 1);
+    assert!(capture_rgba(&mut renderer, 16, 16, &uniforms, &input).is_ok());
+    assert!(renderer
+        .sync(&RenderInput {
+            objects: &objects_for_large,
+            ..input
+        })
+        .is_err());
+    let mut replacement = object(&small, &colors[..1], RepMask::SPHERES, 2, None);
+    replacement.dirty = DirtyFlags::empty();
+    let objects = [replacement];
+    let input = RenderInput {
+        objects: &objects,
+        ..input
+    };
+    assert!(renderer.sync(&input).is_ok());
+    assert_eq!(renderer.scene.draw_order.len(), 1);
+    assert!(capture_rgba(&mut renderer, 16, 16, &uniforms, &input).is_ok());
+    assert!(pollster::block_on(scope.pop()).is_none());
+}
+
+#[test]
 #[ignore = "requires a real GPU; verifies cached representation and map transparency transitions"]
 fn gpu_representation_transparency_updates_cached_draw_phase() {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter = pollster::block_on(instance.request_adapter(&Default::default())).unwrap();
     let memory = RenderMemoryPolicy::performance();
-    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-        required_limits: crate::required_limits_for_memory_policy(&adapter.limits(), memory),
-        ..Default::default()
-    }))
+    let (device, queue) = pollster::block_on(
+        adapter.request_device(&wgpu::DeviceDescriptor {
+            required_limits: crate::required_device_limits(&adapter.limits())
+                .expect("GPU must support renderer compute requirements"),
+            ..Default::default()
+        }),
+    )
     .unwrap();
     let mut renderer = RenderState::with_config(
         Arc::new(device),
@@ -148,17 +236,19 @@ fn gpu_representation_transparency_updates_cached_draw_phase() {
                 if object_override {
                     input_object.object_settings = Some(resolved.clone());
                 }
-                renderer.sync(&RenderInput {
-                    objects: &[input_object],
-                    maps: &[],
-                    strokes: &[],
-                    settings: if object_override {
-                        &defaults
-                    } else {
-                        &resolved
-                    },
-                    lod: SceneLod::Auto,
-                });
+                renderer
+                    .sync(&RenderInput {
+                        objects: &[input_object],
+                        maps: &[],
+                        strokes: &[],
+                        settings: if object_override {
+                            &defaults
+                        } else {
+                            &resolved
+                        },
+                        lod: SceneLod::Auto,
+                    })
+                    .unwrap();
                 assert_eq!(
                     renderer.count_wboit_reps(),
                     u32::from(transparency > 0.0),
@@ -197,13 +287,15 @@ fn gpu_representation_transparency_updates_cached_draw_phase() {
                 dirty: false,
             };
             // Material comparison must notice alpha even with unchanged geometry/revisions.
-            renderer.sync(&RenderInput {
-                objects: &[],
-                maps: &[map],
-                strokes: &[],
-                settings: &settings,
-                lod: SceneLod::Auto,
-            });
+            renderer
+                .sync(&RenderInput {
+                    objects: &[],
+                    maps: &[map],
+                    strokes: &[],
+                    settings: &settings,
+                    lod: SceneLod::Auto,
+                })
+                .unwrap();
             assert_eq!(
                 renderer.count_wboit_reps(),
                 u32::from(alpha < 1.0),
@@ -220,13 +312,13 @@ fn gpu_recent_atom_markers_render_only_on_picked_copies() {
 
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter = pollster::block_on(instance.request_adapter(&Default::default())).unwrap();
-    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-        required_limits: crate::required_limits_for_memory_policy(
-            &adapter.limits(),
-            RenderMemoryPolicy::performance(),
-        ),
-        ..Default::default()
-    }))
+    let (device, queue) = pollster::block_on(
+        adapter.request_device(&wgpu::DeviceDescriptor {
+            required_limits: crate::required_device_limits(&adapter.limits())
+                .expect("GPU must support renderer compute requirements"),
+            ..Default::default()
+        }),
+    )
     .unwrap();
     let device = Arc::new(device);
     let queue = Arc::new(queue);
@@ -356,10 +448,13 @@ fn gpu_compact_copies_match_materialized_all_representations() {
             .expect("GPU required");
     eprintln!("Instance parity adapter: {:?}", adapter.get_info());
     let memory = RenderMemoryPolicy::performance();
-    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-        required_limits: crate::required_limits_for_memory_policy(&adapter.limits(), memory),
-        ..Default::default()
-    }))
+    let (device, queue) = pollster::block_on(
+        adapter.request_device(&wgpu::DeviceDescriptor {
+            required_limits: crate::required_device_limits(&adapter.limits())
+                .expect("GPU must support renderer compute requirements"),
+            ..Default::default()
+        }),
+    )
     .unwrap();
     let device = Arc::new(device);
     let queue = Arc::new(queue);

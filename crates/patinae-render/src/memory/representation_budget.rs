@@ -6,8 +6,7 @@
 
 use std::collections::HashSet;
 
-use crate::byte_units::gib_to_bytes;
-use crate::memory_policy::{RenderMemoryPolicy, RenderMemoryProfile};
+use crate::memory::RenderMemoryPolicy;
 use crate::picking::{ObjectId, RepKind};
 
 /// Conservative GPU-memory estimate for one representation build option.
@@ -159,20 +158,16 @@ pub(crate) fn plan_rep_budget(input: RepBudgetInput<'_>) -> Vec<RepBudgetDiagnos
     order.sort_by_key(|&index| (rep_priority(input.requests[index].kind), index));
 
     let mut used_bytes = input.fixed_reserved_bytes;
-    let budget_bytes = budget_bytes_for_policy(input.policy);
+    let budget_bytes = input.policy.budget_bytes;
 
     for index in order {
         let request = &input.requests[index];
-        let diagnostic = if budget_bytes.is_none() {
-            build_full_diagnostic(request)
-        } else {
-            plan_constrained_request(
-                request,
-                input.device_limits,
-                budget_bytes.unwrap_or(u64::MAX),
-                &mut used_bytes,
-            )
-        };
+        let diagnostic = plan_constrained_request(
+            request,
+            input.device_limits,
+            budget_bytes.unwrap_or(u64::MAX),
+            &mut used_bytes,
+        );
         decisions[index] = Some(diagnostic);
     }
 
@@ -191,19 +186,6 @@ pub(crate) fn current_warning_keys(
             .filter_map(|diagnostic| diagnostic.warning_key()),
     );
     keys
-}
-
-fn build_full_diagnostic(request: &RepBudgetRequest) -> RepBudgetDiagnostic {
-    RepBudgetDiagnostic {
-        object_id: request.object_id,
-        kind: request.kind,
-        decision: RepBuildDecision::Build,
-        estimate: request
-            .estimates
-            .first()
-            .copied()
-            .unwrap_or_else(empty_full_estimate),
-    }
 }
 
 fn plan_constrained_request(
@@ -246,18 +228,6 @@ fn decision_for_quality(quality: RepQualityLevel) -> RepBuildDecision {
     }
 }
 
-fn budget_bytes_for_policy(policy: RenderMemoryPolicy) -> Option<u64> {
-    if !policy.reps.enabled {
-        return None;
-    }
-    match policy.profile {
-        RenderMemoryProfile::Performance => None,
-        RenderMemoryProfile::Balanced => Some(gib_to_bytes(2)),
-        RenderMemoryProfile::Lite => Some(gib_to_bytes(1)),
-        RenderMemoryProfile::Manual { bytes } => Some(bytes),
-    }
-}
-
 fn device_skip_reason(estimate: RepMemoryEstimate, limits: &wgpu::Limits) -> Option<RepSkipReason> {
     let storage_limit = limits.max_storage_buffer_binding_size;
     let single_buffer_limit = limits.max_buffer_size.min(storage_limit);
@@ -297,7 +267,7 @@ fn rep_priority(kind: RepKind) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::byte_units::{gib_to_bytes, mib_to_bytes};
+    use crate::memory::{gib_to_bytes, mib_to_bytes};
 
     fn estimate(mib: u64, quality: RepQualityLevel) -> RepMemoryEstimate {
         RepMemoryEstimate {
@@ -323,21 +293,46 @@ mod tests {
     }
 
     #[test]
-    fn performance_profile_builds_every_requested_rep() {
-        let requests = [request(
-            RepKind::Sphere,
-            vec![estimate(4096, RepQualityLevel::Full)],
-        )];
+    fn performance_profile_checks_device_limits_without_a_total_budget() {
+        let requests = [
+            request(RepKind::Sphere, vec![estimate(4096, RepQualityLevel::Full)]),
+            request(RepKind::Line, vec![estimate(1024, RepQualityLevel::Full)]),
+        ];
 
         let diagnostics = plan_rep_budget(RepBudgetInput {
             policy: RenderMemoryPolicy::performance(),
-            fixed_reserved_bytes: 0,
+            fixed_reserved_bytes: gib_to_bytes(20),
             device_limits: &limits(),
             requests: &requests,
             active_rep_count: requests.len(),
         });
 
-        assert_eq!(diagnostics[0].decision, RepBuildDecision::Build);
+        assert_eq!(
+            diagnostics[0].decision,
+            RepBuildDecision::Skip {
+                reason: RepSkipReason::DeviceLimitExceeded
+            }
+        );
+        assert_eq!(diagnostics[1].decision, RepBuildDecision::Build);
+    }
+
+    #[test]
+    fn performance_downgrades_only_when_resource_limits_require_it() {
+        let requests = [request(
+            RepKind::Sphere,
+            vec![
+                estimate(4096, RepQualityLevel::Full),
+                estimate(512, RepQualityLevel::Sampled { sample_shift: 1 }),
+            ],
+        )];
+        let diagnostics = plan_rep_budget(RepBudgetInput {
+            policy: RenderMemoryPolicy::performance(),
+            fixed_reserved_bytes: 0,
+            device_limits: &limits(),
+            requests: &requests,
+            active_rep_count: 1,
+        });
+        assert_eq!(diagnostics[0].decision, RepBuildDecision::Downgrade);
     }
 
     #[test]

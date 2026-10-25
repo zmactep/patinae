@@ -7,11 +7,11 @@
 use patinae_mol::{DirtyFlags, RepMask};
 
 use crate::compute::cull::CullPipeline;
+use crate::memory::{RepBudgetRequest, RepMemoryEstimate, RepQualityLevel};
 use crate::picking::pass::PickingPass;
 use crate::picking::RepKind;
 use crate::render_input::RenderObjectInput;
 use crate::render_state::state::GeometryRuntime;
-use crate::representation_budget::{RepBudgetRequest, RepMemoryEstimate, RepQualityLevel};
 use crate::representations::cartoon::CartoonRep;
 use crate::representations::dot::DotRep;
 use crate::representations::ellipsoid::EllipsoidRep;
@@ -306,17 +306,14 @@ fn estimate_ellipsoid(
     crate::representations::ellipsoid::budget_estimates(input)
 }
 
-// Every built-in rep budgets against *counts* (atom/partition topology,
-// enabled reps, visibility, LOD) rather than coordinates. Surface/Mesh/
-// Cartoon/Ribbon used to add COORDS here (`GEOMETRY_BUDGET_DIRTY`) because
-// their estimators re-ran the full CPU geometry pipeline; the estimators are
-// now cheap count-based upper bounds, so COORDS no longer invalidates the
-// budget cache. This lets the budget request cache hit during coordinate-only
-// reloads instead of re-estimating every geometry rep each frame.
+// Count-based instance estimates remain valid during coordinate-only updates.
 const COUNT_BUDGET_DIRTY: DirtyFlags = DirtyFlags::TOPOLOGY
     .union(DirtyFlags::REPS)
     .union(DirtyFlags::VISIBILITY)
     .union(DirtyFlags::LOD);
+// Surface tiles and backbone runs depend on coordinates. Their cached resource
+// bounds cannot authorize allocations after the geometry changes.
+const GEOMETRY_BUDGET_DIRTY: DirtyFlags = COUNT_BUDGET_DIRTY.union(DirtyFlags::COORDS);
 
 pub(crate) const REPS: &[RepCatalogEntry] = &[
     RepCatalogEntry {
@@ -356,7 +353,7 @@ pub(crate) const REPS: &[RepCatalogEntry] = &[
         mask: RepMask::SURFACE,
         constructor: surface,
         estimator: estimate_surface,
-        budget_invalidating_dirty: COUNT_BUDGET_DIRTY,
+        budget_invalidating_dirty: GEOMETRY_BUDGET_DIRTY,
         cullable: false,
     },
     RepCatalogEntry {
@@ -364,7 +361,7 @@ pub(crate) const REPS: &[RepCatalogEntry] = &[
         mask: RepMask::MESH,
         constructor: mesh,
         estimator: estimate_mesh,
-        budget_invalidating_dirty: COUNT_BUDGET_DIRTY,
+        budget_invalidating_dirty: GEOMETRY_BUDGET_DIRTY,
         cullable: false,
     },
     RepCatalogEntry {
@@ -372,7 +369,7 @@ pub(crate) const REPS: &[RepCatalogEntry] = &[
         mask: RepMask::CARTOON,
         constructor: cartoon,
         estimator: estimate_cartoon,
-        budget_invalidating_dirty: COUNT_BUDGET_DIRTY,
+        budget_invalidating_dirty: GEOMETRY_BUDGET_DIRTY,
         cullable: false,
     },
     RepCatalogEntry {
@@ -380,7 +377,7 @@ pub(crate) const REPS: &[RepCatalogEntry] = &[
         mask: RepMask::RIBBON,
         constructor: ribbon,
         estimator: estimate_ribbon,
-        budget_invalidating_dirty: COUNT_BUDGET_DIRTY,
+        budget_invalidating_dirty: GEOMETRY_BUDGET_DIRTY,
         cullable: false,
     },
     RepCatalogEntry {
@@ -397,12 +394,8 @@ pub(crate) const REPS: &[RepCatalogEntry] = &[
 mod tests {
     use super::*;
 
-    /// Geometry reps (Surface/Mesh/Cartoon/Ribbon) now budget against counts
-    /// only. COORDS-only changes must not invalidate their budget estimate:
-    /// their estimators are cheap upper bounds that do not depend on exact
-    /// coordinates, so the budget request cache can hit during coord reloads.
     #[test]
-    fn geometry_reps_budget_against_counts_not_coords() {
+    fn geometry_resource_bounds_are_invalidated_by_coordinate_changes() {
         for kind in [
             RepKind::Surface,
             RepKind::Mesh,
@@ -411,8 +404,8 @@ mod tests {
         ] {
             let entry = entry(kind).expect("catalog entry");
             assert!(
-                !entry.budget_estimate_invalidated_by(DirtyFlags::COORDS),
-                "{kind:?} should not re-estimate on COORDS"
+                entry.budget_estimate_invalidated_by(DirtyFlags::COORDS),
+                "{kind:?} must re-estimate on COORDS"
             );
             for dirty in [
                 DirtyFlags::TOPOLOGY,
@@ -428,11 +421,9 @@ mod tests {
         }
     }
 
-    /// No built-in rep budgets against COORDS any longer; `GEOMETRY_BUDGET_DIRTY`
-    /// was removed. Verify the whole catalog agrees.
     #[test]
-    fn no_rep_budget_estimate_invalidated_by_coords() {
-        for entry in REPS {
+    fn count_resource_bounds_are_reused_on_coordinate_changes() {
+        for entry in REPS.iter().filter(|entry| entry.cullable) {
             assert!(
                 !entry.budget_estimate_invalidated_by(DirtyFlags::COORDS),
                 "{:?} must not re-estimate on COORDS",

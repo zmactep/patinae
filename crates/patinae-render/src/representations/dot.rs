@@ -13,10 +13,10 @@ use patinae_settings::ResolvedSettings;
 
 use crate::compute::dot_build::{indirect_seed, DotBuildParams, DotBuildPipeline};
 use crate::memory::{buffer_usage, GpuMemoryUsage};
+use crate::memory::{RepMemoryEstimate, RepQualityLevel};
 use crate::picking::RepKind;
 use crate::pipelines::dot::{dot_direction_offset, DotDrawParams, DotParamsLayout};
 use crate::render_input::{RenderObjectInput, SceneLod};
-use crate::representation_budget::{RepMemoryEstimate, RepQualityLevel};
 use crate::representations::cullable::CullableBuffers;
 use crate::representations::{BuildCtx, CullPlan, CullPlanCtx, DrawPhase, Representation};
 

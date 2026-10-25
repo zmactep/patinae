@@ -8,7 +8,6 @@
 //! - `RenderInput` + `RenderObjectInput` for pull-based host integration
 //! - `RepKind`, `ObjectId`, `PickHit` for picking round-trips
 
-mod byte_units;
 pub mod capture;
 #[allow(dead_code)]
 pub(crate) mod compute;
@@ -18,9 +17,6 @@ mod geometry_export;
 pub(crate) mod lut_buffer;
 mod map_contour;
 pub mod memory;
-mod memory_policy;
-mod memory_recovery;
-mod native_memory;
 pub(crate) mod passes;
 pub mod picking;
 pub(crate) mod pipelines;
@@ -28,7 +24,6 @@ pub(crate) mod postprocess;
 mod render_artifacts;
 mod render_input;
 mod render_state;
-mod representation_budget;
 #[allow(dead_code)]
 pub(crate) mod representations;
 pub mod scene_store;
@@ -43,10 +38,6 @@ mod stroke;
 mod uniforms;
 mod viewport_image;
 
-#[doc(inline)]
-pub use byte_units::{
-    bytes_to_gib, bytes_to_mib, gib_to_bytes, mib_to_bytes, BYTES_PER_GIB, BYTES_PER_MIB,
-};
 pub use context::RenderContext;
 pub use frame::FrameTargets;
 pub use geometry_export::{
@@ -55,25 +46,24 @@ pub use geometry_export::{
     TraceCylinder, TraceGeometryChunk, TraceLineSegment, TraceMaterial, TracePointSample,
     TraceSphere, TraceTriangle,
 };
+#[cfg(feature = "native-memory")]
+pub use memory::{adapter_memory_budget, device_memory_budget};
+#[doc(inline)]
 pub use memory::{
-    estimate_texture_2d_bytes, estimate_texture_bytes, estimate_texture_descriptor_bytes,
-    GpuAllocationEstimate, GpuMemoryBucket, GpuMemoryCategory, GpuMemoryLedger, GpuMemorySnapshot,
-    GpuMemoryUsage,
-};
-pub use memory_policy::{
-    render_memory_policy_from_settings, required_limits_for_memory_policy,
-    select_render_memory_policy, select_render_memory_policy_with_budget, FrameTargetPolicy,
-    OverlayPolicy, PickingPolicy, PostprocessPolicy, RenderAdapterType, RenderBackend,
-    RenderMemoryPolicy, RenderMemoryProfile, RenderMemoryProfileParseError,
-    RenderMemorySelectionInput, RepresentationBudgetPolicy, SceneStoreCompactionPolicy,
-    SceneStoreGrowthPolicy, SceneStoreMemoryPolicy, ShadowPolicy, PERFORMANCE_MAX_BUFFER_SIZE,
-    PERFORMANCE_MAX_STORAGE_BUFFER_BINDING_SIZE, PERFORMANCE_MIN_BUFFER_SIZE,
+    bytes_to_gib, bytes_to_mib, estimate_texture_2d_bytes, estimate_texture_bytes,
+    estimate_texture_descriptor_bytes, gib_to_bytes, is_wgpu_oom, mib_to_bytes, next_oom_fallback,
+    render_memory_policy_from_settings, required_device_limits, select_render_memory_policy,
+    BufferSizeError, DeviceRequirementsError, FrameTargetPolicy, GpuAllocationEstimate,
+    GpuMemoryBucket, GpuMemoryCategory, GpuMemoryLedger, GpuMemorySnapshot, GpuMemoryUsage,
+    NativeGpuMemoryBudget, NativeMemoryBudgetSource, OverlayPolicy, PickingPolicy,
+    PostprocessPolicy, RenderMemoryHeadroom, RenderMemoryPolicy, RenderMemoryProfile,
+    RenderMemoryProfileParseError, RenderMemoryRecoveryAction, RenderMemoryRecoveryStage,
+    RenderMemorySelection, RenderMemorySelectionInput, RenderMemorySelectionReason,
+    RepBudgetDiagnostic, RepBuildDecision, RepMemoryEstimate, RepQualityLevel, RepSkipReason,
+    SceneStoreCompactionPolicy, SceneStoreGrowthPolicy, SceneStoreMemoryPolicy, ShadowPolicy,
+    BYTES_PER_GIB, BYTES_PER_MIB, DEVICE_BUFFER_TARGET_BYTES, DEVICE_STORAGE_BINDING_TARGET_BYTES,
     RENDER_COMPUTE_STORAGE_BUFFERS_PER_STAGE,
 };
-pub use memory_recovery::{
-    is_wgpu_oom, next_oom_fallback, RenderMemoryRecoveryAction, RenderMemoryRecoveryStage,
-};
-pub use native_memory::{NativeGpuMemoryBudget, NativeMemoryBudgetSource};
 pub use picking::{ObjectId, PackedId, PickHit, PickingMode, RenderConfig, RepKind};
 pub use render_artifacts::{
     RenderArtifactBufferRef, RenderArtifactBufferRole, RenderArtifactPrimitiveTopology,
@@ -86,9 +76,6 @@ pub use render_input::{
     REP_COLOR_INHERIT,
 };
 pub use render_state::{PreparedRenderState, RenderState, RenderSyncTimings};
-pub use representation_budget::{
-    RepBudgetDiagnostic, RepBuildDecision, RepMemoryEstimate, RepQualityLevel, RepSkipReason,
-};
 pub use representations::sphere::SphereLodDiagnostics;
 pub use representations::stick::StickLodDiagnostics;
 pub use scene_store::{

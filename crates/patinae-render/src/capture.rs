@@ -63,7 +63,9 @@ pub fn capture_rgba(
     // (WBOIT composite, SSAO, FXAA, overlay resources) point at the capture
     // targets instead of stale live-viewport targets.
     state.resize((width, height));
-    state.sync(input);
+    state
+        .sync(input)
+        .map_err(|error| CaptureError::Gpu(error.to_string()))?;
 
     // Offscreen colour target — Rgba8Unorm so we can directly read it
     // back as RGBA bytes for PNG encoding.

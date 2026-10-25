@@ -272,7 +272,10 @@ impl CaptureRenderer for ViewportRenderer {
                 "Ray rendering requires explicit objects; run materialize first".to_string(),
             ));
         }
-        let snapshot = self.state.render_artifact_snapshot(&input);
+        let snapshot = self
+            .state
+            .render_artifact_snapshot(&input)
+            .map_err(|error| ViewerError::capture_error(error.to_string()))?;
         visitor(snapshot).map_err(ViewerError::capture_error)?;
         drop(object_inputs);
         registry.clear_all_dirty_objects();

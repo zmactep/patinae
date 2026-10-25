@@ -1,6 +1,6 @@
 //! Renderer memory-pressure recovery state.
 
-use crate::memory_policy::RenderMemoryProfile;
+use crate::memory::RenderMemoryProfile;
 
 /// Recovery state for a confirmed GPU out-of-memory sequence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,6 +51,23 @@ impl RenderMemoryRecoveryStage {
     /// Returns `true` when no OOM recovery sequence is active.
     pub const fn is_normal(self) -> bool {
         matches!(self, Self::Normal { .. })
+    }
+
+    /// Returns whether this scene must wait for a scene or requested-profile change.
+    pub const fn is_blocked(self) -> bool {
+        matches!(self, Self::Blocked { .. })
+    }
+
+    /// Accepts a changed user request without undoing an automatic OOM fallback.
+    ///
+    /// Compare against the baseline, never the effective fallback profile. Hosts
+    /// may call this every frame; an unchanged request preserves recovery state.
+    pub fn request_profile(&mut self, requested: RenderMemoryProfile) -> bool {
+        if requested == self.base_profile() {
+            return false;
+        }
+        self.reset(requested);
+        true
     }
 
     /// Advances the state after a confirmed OOM.
@@ -141,6 +158,31 @@ pub const fn is_wgpu_oom(error: &wgpu::Error) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unchanged_user_request_preserves_fallback_until_a_real_change() {
+        let requested = RenderMemoryProfile::Performance;
+        let mut state = RenderMemoryRecoveryStage::normal(requested);
+        for expected in [
+            requested,
+            RenderMemoryProfile::Balanced,
+            RenderMemoryProfile::Lite,
+            RenderMemoryProfile::Lite,
+        ] {
+            state.advance_after_oom();
+            for _ in 0..100 {
+                assert!(!state.request_profile(requested));
+                assert_eq!(state.effective_profile(), expected);
+            }
+        }
+        assert!(state.is_blocked());
+        assert!(state.request_profile(RenderMemoryProfile::Balanced));
+        assert!(state.is_normal());
+        assert_eq!(state.effective_profile(), RenderMemoryProfile::Balanced);
+        assert!(state.request_profile(RenderMemoryProfile::Manual { bytes: 1024 }));
+        assert!(state.request_profile(RenderMemoryProfile::Manual { bytes: 2048 }));
+        assert!(!state.request_profile(RenderMemoryProfile::Manual { bytes: 2048 }));
+    }
     fn test_error_source(message: &'static str) -> wgpu::ErrorSource {
         Box::new(std::io::Error::other(message))
     }

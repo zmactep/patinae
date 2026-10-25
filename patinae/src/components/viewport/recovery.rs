@@ -24,6 +24,7 @@ impl ViewportRenderer {
             self.drop_transient_resources();
         }
         session.registry.mark_all_dirty();
+        self.last_registry_generation = session.registry.generation();
         log::info!(
             "renderer memory recovery reset after scene generation changed; baseline profile={}",
             base_profile
@@ -53,7 +54,7 @@ impl ViewportRenderer {
         if self.wgpu_errors.take_oom() {
             return Err(ViewportRenderFailure::OutOfMemory);
         }
-        Ok(texture)
+        texture.map_err(|_| ViewportRenderFailure::ResourceLimit)
     }
 
     pub(super) fn recover_after_oom(&mut self, session: &mut Session) -> ViewportRenderOutcome {
@@ -69,6 +70,7 @@ impl ViewportRenderer {
             RenderMemoryRecoveryAction::SwitchProfile { effective_profile } => {
                 self.rebuild_for_profile(effective_profile);
                 session.registry.mark_all_dirty();
+                self.last_registry_generation = session.registry.generation();
                 ViewportRenderOutcome::recovery(
                     Some(format!(
                         "Renderer memory profile switched to {} after confirmed GPU memory pressure.",
@@ -104,11 +106,14 @@ impl ViewportRenderer {
         )
     }
 
+    // Renderer-owned invalidation must be acknowledged immediately: it is not
+    // a user scene change and must not reset the next recovery step.
     pub(super) fn prepare_oom_retry(&mut self, session: &mut Session) {
         self.drop_transient_resources();
         let compaction = self.state.force_scene_store_compaction();
         self.state.drop_unused_optional_targets();
         session.registry.mark_all_dirty();
+        self.last_registry_generation = session.registry.generation();
         if compaction.ran {
             log::info!(
                 "renderer OOM recovery compacted SceneStore: capacity_before={:.2} MiB orphaned_before={:.2} MiB moved_objects={}",
@@ -122,26 +127,12 @@ impl ViewportRenderer {
     pub(super) fn apply_runtime_memory_policy(&mut self, session: &mut Session) -> Option<String> {
         let requested =
             render_memory_policy_from_settings(&session.settings, self.auto_memory_policy);
-        if requested == self.memory_policy {
+        if !self.recovery.request_profile(requested.profile) {
             return None;
         }
-        if !memory_policy_supported_by_device(requested, &self.state.ctx.device.limits()) {
-            if !self.warned_unsupported_memory_policy {
-                self.warned_unsupported_memory_policy = true;
-                return Some(format!(
-                    "Renderer memory profile {} requires GPU limits unavailable on this device; keeping {}.",
-                    requested.profile, self.memory_policy.profile
-                ));
-            }
-            return None;
-        }
-
-        self.config.memory = requested;
-        self.memory_policy = requested;
-        self.warned_unsupported_memory_policy = false;
-        self.recovery.reset(requested.profile);
         self.rebuild_for_policy(requested);
         session.registry.mark_all_dirty();
+        self.last_registry_generation = session.registry.generation();
         let mut message = format!(
             "Renderer memory profile switched to {} by user setting.",
             requested.profile
@@ -161,7 +152,6 @@ impl ViewportRenderer {
         let device = self.state.ctx.device.clone();
         let queue = self.state.ctx.queue.clone();
         self.config.memory = policy;
-        self.memory_policy = self.config.memory;
         let viewport = self.last_viewport_size.unwrap_or((1, 1));
         self.state =
             RenderState::with_config(device, queue, VIEWPORT_FORMAT, viewport, self.config);
@@ -184,5 +174,64 @@ impl ViewportRenderer {
         self.last_viewport_size = None;
         self.color_textures.clear();
         self.color_textures_next = 0;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "requires a native GPU to exercise viewport rebuilds"]
+    fn gpu_oom_recovery_survives_renderer_owned_scene_invalidation() {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let adapter = pollster::block_on(instance.request_adapter(&Default::default())).unwrap();
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            required_limits: patinae_render::required_device_limits(&adapter.limits()).unwrap(),
+            ..Default::default()
+        }))
+        .unwrap();
+        let config = RenderConfig {
+            memory: RenderMemoryPolicy::performance(),
+            ..Default::default()
+        };
+        let state = RenderState::with_config(
+            Arc::new(device),
+            Arc::new(queue),
+            VIEWPORT_FORMAT,
+            (1, 1),
+            config,
+        );
+        let mut viewport =
+            ViewportRenderer::from_prepared(state, config, WgpuErrorFlags::default());
+        let mut session = Session::new();
+        viewport.refresh_recovery_for_scene_change(&mut session);
+
+        for (expected, redraw) in [
+            (RenderMemoryProfile::Performance, true),
+            (RenderMemoryProfile::Balanced, true),
+            (RenderMemoryProfile::Lite, true),
+            (RenderMemoryProfile::Lite, false),
+        ] {
+            let outcome = viewport.recover_after_oom(&mut session);
+            assert_eq!(outcome.request_redraw, redraw);
+            let stage = viewport.recovery;
+            assert_eq!(stage.effective_profile(), expected);
+            viewport.refresh_recovery_for_scene_change(&mut session);
+            assert!(viewport.apply_runtime_memory_policy(&mut session).is_none());
+            assert_eq!(viewport.recovery, stage);
+        }
+        assert!(viewport.recovery.is_blocked());
+        let outcome = viewport.render(&mut session, 1, 1);
+        assert!(!outcome.request_redraw);
+        assert!(!outcome.present_frame);
+
+        session.registry.invalidate();
+        viewport.refresh_recovery_for_scene_change(&mut session);
+        assert!(viewport.recovery.is_normal());
+        assert_eq!(
+            viewport.config.memory.profile,
+            RenderMemoryProfile::Performance
+        );
     }
 }

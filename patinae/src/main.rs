@@ -7,6 +7,7 @@ mod components;
 mod cv_display_link;
 mod display_recovery;
 mod fetch;
+mod gpu_startup;
 #[cfg(target_os = "macos")]
 mod macos;
 mod native_file_actions;

@@ -11,12 +11,9 @@ use web_sys::HtmlCanvasElement;
 
 #[cfg(target_arch = "wasm32")]
 use patinae_render::{
-    required_limits_for_memory_policy, select_render_memory_policy, RenderMemorySelectionInput,
+    required_device_limits, select_render_memory_policy, RenderMemorySelectionInput,
 };
-use patinae_render::{
-    RenderConfig, RenderMemoryPolicy, RenderMemoryProfile, RenderState,
-    PERFORMANCE_MAX_BUFFER_SIZE, PERFORMANCE_MAX_STORAGE_BUFFER_BINDING_SIZE,
-};
+use patinae_render::{RenderConfig, RenderMemoryPolicy, RenderMemoryProfile, RenderState};
 
 /// GPU resources initialized from a canvas element. The renderer is the
 /// shared `patinae_render::RenderState`; the surface + config drive the
@@ -81,15 +78,18 @@ impl GpuState {
             let adapter_info = adapter.get_info();
             log::info!("GPU adapter: {}", adapter_info.name);
             let adapter_limits = adapter.limits();
-            let memory_policy = select_render_memory_policy(
+            let selection = select_render_memory_policy(
                 RenderMemorySelectionInput::from_wgpu(&adapter_info, &adapter_limits, true),
+                None,
                 memory_profile_override,
             );
+            let memory_policy = selection.policy;
             config.memory = memory_policy;
             log::info!(
-                "render memory profile: profile={} budget={:?}",
+                "render memory profile: profile={} allocation_budget={:?} reason={:?}",
                 memory_policy.profile,
-                memory_policy.budget_bytes
+                memory_policy.budget_bytes,
+                selection.reason,
             );
 
             // Request device
@@ -97,10 +97,8 @@ impl GpuState {
                 .request_device(&wgpu::DeviceDescriptor {
                     label: Some("patinae-web"),
                     required_features: wgpu::Features::empty(),
-                    required_limits: required_limits_for_memory_policy(
-                        &adapter_limits,
-                        memory_policy,
-                    ),
+                    required_limits: required_device_limits(&adapter_limits)
+                        .map_err(|error| error.to_string())?,
                     memory_hints: memory_policy.wgpu_memory_hints(),
                     experimental_features: wgpu::ExperimentalFeatures::default(),
                     trace: wgpu::Trace::Off,
@@ -194,21 +192,6 @@ impl GpuState {
             (self.surface_config.width, self.surface_config.height),
             self.config,
         );
-    }
-
-    /// Returns whether the existing device can support `policy`.
-    pub fn supports_memory_policy(&self, policy: RenderMemoryPolicy) -> bool {
-        match policy.profile {
-            RenderMemoryProfile::Performance => {
-                let limits = self.state.ctx.device.limits();
-                limits.max_buffer_size >= PERFORMANCE_MAX_BUFFER_SIZE
-                    && limits.max_storage_buffer_binding_size
-                        >= PERFORMANCE_MAX_STORAGE_BUFFER_BINDING_SIZE
-            }
-            RenderMemoryProfile::Balanced
-            | RenderMemoryProfile::Lite
-            | RenderMemoryProfile::Manual { .. } => true,
-        }
     }
 
     /// Drains pending user-visible renderer memory warnings.

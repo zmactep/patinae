@@ -27,10 +27,9 @@ use patinae_mol::{
 };
 use patinae_render::scene_store::marker::{MARKER_HOVER, MARKER_SELECTED};
 use patinae_render::{
-    bytes_to_gib, required_limits_for_memory_policy, select_render_memory_policy, ObjectId,
-    PickingMode, RenderConfig, RenderInput, RenderMemoryPolicy, RenderMemoryProfile,
-    RenderMemorySelectionInput, RenderObjectInput, RenderState, RenderSyncTimings, SceneLod,
-    IDENTITY_TRANSFORM,
+    bytes_to_gib, required_device_limits, select_render_memory_policy, ObjectId, PickingMode,
+    RenderConfig, RenderInput, RenderMemoryPolicy, RenderMemoryProfile, RenderMemorySelectionInput,
+    RenderObjectInput, RenderState, RenderSyncTimings, SceneLod, IDENTITY_TRANSFORM,
 };
 use patinae_scene::ColorResolver;
 use patinae_settings::{ResolvedSettings, Settings};
@@ -405,16 +404,21 @@ fn request_device() -> (Arc<wgpu::Device>, Arc<wgpu::Queue>, RenderMemoryPolicy)
     let adapter_limits = adapter.limits();
     let memory_policy = select_render_memory_policy(
         RenderMemorySelectionInput::from_wgpu(&adapter_info, &adapter_limits, false),
+        None,
         bench_memory_override(),
-    );
-    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-        label: Some("bench.render_loop.device"),
-        required_features: features,
-        required_limits: required_limits_for_memory_policy(&adapter_limits, memory_policy),
-        memory_hints: memory_policy.wgpu_memory_hints(),
-        experimental_features: wgpu::ExperimentalFeatures::default(),
-        trace: wgpu::Trace::Off,
-    }))
+    )
+    .policy;
+    let (device, queue) = pollster::block_on(
+        adapter.request_device(&wgpu::DeviceDescriptor {
+            label: Some("bench.render_loop.device"),
+            required_features: features,
+            required_limits: required_device_limits(&adapter_limits)
+                .expect("GPU must support renderer compute requirements"),
+            memory_hints: memory_policy.wgpu_memory_hints(),
+            experimental_features: wgpu::ExperimentalFeatures::default(),
+            trace: wgpu::Trace::Off,
+        }),
+    )
     .expect("device");
     let lim = adapter_limits;
     eprintln!(
@@ -548,7 +552,9 @@ fn sync_with_timing(
 ) -> (Duration, RenderSyncTimings) {
     let wall_start = Instant::now();
     let timer_start = Instant::now();
-    state.sync_with_timer(input, || timer_start.elapsed().as_secs_f64() * 1000.0);
+    state
+        .sync_with_timer(input, || timer_start.elapsed().as_secs_f64() * 1000.0)
+        .expect("benchmark scene must fit GPU resource limits");
     (wall_start.elapsed(), state.last_sync_timings())
 }
 
@@ -1097,13 +1103,15 @@ fn bench_render_loop(c: &mut Criterion) {
                 lod,
                 dirty: DirtyFlags::empty(),
             };
-            state.sync(&RenderInput {
-                objects: std::slice::from_ref(&frame_input),
-                maps: &[],
-                strokes: &[],
-                settings: &settings,
-                lod,
-            });
+            state
+                .sync(&RenderInput {
+                    objects: std::slice::from_ref(&frame_input),
+                    maps: &[],
+                    strokes: &[],
+                    settings: &settings,
+                    lod,
+                })
+                .expect("benchmark scene must fit GPU resource limits");
             checksums.push(rendered_frame_checksum(
                 &device,
                 &queue,
@@ -1176,13 +1184,15 @@ fn bench_render_loop(c: &mut Criterion) {
                 lod,
                 dirty: DirtyFlags::empty(),
             };
-            state.sync(&RenderInput {
-                objects: std::slice::from_ref(&frame_input),
-                maps: &[],
-                strokes: &[],
-                settings: &settings,
-                lod,
-            });
+            state
+                .sync(&RenderInput {
+                    objects: std::slice::from_ref(&frame_input),
+                    maps: &[],
+                    strokes: &[],
+                    settings: &settings,
+                    lod,
+                })
+                .expect("benchmark scene must fit GPU resource limits");
             let mut encoder =
                 device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
             state.render(&target_view, &mut encoder);

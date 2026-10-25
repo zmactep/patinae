@@ -25,8 +25,6 @@ impl ViewportRenderer {
             color_textures: Vec::new(),
             color_textures_next: 0,
             viewport_gpu_image: None,
-            memory_policy,
-            warned_unsupported_memory_policy: false,
         }
     }
 
@@ -60,14 +58,14 @@ impl ViewportRenderer {
             device_name: adapter_info.name.clone(),
             backend: format!("{:?}", adapter_info.backend),
         });
-        let memory_policy = render_memory_policy_for_device(
+        let memory_policy = crate::gpu_startup::memory_policy(
             &adapter_info,
             &device.limits(),
-            crate::components::gpu_memory::device_memory_budget(&device),
-            "PATINAE_RENDER_MEMORY_PROFILE",
+            patinae_render::device_memory_budget(&device),
+            "created-device",
         );
         log::info!(
-            "render memory profile: profile={} budget={:?} handoff_ring={}",
+            "render memory profile: profile={} allocation_budget={:?} handoff_ring={}",
             memory_policy.profile,
             memory_policy.budget_bytes,
             memory_policy.frame_targets.viewport_handoff_ring
@@ -134,52 +132,4 @@ pub(super) fn install_wgpu_error_handlers(device: &wgpu::Device) -> WgpuErrorFla
         log::error!("WGPU device lost: {reason:?}: {message}");
     });
     flags
-}
-
-pub(crate) fn render_memory_policy_for_device(
-    adapter_info: &wgpu::AdapterInfo,
-    limits: &wgpu::Limits,
-    budget: Option<patinae_render::NativeGpuMemoryBudget>,
-    env_var: &str,
-) -> RenderMemoryPolicy {
-    let override_profile = std::env::var(env_var).ok().and_then(|value| match value
-        .parse::<RenderMemoryProfile>(
-    ) {
-        Ok(profile) => Some(profile),
-        Err(err) => {
-            log::warn!("ignoring invalid {env_var}={value:?}: {err}");
-            None
-        }
-    });
-    match budget {
-        Some(budget) => log::info!(
-            "native GPU memory: source={:?} budget={:.2} MiB process_usage={:.2} MiB headroom={:.2} MiB",
-            budget.source,
-            patinae_render::bytes_to_mib(budget.budget_bytes),
-            patinae_render::bytes_to_mib(budget.usage_bytes),
-            patinae_render::bytes_to_mib(budget.headroom_bytes()),
-        ),
-        None => log::info!("native GPU memory budget unavailable; using capability fallback"),
-    }
-    select_render_memory_policy_with_budget(
-        RenderMemorySelectionInput::from_wgpu(adapter_info, limits, false),
-        budget,
-        override_profile,
-    )
-}
-
-pub(super) fn memory_policy_supported_by_device(
-    policy: RenderMemoryPolicy,
-    limits: &wgpu::Limits,
-) -> bool {
-    match policy.profile {
-        RenderMemoryProfile::Performance => {
-            limits.max_buffer_size >= PERFORMANCE_MIN_BUFFER_SIZE
-                && limits.max_storage_buffer_binding_size
-                    >= PERFORMANCE_MAX_STORAGE_BUFFER_BINDING_SIZE
-        }
-        RenderMemoryProfile::Balanced
-        | RenderMemoryProfile::Lite
-        | RenderMemoryProfile::Manual { .. } => true,
-    }
 }
