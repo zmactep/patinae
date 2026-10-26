@@ -6,22 +6,57 @@ on:
   pull_request:
     branches: ["main"]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
+  # CI needs assertions and test coverage, not debugger symbols.
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 permissions:
   contents: read
 
 jobs:
+  checks:
+    name: Formatting and metadata
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Check formatting
+        run: |
+          cargo fmt --all -- --check
+          cargo fmt --manifest-path python/Cargo.toml --all -- --check
+          cargo fmt --manifest-path web/Cargo.toml --all -- --check
+      - name: Cache Cargo downloads
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: false
+          workspaces: |
+            .
+            python
+            web
+      - name: Check release metadata
+        run: make check-release-metadata
+
   desktop:
     name: Desktop (${{ matrix.os }})
+    needs: checks
     strategy:
       fail-fast: false
       matrix:
         os: [macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
       - name: Install Rust toolchain
@@ -35,8 +70,11 @@ jobs:
       - name: Test GUI event dispatch
         run: cargo test --locked -p patinae --bin patinae app::events::tests -- --test-threads=1
 
-  build:
+  native:
+    name: Native tests and Clippy
+    needs: checks
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v6
@@ -44,7 +82,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt, clippy
+          components: clippy
 
       - name: Install Linux dependencies
         run: |
@@ -58,12 +96,6 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
 
-      - name: Check release metadata
-        run: make check-release-metadata
-
-      - name: Test core without plugin runtimes
-        run: make test-core
-
       - name: Setup uv
         uses: astral-sh/setup-uv@v7
 
@@ -72,26 +104,44 @@ jobs:
           uv python install 3.13
           echo "PYO3_PYTHON=$(uv python find --system --python-preference only-managed 3.13)" >> "$GITHUB_ENV"
 
-      - name: Check formatting
-        run: cargo fmt --all -- --check
-
       - name: Run clippy
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
 
-      - name: Check workspace
-        run: cargo check --locked --workspace
-
+      # One workspace test pass covers the core, application and plugins.
+      # test-core remains available locally for the configuration without plugins.
       - name: Run workspace tests
         run: make test
 
-      - name: Check Python crate
-        run: cargo check --locked --manifest-path python/Cargo.toml
+      # A real shared library is required; unit tests alone do not exercise dlopen.
+      - name: Test dynamic plugin ABI
+        run: make test-abi
 
-      - name: Install Rust wasm32 target
-        run: rustup target add wasm32-unknown-unknown
+  bindings:
+    name: Web and Python bindings
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
 
-      - name: Check web WASM crate
-        run: cargo check --locked --manifest-path web/Cargo.toml --target wasm32-unknown-unknown
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      # These crates are separate Cargo workspaces, excluded from the root one.
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            python
+            web
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install test Python
+        run: uv python install 3.13
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -101,12 +151,22 @@ jobs:
           cache-dependency-path: web/package-lock.json
 
       - name: Build widget assets
-        run: |
-          cd web && npm ci && npm run build && cd ..
-          make widget-assets
+        working-directory: web
+        run: npm ci && npm run build:ci
 
+      # Reuse the web assets above. This runs Rust binding tests and tests an
+      # installed debug wheel; preliminary cargo check passes add no coverage.
       - name: Test bindings and installed wheel
         run: make test-bindings
 
-      - name: Test dynamic plugin ABI
-        run: make test-abi
+  # Preserve the existing required check name, covering every parallel lane.
+  build:
+    needs: [checks, desktop, native, bindings]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require all checks to pass
+        env:
+          JOB_RESULTS: ${{ toJSON(needs) }}
+        run: jq -e 'all(.[]; .result == "success")' <<< "$JOB_RESULTS"

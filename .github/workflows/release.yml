@@ -22,9 +22,37 @@ jobs:
   validate-release:
     name: Validate release metadata
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      prerelease: ${{ steps.tag.outputs.prerelease }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      - name: Determine release tag
+        id: tag
+        shell: bash
+        env:
+          REQUESTED_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$REQUESTED_TAG" ]]; then
+            tag="$REQUESTED_TAG"
+          elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            tag="${GITHUB_REF#refs/tags/}"
+          else
+            echo "::error::Provide a release tag when running from a branch."
+            exit 1
+          fi
+
+          prerelease=false
+          if [[ "${tag%%+*}" == *-* ]]; then
+            prerelease=true
+          fi
+          {
+            echo "tag=$tag"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -49,6 +77,8 @@ jobs:
       - name: Choose package version
         id: version
         shell: bash
+        env:
+          PRERELEASE: ${{ needs.validate-release.outputs.prerelease }}
         run: |
           set -euo pipefail
 
@@ -66,6 +96,16 @@ jobs:
           if [[ -z "$project_name" || -z "$base_version" ]]; then
             echo "Could not read project name/version from python/pyproject.toml" >&2
             exit 1
+          fi
+
+          # Prerelease wheels are GitHub assets only; do not reserve a PyPI version.
+          if [[ "$PRERELEASE" == true ]]; then
+            {
+              echo "base_version=${base_version}"
+              echo "version=${base_version}"
+            } >> "$GITHUB_OUTPUT"
+            echo "::notice::Prerelease: skipping PyPI version lookup and publication."
+            exit 0
           fi
 
           response=$(mktemp)
@@ -632,6 +672,7 @@ jobs:
 
   publish-pypi:
     name: Publish to PyPI
+    if: ${{ needs.validate-release.outputs.prerelease == 'false' }}
     needs:
       [
         validate-release,
@@ -663,7 +704,34 @@ jobs:
 
   release:
     name: Create Release
-    needs: [publish-pypi]
+    needs:
+      [
+        validate-release,
+        resolve_pypi_version,
+        build-executables,
+        build-plugins,
+        build-wheels,
+        build-sdist,
+        build-web,
+        build-dmg,
+        build-bundle-windows,
+        publish-pypi,
+      ]
+    # A skipped PyPI job is expected only for prereleases. Every build must pass.
+    if: >-
+      ${{ !cancelled()
+          && needs.validate-release.result == 'success'
+          && needs.resolve_pypi_version.result == 'success'
+          && needs.build-executables.result == 'success'
+          && needs.build-plugins.result == 'success'
+          && needs.build-wheels.result == 'success'
+          && needs.build-sdist.result == 'success'
+          && needs.build-web.result == 'success'
+          && needs.build-dmg.result == 'success'
+          && needs.build-bundle-windows.result == 'success'
+          && (needs.publish-pypi.result == 'success'
+              || (needs.validate-release.outputs.prerelease == 'true'
+                  && needs.publish-pypi.result == 'skipped')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -691,15 +759,6 @@ jobs:
           find artifacts -type f -name '*.whl' -exec mv {} release/ \;
           ls -la release/
 
-      - name: Determine tag
-        id: tag
-        run: |
-          if [ -n "${{ github.event.inputs.tag }}" ]; then
-            echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
-          else
-            echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-          fi
-
       - name: Detect release notes
         id: release_notes
         shell: bash
@@ -711,9 +770,9 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.tag.outputs.tag }}
-          name: Release ${{ steps.tag.outputs.tag }}
+          tag_name: ${{ needs.validate-release.outputs.tag }}
+          name: Release ${{ needs.validate-release.outputs.tag }}
           draft: false
-          prerelease: ${{ contains(steps.tag.outputs.tag, '-') }}
+          prerelease: ${{ needs.validate-release.outputs.prerelease == 'true' }}
           body_path: ${{ steps.release_notes.outputs.body_path }}
           files: release/*

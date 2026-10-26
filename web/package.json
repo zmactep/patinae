@@ -20,6 +20,7 @@
     "wasm:build": "wasm-pack build --target web --out-dir pkg --no-opt -- --locked",
     "dev": "npm run wasm:build && vite",
     "build": "npm run wasm:build && vite build",
+    "build:ci": "wasm-pack build --dev --target web --out-dir pkg --no-opt -- --locked && vite build",
     "preview": "vite preview"
   },
   "devDependencies": {
