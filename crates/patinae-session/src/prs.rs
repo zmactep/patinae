@@ -12,6 +12,7 @@ use rmpv::Value;
 use serde::{Deserialize, Serialize};
 
 mod legacy_colors;
+mod value_de;
 
 /// Current native PRS document format version.
 ///
@@ -138,9 +139,9 @@ pub fn load_prs_document(path: &Path) -> Result<PrsDocument, PrsError> {
 /// current PRS document or legacy raw session.
 pub fn decode_prs_document(bytes: impl AsRef<[u8]>) -> Result<PrsDocument, PrsError> {
     let staged = stage_prs_payload(bytes.as_ref())?;
-    match rmp_serde::from_slice::<PrsDocument>(&staged) {
+    match PrsDocument::deserialize(value_de::Deserializer(&staged)) {
         Ok(document) => Ok(document),
-        Err(envelope_error) => match rmp_serde::from_slice::<Session>(&staged) {
+        Err(envelope_error) => match Session::deserialize(value_de::Deserializer(&staged)) {
             Ok(session) => Ok(PrsDocument::legacy(session)),
             Err(_) => Err(PrsError::Deserialize(envelope_error)),
         },
@@ -153,7 +154,7 @@ const REGISTRY_LABELS_INDEX: usize = 10;
 const MOLECULE_DATA_INDEX: usize = 0;
 const INVALID_ATOM_INDEX: u64 = u32::MAX as u64;
 
-fn stage_prs_payload(bytes: &[u8]) -> Result<Vec<u8>, PrsError> {
+fn stage_prs_payload(bytes: &[u8]) -> Result<Value, PrsError> {
     let mut cursor = Cursor::new(bytes);
     let mut root = rmpv::decode::read_value(&mut cursor)
         .map_err(|error| PrsError::InvalidData(format!("invalid MessagePack: {error}")))?;
@@ -170,10 +171,7 @@ fn stage_prs_payload(bytes: &[u8]) -> Result<Vec<u8>, PrsError> {
     let registry = struct_field(session, "registry", 0, "Session")?;
     validate_registry(registry, format_version)?;
 
-    let mut staged = Vec::new();
-    rmpv::encode::write_value(&mut staged, &root)
-        .map_err(|error| invalid(format!("failed to encode staged PRS data: {error}")))?;
-    Ok(staged)
+    Ok(root)
 }
 
 fn migrate_positional_compatibility(root: &mut Value) -> Result<(), PrsError> {
@@ -610,9 +608,7 @@ fn validate_instance_state(state: &Value, atom_count: usize) -> Result<(), PrsEr
     let Some(table) = optional_struct_field(state, "instances", 6).filter(|v| !v.is_nil()) else {
         return Ok(());
     };
-    let mut bytes = Vec::new();
-    rmpv::encode::write_value(&mut bytes, table).map_err(|e| invalid(e.to_string()))?;
-    let table: patinae_mol::InstanceTable = rmp_serde::from_slice(&bytes)
+    let table = patinae_mol::InstanceTable::deserialize(value_de::Deserializer(table))
         .map_err(|e| invalid(format!("invalid instance table: {e}")))?;
     table
         .validate(atom_count)
@@ -836,6 +832,107 @@ mod tests {
         assert_eq!(fs::read(&path).unwrap(), original);
         fs::remove_dir_all(dir).unwrap();
     }
+    #[test]
+    #[ignore = "requires the local PRS corpus in _tests"]
+    fn local_prs_corpus_matches_binary_decoder() {
+        fn binary_decode(bytes: &[u8]) -> Result<PrsDocument, PrsError> {
+            let staged = stage_prs_payload(bytes)?;
+            let mut encoded = Vec::new();
+            rmpv::encode::write_value(&mut encoded, &staged).unwrap();
+            match rmp_serde::from_slice::<PrsDocument>(&encoded) {
+                Ok(document) => Ok(document),
+                Err(error) => rmp_serde::from_slice::<Session>(&encoded)
+                    .map(PrsDocument::legacy)
+                    .map_err(|_| PrsError::Deserialize(error)),
+            }
+        }
+
+        fn canonical(value: &mut Value) {
+            match value {
+                Value::Array(values) => values.iter_mut().for_each(canonical),
+                Value::Map(values) => {
+                    for (key, value) in values.iter_mut() {
+                        canonical(key);
+                        canonical(value);
+                    }
+                    values.sort_by_cached_key(|(key, _)| {
+                        let mut bytes = Vec::new();
+                        rmpv::encode::write_value(&mut bytes, key).unwrap();
+                        bytes
+                    });
+                }
+                _ => {}
+            }
+        }
+
+        fn snapshot(document: &PrsDocument) -> Value {
+            let bytes = rmp_serde::to_vec_named(document).unwrap();
+            let mut value = rmpv::decode::read_value(&mut bytes.as_slice()).unwrap();
+            canonical(&mut value);
+            value
+        }
+
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../_tests");
+        let mut accepted = 0;
+        for name in [
+            "1BNA.prs",
+            "1a6u.prs",
+            "1bna_new.prs",
+            "1bna_new_v3.prs",
+            "1fsd.prs",
+            "my_session.prs",
+        ] {
+            let path = root.join(name);
+            let original = fs::read(&path).unwrap();
+            let bytes = read_prs_bytes(&path).unwrap();
+            match (binary_decode(&bytes), decode_prs_document(&bytes)) {
+                (Ok(expected), Ok(actual)) => {
+                    assert_eq!(snapshot(&actual), snapshot(&expected), "{name}");
+                    assert_eq!(
+                        actual.warning_messages(),
+                        expected.warning_messages(),
+                        "{name}"
+                    );
+                    let (dir, saved) = temp_prs_path(&format!("corpus-{name}"));
+                    save_prs(&actual.session, &saved).unwrap();
+                    let saved_bytes = read_prs_bytes(&saved).unwrap();
+                    assert_eq!(
+                        snapshot(&decode_prs_document(&saved_bytes).unwrap()),
+                        snapshot(&binary_decode(&saved_bytes).unwrap()),
+                        "re-saved {name}"
+                    );
+                    fs::remove_dir_all(dir).unwrap();
+                    accepted += 1;
+                    // Informational only: no timing assertions in compatibility tests.
+                    let start = std::time::Instant::now();
+                    for _ in 0..5 {
+                        std::hint::black_box(binary_decode(&bytes).unwrap());
+                    }
+                    let old = start.elapsed();
+                    let start = std::time::Instant::now();
+                    for _ in 0..5 {
+                        std::hint::black_box(decode_prs_document(&bytes).unwrap());
+                    }
+                    eprintln!(
+                        "{name}: 5 loads, binary={old:?}, tree={:?}",
+                        start.elapsed()
+                    );
+                }
+                (Err(expected), Err(actual)) => {
+                    eprintln!("{name}: rejected by both: {expected}; {actual}")
+                }
+                (expected, actual) => panic!("{name}: binary={expected:?}; tree={actual:?}"),
+            }
+            assert_eq!(fs::read(path).unwrap(), original);
+        }
+        // The pre-existing migrations reject the other five local files too.
+        // This test guards parity with that baseline, not new format migrations.
+        assert_eq!(
+            accepted, 1,
+            "the supported legacy v3 fixture must remain readable"
+        );
+    }
+
     fn temp_prs_path(name: &str) -> (PathBuf, PathBuf) {
         let dir =
             std::env::temp_dir().join(format!("patinae_prs_test_{}_{}", name, std::process::id()));

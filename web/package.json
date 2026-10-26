@@ -1,6 +1,6 @@
 {
   "name": "@patinae/viewer",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "Embeddable WebGPU molecular visualization component powered by Patinae",
   "type": "module",
   "main": "dist/patinae-viewer.js",
@@ -51,5 +51,10 @@
   "dependencies": {
     "dompurify": "^3.4.12",
     "marked": "^18.0.7"
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true,
+    "fsevents@2.3.3": true,
+    "wasm-pack@0.15.0": true
   }
 }

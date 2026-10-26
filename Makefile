@@ -15,7 +15,7 @@
 
 APP_NAME       := Patinae
 BUNDLE_ID      := me.yakovlev.patinae
-VERSION        := 0.5.2
+VERSION        := 0.5.3
 BINARY_NAME    := patinae
 
 CARGO          ?= cargo
@@ -310,6 +310,7 @@ installer-windows:
 
 web-build:
 	cd web && npm install && npm run build
+	@node -e "const file = 'web/dist/patinae_web_bg.wasm'; const data = require('node:fs').readFileSync(file); const gzip = require('node:zlib').gzipSync(data); const format = bytes => (bytes / 1024 / 1024).toFixed(2) + ' MiB (' + bytes + ' bytes)'; console.log(file + ': ' + format(data.length) + ' | gzip: ' + format(gzip.length));"
 
 web-dev:
 	cd web && npm install && npm run dev

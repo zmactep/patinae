@@ -30,6 +30,8 @@ log = { workspace = true }
 image = { workspace = true }
 pollster = "0.4"
 thiserror = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rayon = { workspace = true }
 
 [dev-dependencies]

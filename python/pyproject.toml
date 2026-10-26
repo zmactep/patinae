@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "patinae"
-version = "0.5.2"
+version = "0.5.3"
 description = "Patinae: Modern molecular visualization in Rust with WebGPU rendering"
 readme = "README.md"
 # PyO3 0.27 supports Python through 3.14; maturin also uses this for discovery.

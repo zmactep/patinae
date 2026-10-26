@@ -40,6 +40,7 @@ pub mod utils;
 
 use bytemuck::{Pod, Zeroable};
 use patinae_settings::{groups::RibbonSettings, ResolvedSettings};
+#[cfg(not(target_arch = "wasm32"))]
 use rayon::prelude::*;
 use wgpu::util::DeviceExt;
 
@@ -63,7 +64,9 @@ use patinae_mol::DirtyFlags;
 
 use crate::memory::bytes_to_gib;
 
+#[cfg(not(target_arch = "wasm32"))]
 const LARGE_CARTOON_BACKBONE_THRESHOLD: usize = 16_384;
+#[cfg(not(target_arch = "wasm32"))]
 const LARGE_CARTOON_SEGMENT_THRESHOLD: usize = 64;
 
 fn cartoon_storage_buffer_limit(limits: wgpu::Limits) -> u64 {
@@ -337,6 +340,7 @@ mod tests {
         BackboneSegment { guide_points }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn assert_pipeline_outputs_match(left: &PipelineOutput, right: &PipelineOutput) {
         assert_eq!(left.total_vertices, right.total_vertices);
         assert_eq!(left.runs.len(), right.runs.len());
@@ -371,6 +375,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn parallel_cartoon_segment_prep_matches_serial_output() {
         let resolved = ResolvedSettings::resolve(&Settings::default(), None);
@@ -577,6 +582,7 @@ fn hash_cartoon_geometry(
     h.finish()
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn should_parallelize_cartoon_prep(backbone_len: usize, segment_count: usize) -> bool {
     backbone_len >= LARGE_CARTOON_BACKBONE_THRESHOLD
         || segment_count >= LARGE_CARTOON_SEGMENT_THRESHOLD
@@ -605,6 +611,7 @@ fn process_cartoon_segments_serial(
     output
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn process_cartoon_segments_parallel(
     segments: Vec<BackboneSegment>,
     pipeline_settings: &PipelineSettings,
@@ -624,6 +631,7 @@ fn process_cartoon_segments_parallel(
     merge_pipeline_outputs(partials)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn process_cartoon_segments(
     segments: Vec<BackboneSegment>,
     backbone_len: usize,
@@ -637,6 +645,18 @@ fn process_cartoon_segments(
     }
 }
 
+// Browser builds prepare segments on the current thread without Rayon.
+#[cfg(target_arch = "wasm32")]
+fn process_cartoon_segments(
+    segments: Vec<BackboneSegment>,
+    _backbone_len: usize,
+    pipeline_settings: &PipelineSettings,
+    geom_settings: &GeomSettings,
+) -> PipelineOutput {
+    process_cartoon_segments_serial(segments, pipeline_settings, geom_settings)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 fn merge_pipeline_outputs(partials: Vec<PipelineOutput>) -> PipelineOutput {
     let total_points = partials
         .iter()
