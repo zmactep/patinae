@@ -21,7 +21,12 @@ assert sys.version_info[:2] == (3, 13), sys.version
 assert platform.machine().lower() == {"x86_64": "amd64", "arm64": "arm64"}[expected_arch]
 for entry in sys.path:
     if entry:
-        assert pathlib.Path(entry).resolve().is_relative_to(runtime), entry
+        path = pathlib.Path(entry).resolve()
+        # Windows CPython adds its executable directory even with -P. The
+        # launcher probe copies python.exe to bundle/patinae.exe, so allow
+        # exactly the bundle root in that probe, not arbitrary bundle subtrees.
+        launcher_directory = len(sys.argv) == 5 and path == bundle
+        assert path.is_relative_to(runtime) or launcher_directory, entry
 
 # Match LoadLibrary's search behavior used by the native host. Loading alone
 # checks architecture and DLL dependencies; GUI/plugin registration is a separate
