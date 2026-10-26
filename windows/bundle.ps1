@@ -27,7 +27,8 @@ Copy-Item $PythonDist "$BundleDir/python" -Recurse
 Copy-Item 'images/patinae.ico', 'LICENSE' $BundleDir
 # Install into the copied runtime, never into the uv-managed build interpreter.
 # The desktop launcher uses python.exe and site-packages directly, not a venv.
-& $Uv pip install --python "$BundleDir/python/python.exe" --no-index --no-deps --link-mode copy $wheels[0].FullName
+# The copy retains uv's EXTERNALLY-MANAGED marker; allow modifying only this copy.
+& $Uv pip install --python "$BundleDir/python/python.exe" --break-system-packages --no-index --no-deps --link-mode copy $wheels[0].FullName
 if ($LASTEXITCODE -ne 0) { throw 'Installing the Patinae wheel failed' }
 # Wheel console-script wrappers contain the staging interpreter's absolute path.
 # The bundle's supported entry points are Patinae-launcher.exe and patinae.exe.
