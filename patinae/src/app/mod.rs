@@ -13,6 +13,7 @@ use gpu_config::*;
 mod bootstrap;
 #[cfg(any(target_os = "windows", test))]
 use bootstrap::cpu_wgpu_adapter_error;
+#[cfg(any(not(target_os = "windows"), test))]
 use bootstrap::no_hardware_wgpu_adapter_error;
 pub(crate) use bootstrap::run;
 #[cfg(test)]

@@ -228,6 +228,7 @@ pub(super) fn startup_renderer_error_message(reason: &str) -> String {
     )
 }
 
+#[cfg(any(not(target_os = "windows"), test))]
 pub(super) fn no_hardware_wgpu_adapter_error(
     backends: slint::wgpu_30::wgpu::Backends,
     selected_cpu_adapter: Option<&slint::wgpu_30::wgpu::AdapterInfo>,
