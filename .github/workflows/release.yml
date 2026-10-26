@@ -471,7 +471,7 @@ jobs:
 
   build-dmg:
     name: Build macOS DMG
-    needs: [build-web]
+    needs: [validate-release, build-web]
     runs-on: macos-latest
     env:
       APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
@@ -539,8 +539,15 @@ jobs:
       - name: Install DMG packaging tool
         run: brew install create-dmg
 
+      - name: Build and sign macOS app
+        run: make sign-full
+
+      - name: Notarize macOS app
+        if: ${{ needs.validate-release.outputs.prerelease == 'false' }}
+        run: make notarize
+
       - name: Build DMG
-        run: make dmg-full
+        run: make dmg-package
 
       - name: Upload DMG
         uses: actions/upload-artifact@v7
