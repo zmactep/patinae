@@ -20,6 +20,8 @@ mod screen_flow;
 mod settings;
 mod shadow_flow;
 pub(crate) mod state;
+#[cfg(test)]
+mod stick_precision;
 mod sync_flow;
 mod visible_flow;
 

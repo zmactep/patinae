@@ -45,6 +45,13 @@ pub(super) fn build_shadow_frame_for_direction(
     let mut shadow_frame = FrameUniforms {
         view,
         proj,
+        // Analytic impostors reconstruct rays in the shadow camera too.
+        proj_inv: [
+            [1.0 / proj[0][0], 0.0, 0.0, 0.0],
+            [0.0, 1.0 / proj[1][1], 0.0, 0.0],
+            [0.0, 0.0, 1.0 / proj[2][2], 0.0],
+            [0.0, 0.0, -proj[3][2] / proj[2][2], 1.0],
+        ],
         view_proj,
         clip: [near, far, frame.clip[2], far],
         ..FrameUniforms::default()
@@ -161,4 +168,30 @@ pub(super) fn hash_view_proj(m: &[[f32; 4]; 4]) -> u64 {
         }
     }
     h
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shadow_projection_inverse_reconstructs_impostor_rays() {
+        for radius in [0.001, 1.0, 1000.0] {
+            let frame = build_shadow_frame_for_direction(
+                &FrameUniforms::default(),
+                SceneBounds {
+                    center: [3.0, -1.0, 2.0],
+                    radius,
+                },
+                [0.0, 0.0, 1.0],
+                512,
+            );
+            let identity = mat4_mul(&frame.proj, &frame.proj_inv);
+            for (col, values) in identity.iter().enumerate() {
+                for (row, value) in values.iter().enumerate() {
+                    assert!((value - if row == col { 1.0 } else { 0.0 }).abs() < 1e-5);
+                }
+            }
+        }
+    }
 }

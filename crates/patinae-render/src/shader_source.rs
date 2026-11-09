@@ -19,6 +19,7 @@
 //! lighting helpers reference `frame.light_intensity` etc.
 
 const FRAME_WGSL: &str = include_str!("shaders/common/frame.wgsl");
+const CAPSULE_WGSL: &str = include_str!("shaders/common/capsule.wgsl");
 const WBOIT_WGSL: &str = include_str!("shaders/common/wboit.wgsl");
 const LIGHTING_WGSL: &str = include_str!("shaders/common/lighting.wgsl");
 const SCENE_WGSL: &str = include_str!("shaders/common/scene.wgsl");
@@ -89,6 +90,10 @@ pub fn expand(src: &str) -> String {
         match trimmed {
             "// {{INCLUDE_FRAME}}" => {
                 out.push_str(FRAME_WGSL);
+                out.push('\n');
+            }
+            "// {{INCLUDE_CAPSULE}}" => {
+                out.push_str(CAPSULE_WGSL);
                 out.push('\n');
             }
             "// {{INCLUDE_WBOIT}}" => {
