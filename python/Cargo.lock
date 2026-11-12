@@ -1536,6 +1536,7 @@ dependencies = [
  "pollster",
  "rayon",
  "thiserror 2.0.18",
+ "web-time",
  "wgpu",
 ]
 
