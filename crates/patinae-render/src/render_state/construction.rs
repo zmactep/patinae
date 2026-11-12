@@ -95,14 +95,16 @@ impl RenderState {
         viewport: (u32, u32),
         config: RenderConfig,
     ) -> PreparedRenderState {
-        let startup_started = std::time::Instant::now();
+        // web_time, not std::time: the web viewer runs this on
+        // wasm32-unknown-unknown, where `std::time::Instant::now()` panics.
+        let startup_started = web_time::Instant::now();
         let mut stage_started = startup_started;
         let mut report_stage = |name: &str| {
             log::info!(
                 "Viewport stage {name}: {:.3} ms",
                 stage_started.elapsed().as_secs_f64() * 1000.0
             );
-            stage_started = std::time::Instant::now();
+            stage_started = web_time::Instant::now();
         };
         let memory_policy = config.memory;
         let mut memory_warnings = Vec::new();

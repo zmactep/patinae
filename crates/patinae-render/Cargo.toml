@@ -30,6 +30,9 @@ log = { workspace = true }
 image = { workspace = true }
 pollster = "0.4"
 thiserror = { workspace = true }
+# `std::time::Instant::now()` panics on wasm32-unknown-unknown; web-time is a
+# drop-in that re-exports std on native and uses `performance.now()` on wasm.
+web-time = "1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rayon = { workspace = true }
