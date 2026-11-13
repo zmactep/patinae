@@ -1,3 +1,5 @@
+import { executeCommand, loadStructure } from "./viewer-commands.js";
+
 // ── Utilities ───────────────────────────────────────────────────────────────
 
 function flashElement(el, className = "flash", ms = 400) {
@@ -7,12 +9,12 @@ function flashElement(el, className = "flash", ms = 400) {
 
 async function execCmdString(viewer, cmdStr) {
   for (const cmd of cmdStr.split(";").map(s => s.trim()).filter(Boolean))
-    await viewer.executeAsync(cmd);
+    await executeCommand(viewer, cmd);
 }
 
 async function loadSources(viewer, src) {
   for (const url of src.split(/\s+/).filter(Boolean))
-    await viewer.loadUrl(url);
+    await loadStructure(viewer, url);
 }
 
 // ── SPA page navigation ─────────────────────────────────────────────────────
@@ -61,7 +63,7 @@ export function initDocPages(viewer) {
       await enqueueViewerOperation(async () => {
         if (seq !== setupSeq) return;
         if (src) {
-          viewer.execute("delete all");
+          await executeCommand(viewer, "delete all");
           await loadSources(viewer, src);
           if (seq !== setupSeq) return;
         }
@@ -137,7 +139,7 @@ export function initDocPages(viewer) {
       // PRS files can carry global settings such as cartoon_color. Start each
       // documentation page with a fresh session so those settings cannot leak
       // into structures loaded by the following page.
-      viewer.execute("reinitialize");
+      await executeCommand(viewer, "reinitialize");
 
       if (src) await loadSources(viewer, src);
 

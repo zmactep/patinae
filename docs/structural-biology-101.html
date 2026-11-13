@@ -1388,6 +1388,7 @@
 
         <script type="module">
             import { PatinaeViewer } from "../js/patinae-viewer.js";
+            import { executeCommand } from "../js/viewer-commands.js";
             import { initDocPages } from "../js/docs-interactive.js";
 
             const viewer = new PatinaeViewer(
@@ -1402,7 +1403,7 @@
                 },
             );
             await viewer.init();
-            viewer.execute("bg_color 0a0b0f");
+            await executeCommand(viewer, "bg_color 0a0b0f");
 
             initDocPages(viewer);
         </script>

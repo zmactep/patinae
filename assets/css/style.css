@@ -628,20 +628,6 @@ footer {
     color: var(--text-secondary);
     opacity: 0.5;
 }
-.install-note {
-    color: var(--text-secondary);
-    font-size: 0.82rem;
-    text-align: center;
-    margin: 0;
-    opacity: 0.7;
-}
-.install-note code {
-    background: rgba(255, 255, 255, 0.08);
-    padding: 0.15em 0.45em;
-    border-radius: 4px;
-    font-family: "JetBrains Mono", monospace;
-    font-size: 0.85em;
-}
 .install-all-link {
     font-size: 0.85rem;
     color: var(--text-secondary);

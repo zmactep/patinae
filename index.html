@@ -52,7 +52,7 @@
                 <div class="hero-text">
                     <div class="hero-badge">
                         <span class="dot"></span>
-                        v0.4.6 · BSD 3-Clause
+                        v0.5.3 · BSD 3-Clause
                     </div>
                     <h1>Molecular visualization, <em>reimagined</em></h1>
                     <p class="hero-sub">
@@ -125,7 +125,7 @@
                 </p>
                 <div class="install-cards">
                     <a
-                        href="https://github.com/zmactep/patinae/releases/download/v0.4.6/Patinae.dmg"
+                        href="https://github.com/zmactep/patinae/releases/download/v0.5.3/Patinae.dmg"
                         class="install-card"
                     >
                         <svg
@@ -142,7 +142,7 @@
                         <span class="install-card-format">.dmg</span>
                     </a>
                     <a
-                        href="https://github.com/zmactep/patinae/releases/download/v0.4.6/patinae-bundle-windows-x86_64.zip"
+                        href="https://github.com/zmactep/patinae/releases/download/v0.5.3/patinae-setup-windows-x86_64.exe"
                         class="install-card"
                     >
                         <svg
@@ -156,10 +156,10 @@
                         </svg>
                         <span class="install-card-platform">Windows</span>
                         <span class="install-card-arch">x86_64</span>
-                        <span class="install-card-format">.zip</span>
+                        <span class="install-card-format">.exe</span>
                     </a>
                     <a
-                        href="https://github.com/zmactep/patinae/releases/download/v0.4.6/patinae-bundle-windows-arm64.zip"
+                        href="https://github.com/zmactep/patinae/releases/download/v0.5.3/patinae-setup-windows-arm64.exe"
                         class="install-card"
                     >
                         <svg
@@ -173,13 +173,9 @@
                         </svg>
                         <span class="install-card-platform">Windows</span>
                         <span class="install-card-arch">ARM64</span>
-                        <span class="install-card-format">.zip</span>
+                        <span class="install-card-format">.exe</span>
                     </a>
                 </div>
-                <p class="install-note">
-                    macOS may block the app on first launch. To fix, run:
-                    <code>xattr -cr /Applications/Patinae.app</code>
-                </p>
                 <a
                     href="https://github.com/zmactep/patinae/releases"
                     class="install-all-link"
@@ -703,30 +699,31 @@
 
         <script type="module">
             import { PatinaeViewer } from "./js/patinae-viewer.js";
+            import { executeCommand, loadStructure } from "./js/viewer-commands.js";
 
             const viewer = new PatinaeViewer(
                 document.getElementById("skripkin-viewer"),
                 { defer: true },
             );
             await viewer.init();
-            viewer.execute("bg_color 0a0b0f");
+            await executeCommand(viewer, "bg_color 0a0b0f");
 
-            await viewer.loadUrl("./assets/pdb/1GVF.pdb", {
+            await loadStructure(viewer, "./assets/pdb/1GVF.pdb", {
                 name: "1gvf",
                 format: "pdb",
             });
 
-            viewer.execute("as cartoon");
-            viewer.execute("color chain");
-            viewer.execute("symexp sym, 1gvf, 1gvf, 1, 1");
-            viewer.execute("center");
-            viewer.execute("orient");
-            viewer.execute("zoom name CA, buffer=-48");
-            viewer.execute("set shading_mode, skripkin");
-            viewer.execute("set ambient, 0.8");
-            viewer.execute("set silhouettes, on");
-            viewer.execute("set silhouette_width, 1");
-            viewer.execute("set silhouette_color, black");
+            await executeCommand(viewer, "as cartoon");
+            await executeCommand(viewer, "color chain");
+            await executeCommand(viewer, "symexp sym, 1gvf, 1gvf, 1, 1");
+            await executeCommand(viewer, "center");
+            await executeCommand(viewer, "orient");
+            await executeCommand(viewer, "zoom name CA, buffer=-48");
+            await executeCommand(viewer, "set shading_mode, skripkin");
+            await executeCommand(viewer, "set ambient, 0.8");
+            await executeCommand(viewer, "set silhouettes, on");
+            await executeCommand(viewer, "set silhouette_width, 1");
+            await executeCommand(viewer, "set silhouette_color, black");
 
             await viewer.show();
         </script>
