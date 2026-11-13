@@ -21,7 +21,7 @@ pub const WORKGROUP: u32 = 64;
 #[cfg(test)]
 const BUILD_STORAGE_BINDING_COUNT: usize = 3;
 #[cfg(test)]
-const WEBGPU_MAX_STORAGE_BUFFERS_PER_COMPUTE_STAGE: usize = 10;
+const WEBGPU_MAX_STORAGE_BUFFERS_PER_COMPUTE_STAGE: usize = 8;
 
 /// Mirror of `EllipsoidBuildEntry` in `build_ellipsoid.wgsl`. **48 B**.
 /// Each entry corresponds to one atom whose ellipsoid axes have been
@@ -214,7 +214,7 @@ mod tests {
             assert!(
                 OBJECT_COORDS_STORAGE_BINDING_COUNT + BUILD_STORAGE_BINDING_COUNT
                     <= WEBGPU_MAX_STORAGE_BUFFERS_PER_COMPUTE_STAGE,
-                "ellipsoid build must stay within WebGPU's 10 storage-buffer compute limit"
+                "ellipsoid build must stay within WebGPU's portable 8 storage-buffer limit"
             );
         }
         const {

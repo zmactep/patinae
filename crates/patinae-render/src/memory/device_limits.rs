@@ -7,7 +7,7 @@ pub const DEVICE_BUFFER_TARGET_BYTES: u64 = gib_to_bytes(4);
 /// Desired storage binding ceiling, compatible with WGPU's DX12 backend.
 pub const DEVICE_STORAGE_BINDING_TARGET_BYTES: u64 = gib_to_bytes(2) - 1;
 /// Storage bindings required by the current compute pipeline layouts.
-pub const RENDER_COMPUTE_STORAGE_BUFFERS_PER_STAGE: u32 = 10;
+pub const RENDER_COMPUTE_STORAGE_BUFFERS_PER_STAGE: u32 = 8;
 
 /// An adapter cannot support the renderer's mandatory compute layout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -50,6 +50,17 @@ mod tests {
     use super::*;
 
     #[test]
+    fn browser_with_nine_storage_buffers_can_create_device() {
+        let adapter = wgpu::Limits {
+            max_storage_buffers_per_shader_stage: 9,
+            ..Default::default()
+        };
+        let requested = required_device_limits(&adapter)
+            .expect("browser exposing nine storage buffers must support the renderer");
+        assert!(requested.max_storage_buffers_per_shader_stage <= 9);
+    }
+
+    #[test]
     fn negotiates_dx12_and_weaker_storage_limits() {
         for (buffer, storage) in [
             (i32::MAX as u64, i32::MAX as u64),
@@ -73,25 +84,25 @@ mod tests {
                 requested.max_storage_buffer_binding_size,
                 storage.min(buffer).min(DEVICE_STORAGE_BINDING_TARGET_BYTES)
             );
-            assert_eq!(requested.max_storage_buffers_per_shader_stage, 10);
+            assert_eq!(requested.max_storage_buffers_per_shader_stage, 8);
             assert_eq!(requested.max_texture_dimension_2d, 16384);
         }
     }
 
     #[test]
     fn never_silently_lowers_the_compute_requirement() {
-        for available in [8, 9, 10] {
+        for available in [7, 8, 9, 10] {
             let adapter = wgpu::Limits {
                 max_storage_buffers_per_shader_stage: available,
                 ..Default::default()
             };
-            match required_device_limits(&adapter) {
-                Ok(limits) => assert_eq!(limits.max_storage_buffers_per_shader_stage, 10),
-                Err(error) => {
-                    assert!(available < 10);
-                    assert_eq!(error.available, available);
-                    assert_eq!(error.required, 10);
-                }
+            if available < 8 {
+                let error = required_device_limits(&adapter).unwrap_err();
+                assert_eq!(error.available, available);
+                assert_eq!(error.required, 8);
+            } else {
+                let limits = required_device_limits(&adapter).unwrap();
+                assert_eq!(limits.max_storage_buffers_per_shader_stage, 8);
             }
         }
     }

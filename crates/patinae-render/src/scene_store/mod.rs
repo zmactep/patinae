@@ -1284,8 +1284,6 @@ impl SceneStore {
             Some(color),
             Some(mask),
             Some(marker),
-            Some(csr_off),
-            Some(csr_idx),
             Some(obj_table),
         ) = (
             self.atoms.buffer(),
@@ -1294,8 +1292,6 @@ impl SceneStore {
             self.color_lut.buffer(),
             self.mask_lut.buffer(),
             self.marker_lut.buffer(),
-            self.csr_offsets.buffer(),
-            self.csr_indices.buffer(),
             self.obj_table_gpu.as_ref(),
         )
         else {
@@ -1336,14 +1332,6 @@ impl SceneStore {
                 wgpu::BindGroupEntry {
                     binding: 6,
                     resource: marker.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 7,
-                    resource: csr_off.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 8,
-                    resource: csr_idx.as_entire_binding(),
                 },
             ],
         }));

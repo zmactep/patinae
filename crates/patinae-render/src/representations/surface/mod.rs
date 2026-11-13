@@ -1855,7 +1855,7 @@ mod tests {
                     resource: coord_buf.as_entire_binding(),
                 },
             ];
-            for binding in 3..=8 {
+            for binding in 3..=6 {
                 entries.push(wgpu::BindGroupEntry {
                     binding,
                     resource: dummy.as_entire_binding(),

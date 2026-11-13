@@ -55,8 +55,6 @@ struct ColorGpu {
 @group(2) @binding(4) var<storage, read> scene_color_lut : array<ColorGpu>;
 @group(2) @binding(5) var<storage, read> scene_mask_lut  : array<u32>;
 @group(2) @binding(6) var<storage, read> scene_marker_lut: array<u32>;
-@group(2) @binding(7) var<storage, read> scene_csr_offsets: array<u32>;
-@group(2) @binding(8) var<storage, read> scene_csr_indices: array<u32>;
 
 const REP_COLOR_INHERIT: u32 = 0xFFFFFFFFu;
 
