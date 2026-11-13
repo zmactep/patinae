@@ -9,7 +9,8 @@ struct CullParams {
     frustum_planes: array<vec4<f32>, 6>,
     raw_capacity:   u32,
     // Per-kind bounding-sphere pad. Used by kinds that lack a
-    // per-instance radius (line: half line-width; dot: dot radius).
+    // per-instance radius (line: half line-width in NDC units, converted
+    // per instance in cull_line.wgsl; dot: dot radius).
     // Sphere cull ignores this; sphere viewport-count uses the same slot
     // for sphere_scale.
     kind_radius:    f32,

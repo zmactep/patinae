@@ -11,6 +11,8 @@ mod frame_flow;
 mod geometry_export_flow;
 #[cfg(test)]
 mod instance_parity;
+#[cfg(test)]
+mod line_width;
 mod math;
 mod memory_flow;
 mod picking_budget;

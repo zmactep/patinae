@@ -8,6 +8,11 @@
 //!
 //! Lines have no per-representation transparency, so the render pipeline has
 //! no group 3.
+//!
+//! Each instance is drawn as two screen-space quads (one per half-bond) so
+//! the `line_width` setting works on WebGPU, which only rasterises
+//! `LineList` primitives at a fixed 1 px width. The build kernel stamps the
+//! resolved width into `LineInstance::p0_pad.w`.
 
 use bytemuck::{Pod, Zeroable};
 use patinae_mol::DirtyFlags;
@@ -17,17 +22,32 @@ use crate::compute::line_build::{indirect_seed, LineBuildParams, LineBuildPipeli
 use crate::memory::{buffer_usage, GpuMemoryUsage};
 use crate::memory::{RepMemoryEstimate, RepQualityLevel};
 use crate::picking::RepKind;
-use crate::representations::cullable::CullableBuffers;
-use crate::representations::{BuildCtx, CullPlan, CullPlanCtx};
-// Constant width used to bound visible lines under camera cull. Lines have
-// no per-instance radius; this matches `LINE_KIND_RADIUS` from the
-// pre-refactor `culling_flow.rs` so cull behaviour is preserved.
-const LINE_KIND_RADIUS: f32 = 0.1;
 use crate::render_input::RenderObjectInput;
+use crate::representations::cullable::CullableBuffers;
 use crate::representations::Representation;
+use crate::representations::{BuildCtx, CullPlan, CullPlanCtx};
+
+// Lines have no per-instance world radius: their footprint is `line_width`
+// screen pixels. `plan_cull` passes the half-width in NDC units of the
+// smaller viewport axis through `CullParams::kind_radius`, and
+// `cull_line.wgsl` converts it to a world-space pad at each bond's depth.
+// Must match `LINE_PICK_MIN_HALF_WIDTH_PX` in `shaders/picking/line.wgsl`.
+const LINE_PICK_MIN_HALF_WIDTH_PX: f32 = 2.0;
+const LINE_CULL_MARGIN_PX: f32 = 1.0;
+
+fn line_cull_ndc_pad(line_width_px: f32, viewport_px: [f32; 2]) -> f32 {
+    let half_width_px =
+        (0.5 * line_width_px).max(LINE_PICK_MIN_HALF_WIDTH_PX) + LINE_CULL_MARGIN_PX;
+    2.0 * half_width_px / viewport_px[0].min(viewport_px[1]).max(1.0)
+}
+
+/// Two half-bond quads × two triangles × three vertices. Must match
+/// `LINE_VERTS_PER_HALF * 2` in `shaders/common/line_quad.wgsl`.
+pub(crate) const LINE_VERTICES_PER_INSTANCE: u32 = 12;
 
 /// 48-byte instance entry. Layout matches `LineInstance` in
-/// `shaders/representations/line.wgsl`.
+/// `shaders/representations/line.wgsl`. `p0_pad.xyz` / `p1_pad.xyz` are the
+/// endpoints; `p0_pad.w` is the `line_width` in physical pixels.
 #[repr(C, align(16))]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
 pub struct LineInstance {
@@ -78,6 +98,8 @@ pub struct LineRep {
     compute_bind_group: Option<wgpu::BindGroup>,
 
     last_bond_count: Option<u32>,
+    /// Resolved `line_width` (px) from the last build, for cull padding.
+    line_width_px: f32,
     needs_dispatch: bool,
 }
 
@@ -94,6 +116,7 @@ impl LineRep {
             build_params_buffer,
             compute_bind_group: None,
             last_bond_count: None,
+            line_width_px: 0.0,
             needs_dispatch: false,
         }
     }
@@ -169,13 +192,14 @@ impl Representation for LineRep {
             bytemuck::bytes_of(&LineBuildParams {
                 valence_scale: valence_scale_factor,
                 valence_enabled: if s.stick.valence { 1 } else { 0 },
-                _pad1: 0,
-                _pad2: 0,
+                line_width: s.line.width,
+                _pad: 0,
             }),
         );
 
         let bond_count = input.molecule.bonds().count() as u32;
         self.last_bond_count = Some(bond_count);
+        self.line_width_px = s.line.width;
 
         if dirty.is_lut_only() && self.gpu.has_raw_instances() {
             return;
@@ -217,7 +241,7 @@ impl Representation for LineRep {
     }
 
     fn prepare_shadow_depth(&self, encoder: &mut wgpu::CommandEncoder, queue: &wgpu::Queue) {
-        let seed = indirect_seed(4);
+        let seed = indirect_seed(LINE_VERTICES_PER_INSTANCE);
         self.gpu.prepare_raw_shadow_indirect(encoder, queue, &seed);
     }
 
@@ -272,8 +296,9 @@ impl Representation for LineRep {
 
     fn plan_cull(&mut self, ctx: &CullPlanCtx<'_>) -> Option<CullPlan<'_>> {
         let upper = self.cull_upper_bound()?;
-        let seed = indirect_seed(4);
-        self.gpu.plan_cull(ctx, upper, LINE_KIND_RADIUS, &seed)
+        let seed = indirect_seed(LINE_VERTICES_PER_INSTANCE);
+        let ndc_pad = line_cull_ndc_pad(self.line_width_px, ctx.viewport_px);
+        self.gpu.plan_cull(ctx, upper, ndc_pad, &seed)
     }
 
     fn memory_usage(&self) -> GpuMemoryUsage {
@@ -307,5 +332,24 @@ fn line_estimate(bond_count: u32, quality: RepQualityLevel) -> RepMemoryEstimate
         quality,
         can_chunk: false,
         can_skip: true,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::line_cull_ndc_pad;
+
+    #[test]
+    fn cull_pad_covers_line_half_width_in_ndc() {
+        // 20 px wide → 10 px half-width + 1 px margin, on a 400 px short axis.
+        let pad = line_cull_ndc_pad(20.0, [800.0, 400.0]);
+        assert!((pad - 2.0 * 11.0 / 400.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn cull_pad_never_drops_below_picking_footprint() {
+        let pad = line_cull_ndc_pad(1.0, [100.0, 100.0]);
+        assert!((pad - 2.0 * 3.0 / 100.0).abs() < 1e-6);
+        assert!(line_cull_ndc_pad(1.0, [0.0, 0.0]).is_finite());
     }
 }
