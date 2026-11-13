@@ -104,11 +104,8 @@ impl DepthPrepassPipelines {
         );
 
         // Line migrated to SceneStore; no group 3 (lines are always opaque).
-        // Lines are too thin to produce useful occlusion. Run them through
-        // the prepass anyway so the pipeline existence is uniform; an empty
-        // rasterisation (zero-pixel coverage at the typical 1 px line width)
-        // costs nothing and keeps the shield honest if anyone bumps line
-        // thickness later.
+        // Lines are screen-space quads sized by `line_width`, so wide lines
+        // contribute real coverage to the depth prepass and shadow maps.
         let line_pl = make_layout(
             device,
             "patinae.depth_prepass.line.layout",
@@ -120,7 +117,7 @@ impl DepthPrepassPipelines {
             "patinae.depth_prepass.line",
             LINE_WGSL,
             LineInstance::vertex_layout(),
-            wgpu::PrimitiveTopology::LineList,
+            wgpu::PrimitiveTopology::TriangleList,
         );
 
         // Dot uses group 3 for procedural sample-count params + direction LUT.

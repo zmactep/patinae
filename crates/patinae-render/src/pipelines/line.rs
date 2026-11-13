@@ -1,4 +1,5 @@
-//! Line color pipeline — `LineList` topology, vertex-pull from instance.
+//! Line color pipeline — `TriangleList` screen-space half-bond quads
+//! (12 vertices per instance), vertex-pull from instance.
 //!
 //! Bind groups:
 //! - 0: `FrameUniforms` (`RenderContext`)
@@ -31,7 +32,7 @@ impl LinePipeline {
                 &scene_layout.bind_group_layout,
             ],
             LineInstance::vertex_layout(),
-            wgpu::PrimitiveTopology::LineList,
+            wgpu::PrimitiveTopology::TriangleList,
         );
         Self {
             pipeline: pair.translucent,

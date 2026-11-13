@@ -57,8 +57,8 @@ struct LineInstance {
 struct LineBuildParams {
     valence_scale:    f32,
     valence_enabled:  u32,
-    _pad1:            u32,
-    _pad2:            u32,
+    line_width:       f32,  // physical pixels → LineInstance.p0_pad.w
+    _pad:             u32,
 };
 
 @group(1) @binding(0) var<uniform>             params:    LineBuildParams;
@@ -154,7 +154,7 @@ fn cs_main(
             continue;
         }
         var ins: LineInstance;
-        ins.p0_pad = vec4<f32>(pa + off - axis_join, 0.0);
+        ins.p0_pad = vec4<f32>(pa + off - axis_join, params.line_width);
         ins.p1_pad = vec4<f32>(pb + off + axis_join, 0.0);
         ins.groups = vec2<u32>(a_local, b_local);
         ins._pad   = vec2<u32>(0u, 0u);

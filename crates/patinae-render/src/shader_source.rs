@@ -20,6 +20,7 @@
 
 const FRAME_WGSL: &str = include_str!("shaders/common/frame.wgsl");
 const CAPSULE_WGSL: &str = include_str!("shaders/common/capsule.wgsl");
+const LINE_QUAD_WGSL: &str = include_str!("shaders/common/line_quad.wgsl");
 const WBOIT_WGSL: &str = include_str!("shaders/common/wboit.wgsl");
 const LIGHTING_WGSL: &str = include_str!("shaders/common/lighting.wgsl");
 const SCENE_WGSL: &str = include_str!("shaders/common/scene.wgsl");
@@ -94,6 +95,10 @@ pub fn expand(src: &str) -> String {
             }
             "// {{INCLUDE_CAPSULE}}" => {
                 out.push_str(CAPSULE_WGSL);
+                out.push('\n');
+            }
+            "// {{INCLUDE_LINE_QUAD}}" => {
+                out.push_str(LINE_QUAD_WGSL);
                 out.push('\n');
             }
             "// {{INCLUDE_WBOIT}}" => {

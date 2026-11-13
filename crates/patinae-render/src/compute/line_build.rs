@@ -16,8 +16,10 @@ pub const WORKGROUP: u32 = 64;
 pub struct LineBuildParams {
     pub valence_scale: f32,
     pub valence_enabled: u32,
-    pub _pad1: u32,
-    pub _pad2: u32,
+    /// Screen-space line width in physical pixels, stamped into every
+    /// emitted `LineInstance` (`p0_pad.w`).
+    pub line_width: f32,
+    pub _pad: u32,
 }
 
 impl LineBuildParams {

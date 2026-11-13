@@ -199,7 +199,7 @@ impl PickingPass {
                 buffers: &[Some(LineInstance::vertex_layout())],
             },
             primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::LineList,
+                topology: wgpu::PrimitiveTopology::TriangleList,
                 cull_mode: None,
                 ..Default::default()
             },
