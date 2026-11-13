@@ -90,7 +90,7 @@ class br {
    *   "performance", "balanced", "lite", "manual:<MiB>", or "auto".
    */
   async init(e = {}) {
-    const t = await import("./patinae_web-CEfyJuOx.js");
+    const t = await import("./patinae_web-DmhO40xJ.js");
     await t.default(), this.syncCanvasSize();
     const n = e.picking ?? !1, s = e.selectionOverlay ?? n, a = e.memoryProfile ?? "auto", c = t.WebViewer, u = a === "auto" ? await c.create(
       this.canvas.id,
