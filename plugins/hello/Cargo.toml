@@ -5,7 +5,6 @@ version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-homepage.workspace = true
 documentation.workspace = true
 description = "Example Patinae plugin: registers a 'hello' command"
 

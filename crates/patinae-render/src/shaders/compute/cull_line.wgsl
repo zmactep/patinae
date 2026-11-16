@@ -1,14 +1,12 @@
-// Per-rep frustum cull — line variant.
-//
-// LineInstance carries two endpoints. Lines have no per-instance
-// radius — `params.kind_radius` is the conservative bounding pad
-// (host sets it from the line-width setting; falls back to a small
-// constant when lines are screen-space-fixed-width).
+// Line culling. The host expands side planes for the pixel footprint.
+// Per-instance work matches the native LineList sphere test.
 
 // {{INCLUDE_CULL_COMMON}}
 
+const LINE_CULL_WORLD_PAD: f32 = 0.1;
+
 struct LineInstance {
-    p0_pad: vec4<f32>,
+    p0_width: vec4<f32>,
     p1_pad: vec4<f32>,
     groups: vec2<u32>,
     _pad:   vec2<u32>,
@@ -27,11 +25,11 @@ fn cs_cull_line(
         return;
     }
     let inst = raw_inst[i];
-    let p0 = inst.p0_pad.xyz;
+    let p0 = inst.p0_width.xyz;
     let p1 = inst.p1_pad.xyz;
     let center = 0.5 * (p0 + p1);
     let half_len = 0.5 * length(p1 - p0);
-    let radius = half_len + params.kind_radius;
+    let radius = half_len + LINE_CULL_WORLD_PAD;
     if (should_cull(center, radius)) {
         return;
     }

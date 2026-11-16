@@ -649,18 +649,20 @@ impl RenderState {
             return RepSyncOutcome::Unchanged;
         }
 
+        let line_half_width = self.line_hit_half_width();
         let entry = self.scene.reps.entry(key).or_insert_with(|| {
             let rep = rep_catalog.construct(&self.ctx.device);
 
             let picking = self.picking.id_pass.as_ref().map(|pp| {
-                let params = PickingParams::new(kind, obj.object_id);
+                let mut params = PickingParams::new(kind, obj.object_id);
+                params.line_half_width = line_half_width;
 
                 let (buffer, bind_group) = pp.make_params(&self.ctx.device, params);
 
                 RepPickingState {
-                    _buffer: buffer,
-
+                    buffer,
                     bind_group,
+                    line_half_width,
                 }
             });
 
@@ -836,7 +838,7 @@ fn replaceable_rep_capacity_bytes(scene: &SceneRuntime) -> u64 {
         let picking = entry
             .picking
             .as_ref()
-            .map(|picking| GpuMemoryUsage::allocation(picking._buffer.size()))
+            .map(|picking| GpuMemoryUsage::allocation(picking.buffer.size()))
             .unwrap_or_default();
         bytes
             .saturating_add(rep.capacity_bytes)

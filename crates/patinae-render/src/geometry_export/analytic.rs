@@ -345,7 +345,7 @@ fn append_lines(
                 owner_atom_ids: [bond.atom1.as_u32(), bond.atom2.as_u32()],
                 start: sub3(add3(pa, offset), axis_join),
                 end: add3(add3(pb, offset), axis_join),
-                width_px: 1.49,
+                width_px: settings.line.width,
                 material_start: mat_a,
                 material_end: mat_b,
             });
@@ -670,6 +670,46 @@ mod tests {
             .any(|p| p.rep_kind() == RepKind::Stick));
         assert!(obj.primitives.iter().any(|p| p.rep_kind() == RepKind::Line));
         assert!(obj.primitives.iter().any(|p| p.rep_kind() == RepKind::Dot));
+    }
+
+    #[test]
+    fn line_export_uses_line_width_setting() {
+        let (mol, coords) = test_object(RepMask::LINES);
+        let colors = vec![[1.0, 1.0, 1.0, 1.0]; mol.atom_count()];
+        let rep_colors = vec![RepColorLutEntry::default(); mol.atom_count()];
+        let mut settings = Settings::default();
+        settings.line.width = 4.0;
+        let resolved = ResolvedSettings::resolve(&settings, None);
+        let input = input_for(&mol, &coords, &colors, &rep_colors, RepMask::LINES);
+        let mut obj = DisplayedObjectGeometry {
+            object_id: ObjectId(1),
+            primitives: Vec::new(),
+        };
+
+        append_cpu_object_geometry(
+            &mut obj,
+            &ExportObjectInput::new(
+                &input,
+                &colors
+                    .iter()
+                    .zip(&rep_colors)
+                    .map(|(&base, &reps)| ColorLutEntry::new(base, reps))
+                    .collect::<Vec<_>>(),
+            ),
+            &resolved,
+            &GeometryExportOptions::default(),
+        );
+
+        let widths: Vec<f32> = obj
+            .primitives
+            .iter()
+            .filter_map(|p| match p {
+                DisplayedPrimitive::LineSegment { width_px, .. } => Some(*width_px),
+                _ => None,
+            })
+            .collect();
+        assert!(!widths.is_empty());
+        assert!(widths.iter().all(|&w| w == 4.0));
     }
 
     #[test]

@@ -77,7 +77,7 @@ fn estimate_picking_bytes(
 ) -> u64 {
     let width = viewport.0.max(1);
     let height = viewport.1.max(1);
-    let scale = picking_scale.clamp(0.125, 1.0);
+    let scale = picking_scale.clamp(crate::memory::MIN_PICKING_SCALE, 1.0);
     let pick_w = ((width as f32 * scale) as u32).max(1);
     let pick_h = ((height as f32 * scale) as u32).max(1);
     let target_bytes = estimate_texture_2d_bytes(pick_w, pick_h, PICKING_FORMAT)

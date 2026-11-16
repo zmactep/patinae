@@ -54,8 +54,9 @@ use crate::uniforms::FrameUniforms;
 
 /// Per-rep picking state — uniform buffer + bind group for `PickingParams`.
 pub(super) struct RepPickingState {
-    pub(super) _buffer: wgpu::Buffer,
+    pub(super) buffer: wgpu::Buffer,
     pub(super) bind_group: wgpu::BindGroup,
+    pub(super) line_half_width: f32,
 }
 
 /// One drawable per (object_id, rep_kind). Heterogeneous reps live behind a
@@ -178,6 +179,8 @@ pub struct GeometryRuntime {
 }
 
 pub(super) struct PickingRuntime {
+    /// None denotes full-target coverage. Partial hit targets must never feed reprojection.
+    pub(super) region: Option<crate::picking::readback::PickRegion>,
     /// Construction-time hit-test picking policy. `Disabled` ⇒ readbacks and
     /// reprojection resources are absent; visual overlays use a separate id
     /// target and can still be enabled.

@@ -19,7 +19,7 @@ use crate::picking::{ObjectId, PackedId, PickHit, RepKind};
 use crate::pipelines::dot::DotParamsLayout;
 use crate::representations::dot::DotAtomInstance;
 use crate::representations::ellipsoid::EllipsoidInstance;
-use crate::representations::line::LineInstance;
+use crate::representations::line::{LineInstance, LINE_TOPOLOGY};
 use crate::representations::mesh::StdVertex;
 use crate::representations::sphere::SphereInstance;
 use crate::representations::stick::StickInstance;
@@ -36,7 +36,8 @@ pub struct PickingParams {
     /// `(rep_kind << 28) | (object_id << 16)` — pre-shifted on the CPU so the
     /// shader does no work beyond OR-ing the atom_id low 16 bits.
     pub rep_object: u32,
-    pub _pad0: u32,
+    /// Minimum line hit radius in physical pixels, resolved from ID-target dimensions.
+    pub line_half_width: f32,
     pub _pad1: u32,
     pub _pad2: u32,
 }
@@ -49,7 +50,24 @@ impl PickingParams {
         let obj = object_id.0 & 0xFFF;
         Self {
             rep_object: (kind << 28) | (obj << 16),
+            line_half_width: crate::representations::line::LINE_PICK_MIN_HALF_WIDTH_PX,
             ..Default::default()
+        }
+    }
+}
+
+/// Selects visible coverage or a more forgiving hit-test footprint.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum IdPassPurpose {
+    HitTest,
+    Overlay,
+}
+
+impl IdPassPurpose {
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::HitTest => "patinae.picking_pass",
+            Self::Overlay => "patinae.overlay_id_pass",
         }
     }
 }
@@ -59,6 +77,9 @@ pub struct PickingPass {
     pub sphere_pipeline: wgpu::RenderPipeline,
     pub stick_pipeline: wgpu::RenderPipeline,
     pub line_pipeline: wgpu::RenderPipeline,
+    pub(crate) line_thin_pipeline: wgpu::RenderPipeline,
+    pub(crate) line_native_overlay_pipeline: wgpu::RenderPipeline,
+    pub(crate) line_overlay_pipeline: wgpu::RenderPipeline,
     pub dot_pipeline: wgpu::RenderPipeline,
     /// `StdVertex` triangle picking — shared by `RepKind::Surface`,
     /// `Cartoon`, `Ribbon`. Mesh has its own LineList sibling below.
@@ -84,7 +105,7 @@ impl PickingPass {
             label: Some("patinae.picking.params.layout"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
+                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: false,
@@ -189,36 +210,74 @@ impl PickingPass {
             label: Some("patinae.picking.line.shader"),
             source: wgpu::ShaderSource::Wgsl(shader_source::expand(LINE_PICKING_WGSL).into()),
         });
-        let line_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("patinae.picking.line.pipeline"),
-            layout: Some(&layout),
-            vertex: wgpu::VertexState {
-                module: &line_module,
-                entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
-                buffers: &[Some(LineInstance::vertex_layout())],
-            },
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::LineList,
-                cull_mode: None,
-                ..Default::default()
-            },
-            depth_stencil: Some(picking_depth_state()),
-            multisample: wgpu::MultisampleState::default(),
-            fragment: Some(wgpu::FragmentState {
-                module: &line_module,
-                entry_point: Some("fs_main"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: PICKING_FORMAT,
-                    blend: None,
-                    write_mask: wgpu::ColorWrites::RED | wgpu::ColorWrites::GREEN,
-                })],
-            }),
-            multiview_mask: None,
-            cache: None,
-        });
+        let make_line_pipeline = |label, entry_point, module: &wgpu::ShaderModule, topology| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(&layout),
+                vertex: wgpu::VertexState {
+                    module,
+                    entry_point: Some(entry_point),
+                    compilation_options: Default::default(),
+                    buffers: &[Some(LineInstance::vertex_layout())],
+                },
+                primitive: wgpu::PrimitiveState {
+                    topology,
+                    cull_mode: None,
+                    ..Default::default()
+                },
+                depth_stencil: Some(picking_depth_state()),
+                multisample: wgpu::MultisampleState::default(),
+                fragment: Some(wgpu::FragmentState {
+                    module,
+                    entry_point: Some("fs_main"),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: PICKING_FORMAT,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::RED | wgpu::ColorWrites::GREEN,
+                    })],
+                }),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let line_pipeline = make_line_pipeline(
+            "patinae.picking.line.pipeline",
+            "vs_main",
+            &line_module,
+            LINE_TOPOLOGY,
+        );
+        let line_overlay_pipeline = make_line_pipeline(
+            "patinae.overlay.line.pipeline",
+            "vs_overlay",
+            &line_module,
+            LINE_TOPOLOGY,
+        );
 
+        let thin_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("patinae.picking.line.thin.shader"),
+            source: wgpu::ShaderSource::Wgsl(
+                shader_source::expand(shader_source::LINE_THIN_PICKING_WGSL).into(),
+            ),
+        });
+        let line_thin_pipeline = make_line_pipeline(
+            "patinae.picking.line.thin",
+            "vs_main",
+            &thin_module,
+            LINE_TOPOLOGY,
+        );
+        let native_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("patinae.overlay.line.native.shader"),
+            source: wgpu::ShaderSource::Wgsl(
+                shader_source::expand(shader_source::LINE_NATIVE_PICKING_WGSL).into(),
+            ),
+        });
+        let line_native_overlay_pipeline = make_line_pipeline(
+            "patinae.overlay.line.native",
+            "vs_main",
+            &native_module,
+            wgpu::PrimitiveTopology::LineList,
+        );
         let dot_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("patinae.picking.dot.shader"),
             source: wgpu::ShaderSource::Wgsl(shader_source::expand(DOT_PICKING_WGSL).into()),
@@ -368,6 +427,9 @@ impl PickingPass {
             sphere_pipeline,
             stick_pipeline,
             line_pipeline,
+            line_thin_pipeline,
+            line_overlay_pipeline,
+            line_native_overlay_pipeline,
             dot_pipeline,
             std_vertex_pipeline,
             std_vertex_line_pipeline,

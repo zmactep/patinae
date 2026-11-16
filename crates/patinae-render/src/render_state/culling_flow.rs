@@ -65,6 +65,7 @@ impl RenderState {
             queue: &queue,
             view_proj,
             frustum_planes,
+            viewport_px: [self.uniforms.viewport[0], self.uniforms.viewport[1]],
         };
         let mut dispatched: u32 = 0;
 

@@ -8,7 +8,7 @@ use patinae_mol::{DirtyFlags, RepMask};
 
 use crate::compute::cull::CullPipeline;
 use crate::memory::{RepBudgetRequest, RepMemoryEstimate, RepQualityLevel};
-use crate::picking::pass::PickingPass;
+use crate::picking::pass::{IdPassPurpose, PickingPass};
 use crate::picking::RepKind;
 use crate::render_input::RenderObjectInput;
 use crate::render_state::state::GeometryRuntime;
@@ -20,6 +20,12 @@ use crate::representations::sphere::SphereRep;
 use crate::representations::stick::StickRep;
 use crate::representations::surface::SurfaceRep;
 use crate::representations::{DrawPhase, Representation};
+
+pub(crate) fn uses_native_lines(rep: &dyn Representation) -> bool {
+    rep.as_any()
+        .downcast_ref::<LineRep>()
+        .is_some_and(LineRep::uses_native_lines)
+}
 
 type RepConstructor = fn(&wgpu::Device) -> Box<dyn Representation>;
 type RepEstimator =
@@ -66,7 +72,15 @@ impl RepCatalogEntry {
         &self,
         geometry: &'a GeometryRuntime,
         phase: DrawPhase,
+        native_lines: bool,
     ) -> Option<&'a wgpu::RenderPipeline> {
+        if native_lines {
+            return Some(match phase {
+                DrawPhase::Opaque => &geometry.line_pipeline.native.opaque,
+                DrawPhase::Wboit => &geometry.line_pipeline.native.translucent,
+                DrawPhase::FastOverlay => return None,
+            });
+        }
         match phase {
             DrawPhase::Opaque => self.opaque_pipeline(geometry),
             DrawPhase::Wboit => self.wboit_pipeline(geometry),
@@ -77,11 +91,18 @@ impl RepCatalogEntry {
     pub(crate) fn picking_pipeline<'a>(
         &self,
         id_pass: &'a PickingPass,
+        purpose: IdPassPurpose,
+        native_lines: bool,
     ) -> Option<&'a wgpu::RenderPipeline> {
         match self.kind {
             RepKind::Sphere => Some(&id_pass.sphere_pipeline),
             RepKind::Stick => Some(&id_pass.stick_pipeline),
-            RepKind::Line => Some(&id_pass.line_pipeline),
+            RepKind::Line => Some(match purpose {
+                IdPassPurpose::HitTest if native_lines => &id_pass.line_thin_pipeline,
+                IdPassPurpose::HitTest => &id_pass.line_pipeline,
+                IdPassPurpose::Overlay if native_lines => &id_pass.line_native_overlay_pipeline,
+                IdPassPurpose::Overlay => &id_pass.line_overlay_pipeline,
+            }),
             RepKind::Dot => Some(&id_pass.dot_pipeline),
             RepKind::Mesh => Some(&id_pass.std_vertex_line_pipeline),
             RepKind::Surface | RepKind::Cartoon | RepKind::Ribbon => {
@@ -95,10 +116,12 @@ impl RepCatalogEntry {
     pub(crate) fn shadow_pipeline<'a>(
         &self,
         geometry: &'a GeometryRuntime,
+        native_lines: bool,
     ) -> Option<&'a wgpu::RenderPipeline> {
         match self.kind {
             RepKind::Sphere => Some(&geometry.depth_prepass.sphere),
             RepKind::Stick => Some(&geometry.depth_prepass.stick),
+            RepKind::Line if native_lines => Some(&geometry.depth_prepass.line_native),
             RepKind::Line => Some(&geometry.depth_prepass.line),
             RepKind::Dot => Some(&geometry.depth_prepass.dot),
             RepKind::Mesh => Some(&geometry.depth_prepass.mesh),

@@ -14,10 +14,10 @@ export PYO3_PYTHON
 PYO3_PYTHON=$("$uv_bin" python find --system --python-preference only-managed "$python_version")
 # Embedded PyO3 binaries do not get uv's interpreter startup path discovery.
 export PYTHONHOME
-PYTHONHOME=$("$uv_bin" run --no-project --python "$PYO3_PYTHON" --no-sync python -I -c 'import sys; print(sys.base_prefix)')
+PYTHONHOME=$("$uv_bin" run --no-project --python "$PYO3_PYTHON" python -I -c 'import sys; print(sys.base_prefix)')
 # Linux must locate libpython before an embedded interpreter can use PYTHONHOME.
 if [[ "$(uname -s)" == Linux ]]; then
-    python_lib_dir=$("$uv_bin" run --no-project --python "$PYO3_PYTHON" --no-sync python -I -c 'import sysconfig; print(sysconfig.get_config_var("LIBDIR"))')
+    python_lib_dir=$("$uv_bin" run --no-project --python "$PYO3_PYTHON" python -I -c 'import sysconfig; print(sysconfig.get_config_var("LIBDIR"))')
     export LD_LIBRARY_PATH="$python_lib_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 fi
 work="$root/target/test-runtime"
@@ -50,15 +50,15 @@ case "${1:-}" in
             export CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER=clang
             export CARGO_TARGET_X86_64_APPLE_DARWIN_LINKER=clang
         fi
-        "$uv_bin" run --no-project --python "$test_python" --no-sync python -m maturin build \
+        "$uv_bin" run --no-project --python "$test_python" python -m maturin build \
             --locked --manifest-path python/Cargo.toml --interpreter "$PYO3_PYTHON" --out "$wheels"
         "$uv_bin" pip install --python "$test_python" --reinstall --no-deps "$wheels"/*.whl
         # Isolated mode excludes cwd/PYTHONPATH; importlib prevents pytest from
         # prepending the source package. Assert the wheel is actually imported.
         cd "$work"
-        "$uv_bin" run --no-project --python "$test_python" --no-sync python -I -c \
+        "$uv_bin" run --no-project --python "$test_python" python -I -c \
             'import pathlib, patinae, sys; p = pathlib.Path(patinae.__file__).resolve(); assert p.is_relative_to(pathlib.Path(sys.prefix).resolve()), p; print("Installed wheel:", p)'
-        "$uv_bin" run --no-project --python "$test_python" --no-sync python -I -m pytest \
+        "$uv_bin" run --no-project --python "$test_python" python -I -m pytest \
             --import-mode=importlib "$root/python/tests" -q
         ;;
     abi)

@@ -42,6 +42,8 @@ static LEGACY_MAP: &[(&str, u16)] = &[
     ("orthoscopic", 23),
     // Surface
     ("surface_quality", 38),
+    // Line
+    ("line_width", 44),
     // Stick
     ("valence", 64),
     // Dot
@@ -233,12 +235,19 @@ mod tests {
         let mut settings = Settings::default();
         settings.shading.classic.ambient = 0.3;
         settings.stick.radius = 0.5;
+        settings.line.width = 3.0;
 
         let list = export_session(&settings);
         let restored = import_session(&list);
 
         assert_eq!(restored.shading.classic.ambient, 0.3);
         assert_eq!(restored.stick.radius, 0.5);
+        assert_eq!(restored.line.width, 3.0);
+    }
+
+    #[test]
+    fn line_width_uses_pymol_legacy_id() {
+        assert_eq!(id_for_name("line_width"), Some(44));
     }
 
     #[test]

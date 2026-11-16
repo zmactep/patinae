@@ -10,7 +10,7 @@ struct ConvertParams {
 }
 
 struct LineInstance {
-    p0_pad: vec4<f32>,
+    p0_width: vec4<f32>,
     p1_pad: vec4<f32>,
     groups: vec2<u32>,
     _pad: vec2<u32>,
@@ -63,7 +63,7 @@ fn build_cylinders(@builtin(global_invocation_id) gid: vec3<u32>) {
     let color1 = material_for_group(inst.groups.x);
     let color2 = material_for_group(inst.groups.y);
     cylinders[out_index] = Cylinder(
-        inst.p0_pad.xyz,
+        inst.p0_width.xyz,
         params.radius,
         inst.p1_pad.xyz,
         0.0,

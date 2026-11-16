@@ -50,6 +50,9 @@ pub struct CullPlanCtx<'a> {
     pub(crate) queue: &'a wgpu::Queue,
     pub(crate) view_proj: [[f32; 4]; 4],
     pub(crate) frustum_planes: [[f32; 4]; 6],
+    /// Viewport size in physical pixels, for reps whose footprint is
+    /// specified in screen pixels (lines).
+    pub(crate) viewport_px: [f32; 2],
 }
 
 /// What a culled rep returns to the outer dispatch loop: the bind group

@@ -20,6 +20,9 @@
 
 const FRAME_WGSL: &str = include_str!("shaders/common/frame.wgsl");
 const CAPSULE_WGSL: &str = include_str!("shaders/common/capsule.wgsl");
+const LINE_CLIP_WGSL: &str = include_str!("shaders/common/line_clip.wgsl");
+const LINE_NATIVE_COMMON_WGSL: &str = include_str!("shaders/common/line_native.wgsl");
+const LINE_QUAD_WGSL: &str = include_str!("shaders/common/line_quad.wgsl");
 const WBOIT_WGSL: &str = include_str!("shaders/common/wboit.wgsl");
 const LIGHTING_WGSL: &str = include_str!("shaders/common/lighting.wgsl");
 const SCENE_WGSL: &str = include_str!("shaders/common/scene.wgsl");
@@ -31,6 +34,9 @@ pub const SPHERE_WGSL: &str = include_str!("shaders/representations/sphere.wgsl"
 pub const SPHERE_PICKING_WGSL: &str = include_str!("shaders/picking/sphere.wgsl");
 pub const STICK_WGSL: &str = include_str!("shaders/representations/stick.wgsl");
 pub const STICK_PICKING_WGSL: &str = include_str!("shaders/picking/stick.wgsl");
+pub const LINE_NATIVE_WGSL: &str = include_str!("shaders/representations/line_native.wgsl");
+pub const LINE_THIN_PICKING_WGSL: &str = include_str!("shaders/picking/line_thin.wgsl");
+pub const LINE_NATIVE_PICKING_WGSL: &str = include_str!("shaders/picking/line_native.wgsl");
 pub const LINE_WGSL: &str = include_str!("shaders/representations/line.wgsl");
 pub const LINE_PICKING_WGSL: &str = include_str!("shaders/picking/line.wgsl");
 pub const DOT_WGSL: &str = include_str!("shaders/representations/dot.wgsl");
@@ -96,6 +102,41 @@ pub fn expand(src: &str) -> String {
                 out.push_str(CAPSULE_WGSL);
                 out.push('\n');
             }
+            "// {{INCLUDE_LINE_NATIVE}}" => {
+                out.push_str(LINE_CLIP_WGSL);
+                out.push_str(LINE_NATIVE_COMMON_WGSL);
+                out.push('\n');
+            }
+            "// {{INCLUDE_LINE_QUAD}}" => {
+                use crate::representations::line::{
+                    LINE_PICK_MIN_HALF_WIDTH_PX, LINE_PICK_MIN_TEXEL_RADIUS,
+                    LINE_VERTICES_PER_INSTANCE, LINE_VISUAL_MIN_HALF_WIDTH_PX,
+                };
+                use std::fmt::Write;
+                writeln!(
+                    out,
+                    "const LINE_VERTS_PER_INSTANCE: u32 = {LINE_VERTICES_PER_INSTANCE}u;"
+                )
+                .expect("writing to String cannot fail");
+                writeln!(
+                    out,
+                    "const LINE_PICK_MIN_HALF_WIDTH_PX: f32 = {LINE_PICK_MIN_HALF_WIDTH_PX:?};"
+                )
+                .expect("writing to String cannot fail");
+                writeln!(
+                    out,
+                    "const LINE_VISUAL_MIN_HALF_WIDTH_PX: f32 = {LINE_VISUAL_MIN_HALF_WIDTH_PX:?};"
+                )
+                .expect("writing to String cannot fail");
+                writeln!(
+                    out,
+                    "const LINE_PICK_MIN_TEXEL_RADIUS: f32 = {LINE_PICK_MIN_TEXEL_RADIUS:?};"
+                )
+                .expect("writing to String cannot fail");
+                out.push_str(LINE_CLIP_WGSL);
+                out.push_str(LINE_QUAD_WGSL);
+                out.push('\n');
+            }
             "// {{INCLUDE_WBOIT}}" => {
                 out.push_str(WBOIT_WGSL);
                 out.push('\n');
@@ -142,6 +183,54 @@ mod tests {
     use super::*;
 
     #[test]
+    fn line_shader_contract_matches_host_topology_and_instance_layout() {
+        use crate::representations::line::{LineInstance, LINE_VERTICES_PER_INSTANCE};
+        for source in [
+            LINE_WGSL,
+            LINE_PICKING_WGSL,
+            LINE_NATIVE_WGSL,
+            LINE_NATIVE_PICKING_WGSL,
+        ] {
+            let module = naga::front::wgsl::parse_str(&expand(source)).unwrap();
+            if source == LINE_WGSL || source == LINE_PICKING_WGSL {
+                let constant = module
+                    .constants
+                    .iter()
+                    .find(|(_, c)| c.name.as_deref() == Some("LINE_VERTS_PER_INSTANCE"))
+                    .unwrap()
+                    .1;
+                let naga::Expression::Literal(naga::Literal::U32(vertices)) =
+                    module.global_expressions[constant.init]
+                else {
+                    panic!("literal topology required")
+                };
+                assert_eq!(vertices, LINE_VERTICES_PER_INSTANCE);
+            }
+            let instance = module
+                .types
+                .iter()
+                .find(|(_, t)| t.name.as_deref() == Some("LineInstance"))
+                .unwrap()
+                .1;
+            let naga::TypeInner::Struct { members, span } = &instance.inner else {
+                panic!("instance struct required")
+            };
+            assert_eq!(u64::from(*span), LineInstance::SIZE);
+            for (member, attribute) in members.iter().zip(LineInstance::vertex_layout().attributes)
+            {
+                assert_eq!(u64::from(member.offset), attribute.offset);
+                assert!(
+                    matches!(member.binding, Some(naga::Binding::Location { location, .. }) if location == attribute.shader_location)
+                );
+            }
+            assert_eq!(
+                members.len(),
+                LineInstance::vertex_layout().attributes.len()
+            );
+        }
+    }
+
+    #[test]
     fn expanded_wgsl_modules_parse_and_validate() {
         let modules = [
             ("patinae.sphere", SPHERE_WGSL),
@@ -151,6 +240,9 @@ mod tests {
             ("patinae.stick_picking", STICK_PICKING_WGSL),
             ("patinae.line", LINE_WGSL),
             ("patinae.line_picking", LINE_PICKING_WGSL),
+            ("patinae.line_thin_picking", LINE_THIN_PICKING_WGSL),
+            ("patinae.line_native", LINE_NATIVE_WGSL),
+            ("patinae.line_native_picking", LINE_NATIVE_PICKING_WGSL),
             ("patinae.dot", DOT_WGSL),
             ("patinae.dot_picking", DOT_PICKING_WGSL),
             ("patinae.mesh", MESH_WGSL),

@@ -5,9 +5,10 @@ use super::state::RepPickingState;
 use super::RenderState;
 use crate::memory::bytes_to_mib;
 use crate::passes::lighting::identity_mat4;
+use crate::picking::pass::IdPassPurpose;
 use crate::picking::pass::PickingParams;
-use crate::picking::readback::PickingReadback;
 use crate::picking::readback::{PendingPick, PickReadbackTarget};
+use crate::picking::readback::{PickRegion, PickingReadback};
 use crate::picking::reproject::ReprojectParams;
 use crate::picking::{ObjectId, PickHit, PickingMode, RepKind};
 use crate::render_input::{RenderInput, RenderObjectInput};
@@ -23,6 +24,16 @@ pub(super) enum PickingStrategy {
 }
 
 impl RenderState {
+    pub(super) fn line_hit_half_width(&self) -> f32 {
+        use crate::representations::line::{
+            LINE_PICK_MIN_HALF_WIDTH_PX, LINE_PICK_MIN_TEXEL_RADIUS,
+        };
+        let (width, height) = self.targets.picking_dims();
+        let pixel_size = (self.targets.width as f32 / width as f32)
+            .max(self.targets.height as f32 / height as f32);
+        LINE_PICK_MIN_HALF_WIDTH_PX.max(LINE_PICK_MIN_TEXEL_RADIUS * pixel_size)
+    }
+
     pub(super) fn ensure_id_pass(&mut self) {
         if self.picking.id_pass.is_none() {
             self.picking.id_pass = Some(crate::picking::PickingPass::new(
@@ -32,23 +43,35 @@ impl RenderState {
             ));
         }
 
+        let line_half_width = self.line_hit_half_width();
         let Some(id_pass) = self.picking.id_pass.as_ref() else {
             return;
         };
         for ((object_id, kind), entry) in self.scene.reps.iter_mut() {
-            if entry.picking.is_some() {
+            if let Some(picking) = entry.picking.as_mut() {
+                if picking.line_half_width != line_half_width {
+                    self.ctx.queue.write_buffer(
+                        &picking.buffer,
+                        std::mem::offset_of!(PickingParams, line_half_width) as u64,
+                        bytemuck::bytes_of(&line_half_width),
+                    );
+                    picking.line_half_width = line_half_width;
+                }
                 continue;
             }
-            let params = PickingParams::new(*kind, ObjectId(*object_id));
+            let mut params = PickingParams::new(*kind, ObjectId(*object_id));
+            params.line_half_width = line_half_width;
             let (buffer, bind_group) = id_pass.make_params(&self.ctx.device, params);
             entry.picking = Some(RepPickingState {
-                _buffer: buffer,
+                buffer,
                 bind_group,
+                line_half_width,
             });
         }
     }
 
     pub(super) fn invalidate_picking_cache(&mut self) {
+        self.picking.region = None;
         self.picking.picking_pass_initialized = false;
         self.picking.picking_texture_source = None;
         self.picking.last_full_record_view_proj = None;
@@ -160,7 +183,7 @@ impl RenderState {
         if !has_marker {
             return PickingStrategy::Skip;
         }
-        if !self.picking.picking_pass_initialized {
+        if !self.picking.picking_pass_initialized || self.picking.region.is_some() {
             return PickingStrategy::FullRecord;
         }
         if !camera_changed {
@@ -324,6 +347,14 @@ impl RenderState {
     }
 
     pub(super) fn record_picking_pass(&self, encoder: &mut wgpu::CommandEncoder) {
+        self.record_picking_region(encoder, None);
+    }
+
+    fn record_picking_region(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        region: Option<PickRegion>,
+    ) {
         let (Some(id_pass), Some(picking_view), Some(picking_depth_view)) = (
             self.picking.id_pass.as_ref(),
             self.targets.picking.as_ref(),
@@ -336,7 +367,8 @@ impl RenderState {
             id_pass,
             picking_view,
             picking_depth_view,
-            "patinae.picking_pass",
+            IdPassPurpose::HitTest,
+            region,
         );
     }
 
@@ -353,7 +385,8 @@ impl RenderState {
             id_pass,
             overlay_view,
             overlay_depth_view,
-            "patinae.overlay_id_pass",
+            IdPassPurpose::Overlay,
+            None,
         );
     }
 
@@ -363,10 +396,11 @@ impl RenderState {
         id_pass: &crate::picking::PickingPass,
         target: &wgpu::TextureView,
         depth: &wgpu::TextureView,
-        label: &'static str,
+        purpose: IdPassPurpose,
+        region: Option<PickRegion>,
     ) {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some(label),
+            label: Some(purpose.label()),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: target,
                 depth_slice: None,
@@ -394,22 +428,26 @@ impl RenderState {
             multiview_mask: None,
         });
 
+        if let Some(region) = region {
+            pass.set_scissor_rect(region.x, region.y, region.width, region.height);
+        }
         pass.set_bind_group(0, &self.ctx.frame.bind_group, &[]);
         pass.set_bind_group(1, &self.ctx.lighting.bind_group, &[]);
-        let mut current: Option<RepKind> = None;
+        let mut current = None;
         for key in &self.scene.draw_order {
             let Some(entry) = self.scene.reps.get(key) else {
                 continue;
             };
             let kind = entry.rep.kind();
-            if current != Some(kind) {
-                let Some(pipeline) =
-                    catalog::entry(kind).and_then(|rep| rep.picking_pipeline(id_pass))
+            let native_lines = catalog::uses_native_lines(entry.rep.as_ref());
+            if current != Some((kind, native_lines)) {
+                let Some(pipeline) = catalog::entry(kind)
+                    .and_then(|rep| rep.picking_pipeline(id_pass, purpose, native_lines))
                 else {
                     continue;
                 };
                 pass.set_pipeline(pipeline);
-                current = Some(kind);
+                current = Some((kind, native_lines));
             }
             let Some(rep_picking) = entry.picking.as_ref() else {
                 continue;
@@ -448,6 +486,15 @@ impl RenderState {
         if self.memory.sync_error.is_some() || !self.hit_test_picking_available() {
             return None;
         }
+        let readback = match target {
+            PickReadbackTarget::Hover => self.picking.hover_readback.as_ref()?,
+            PickReadbackTarget::Click => self.picking.readback.as_ref()?,
+        };
+        // Do not claim a new cached region if a busy readback would prevent
+        // submission of the encoder that produces it.
+        if !readback.is_idle() {
+            return None;
+        }
         self.ensure_id_pass();
         let pick_x = ((x as f32) * self.targets.picking_scale) as u32;
         let pick_y = ((y as f32) * self.targets.picking_scale) as u32;
@@ -457,7 +504,7 @@ impl RenderState {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("patinae.pick.submit"),
             });
-        self.refresh_picking_for_pick(&mut encoder);
+        self.refresh_picking_for_pick(&mut encoder, pick_x, pick_y);
 
         let readback = match target {
             PickReadbackTarget::Hover => self.picking.hover_readback.as_ref()?,
@@ -470,11 +517,33 @@ impl RenderState {
         Some(pending)
     }
 
-    fn refresh_picking_for_pick(&mut self, encoder: &mut wgpu::CommandEncoder) {
-        self.prepare_instance_draws(encoder);
+    fn refresh_picking_for_pick(&mut self, encoder: &mut wgpu::CommandEncoder, x: u32, y: u32) {
         let view_proj_hash = hash_view_proj(&self.uniforms.view_proj);
+        let rebuilt = self.record_pending_compute_builds(encoder);
+        self.prepare_instance_draws(encoder);
+        self.dispatch_cull(encoder, view_proj_hash, rebuilt);
         let camera_changed = view_proj_hash != self.picking.last_view_proj_hash;
-        if self.picking.picking_pass_initialized && !camera_changed {
+        let (width, height) = self.targets.picking_dims();
+        let region = PickRegion::around(x, y, width, height);
+        if self.picking.picking_pass_initialized
+            && !camera_changed
+            && self
+                .picking
+                .region
+                .is_none_or(|cached| cached.contains(region))
+        {
+            return;
+        }
+        // Exact manual queries need only the readback neighborhood. Full-target
+        // passes and reprojection retain their existing coverage and cache rules.
+        if self.picking.picking_mode == PickingMode::FullRecord {
+            self.record_picking_region(encoder, Some(region));
+            self.picking.region = Some(region);
+            self.picking.picking_pass_initialized = true;
+            self.picking.last_view_proj_hash = view_proj_hash;
+            self.picking.picking_texture_source = None;
+            self.picking.last_full_record_view_proj = None;
+            self.picking.reproject_count = 0;
             return;
         }
 
@@ -529,6 +598,9 @@ impl RenderState {
         if !self.hit_test_picking_available() {
             return None;
         }
+        if !self.picking.readback.as_ref()?.is_idle() {
+            return None;
+        }
         self.ensure_id_pass();
         let pick_x = ((x as f32) * self.targets.picking_scale) as u32;
         let pick_y = ((y as f32) * self.targets.picking_scale) as u32;
@@ -539,7 +611,7 @@ impl RenderState {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("patinae.pick.copy"),
             });
-        self.refresh_picking_for_pick(&mut encoder);
+        self.refresh_picking_for_pick(&mut encoder, pick_x, pick_y);
 
         let readback = self.picking.readback.as_ref()?;
         let picking_texture = self.targets.picking_texture.as_ref()?;

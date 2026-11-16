@@ -1,4 +1,5 @@
-//! Line color pipeline — `LineList` topology, vertex-pull from instance.
+//! Native one-pixel and adjustable-width line color pipelines.
+//! Wider lines use an eight-vertex cap/body strip per bond.
 //!
 //! Bind groups:
 //! - 0: `FrameUniforms` (`RenderContext`)
@@ -10,11 +11,12 @@
 
 use crate::context::RenderContext;
 use crate::pipelines::build_draw_pair;
-use crate::representations::line::LineInstance;
+use crate::representations::line::{LineInstance, LINE_TOPOLOGY};
 use crate::scene_store::SceneStoreLayout;
-use crate::shader_source::LINE_WGSL;
+use crate::shader_source::{LINE_NATIVE_WGSL, LINE_WGSL};
 
 pub struct LinePipeline {
+    pub(crate) native: crate::pipelines::DrawPipelinePair,
     pub pipeline: wgpu::RenderPipeline,
     pub pipeline_opaque: wgpu::RenderPipeline,
 }
@@ -31,9 +33,22 @@ impl LinePipeline {
                 &scene_layout.bind_group_layout,
             ],
             LineInstance::vertex_layout(),
+            LINE_TOPOLOGY,
+        );
+        let native = build_draw_pair(
+            ctx,
+            "patinae.line.native",
+            LINE_NATIVE_WGSL,
+            &[
+                &ctx.frame.bind_group_layout,
+                &ctx.lighting.bind_group_layout,
+                &scene_layout.bind_group_layout,
+            ],
+            LineInstance::vertex_layout(),
             wgpu::PrimitiveTopology::LineList,
         );
         Self {
+            native,
             pipeline: pair.translucent,
             pipeline_opaque: pair.opaque,
         }

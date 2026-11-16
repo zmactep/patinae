@@ -160,7 +160,7 @@ impl FrameTargets {
     ) -> Self {
         let width = width.max(1);
         let height = height.max(1);
-        let picking_scale = picking_scale.clamp(0.125, 1.0);
+        let picking_scale = picking_scale.clamp(crate::memory::MIN_PICKING_SCALE, 1.0);
 
         let accum_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("patinae.frame.accum"),

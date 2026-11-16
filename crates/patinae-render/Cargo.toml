@@ -6,7 +6,6 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-homepage.workspace = true
 documentation.workspace = true
 
 [features]
@@ -28,7 +27,6 @@ lin_alg = { workspace = true }
 bytemuck = { workspace = true }
 log = { workspace = true }
 image = { workspace = true }
-pollster = "0.4"
 thiserror = { workspace = true }
 # `std::time::Instant::now()` panics on wasm32-unknown-unknown; web-time is a
 # drop-in that re-exports std on native and uses `performance.now()` on wasm.
