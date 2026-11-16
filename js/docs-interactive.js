@@ -95,6 +95,8 @@ export function initDocPages(viewer) {
     if (sidebar) {
       sidebar.querySelectorAll("a").forEach((a, i) => {
         a.classList.toggle("active", i === idx);
+        if (i === idx) a.setAttribute("aria-current", "step");
+        else a.removeAttribute("aria-current");
       });
     }
 
@@ -145,6 +147,7 @@ export function initDocPages(viewer) {
 
       if (seq !== setupSeq) return;
       if (command) await execCmdString(viewer, command);
+      await executeCommand(viewer, "bg_color 0b0e10");
 
       await viewer.show();
     });

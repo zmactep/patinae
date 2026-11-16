@@ -3533,6 +3533,10 @@ class Vi {
   /** Execute once and retain IDs of accepted work, including on partial failure. */
   async execute(e) {
     const t = this.core.requireWasm("execute", (n) => n.execute(e));
+    // The bundled engine recreates the camera with aspect=1 on reset.
+    // Restore the canvas aspect before labels or subsequent zoom commands use it.
+    if (/^\s*(?:reset|reinitialize)(?:\s|$)/i.test(e))
+      this.core.resizeViewport();
     return this.emitCommandMessages(t.messages.map((n) => ({
       level: n.kind.toLowerCase(),
       text: n.text,

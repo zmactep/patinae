@@ -8,48 +8,24 @@
             name="description"
             content="Interactive introduction to structural biology: amino acids, nucleic acids, PDB format, and structure databases — with a live 3D viewer."
         />
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-        <link
-            href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Instrument+Serif:ital@0;1&display=swap"
-            rel="stylesheet"
-        />
-        <link rel="stylesheet" href="../assets/css/style.css" />
+        <meta name="theme-color" content="#0b0e10" />
+        <link rel="icon" href="../assets/images/patinae.png" />
+        <link rel="stylesheet" href="../assets/css/home-fonts.css" />
+        <link rel="stylesheet" href="../assets/css/home.css" />
         <link rel="stylesheet" href="../assets/css/docs.css" />
     </head>
-    <body>
-        <!-- NAV -->
-        <nav>
-            <div class="nav-inner">
-                <a href="../index.html" class="nav-logo"
-                    ><img
-                        src="../assets/images/patinae.png"
-                        alt="Patinae logo"
-                        class="nav-logo-img"
-                    /><span>Patinae</span></a
-                >
-                <ul class="nav-links">
-                    <li><a href="../index.html#features">Features</a></li>
-                    <li>
-                        <a href="../index.html#architecture">Architecture</a>
-                    </li>
-                    <li><a href="../docs.html">Docs</a></li>
-                    <li>
-                        <a
-                            href="https://github.com/zmactep/patinae"
-                            class="btn-nav"
-                            >GitHub ↗</a
-                        >
-                    </li>
-                </ul>
-            </div>
-        </nav>
+    <body class="docs-site">
+        <a class="skip-link" href="#main">Skip to content</a>
+        <header class="site-header wrap">
+            <a class="wordmark" href="../index.html" aria-label="Patinae home"><img src="../assets/images/patinae.png" width="30" height="30" alt="">Patinae</a>
+            <nav aria-label="Main navigation"><a href="../docs.html" aria-current="true">Docs</a><a href="https://github.com/zmactep/patinae">GitHub ↗</a></nav>
+        </header>
 
         <!-- MAIN LAYOUT -->
-        <div class="docs-interactive">
+        <div class="docs-interactive wrap">
             <!-- SIDEBAR -->
-            <aside class="docs-sidebar">
-                <div class="docs-sidebar-title">Structural Biology 101</div>
+            <aside class="docs-sidebar" aria-label="Guide chapters">
+                <div class="docs-sidebar-title">In this guide</div>
                 <ul>
                     <li><a href="#intro">Why structure matters</a></li>
                     <li><a href="#atoms">Atoms and bonds</a></li>
@@ -64,7 +40,8 @@
             </aside>
 
             <!-- CONTENT -->
-            <main class="docs-content">
+            <main class="docs-content" id="main">
+                <a class="docs-back" href="../docs.html">← Documentation</a>
                 <!-- 1. INTRO -->
                 <div
                     class="doc-page"
@@ -74,7 +51,7 @@
                     data-command="as cartoon; color chain; orient; zoom all, buffer=5"
                 >
                     <div class="docs-hero">
-                        <h1>Structural Biology 101</h1>
+                        <h1>Structural biology 101</h1>
                         <p>An interactive guide to the molecular world.</p>
                     </div>
                     <div class="docs-section">
@@ -105,23 +82,20 @@
                             amino acids — which makes it a perfect starting
                             point. Try rotating it with your mouse. You can also
                             look at it as a
-                            <span
+                            <button type="button"
                                 class="cmd-run"
                                 data-cmd="as surface; color chain"
-                                >molecular surface</span
-                            >
+                                >molecular surface</button>
                             to see its overall shape, or as
-                            <span
+                            <button type="button"
                                 class="cmd-run"
                                 data-cmd="set sphere_scale, 1; as spheres; color cpk"
-                                >space-filling spheres</span
-                            >
+                                >space-filling spheres</button>
                             to get a sense of its real volume. Switch back to
-                            <span
+                            <button type="button"
                                 class="cmd-run"
                                 data-cmd="as cartoon; color chain"
-                                >ribbon view</span
-                            >
+                                >ribbon view</button>
                             whenever you like.
                         </p>
                         <p>
@@ -183,11 +157,10 @@
                         </p>
                         <p>
                             In a
-                            <span
+                            <button type="button"
                                 class="cmd-run"
                                 data-cmd="set sphere_scale, 1; as spheres"
-                                >space-filling</span
-                            >
+                                >space-filling</button>
                             (or VdW) view, each atom is drawn at its real van
                             der Waals radius — the spheres overlap and merge
                             into a compact, bumpy surface. This is the most
@@ -196,11 +169,10 @@
                         </p>
                         <p>
                             In a pure
-                            <span
+                            <button type="button"
                                 class="cmd-run"
                                 data-cmd="set sphere_scale, 1; as sticks"
-                                >stick</span
-                            >
+                                >stick</button>
                             view the atoms are implied — you only see the bonds
                             as thin cylinders. This is the most common
                             representation for examining bonding geometry and is
@@ -208,11 +180,10 @@
                         </p>
                         <p>
                             The
-                            <span
+                            <button type="button"
                                 class="cmd-run"
                                 data-cmd="set sphere_scale, 0.3; as sticks; show spheres"
-                                >ball-and-stick</span
-                            >
+                                >ball-and-stick</button>
                             view you started with is a compromise between the
                             two — small spheres for atoms, sticks for bonds.
                         </p>
@@ -253,38 +224,34 @@
                         <h2>Amino acids</h2>
                         <p>
                             Proteins are built from a set of
-                            <span
+                            <button type="button"
                                 class="cmd-run"
                                 data-cmd="as sticks; label name CA, resn; reset; orient; zoom all, buffer=5"
-                                >20 standard amino acids</span
-                            >
+                                >20 standard amino acids</button>
                             — you can think of them as the letters of the
                             protein alphabet. String them together, and you get
                             a word; fold that word in three dimensions, and you
                             get a functional protein.
                         </p>
                         <p>
-                            <span
+                            <button type="button"
                                 class="cmd-run"
                                 data-cmd="reset; oreint resn TRP; zoom resn TRP; label resn TRP, name"
-                                >Every amino acid</span
-                            >
+                                >Every amino acid</button>
                             shares the same core structure — a
-                            <span
+                            <button type="button"
                                 class="cmd-run"
                                 data-cmd="select backbone, resn TRP and name N+CA+C+O"
                                 data-cmd-alt="deselect"
-                                >backbone</span
-                            >
+                                >backbone</button>
                             made of nitrogen, carbon-alpha (C&alpha;), and a
                             carbonyl group (C=O). What makes each of the 20
                             amino acids unique is the
-                            <span
+                            <button type="button"
                                 class="cmd-run"
                                 data-cmd="select sidechain, resn TRP and not name N+CA+C+O+OXT and not element H"
                                 data-cmd-alt="deselect"
-                                >side chain</span
-                            >
+                                >side chain</button>
                             (also called the R group) attached to the C&alpha;.
                             Side chains range from a single hydrogen atom
                             (glycine, the simplest) to bulky aromatic rings
@@ -295,66 +262,58 @@
                         <ul>
                             <li>
                                 <strong>Hydrophobic</strong> (e.g.
-                                <span
+                                <button type="button"
                                     class="cmd-run"
                                     data-cmd="scene aa_grid, recall; select sele, resn LEU"
                                     data-cmd-alt="deselect"
-                                    >leucine</span
-                                >,
-                                <span
+                                    >leucine</button>,
+                                <button type="button"
                                     class="cmd-run"
                                     data-cmd="scene aa_grid, recall; select sele, resn VAL"
                                     data-cmd-alt="deselect"
-                                    >valine</span
-                                >) — avoid water, tend to pack into the
+                                    >valine</button>) — avoid water, tend to pack into the
                                 protein's interior
                             </li>
                             <li>
                                 <strong>Polar</strong> (e.g.
-                                <span
+                                <button type="button"
                                     class="cmd-run"
                                     data-cmd="scene aa_grid, recall; select sele, resn SER"
                                     data-cmd-alt="deselect"
-                                    >serine</span
-                                >,
-                                <span
+                                    >serine</button>,
+                                <button type="button"
                                     class="cmd-run"
                                     data-cmd="scene aa_grid, recall; select sele, resn THR"
                                     data-cmd-alt="deselect"
-                                    >threonine</span
-                                >) — form hydrogen bonds, often found on the
+                                    >threonine</button>) — form hydrogen bonds, often found on the
                                 surface
                             </li>
                             <li>
                                 <strong>Charged</strong> (e.g.
-                                <span
+                                <button type="button"
                                     class="cmd-run"
                                     data-cmd="scene aa_grid, recall; select sele, resn GLU"
                                     data-cmd-alt="deselect"
-                                    >glutamate</span
-                                >,
-                                <span
+                                    >glutamate</button>,
+                                <button type="button"
                                     class="cmd-run"
                                     data-cmd="scene aa_grid, recall; select sele, resn LYS"
                                     data-cmd-alt="deselect"
-                                    >lysine</span
-                                >) — carry positive or negative charge at
+                                    >lysine</button>) — carry positive or negative charge at
                                 physiological pH
                             </li>
                             <li>
                                 <strong>Aromatic</strong> (e.g.
-                                <span
+                                <button type="button"
                                     class="cmd-run"
                                     data-cmd="scene aa_grid, recall; select sele, resn PHE"
                                     data-cmd-alt="deselect"
-                                    >phenylalanine</span
-                                >,
-                                <span
+                                    >phenylalanine</button>,
+                                <button type="button"
                                     class="cmd-run"
                                     data-cmd="scene aa_grid, recall; select sele, resn TYR"
                                     data-cmd-alt="deselect"
-                                    >tyrosine</span
-                                >) — bulky ring structures with special optical
+                                    >tyrosine</button>) — bulky ring structures with special optical
                                 and chemical properties
                             </li>
                         </ul>
@@ -395,30 +354,27 @@
                         <h2>Proteins: from chain to shape</h2>
                         <p>
                             In the viewer you see a
-                            <span
+                            <button type="button"
                                 class="cmd-run"
                                 data-cmd="hide everything; show sticks, chain A and resi 48+49; color cpk; orient chain A and resi 48+49; zoom chain A and resi 48+49, buffer=3"
-                                >dipeptide</span
-                            >
+                                >dipeptide</button>
                             — two amino acids from
                             <strong>lactate dehydrogenase</strong>
                             (PDB: 4OJN), a metabolic enzyme found in nearly
                             every living cell. The two residues are joined by a
-                            <span
+                            <button type="button"
                                 class="cmd-run"
                                 data-cmd="color magenta, chain A and resi 48 and name C; color magenta, chain A and resi 49 and name N"
                                 data-cmd-alt="color cpk"
-                                >peptide bond</span
-                            >
+                                >peptide bond</button>
                             — a covalent link between the carbonyl carbon of one
                             amino acid and the nitrogen of the next. This is how
                             amino acids chain together into a
                             <strong>polypeptide</strong>. Now
-                            <span
+                            <button type="button"
                                 class="cmd-run"
                                 data-cmd="as sticks, chain A; color cpk, chain A; orient chain A; zoom chain A, buffer=2"
-                                >reveal the entire chain</span
-                            >
+                                >reveal the entire chain</button>
                             — over 300 residues. The view becomes a dense tangle
                             of atoms where individual details are lost.
                         </p>
@@ -443,11 +399,10 @@
                         <h3>Secondary structure</h3>
                         <p>
                             Switch to a
-                            <span
+                            <button type="button"
                                 class="cmd-run"
                                 data-cmd="as cartoon, chain A; color ss, chain A; orient chain A; zoom chain A, buffer=3"
-                                >cartoon view</span
-                            >
+                                >cartoon view</button>
                             and the chaos of atoms resolves into recognisable
                             shapes. Locally, the backbone folds into repeating
                             patterns held together by hydrogen bonds:
@@ -458,11 +413,10 @@
                                 coils where each backbone NH hydrogen-bonds to
                                 the C=O four residues earlier. In the cartoon
                                 they appear as spiralling ribbons.
-                                <span
+                                <button type="button"
                                     class="cmd-run"
                                     data-cmd="zoom chain A and resi 317, buffer=12"
-                                    >Zoom in on Lys&nbsp;317</span
-                                >
+                                    >Zoom in on Lys&nbsp;317</button>
                                 to see one up close — it sits in the middle of a
                                 long helix that runs from Thr&nbsp;309 to
                                 Lys&nbsp;328.
@@ -472,11 +426,10 @@
                                 strands lying side by side, connected by
                                 hydrogen bonds between them. They appear as flat
                                 arrows showing the chain direction.
-                                <span
+                                <button type="button"
                                     class="cmd-run"
                                     data-cmd="zoom chain A and resi 48, buffer=12"
-                                    >Zoom in on Leu&nbsp;48</span
-                                >
+                                    >Zoom in on Leu&nbsp;48</button>
                                 to see a strand within a six-stranded
                                 &beta;-sheet at the core of the enzyme.
                             </li>
@@ -484,11 +437,10 @@
 
                         <h3>Tertiary structure</h3>
                         <p>
-                            <span
+                            <button type="button"
                                 class="cmd-run"
                                 data-cmd="orient chain A; zoom chain A, buffer=3"
-                                >Zoom back out</span
-                            >
+                                >Zoom back out</button>
                             to see the <strong>tertiary structure</strong> — the
                             complete three-dimensional fold of a single
                             polypeptide chain. Hydrophobic side chains pack into
@@ -504,11 +456,10 @@
                             multi-chain assemblies — this is
                             <strong>quaternary structure</strong>. Lactate
                             dehydrogenase is a
-                            <span
+                            <button type="button"
                                 class="cmd-run"
                                 data-cmd="hide everything; show cartoon, chain A+B+C+D; color ss, chain A+B+C+D; orient chain A+B+C+D; zoom chain A+B+C+D, buffer=3"
-                                >tetramer of four identical subunits</span
-                            >. In the secondary-structure colouring you can see
+                                >tetramer of four identical subunits</button>. In the secondary-structure colouring you can see
                             that each subunit shares the same fold — the same
                             helices and sheets repeated four times.
                         </p>
@@ -516,9 +467,8 @@
                             At this level of organisation we usually care about
                             the subunits themselves rather than their internal
                             elements, so it makes sense to
-                            <span class="cmd-run" data-cmd="color chain"
-                                >colour by chain</span
-                            >
+                            <button type="button" class="cmd-run" data-cmd="color chain"
+                                >colour by chain</button>
                             — now each subunit stands out as a distinct unit.
                             The four chains pack together into a compact
                             assembly; only the complete tetramer is
@@ -555,54 +505,49 @@
                             If amino acids are the alphabet of proteins, then
                             <strong>nucleotides</strong> are the alphabet of
                             nucleic acids. DNA
-                            <span
+                            <button type="button"
                                 class="cmd-run"
                                 data-src="../assets/pdb/dna-nucleotides.pdb"
                                 data-cmd="as sticks; color cpk; orient; zoom all, buffer=5"
-                                >uses four</span
-                            >: adenine (A), guanine (G), cytosine (C) and
+                                >uses four</button>: adenine (A), guanine (G), cytosine (C) and
                             thymine (T) — you can see all four in the viewer.
                         </p>
                         <p>
-                            <span
+                            <button type="button"
                                 class="cmd-run"
                                 data-cmd="zoom chain A, buffer=4"
-                                >Zoom in on adenine</span
-                            >
+                                >Zoom in on adenine</button>
                             to look at the three parts every nucleotide is built
                             from:
                         </p>
                         <ul>
                             <li>
-                                <span
+                                <button type="button"
                                     class="cmd-run"
                                     data-cmd="deselect; select phosphate, name P+OP1+OP2"
                                     data-cmd-alt="deselect"
                                     data-cmd-group="nuc-parts"
-                                    >Phosphate group</span
-                                >
+                                    >Phosphate group</button>
                                 — links nucleotides into a chain and gives DNA
                                 its negative charge
                             </li>
                             <li>
-                                <span
+                                <button type="button"
                                     class="cmd-run"
                                     data-cmd="deselect; select sugar, name O5'+C5'+C4'+O4'+C3'+O3'+C2'+C1'"
                                     data-cmd-alt="deselect"
                                     data-cmd-group="nuc-parts"
-                                    >Sugar</span
-                                >
+                                    >Sugar</button>
                                 — a five-carbon deoxyribose ring that connects
                                 the phosphate to the base
                             </li>
                             <li>
-                                <span
+                                <button type="button"
                                     class="cmd-run"
                                     data-cmd="deselect; select base, name N9+C8+N7+C5+C6+N6+N1+C2+N3+C4+O2+O4+N4+O6+N2+C7"
                                     data-cmd-alt="deselect"
                                     data-cmd-group="nuc-parts"
-                                    >Nitrogenous base</span
-                                >
+                                    >Nitrogenous base</button>
                                 — the "letter" that carries the genetic
                                 information
                             </li>
@@ -612,19 +557,17 @@
                         <p>
                             The chemical difference between DNA and RNA is small
                             but consequential. Compare
-                            <span
+                            <button type="button"
                                 class="cmd-run"
                                 data-src="../assets/pdb/da-vs-ra.pdb"
                                 data-cmd="as sticks; color cpk; orient; zoom all, buffer=8"
                                 >deoxyadenosine (left) with adenosine
-                                (right)</span
-                            >: RNA's ribose has an
-                            <span
+                                (right)</button>: RNA's ribose has an
+                            <button type="button"
                                 class="cmd-run"
                                 data-cmd="select hydroxyl, chain B and name O2'"
                                 data-cmd-alt="deselect"
-                                >extra hydroxyl group</span
-                            >
+                                >extra hydroxyl group</button>
                             at the 2' position. This makes RNA more flexible and
                             reactive, while DNA's missing hydroxyl makes its
                             double helix more chemically stable — perfect for
@@ -632,18 +575,16 @@
                         </p>
                         <p>
                             The other difference is one base:
-                            <span
+                            <button type="button"
                                 class="cmd-run"
                                 data-src="../assets/pdb/dt-vs-u.pdb"
                                 data-cmd="as sticks; color cpk; orient; zoom all, buffer=8"
-                                >thymine (left) vs uracil (right)</span
-                            >. Thymine carries an extra
-                            <span
+                                >thymine (left) vs uracil (right)</button>. Thymine carries an extra
+                            <button type="button"
                                 class="cmd-run"
                                 data-cmd="select methyl, chain A and name C7"
                                 data-cmd-alt="deselect"
-                                >methyl group</span
-                            >
+                                >methyl group</button>
                             — DNA uses thymine, RNA uses uracil.
                         </p>
                         <p>
@@ -685,44 +626,39 @@
                         </p>
                         <p>
                             In the viewer you see a
-                            <span
+                            <button type="button"
                                 class="cmd-run"
                                 data-src="../assets/pdb/1BNA.pdb"
                                 data-cmd="as sticks; color cpk; orient; turn z, 80; turn y, 30; zoom all, buffer=5"
-                                >fragment of DNA</span
-                            >
+                                >fragment of DNA</button>
                             — 12 base pairs of the classic double helix, one of
                             the first DNA structures solved by X-ray
                             crystallography (1981). Look at an
-                            <span
+                            <button type="button"
                                 class="cmd-run"
                                 data-cmd="deselect; select sele, (chain A and resi 5) or (chain B and resi 20)"
                                 data-cmd-alt="deselect"
                                 data-cmd-group="base-pairs"
-                                >A–T pair</span
-                            >
+                                >A–T pair</button>
                             — two hydrogen bonds hold the bases together. A
-                            <span
+                            <button type="button"
                                 class="cmd-run"
                                 data-cmd="deselect; select sele, (chain A and resi 4) or (chain B and resi 21)"
                                 data-cmd-alt="deselect"
                                 data-cmd-group="base-pairs"
-                                >G–C pair</span
-                            >
+                                >G–C pair</button>
                             is stronger — three hydrogen bonds. Switch to a
-                            <span
+                            <button type="button"
                                 class="cmd-run"
                                 data-cmd="as cartoon; color chain"
-                                >cartoon view</span
-                            >
+                                >cartoon view</button>
                             to see the iconic double helix shape: two
                             sugar-phosphate backbones wind around each other
                             while the base pairs stack inside. Go back to
-                            <span
+                            <button type="button"
                                 class="cmd-run"
                                 data-cmd="as sticks; color cpk"
-                                >sticks</span
-                            >
+                                >sticks</button>
                             to see the atoms again.
                         </p>
 
@@ -731,12 +667,11 @@
                             RNA is usually single-stranded, but it can fold into
                             complex three-dimensional shapes by base-pairing
                             with itself. A classic example is
-                            <span
+                            <button type="button"
                                 class="cmd-run"
                                 data-src="../assets/pdb/1EHZ.pdb"
                                 data-cmd="as cartoon; color chain; orient; turn x, 90; zoom all, buffer=5"
-                                >transfer RNA</span
-                            >
+                                >transfer RNA</button>
                             (tRNA) — the adaptor molecule that carries amino
                             acids to the ribosome during protein synthesis. Its
                             single chain folds into a distinctive L-shape, held
@@ -803,12 +738,11 @@
                             showing where electrons (and therefore atoms) are
                             most likely to be. The viewer shows the DNA
                             structure fitted inside its
-                            <span
+                            <button type="button"
                                 class="cmd-run"
                                 data-cmd="disable 1bna"
                                 data-cmd-alt="enable 1bna"
-                                >electron density</span
-                            >. Each atom was placed by hand into the densest
+                                >electron density</button>. Each atom was placed by hand into the densest
                             regions of the map.
                         </p>
                         <p>
@@ -1027,16 +961,16 @@
                         </div>
                         <p>
                             Each line contains the record type (<span
-                                style="color: var(--accent-magenta)"
+                                class="pdb-record"
                                 >ATOM</span
                             >), atom serial number, atom name (<span
-                                style="color: var(--accent-cyan)"
+                                class="pdb-name"
                                 >N, CA, C</span
                             >), residue name (<span
-                                style="color: var(--accent-green)"
+                                class="pdb-resname"
                                 >THR</span
                             >), chain ID (<span
-                                style="color: var(--accent-orange)"
+                                class="pdb-chain"
                                 >A</span
                             >), residue number, coordinates, a temperature
                             factor (B-factor) indicating how much the atom
@@ -1051,17 +985,15 @@
                                 <code>HETATM</code> instead of
                                 <code>ATOM</code>. In the viewer you can see
                                 them as
-                                <span
+                                <button type="button"
                                     class="cmd-run"
                                     data-cmd="show spheres, hetatm; color cpk, hetatm"
-                                    >small spheres</span
-                                >
+                                    >small spheres</button>
                                 alongside the protein, or
-                                <span
+                                <button type="button"
                                     class="cmd-run"
                                     data-cmd="hide spheres, hetatm"
-                                    >hide them</span
-                                >
+                                    >hide them</button>
                                 to focus on the protein itself.
                             </p>
                         </div>
@@ -1263,12 +1195,11 @@
                             coordinate frames, each recording the position of
                             every atom at a given point in simulated time. Think
                             of it as a
-                            <span
+                            <button type="button"
                                 class="cmd-run"
                                 data-cmd="mplay"
                                 data-cmd-alt="mpause"
-                                >movie</span
-                            >
+                                >movie</button>
                             of the molecule. Molecular viewers can play
                             trajectories frame by frame, letting you see loops
                             swing open, helices unwind, or ligands slide into a
@@ -1351,40 +1282,14 @@
             </main>
 
             <!-- VIEWER PANEL -->
-            <div class="docs-viewer-panel">
+            <aside class="docs-viewer-panel" aria-label="Interactive molecular viewer">
+                <div class="docs-viewer-heading"><span>Interactive view</span><span>Drag to rotate</span></div>
                 <div class="docs-viewer-canvas" id="viewer-container"></div>
                 <div class="docs-viewer-repl" id="viewer-repl"></div>
-            </div>
+            </aside>
         </div>
 
-        <!-- FOOTER -->
-        <footer>
-            <div class="footer-inner">
-                <div class="footer-left">
-                    Patinae &copy; 2026 &middot;
-                    <a href="https://github.com/zmactep">Pavel Yakovlev</a>
-                    &middot; BSD 3-Clause
-                    <div class="footer-trademark">
-                        PyMOL&reg; is a registered trademark of
-                        Schr&ouml;dinger, LLC. This is an independent
-                        open-source project and is not affiliated with,
-                        endorsed by, or connected to Schr&ouml;dinger, Inc. in
-                        any way.
-                    </div>
-                </div>
-                <ul class="footer-links">
-                    <li>
-                        <a href="https://github.com/zmactep/patinae">GitHub</a>
-                    </li>
-                    <li><a href="../docs.html">Docs</a></li>
-                    <li>
-                        <a href="https://github.com/zmactep/patinae/releases"
-                            >Releases</a
-                        >
-                    </li>
-                </ul>
-            </div>
-        </footer>
+        <footer class="site-footer wrap"><div><a class="footer-name" href="../index.html">Patinae</a><span>© 2026 · <a href="https://github.com/zmactep">Pavel Yakovlev</a> · BSD 3-Clause</span></div><nav aria-label="Footer"><a href="../docs.html">Documentation</a><a href="https://github.com/zmactep/patinae">GitHub ↗</a></nav></footer>
 
         <script type="module">
             import { PatinaeViewer } from "../js/patinae-viewer.js";
@@ -1403,11 +1308,10 @@
                 },
             );
             await viewer.init();
-            await executeCommand(viewer, "bg_color 0a0b0f");
+            await executeCommand(viewer, "bg_color 0b0e10");
 
             initDocPages(viewer);
         </script>
 
-        <script src="../js/nav-scroll.js"></script>
     </body>
 </html>

@@ -8,64 +8,55 @@
             name="description"
             content="Interactive documentation for Patinae: structural biology, visualization, selections, rendering, and more."
         />
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-        <link
-            href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Instrument+Serif:ital@0;1&display=swap"
-            rel="stylesheet"
-        />
-        <link rel="stylesheet" href="assets/css/style.css" />
+        <meta name="theme-color" content="#0b0e10" />
+        <link rel="icon" href="assets/images/patinae.png" />
+        <link rel="stylesheet" href="assets/css/home-fonts.css" />
+        <link rel="stylesheet" href="assets/css/home.css" />
         <link rel="stylesheet" href="assets/css/docs.css" />
+        <noscript><style>.docs-hub-stage .scene-status { display: none; }</style></noscript>
+        <script type="module" src="js/docs-home.js"></script>
     </head>
-    <body>
-        <!-- NAV -->
-        <nav>
-            <div class="nav-inner">
-                <a href="index.html" class="nav-logo"
-                    ><img
-                        src="assets/images/patinae.png"
-                        alt="Patinae logo"
-                        class="nav-logo-img"
-                    /><span>Patinae</span></a
-                >
-                <ul class="nav-links">
-                    <li><a href="index.html#features">Features</a></li>
-                    <li><a href="index.html#architecture">Architecture</a></li>
-                    <li><a href="docs.html">Docs</a></li>
-                    <li>
-                        <a
-                            href="https://github.com/zmactep/patinae"
-                            class="btn-nav"
-                            >GitHub ↗</a
-                        >
-                    </li>
-                </ul>
-            </div>
-        </nav>
+    <body class="docs-site">
+        <a class="skip-link" href="#main">Skip to content</a>
+        <header class="site-header wrap">
+            <a class="wordmark" href="index.html" aria-label="Patinae home"><img src="assets/images/patinae.png" width="30" height="30" alt="">Patinae</a>
+            <nav aria-label="Main navigation"><a href="docs.html" aria-current="page">Docs</a><a href="https://github.com/zmactep/patinae">GitHub ↗</a></nav>
+        </header>
 
         <!-- DOCS HUB -->
-        <div class="docs-hub">
-            <div class="docs-hero">
+        <main class="docs-hub wrap" id="main">
+            <div class="docs-hero docs-hub-hero">
+              <div class="docs-hero-copy">
                 <h1>Documentation</h1>
                 <p>
                     Interactive guides to molecular visualization with Patinae
                     — run commands directly in the browser while you learn.
                 </p>
+              </div>
+              <figure class="docs-hub-structure">
+                <div class="docs-hub-stage" data-state="idle" aria-busy="true">
+                  <div class="viewer-mount" aria-label="Interactive 7KP3 biological assembly"></div>
+                  <p class="scene-status" role="status">Loading 7KP3 biological assembly…</p>
+                  <noscript><p class="no-script">Enable JavaScript to view this structure.</p></noscript>
+                </div>
+                <figcaption><a href="https://www.rcsb.org/structure/7KP3">7KP3</a> · AAV5 capsid</figcaption>
+              </figure>
             </div>
 
             <div class="docs-hub-grid">
-                <a href="docs/structural-biology-101.html" class="docs-hub-card green">
-                    <div class="feature-icon" style="background: rgba(93, 232, 160, 0.12)">🧬</div>
-                    <div class="feature-title">Structural biology 101</div>
+                <a href="docs/structural-biology-101.html" class="docs-hub-card">
+                    <span class="guide-number" aria-hidden="true">01</span>
+                    <h2 class="feature-title">Structural biology 101</h2>
                     <div class="feature-desc">
                         Amino acids, nucleic acids, PDB format, structure
                         databases, and how to explore them in 3D.
                     </div>
+                    <span class="guide-action">Read guide <span aria-hidden="true">↗</span></span>
                 </a>
 
-                <div class="docs-hub-card cyan inactive">
-                    <div class="feature-icon" style="background: rgba(77, 216, 232, 0.12)">🚀</div>
-                    <div class="feature-title">Quick start with Patinae</div>
+                <div class="docs-hub-card inactive">
+                    <span class="guide-number" aria-hidden="true">02</span>
+                    <h2 class="feature-title">Quick start with Patinae</h2>
                     <div class="feature-desc">
                         Installation, loading structures, basic visualization,
                         and supported file formats.
@@ -73,9 +64,9 @@
                     <span class="coming-soon">Coming soon</span>
                 </div>
 
-                <div class="docs-hub-card magenta inactive">
-                    <div class="feature-icon" style="background: rgba(232, 93, 160, 0.12)">🎯</div>
-                    <div class="feature-title">Selections</div>
+                <div class="docs-hub-card inactive">
+                    <span class="guide-number" aria-hidden="true">03</span>
+                    <h2 class="feature-title">Selections</h2>
                     <div class="feature-desc">
                         Selectors, boolean operators, distance and expansion
                         operators, slash-macro syntax.
@@ -83,9 +74,9 @@
                     <span class="coming-soon">Coming soon</span>
                 </div>
 
-                <div class="docs-hub-card orange inactive">
-                    <div class="feature-icon" style="background: rgba(232, 168, 93, 0.12)">🎨</div>
-                    <div class="feature-title">Advanced shading</div>
+                <div class="docs-hub-card inactive">
+                    <span class="guide-number" aria-hidden="true">04</span>
+                    <h2 class="feature-title">Advanced shading</h2>
                     <div class="feature-desc">
                         Representations, lighting and materials, coloring,
                         and publication-quality rendering.
@@ -93,9 +84,9 @@
                     <span class="coming-soon">Coming soon</span>
                 </div>
 
-                <div class="docs-hub-card blue inactive">
-                    <div class="feature-icon" style="background: rgba(93, 141, 232, 0.12)">💎</div>
-                    <div class="feature-title">Ray tracing</div>
+                <div class="docs-hub-card inactive">
+                    <span class="guide-number" aria-hidden="true">05</span>
+                    <h2 class="feature-title">Ray tracing</h2>
                     <div class="feature-desc">
                         High-quality ray-traced images, shadows, ambient
                         occlusion, and export settings.
@@ -103,9 +94,9 @@
                     <span class="coming-soon">Coming soon</span>
                 </div>
 
-                <div class="docs-hub-card orange inactive">
-                    <div class="feature-icon" style="background: rgba(232, 168, 93, 0.12)">🎬</div>
-                    <div class="feature-title">Movie making</div>
+                <div class="docs-hub-card inactive">
+                    <span class="guide-number" aria-hidden="true">06</span>
+                    <h2 class="feature-title">Movie making</h2>
                     <div class="feature-desc">
                         Keyframe movies, scene-based animations, video
                         export, and scripting complex sequences.
@@ -113,9 +104,9 @@
                     <span class="coming-soon">Coming soon</span>
                 </div>
 
-                <div class="docs-hub-card cyan inactive">
-                    <div class="feature-icon" style="background: rgba(77, 216, 232, 0.12)">🐍</div>
-                    <div class="feature-title">Python plugin</div>
+                <div class="docs-hub-card inactive">
+                    <span class="guide-number" aria-hidden="true">07</span>
+                    <h2 class="feature-title">Python plugin</h2>
                     <div class="feature-desc">
                         Writing and running Python scripts, accessing the
                         Patinae API from Python.
@@ -123,9 +114,9 @@
                     <span class="coming-soon">Coming soon</span>
                 </div>
 
-                <div class="docs-hub-card blue inactive">
-                    <div class="feature-icon" style="background: rgba(93, 141, 232, 0.12)">🧩</div>
-                    <div class="feature-title">Plugins creation</div>
+                <div class="docs-hub-card inactive">
+                    <span class="guide-number" aria-hidden="true">08</span>
+                    <h2 class="feature-title">Creating plugins</h2>
                     <div class="feature-desc">
                         Custom commands, GUI panels, file format handlers,
                         and plugin distribution.
@@ -133,37 +124,9 @@
                     <span class="coming-soon">Coming soon</span>
                 </div>
             </div>
-        </div>
+        </main>
 
-        <!-- FOOTER -->
-        <footer>
-            <div class="footer-inner">
-                <div class="footer-left">
-                    Patinae &copy; 2026 &middot;
-                    <a href="https://github.com/zmactep">Pavel Yakovlev</a>
-                    &middot; BSD 3-Clause
-                    <div class="footer-trademark">
-                        PyMOL&reg; is a registered trademark of
-                        Schr&ouml;dinger, LLC. This is an independent
-                        open-source project and is not affiliated with,
-                        endorsed by, or connected to Schr&ouml;dinger, Inc. in
-                        any way.
-                    </div>
-                </div>
-                <ul class="footer-links">
-                    <li>
-                        <a href="https://github.com/zmactep/patinae">GitHub</a>
-                    </li>
-                    <li><a href="docs.html">Docs</a></li>
-                    <li>
-                        <a href="https://github.com/zmactep/patinae/releases"
-                            >Releases</a
-                        >
-                    </li>
-                </ul>
-            </div>
-        </footer>
+        <footer class="site-footer wrap"><div><a class="footer-name" href="index.html">Patinae</a><span>© 2026 · <a href="https://github.com/zmactep">Pavel Yakovlev</a> · BSD 3-Clause</span></div><nav aria-label="Footer"><a href="docs.html">Documentation</a><a href="https://github.com/zmactep/patinae">GitHub ↗</a></nav></footer>
 
-        <script src="js/nav-scroll.js"></script>
     </body>
 </html>
