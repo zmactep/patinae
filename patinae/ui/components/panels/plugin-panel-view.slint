@@ -12,16 +12,19 @@ export component PluginPanelView inherits Rectangle {
     background: Theme.surface-panel;
     clip: true;
 
-    Flickable {
+    scroll := Flickable {
         width: 100%;
         height: 100%;
+        content-height: max(self.height, content.min-height);
 
-        VerticalLayout {
+        content := VerticalLayout {
+            height: scroll.content-height;
             padding: 10px;
             spacing: 8px;
 
             for control in root.controls: PluginControlRow {
                 width: 100%;
+                vertical-stretch: control.grow;
                 control: control;
                 panel-id: root.panel-id;
             }

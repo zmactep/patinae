@@ -389,8 +389,11 @@ export component PluginControlRow inherits Rectangle {
     in property <PluginControl> control;
     in property <string> panel-id;
 
-    height: control.kind == "text" ? max(root.control.height * 1px, text-row.preferred-height)
+    private property <length> natural-height: control.kind == "text" ? max(root.control.height * 1px, text-row.preferred-height)
     : max(4px, root.control.height * 1px);
+    min-height: root.natural-height;
+    preferred-height: root.natural-height;
+    max-height: root.control.grow > 0 ? 100000px : root.natural-height;
 
     if control.kind == "heading": UiText {
         width: 100%;
@@ -467,7 +470,8 @@ export component PluginControlRow inherits Rectangle {
 
         for node in root.control.children: PluginControlNodeRow {
             horizontal-stretch: node.grow;
-            height: 100%;
+            // Override the node component's natural height explicitly.
+            height: root.height;
             control: node;
             panel-id: root.panel-id;
         }

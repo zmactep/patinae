@@ -56,6 +56,16 @@ pub(crate) fn to_slint_control(control: &CoreControl) -> PluginControl {
             row.kind = "row".into();
             row.gap = layout.gap;
             row.children = control_nodes_model(&layout.children);
+            // Rows of editors share the panel's spare vertical space. Mixed
+            // form rows keep their natural height, as do buttons and labels.
+            if !layout.children.is_empty()
+                && layout
+                    .children
+                    .iter()
+                    .all(|node| matches!(node.control, CoreControl::TextArea(_)))
+            {
+                row.grow = 1.0;
+            }
         }
         CoreControl::Column(layout) => {
             row.id = layout.id.clone().into();
@@ -135,6 +145,7 @@ pub(crate) fn to_slint_control(control: &CoreControl) -> PluginControl {
             row.text = placeholder.clone().into();
         }
         CoreControl::TextArea(area) => {
+            row.grow = 1.0;
             row.id = area.id.clone().into();
             row.kind = "text-area".into();
             row.label = area.label.clone().into();
@@ -443,6 +454,7 @@ mod tests {
         assert_eq!(row.children.row_data(0).unwrap().grow, 1.0);
         assert_eq!(row.children.row_data(1).unwrap().kind.as_str(), "text-area");
         assert_eq!(row.height, 112.0);
+        assert_eq!(row.grow, 1.0);
     }
 
     #[test]
@@ -522,6 +534,7 @@ mod tests {
             .collect();
 
         assert_eq!(kinds, ["number", "select", "slider", "toggle"]);
+        assert_eq!(row.grow, 0.0);
     }
 
     #[test]
