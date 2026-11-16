@@ -557,8 +557,8 @@ mod tests {
         assert_eq!(pse.version, 1830000);
         assert!(pse.settings.is_empty());
         assert!(pse.names.is_empty());
-        for i in 0..25 {
-            assert!((pse.view[i] - i as f64).abs() < 1e-10);
+        for (i, value) in pse.view.iter().enumerate() {
+            assert!((value - i as f64).abs() < 1e-10);
         }
     }
 

@@ -7,7 +7,7 @@ uv_bin=${UV:-uv}
 cargo_bin=${CARGO:-cargo}
 # Default workspace members contain the core and application, without plugins.
 if [[ "${1:-}" == core ]]; then
-    exec "$cargo_bin" test --locked
+    exec "$cargo_bin" test --locked --no-fail-fast
 fi
 python_version=${PATINAE_TEST_PYTHON_VERSION:-3.13}
 export PYO3_PYTHON
@@ -24,8 +24,11 @@ work="$root/target/test-runtime"
 mkdir -p "$work"
 
 case "${1:-}" in
+    clippy)
+        "$cargo_bin" clippy --locked --workspace --all-targets -- -D warnings
+        ;;
     workspace)
-        "$cargo_bin" test --locked --workspace
+        "$cargo_bin" test --locked --workspace --no-fail-fast
         ;;
     bindings)
         "$cargo_bin" test --locked --manifest-path python/Cargo.toml --lib
@@ -75,5 +78,5 @@ case "${1:-}" in
     gpu)
         "$cargo_bin" test --locked -p patinae-render -p raytracer-plugin -p patinae-plugin-host gpu_ -- --ignored --test-threads=1 --nocapture
         ;;
-    *) echo 'Usage: scripts/test.sh {core|workspace|bindings|abi|gpu}' >&2; exit 2 ;;
+    *) echo 'Usage: scripts/test.sh {clippy|core|workspace|bindings|abi|gpu}' >&2; exit 2 ;;
 esac

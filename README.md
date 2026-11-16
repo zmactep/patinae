@@ -99,17 +99,27 @@ make patinae
 
 ### Development verification
 
-Run the baseline checks locally before opening a pull request:
+Update the local stable toolchain to match CI, then run the full local check:
 
 ```bash
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo check --workspace
-cargo test --workspace
-cargo check --manifest-path python/Cargo.toml
-rustup target add wasm32-unknown-unknown
-cargo check --manifest-path web/Cargo.toml --target wasm32-unknown-unknown
+rustup update stable
+rustup component add --toolchain stable clippy rustfmt
+rustup target add --toolchain stable wasm32-unknown-unknown
+uv python install 3.13
+RUSTUP_TOOLCHAIN=stable make test-ci
 ```
+
+`make test-ci` checks formatting in all three workspaces, release metadata and
+lockfiles, workspace and desktop Clippy, core and workspace tests, GUI event
+dispatch, the WASM/widget build, Rust bindings, an installed Python wheel, and
+the dynamic plugin ABI. It continues after failed checks and exits unsuccessfully
+if any lane fails. It needs Node.js/npm and uv in addition to Rust; embedded
+Python checks use uv-managed Python 3.13, matching CI. `make lint` runs just the
+workspace Clippy check with that Python runtime.
+
+Local checks cover the current host. GitHub Actions also checks the desktop on
+macOS and Windows and the native workspace and bindings on Linux. Explicit GPU
+contracts remain available separately through `make test-gpu`.
 
 Additional compliance tools are useful when installed locally:
 `cargo audit` or `cargo deny` for dependency policy, `cargo hack` for feature

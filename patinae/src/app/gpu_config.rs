@@ -288,7 +288,7 @@ mod windows_tests {
             Limits {
                 max_buffer_size: buffer,
                 max_storage_buffer_binding_size: storage,
-                max_storage_buffers_per_shader_stage: 10,
+                max_storage_buffers_per_shader_stage: RENDER_COMPUTE_STORAGE_BUFFERS_PER_STAGE,
                 ..Default::default()
             },
         )
@@ -319,7 +319,10 @@ mod windows_tests {
         let limits = windows_candidate_limits(&candidates, None).unwrap();
         assert_eq!(limits.max_buffer_size, i32::MAX as u64);
         assert_eq!(limits.max_storage_buffer_binding_size, i32::MAX as u64);
-        assert_eq!(limits.max_storage_buffers_per_shader_stage, 10);
+        assert_eq!(
+            limits.max_storage_buffers_per_shader_stage,
+            RENDER_COMPUTE_STORAGE_BUFFERS_PER_STAGE
+        );
     }
 
     #[test]
@@ -352,9 +355,11 @@ mod windows_tests {
         assert!(windows_candidate_limits(std::slice::from_ref(&cpu), None).is_err());
         assert!(windows_candidate_limits(&[cpu], Some("CPU")).is_err());
         let mut low = candidate("GPU", DeviceType::IntegratedGpu, 1 << 30, 512 << 20);
-        low.1.max_storage_buffers_per_shader_stage = 8;
+        low.1.max_storage_buffers_per_shader_stage = RENDER_COMPUTE_STORAGE_BUFFERS_PER_STAGE - 1;
         assert!(windows_candidate_limits(&[low], None)
             .unwrap_err()
-            .contains("requires 10"));
+            .contains(&format!(
+                "requires {RENDER_COMPUTE_STORAGE_BUFFERS_PER_STAGE}"
+            )));
     }
 }

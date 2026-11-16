@@ -32,11 +32,14 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - name: Check formatting
-        run: |
-          cargo fmt --all -- --check
-          cargo fmt --manifest-path python/Cargo.toml --all -- --check
-          cargo fmt --manifest-path web/Cargo.toml --all -- --check
+      - name: Check workspace formatting
+        run: cargo fmt --all -- --check
+      - name: Check Python formatting
+        if: ${{ !cancelled() }}
+        run: cargo fmt --manifest-path python/Cargo.toml --all -- --check
+      - name: Check Web formatting
+        if: ${{ !cancelled() }}
+        run: cargo fmt --manifest-path web/Cargo.toml --all -- --check
       - name: Cache Cargo downloads
         uses: Swatinem/rust-cache@v2
         with:
@@ -46,11 +49,14 @@ jobs:
             python
             web
       - name: Check release metadata
+        if: ${{ !cancelled() }}
         run: make check-release-metadata
+      - name: Test local CI orchestration
+        if: ${{ !cancelled() }}
+        run: bash scripts/test-check-ci.sh
 
   desktop:
     name: Desktop (${{ matrix.os }})
-    needs: checks
     strategy:
       fail-fast: false
       matrix:
@@ -68,11 +74,11 @@ jobs:
       - name: Check desktop GUI
         run: cargo clippy --locked -p patinae --all-targets -- -D warnings
       - name: Test GUI event dispatch
+        if: ${{ !cancelled() }}
         run: cargo test --locked -p patinae --bin patinae app::events::tests -- --test-threads=1
 
   native:
     name: Native tests and Clippy
-    needs: checks
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -105,20 +111,21 @@ jobs:
           echo "PYO3_PYTHON=$(uv python find --system --python-preference only-managed 3.13)" >> "$GITHUB_ENV"
 
       - name: Run clippy
-        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+        run: make lint
 
       # One workspace test pass covers the core, application and plugins.
       # test-core remains available locally for the configuration without plugins.
       - name: Run workspace tests
+        if: ${{ !cancelled() }}
         run: make test
 
       # A real shared library is required; unit tests alone do not exercise dlopen.
       - name: Test dynamic plugin ABI
+        if: ${{ !cancelled() }}
         run: make test-abi
 
   bindings:
     name: Web and Python bindings
-    needs: checks
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
