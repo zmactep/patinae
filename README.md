@@ -29,19 +29,10 @@ light, and comfortable.
 
 ## Formerly PyMOL-RS
 
-Patinae was called PyMOL-RS through the 0.3.x releases. The project started as
-a GPU-first remake experiment: keep the familiar molecular command workflow,
-but rebuild the viewer as a modern, independent application.
-
-By 0.4.0, the project had outgrown the remake label. The renderer, command
-runtime, plugin host, desktop UI, Python surface, packaging, and web viewer were
-redesigned into an independent application and toolkit. The rename to Patinae
-marks that shift.
-
+Patinae was called PyMOL-RS through the 0.3.x releases and was renamed in 0.4.0
+as it grew into an independent application and toolkit. It retains familiar
+command and session workflows, with its own codebase and rendering stack.
 Patinae is not an official PyMOL project or a wrapper around PyMOL source code.
-It remains compatible with familiar command and session workflows where that is
-useful for users, but the implementation is its own codebase and rendering
-stack.
 
 ## Highlights
 
@@ -74,11 +65,9 @@ pip install patinae
 
 ### Build from source
 
-Prerequisites:
-
-- [Rust](https://rustup.rs/) for the core workspace and desktop app.
-- [uv](https://docs.astral.sh/uv/) for Python package builds.
-- [Node.js](https://nodejs.org/) for the web viewer and notebook widget assets.
+Install [Rust](https://rustup.rs/) and Make to build the desktop app.
+See the [development setup](CONTRIBUTING.md#development-setup) for platform
+dependencies and the additional tools used by Python and web builds.
 
 ```bash
 git clone https://github.com/zmactep/patinae
@@ -87,44 +76,8 @@ make patinae
 ./target/release/patinae
 ```
 
-| Target | Command | Requires |
-| --- | --- | --- |
-| Patinae release build | `make patinae` | cargo |
-| Patinae dev run | `make patinae-dev` | cargo |
-| Reference plugins | `make plugins` | cargo |
-| Python wheel | `make python-release` | cargo, uv |
-| Web viewer | `make web-build` | cargo, npm |
-| Rust check | `make check` | cargo |
-| Tests | `make test` | cargo |
-
-### Development verification
-
-Update the local stable toolchain to match CI, then run the full local check:
-
-```bash
-rustup update stable
-rustup component add --toolchain stable clippy rustfmt
-rustup target add --toolchain stable wasm32-unknown-unknown
-uv python install 3.13
-RUSTUP_TOOLCHAIN=stable make test-ci
-```
-
-`make test-ci` checks formatting in all three workspaces, release metadata and
-lockfiles, workspace and desktop Clippy, core and workspace tests, GUI event
-dispatch, the WASM/widget build, Rust bindings, an installed Python wheel, and
-the dynamic plugin ABI. It continues after failed checks and exits unsuccessfully
-if any lane fails. It needs Node.js/npm and uv in addition to Rust; embedded
-Python checks use uv-managed Python 3.13, matching CI. `make lint` runs just the
-workspace Clippy check with that Python runtime.
-
-Local checks cover the current host. GitHub Actions also checks the desktop on
-macOS and Windows and the native workspace and bindings on Linux. Explicit GPU
-contracts remain available separately through `make test-gpu`.
-
-Additional compliance tools are useful when installed locally:
-`cargo audit` or `cargo deny` for dependency policy, `cargo hack` for feature
-matrices, `cargo udeps` for unused dependencies, and Miri for targeted
-unsafe-code tests.
+For development setup, build targets, and verification, see
+[Contributing to Patinae](CONTRIBUTING.md).
 
 ## Molecular Capabilities
 
@@ -201,38 +154,8 @@ panels, mouse picking, native file workflows, and a GPU viewport.
   <img src="images/interface.png" alt="Patinae interface" width="800">
 </p>
 
-### Renderer Memory Profiles
-
-Patinae chooses an initial renderer memory profile when the GPU device and
-viewport renderer are created. The desktop command `set render_memory_profile,
-balanced` can also rebuild the renderer during a session, subject to the limits
-of the existing GPU device.
-
-The desktop app accepts `PATINAE_RENDER_MEMORY_PROFILE`:
-
-```bash
-PATINAE_RENDER_MEMORY_PROFILE=balanced patinae protein.pdb
-PATINAE_RENDER_MEMORY_PROFILE=lite patinae protein.pdb
-PATINAE_RENDER_MEMORY_PROFILE=manual:1024 patinae protein.pdb
-```
-
-`render_loop` benchmarks accept the same values through
-`BENCH_MEMORY_PROFILE`.
-
-Supported profile values are:
-
-- `performance`: default native behavior with the full interactive rendering
-  feature set.
-- `balanced`: lower scratch-target pressure while preserving the normal
-  interactive feature set.
-- `lite`: disables or gates optional allocation-heavy viewport features such as
-  SSAO, FXAA scratch targets, selection overlays, and larger shadow or atlas
-  resources.
-- `manual:<MiB>`: explicit memory budget, for example `manual:1024`.
-
-When no override is provided, Patinae selects a profile from the adapter type,
-backend, platform, and GPU limits. Requested WGPU limits are still clamped to
-the adapter capabilities before device creation.
+See [Renderer Memory Profiles](docs/render-memory-profiles.md) for GPU memory
+profiles and configuration.
 
 ## Python And Notebooks
 
@@ -272,35 +195,6 @@ in applications and static pages.
 
 See the [Web Viewer README](web/README.md) for local setup, embedding examples,
 loading and task completion, panels, and deployment requirements.
-
-## Architecture
-
-```text
-patinae/
-├── patinae                    Native desktop application
-├── crates/patinae-mol         Molecular data model: atoms, bonds, molecules, coordinate sets
-├── crates/patinae-io          Structure, map, session, fetch, and trajectory IO
-├── crates/patinae-select      Selection parser and evaluator
-├── crates/patinae-color       Named colors, palettes, schemes, and ramps
-├── crates/patinae-settings    Configuration and settings system
-├── crates/patinae-algos       Alignment, symmetry, sequence, and analysis algorithms
-├── crates/patinae-render      WebGPU renderer
-├── crates/patinae-scene       Viewer state, scene graph, camera, input, and render bridge
-├── crates/patinae-session     `.prs` and `.pse` session support
-├── crates/patinae-cmd         Command parser, executor, and command registry
-├── crates/patinae-framework   Shared app messaging and component infrastructure
-├── crates/patinae-plugin      Plugin SDK
-├── crates/patinae-plugin-host Runtime plugin host for front ends
-├── plugins                    Reference Rust plugins
-├── tools/prs-upgrade          Legacy `.prs` migration utility
-├── python                     Python package and Jupyter widget
-└── web                        WebAssembly/WebGPU viewer package
-```
-
-Each crate is independently usable. Need only the selection parser? Use
-`patinae-select`. Need molecular file parsing in a Rust pipeline? Use
-`patinae-io` and `patinae-mol`. Need a viewer? Compose the scene, renderer,
-command runtime, and front end that fit your application.
 
 ## Plugin System
 
