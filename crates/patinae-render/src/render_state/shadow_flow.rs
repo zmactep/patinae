@@ -4,7 +4,6 @@ use super::math::{
 use super::state::{RenderState, SceneBounds, ShadowPassMode};
 use crate::passes::atlas_ao::AtlasAoKey;
 use crate::passes::lighting::{LightingOcclusionUniforms, MAX_ATLAS_DIRECTIONS};
-use crate::picking::RepKind;
 use crate::representations::catalog;
 #[cfg(feature = "stats")]
 use crate::stats::Pass as StatsPass;
@@ -208,7 +207,7 @@ impl RenderState {
     }
 
     fn draw_shadow_geometry<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>) {
-        let mut current: Option<RepKind> = None;
+        let mut current = None;
         for key in &self.scene.draw_order {
             let Some(entry) = self.scene.reps.get(key) else {
                 continue;
@@ -217,14 +216,15 @@ impl RenderState {
                 continue;
             }
             let kind = entry.rep.kind();
-            if current != Some(kind) {
-                let Some(pipeline) =
-                    catalog::entry(kind).and_then(|rep| rep.shadow_pipeline(&self.geometry))
+            let native_lines = catalog::uses_native_lines(entry.rep.as_ref());
+            if current != Some((kind, native_lines)) {
+                let Some(pipeline) = catalog::entry(kind)
+                    .and_then(|rep| rep.shadow_pipeline(&self.geometry, native_lines))
                 else {
                     continue;
                 };
                 pass.set_pipeline(pipeline);
-                current = Some(kind);
+                current = Some((kind, native_lines));
             }
             let store = &self.scene.scene_store;
             let Some(bg) = store.bind_group() else {

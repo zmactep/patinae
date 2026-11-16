@@ -167,11 +167,30 @@ fn stage_prs_payload(bytes: &[u8]) -> Result<Value, PrsError> {
 
     migrate_positional_compatibility(&mut root)?;
     legacy_colors::migrate(&mut root)?;
+    migrate_line_settings_layout(&mut root)?;
     let (format_version, session) = session_value(&root)?;
     let registry = struct_field(session, "registry", 0, "Session")?;
     validate_registry(registry, format_version)?;
 
     Ok(root)
+}
+
+fn migrate_line_settings_layout(root: &mut Value) -> Result<(), PrsError> {
+    let session = session_value_mut(root)?;
+    let line = optional_struct_field_mut(session, "settings", 6)
+        // After the root settings migration, LineSettings is at position 14.
+        .and_then(|settings| optional_struct_field_mut(settings, "line", 14));
+    if let Some(Value::Array(fields)) = line {
+        // Before line_width, the sole field was color. Run after legacy color
+        // migration, which still relies on that historical color position.
+        if fields.len() == 1 {
+            fields.insert(
+                0,
+                Value::F32(patinae_settings::groups::LineSettings::default().width),
+            );
+        }
+    }
+    Ok(())
 }
 
 fn migrate_positional_compatibility(root: &mut Value) -> Result<(), PrsError> {
@@ -695,6 +714,21 @@ fn optional_struct_field<'a>(value: &'a Value, name: &str, index: usize) -> Opti
     match value {
         Value::Array(fields) => fields.get(index),
         Value::Map(fields) => map_value(fields, name),
+        _ => None,
+    }
+}
+
+fn optional_struct_field_mut<'a>(
+    value: &'a mut Value,
+    name: &str,
+    index: usize,
+) -> Option<&'a mut Value> {
+    match value {
+        Value::Array(fields) => fields.get_mut(index),
+        Value::Map(fields) => fields
+            .iter_mut()
+            .find(|(key, _)| key.as_str() == Some(name))
+            .map(|(_, value)| value),
         _ => None,
     }
 }
@@ -1664,6 +1698,190 @@ mod tests {
         assert_eq!(decoded.prs_format_version, PRS_FORMAT_VERSION);
         assert_eq!(decoded.producer.as_deref(), Some(PRS_PRODUCER));
         assert!(decoded.session.registry.get_molecule("mol").is_some());
+    }
+
+    #[test]
+    fn legacy_named_line_settings_load_with_default_width() {
+        assert_legacy_line_settings_load(true);
+    }
+
+    #[test]
+    fn legacy_positional_line_settings_load_with_default_width() {
+        assert_legacy_line_settings_load(false);
+    }
+
+    fn assert_legacy_line_settings_load(named: bool) {
+        // Before PR #35, LineSettings contained only color. Keep that historical
+        // shape independent of the new width.
+        #[derive(Serialize)]
+        struct LegacyLineSettings {
+            color: ColorValue,
+        }
+        let color = ColorValue::rgb(24, 96, 192);
+        let legacy = LegacyLineSettings { color };
+        let bytes = if named {
+            rmp_serde::to_vec_named(&legacy).unwrap()
+        } else {
+            rmp_serde::to_vec(&legacy).unwrap()
+        };
+        let old_line = rmpv::decode::read_value(&mut Cursor::new(bytes)).unwrap();
+
+        for raw_session in [false, true] {
+            let mut session = cartoon_session_with_restore();
+            session.settings.cartoon.power = 4.25;
+            let mut value = if named {
+                named_test_document(&session)
+            } else {
+                positional_test_document(&session)
+            };
+            let payload = session_value_mut(&mut value).unwrap();
+            if named {
+                let settings = test_map_field_mut(payload, "settings");
+                *test_map_field_mut(settings, "line") = old_line.clone();
+            } else {
+                let session = payload.as_array_mut_for_test();
+                // Historical Session.settings and Settings.line positions.
+                session[6].as_array_mut_for_test()[14] = old_line.clone();
+            }
+            if raw_session {
+                value = session_value_mut(&mut value).unwrap().clone();
+            }
+
+            let (dir, path) = temp_prs_path(if named {
+                "old_line_named"
+            } else {
+                "old_line_positional"
+            });
+            write_prs_bytes(&path, &encode_test_value(&value)).unwrap();
+            let loaded = load_prs_document(&path).expect("pre-width PRS must load");
+            assert_eq!(loaded.session.settings.line.width, 1.0);
+            assert_eq!(loaded.session.settings.line.color, color);
+            assert_eq!(loaded.session.settings.cartoon.power, 4.25);
+            let object = loaded.session.registry.get_molecule("mol").unwrap();
+            assert!(object.overrides().is_none());
+            assert_eq!(
+                loaded.prs_format_version,
+                if raw_session { 1 } else { PRS_FORMAT_VERSION }
+            );
+
+            // Re-saving a migrated session must not change its color or width.
+            save_prs(&loaded.session, &path).unwrap();
+            let reloaded = load_prs(&path).unwrap();
+            assert_eq!(reloaded.settings.line.width, 1.0);
+            assert_eq!(reloaded.settings.line.color, color);
+            assert!(reloaded
+                .registry
+                .get_molecule("mol")
+                .unwrap()
+                .overrides()
+                .is_none());
+            fs::remove_dir_all(dir).unwrap();
+        }
+    }
+
+    #[test]
+    fn legacy_line_overrides_load_without_setting_a_width() {
+        for named in [true, false] {
+            let mut session = cartoon_session_with_restore();
+            session.settings.line.width = 7.0;
+            session
+                .registry
+                .get_molecule_mut("mol")
+                .unwrap()
+                .get_or_create_overrides()
+                .cartoon
+                .power = Some(4.25);
+            let mut value = if named {
+                named_test_document(&session)
+            } else {
+                positional_test_document(&session)
+            };
+            if named {
+                let registry = test_registry_value_mut(&mut value);
+                let owners = test_map_field_mut(registry, "molecules").as_array_mut_for_test();
+                let snapshot = &mut owners[0].as_array_mut_for_test()[1];
+                let overrides = test_map_field_mut(snapshot, "overrides");
+                *test_map_field_mut(overrides, "line") = Value::Map(vec![]);
+            } else {
+                let session = session_value_mut(&mut value)
+                    .unwrap()
+                    .as_array_mut_for_test();
+                let owners = session[0].as_array_mut_for_test()[0].as_array_mut_for_test();
+                let snapshot = owners[0].as_array_mut_for_test()[1].as_array_mut_for_test();
+                // Before PR #35, LineOverrides was an empty struct.
+                snapshot[3].as_array_mut_for_test()[6] = Value::Array(vec![]);
+            }
+            let loaded = decode_prs_document(encode_test_value(&value))
+                .expect("pre-width object overrides must load");
+            let overrides = loaded
+                .session
+                .registry
+                .get_molecule("mol")
+                .unwrap()
+                .overrides()
+                .unwrap();
+            assert_eq!(overrides.line.width, None);
+            assert_eq!(overrides.cartoon.power, Some(4.25));
+            let resolved = patinae_settings::ResolvedSettings::resolve(
+                &loaded.session.settings,
+                Some(overrides),
+            );
+            assert_eq!(resolved.line.width, 7.0);
+        }
+    }
+
+    #[test]
+    fn current_line_settings_and_overrides_survive_both_prs_formats() {
+        let mut session = cartoon_session_with_restore();
+        session.settings.line.width = 17.0;
+        session.settings.line.color = ColorValue::rgb(24, 96, 192);
+        session
+            .registry
+            .get_molecule_mut("mol")
+            .unwrap()
+            .get_or_create_overrides()
+            .line
+            .width = Some(9.0);
+        for value in [
+            named_test_document(&session),
+            positional_test_document(&session),
+        ] {
+            let loaded = decode_prs_document(encode_test_value(&value)).unwrap();
+            assert_eq!(loaded.session.settings.line.width, 17.0);
+            assert_eq!(
+                loaded.session.settings.line.color,
+                session.settings.line.color
+            );
+            assert_eq!(
+                loaded
+                    .session
+                    .registry
+                    .get_molecule("mol")
+                    .unwrap()
+                    .overrides()
+                    .unwrap()
+                    .line
+                    .width,
+                Some(9.0)
+            );
+        }
+    }
+
+    #[test]
+    fn legacy_line_width_migration_runs_after_color_migration() {
+        let mut value = named_test_document(&Session::new());
+        *test_map_field_mut(&mut value, "prs_format_version") = Value::from(6);
+        let settings = test_map_field_mut(test_map_field_mut(&mut value, "session"), "settings");
+        // An untagged named color triggers the v6 migration; the positional line
+        // group must retain its historical color index until that migration ends.
+        *test_map_field_mut(test_map_field_mut(settings, "stick"), "color") = Value::from(0x1860c0);
+        *test_map_field_mut(settings, "line") = Value::Array(vec![Value::from(0x1860c0)]);
+        let loaded = decode_prs_document(encode_test_value(&value)).unwrap();
+        assert_eq!(loaded.session.settings.line.width, 1.0);
+        assert_eq!(
+            loaded.session.settings.line.color,
+            ColorValue::rgb(24, 96, 192)
+        );
     }
 
     #[test]

@@ -1,5 +1,5 @@
 use super::state::*;
-use crate::picking::{ObjectId, RepKind};
+use crate::picking::ObjectId;
 use crate::render_input::RenderMapMode;
 use crate::representations::catalog;
 use crate::representations::DrawPhase;
@@ -68,7 +68,7 @@ impl RenderState {
 
         pass.set_bind_group(0, &self.ctx.frame.bind_group, &[]);
         pass.set_bind_group(1, &self.ctx.lighting.bind_group, &[]);
-        let mut current: Option<RepKind> = None;
+        let mut current = None;
         for key in &self.scene.draw_order {
             let Some(entry) = self.scene.reps.get(key) else {
                 continue;
@@ -77,14 +77,15 @@ impl RenderState {
                 continue;
             }
             let kind = entry.rep.kind();
-            if current != Some(kind) {
-                let Some(pipeline) = catalog::entry(kind)
-                    .and_then(|rep| rep.color_pipeline(&self.geometry, DrawPhase::Opaque))
-                else {
+            let native_lines = catalog::uses_native_lines(entry.rep.as_ref());
+            if current != Some((kind, native_lines)) {
+                let Some(pipeline) = catalog::entry(kind).and_then(|rep| {
+                    rep.color_pipeline(&self.geometry, DrawPhase::Opaque, native_lines)
+                }) else {
                     continue;
                 };
                 pass.set_pipeline(pipeline);
-                current = Some(kind);
+                current = Some((kind, native_lines));
             }
             let store = &self.scene.scene_store;
             let Some(bg) = store.bind_group() else {
@@ -155,7 +156,7 @@ impl RenderState {
 
         pass.set_bind_group(0, &self.ctx.frame.bind_group, &[]);
         pass.set_bind_group(1, &self.ctx.lighting.bind_group, &[]);
-        let mut current: Option<RepKind> = None;
+        let mut current = None;
         for key in &self.scene.draw_order {
             let Some(entry) = self.scene.reps.get(key) else {
                 continue;
@@ -164,14 +165,15 @@ impl RenderState {
                 continue;
             }
             let kind = entry.rep.kind();
-            if current != Some(kind) {
-                let Some(pipeline) = catalog::entry(kind)
-                    .and_then(|rep| rep.color_pipeline(&self.geometry, DrawPhase::Wboit))
-                else {
+            let native_lines = catalog::uses_native_lines(entry.rep.as_ref());
+            if current != Some((kind, native_lines)) {
+                let Some(pipeline) = catalog::entry(kind).and_then(|rep| {
+                    rep.color_pipeline(&self.geometry, DrawPhase::Wboit, native_lines)
+                }) else {
                     continue;
                 };
                 pass.set_pipeline(pipeline);
-                current = Some(kind);
+                current = Some((kind, native_lines));
             }
             let store = &self.scene.scene_store;
             let Some(bg) = store.bind_group() else {
@@ -231,7 +233,7 @@ impl RenderState {
 
         pass.set_bind_group(0, &self.ctx.frame.bind_group, &[]);
         pass.set_bind_group(1, &self.ctx.lighting.bind_group, &[]);
-        let mut current: Option<RepKind> = None;
+        let mut current = None;
         for key in &self.scene.draw_order {
             let Some(entry) = self.scene.reps.get(key) else {
                 continue;
@@ -240,14 +242,15 @@ impl RenderState {
                 continue;
             }
             let kind = entry.rep.kind();
-            if current != Some(kind) {
-                let Some(pipeline) = catalog::entry(kind)
-                    .and_then(|rep| rep.color_pipeline(&self.geometry, DrawPhase::FastOverlay))
-                else {
+            let native_lines = catalog::uses_native_lines(entry.rep.as_ref());
+            if current != Some((kind, native_lines)) {
+                let Some(pipeline) = catalog::entry(kind).and_then(|rep| {
+                    rep.color_pipeline(&self.geometry, DrawPhase::FastOverlay, native_lines)
+                }) else {
                     continue;
                 };
                 pass.set_pipeline(pipeline);
-                current = Some(kind);
+                current = Some((kind, native_lines));
             }
             let store = &self.scene.scene_store;
             let Some(bg) = store.bind_group() else {

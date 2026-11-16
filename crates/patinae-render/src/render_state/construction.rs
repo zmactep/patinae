@@ -417,6 +417,7 @@ impl RenderState {
             },
 
             picking: PickingRuntime {
+                region: None,
                 picking_mode,
                 budget_allowed: with_picking,
                 id_pass,

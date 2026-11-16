@@ -6,7 +6,6 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-homepage.workspace = true
 documentation.workspace = true
 
 [lib]
@@ -33,7 +32,6 @@ patinae-settings = { workspace = true }
 
 # GPU
 wgpu = { workspace = true }
-pollster = "0.4"
 
 # Math
 lin_alg = { workspace = true }
@@ -52,6 +50,7 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 naga = { version = "28", features = ["wgsl-in"] }
+pollster = "0.4"
 
 [lints]
 workspace = true

@@ -184,7 +184,7 @@ impl RenderState {
         }
     }
 
-    fn refresh_visible_picking_texture(
+    pub(super) fn refresh_visible_picking_texture(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
         view_proj_hash: u64,
@@ -202,7 +202,9 @@ impl RenderState {
         match strategy {
             PickingStrategy::Skip => {}
             PickingStrategy::FullRecord => {
+                self.ensure_id_pass();
                 self.record_picking_pass(encoder);
+                self.picking.region = None;
                 self.snapshot_picking_to_prev(encoder);
                 self.picking.picking_pass_initialized = true;
                 self.picking.last_view_proj_hash = view_proj_hash;

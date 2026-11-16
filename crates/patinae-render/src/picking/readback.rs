@@ -31,6 +31,37 @@ pub enum PickReadbackTarget {
     Click,
 }
 
+/// Exact ID texel rectangle copied by a cursor query.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PickRegion {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
+impl PickRegion {
+    pub(crate) fn around(x: u32, y: u32, width: u32, height: u32) -> Self {
+        let x = x.min(width.saturating_sub(1));
+        let y = y.min(height.saturating_sub(1));
+        let x0 = x.saturating_sub(PICK_READBACK_RADIUS as u32);
+        let y0 = y.saturating_sub(PICK_READBACK_RADIUS as u32);
+        Self {
+            x: x0,
+            y: y0,
+            width: (x + PICK_READBACK_RADIUS as u32).min(width.saturating_sub(1)) - x0 + 1,
+            height: (y + PICK_READBACK_RADIUS as u32).min(height.saturating_sub(1)) - y0 + 1,
+        }
+    }
+
+    pub(crate) fn contains(self, other: Self) -> bool {
+        self.x <= other.x
+            && self.y <= other.y
+            && self.x + self.width >= other.x + other.width
+            && self.y + self.height >= other.y + other.height
+    }
+}
+
 pub struct PickingReadback {
     buffer: wgpu::Buffer,
     origin: std::cell::Cell<(u32, u32)>,
@@ -56,6 +87,10 @@ impl PickingReadback {
             state: Arc::new(AtomicU8::new(READBACK_IDLE)),
             token: Arc::new(()),
         }
+    }
+
+    pub(crate) fn is_idle(&self) -> bool {
+        self.state.load(Ordering::Acquire) == READBACK_IDLE
     }
 
     /// Encode a small neighborhood copy from the picking texture into the staging buffer.
@@ -84,12 +119,8 @@ impl PickingReadback {
         let extent = picking_texture.size();
         let x = x.min(extent.width.saturating_sub(1));
         let y = y.min(extent.height.saturating_sub(1));
-        let x0 = x.saturating_sub(PICK_READBACK_RADIUS as u32);
-        let y0 = y.saturating_sub(PICK_READBACK_RADIUS as u32);
-        let x1 = (x + PICK_READBACK_RADIUS as u32).min(extent.width.saturating_sub(1));
-        let y1 = (y + PICK_READBACK_RADIUS as u32).min(extent.height.saturating_sub(1));
-        let width = (x1 - x0 + 1).max(1);
-        let height = (y1 - y0 + 1).max(1);
+        let region = PickRegion::around(x, y, extent.width, extent.height);
+        let (x0, y0, width, height) = (region.x, region.y, region.width, region.height);
         self.origin.set((x0, y0));
         self.center.set((x, y));
         self.dims.set((width, height));
@@ -259,6 +290,27 @@ mod tests {
     use crate::picking::{ObjectId, PickHit, RepKind};
 
     use super::{PendingPick, PickReadbackTarget, RankedHit, READBACK_READY};
+
+    #[test]
+    fn pick_regions_clip_to_targets_and_cover_only_their_neighborhood() {
+        use super::PickRegion;
+        for (width, height) in [(1, 1), (15, 511), (256, 256)] {
+            for (x, y) in [
+                (0, 0),
+                (width / 2, height / 2),
+                (width - 1, height - 1),
+                (u32::MAX, u32::MAX),
+            ] {
+                let r = PickRegion::around(x, y, width, height);
+                assert!(r.x + r.width <= width && r.y + r.height <= height);
+                assert!((1..=7).contains(&r.width) && (1..=7).contains(&r.height));
+                assert!(r.contains(r));
+            }
+        }
+        assert!(
+            !PickRegion::around(10, 10, 256, 256).contains(PickRegion::around(11, 10, 256, 256))
+        );
+    }
 
     fn hit(rep_kind: RepKind) -> PickHit {
         PickHit {

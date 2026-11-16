@@ -160,8 +160,7 @@ fn read_depth(
     values
 }
 
-/// Camera at `distance` looking down -z, framing ±`HALF` Å at the origin.
-pub(super) fn frame(distance: f32, perspective: bool) -> FrameUniforms {
+fn frame(distance: f32, perspective: bool) -> FrameUniforms {
     let mut f = FrameUniforms::default();
     f.view[3][2] = -distance;
     f.view_inv[3][2] = distance;

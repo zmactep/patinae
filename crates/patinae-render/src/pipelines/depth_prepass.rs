@@ -21,7 +21,7 @@ use crate::pipelines::stick::StickParamsLayout;
 use crate::pipelines::surface::SurfaceParamsLayout;
 use crate::representations::dot::DotAtomInstance;
 use crate::representations::ellipsoid::EllipsoidInstance;
-use crate::representations::line::LineInstance;
+use crate::representations::line::{LineInstance, LINE_TOPOLOGY};
 use crate::representations::mesh::StdVertex;
 use crate::representations::sphere::SphereInstance;
 use crate::representations::stick::StickInstance;
@@ -48,6 +48,7 @@ pub struct DepthPrepassLayouts<'a> {
 pub struct DepthPrepassPipelines {
     pub sphere: wgpu::RenderPipeline,
     pub stick: wgpu::RenderPipeline,
+    pub line_native: wgpu::RenderPipeline,
     pub line: wgpu::RenderPipeline,
     pub dot: wgpu::RenderPipeline,
     pub mesh: wgpu::RenderPipeline,
@@ -117,7 +118,7 @@ impl DepthPrepassPipelines {
             "patinae.depth_prepass.line",
             LINE_WGSL,
             LineInstance::vertex_layout(),
-            wgpu::PrimitiveTopology::TriangleList,
+            LINE_TOPOLOGY,
         );
 
         // Dot uses group 3 for procedural sample-count params + direction LUT.
@@ -221,7 +222,16 @@ impl DepthPrepassPipelines {
             wgpu::PrimitiveTopology::TriangleList,
         );
 
+        let line_native = build_pipeline(
+            device,
+            &line_pl,
+            "patinae.depth_prepass.line.native",
+            shader_source::LINE_NATIVE_WGSL,
+            LineInstance::vertex_layout(),
+            wgpu::PrimitiveTopology::LineList,
+        );
         Self {
+            line_native,
             sphere,
             stick,
             line,

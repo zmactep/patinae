@@ -8,6 +8,7 @@ target
 CLAUDE.md
 AGENTS.md
 .claude
+.context
 .agents
 .cargo
 .env

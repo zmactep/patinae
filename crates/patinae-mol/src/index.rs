@@ -109,7 +109,8 @@ define_index!(
     /// Type-safe index into an atom array
     ///
     /// Prevents accidentally using a bond index where an atom index is expected.
-    AtomIndex, "AtomIndex"
+    AtomIndex,
+    "AtomIndex"
 );
 
 /// Maps atom indices across one topology edit.
@@ -157,19 +158,22 @@ define_index!(
     /// Type-safe index into a bond array
     ///
     /// Prevents accidentally using an atom index where a bond index is expected.
-    BondIndex, "BondIndex"
+    BondIndex,
+    "BondIndex"
 );
 
 define_index!(
     /// Type-safe index into a coordinate set array
     ///
     /// Used to identify a specific state/frame in a multi-state molecule.
-    StateIndex, "StateIndex"
+    StateIndex,
+    "StateIndex"
 );
 
 define_index!(
     /// Index within a coordinate set (maps to atom index via lookup table)
-    CoordIndex, "CoordIndex"
+    CoordIndex,
+    "CoordIndex"
 );
 
 #[cfg(test)]

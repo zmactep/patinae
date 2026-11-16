@@ -15,6 +15,8 @@ mod recovery;
 mod representation_budget;
 mod selection;
 
+pub(crate) use policy::MIN_PICKING_SCALE;
+
 pub(crate) use buffer_limits::checked_buffer_capacity;
 pub use buffer_limits::BufferSizeError;
 pub use byte_units::{

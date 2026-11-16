@@ -210,8 +210,8 @@ impl BvhBuilder {
 
         // Compute bounds for this node
         let mut node = BvhNode::empty();
-        for i in start..end {
-            node.grow_aabb(self.refs[i].aabb_min, self.refs[i].aabb_max);
+        for primitive in &self.refs[start..end] {
+            node.grow_aabb(primitive.aabb_min, primitive.aabb_max);
         }
 
         // Leaf threshold
@@ -297,8 +297,8 @@ impl BvhBuilder {
             // Find centroid bounds
             let mut min_c = f32::MAX;
             let mut max_c = f32::MIN;
-            for i in start..end {
-                let c = self.refs[i].centroid[axis];
+            for primitive in &self.refs[start..end] {
+                let c = primitive.centroid[axis];
                 min_c = min_c.min(c);
                 max_c = max_c.max(c);
             }
@@ -312,12 +312,12 @@ impl BvhBuilder {
             let scale = NUM_BINS as f32 / (max_c - min_c);
 
             // Populate bins
-            for i in start..end {
-                let c = self.refs[i].centroid[axis];
+            for primitive in &self.refs[start..end] {
+                let c = primitive.centroid[axis];
                 let bin_idx = ((c - min_c) * scale).min(NUM_BINS as f32 - 1.0) as usize;
                 bins[bin_idx]
                     .0
-                    .grow_aabb(self.refs[i].aabb_min, self.refs[i].aabb_max);
+                    .grow_aabb(primitive.aabb_min, primitive.aabb_max);
                 bins[bin_idx].1 += 1;
             }
 

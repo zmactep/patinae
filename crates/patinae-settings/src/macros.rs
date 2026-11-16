@@ -596,7 +596,8 @@ macro_rules! define_settings_group {
         }
 
         #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
-        #[serde(deny_unknown_fields)]
+        // Missing override fields mean inheritance, also in older positional structs.
+        #[serde(default, deny_unknown_fields)]
         pub struct $Overrides {
             $(
                 pub $field: Option<$ty>,

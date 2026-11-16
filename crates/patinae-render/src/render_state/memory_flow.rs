@@ -78,7 +78,7 @@ impl RenderState {
         for entry in self.scene.reps.values() {
             ledger.add_usage(GpuMemoryCategory::Representation, entry.rep.memory_usage());
             if let Some(picking) = entry.picking.as_ref() {
-                ledger.add_usage(GpuMemoryCategory::Picking, buffer_usage(&picking._buffer));
+                ledger.add_usage(GpuMemoryCategory::Picking, buffer_usage(&picking.buffer));
             }
         }
         for map in self.scene.maps.values() {

@@ -12,6 +12,8 @@ use std::str::FromStr;
 use crate::memory::{gib_to_bytes, mib_to_bytes, BYTES_PER_MIB};
 
 const DEFAULT_PICKING_SCALE: f32 = 0.5;
+/// Smallest supported ID-target scale; shared by allocation, budgets and culling.
+pub(crate) const MIN_PICKING_SCALE: f32 = 0.125;
 const LITE_PICKING_SCALE: f32 = 0.25;
 const PERFORMANCE_SHADOW_MAP_SIZE: u32 = 4096;
 const BALANCED_SHADOW_MAP_SIZE: u32 = 2048;

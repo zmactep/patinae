@@ -192,10 +192,7 @@ impl ResolvedSceneColors {
             }
         }
         // Registry shrunk (object deleted / disabled).
-        if self.by_object.len() != alive_count || self.rep_by_object.len() != alive_count {
-            return true;
-        }
-        false
+        self.by_object.len() != alive_count || self.rep_by_object.len() != alive_count
     }
 
     pub fn get(&self, name: &str) -> Option<&[[f32; 4]]> {

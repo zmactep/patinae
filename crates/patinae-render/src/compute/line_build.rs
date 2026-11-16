@@ -17,7 +17,7 @@ pub struct LineBuildParams {
     pub valence_scale: f32,
     pub valence_enabled: u32,
     /// Screen-space line width in physical pixels, stamped into every
-    /// emitted `LineInstance` (`p0_pad.w`).
+    /// emitted `LineInstance` (`p0_width.w`).
     pub line_width: f32,
     pub _pad: u32,
 }

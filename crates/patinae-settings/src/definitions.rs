@@ -1091,7 +1091,7 @@ pub static SETTINGS: &[Setting] = &[
     s_float!(41, "stereo_angle", Global, 2.1),
     s_float!(42, "stereo_shift", Global, 2.0),
     s_bool!(43, "line_smooth", Global, true),
-    s_float!(44, "line_width", Bond, 1.49),
+    s_float!(44, "line_width", Bond, 1.0),
     s_bool!(45, "half_bonds", ObjectState, false),
     s_int!(46, "stick_quality", ObjectState, 8, 3, 100),
     s_float!(47, "stick_overlap", ObjectState, 0.2),

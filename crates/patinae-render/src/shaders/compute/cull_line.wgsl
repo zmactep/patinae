@@ -1,28 +1,12 @@
-// Per-rep frustum cull — line variant.
-//
-// LineInstance carries two endpoints. Lines are drawn `line_width` screen
-// pixels wide, so the bounding pad is screen-space: `params.kind_radius`
-// is the half-width (incl. picking minimum + margin) in NDC units of the
-// smaller viewport axis. It is converted to a world-space pad at the
-// farther endpoint's depth, plus a small constant world pad.
+// Line culling. The host expands side planes for the pixel footprint.
+// Per-instance work matches the native LineList sphere test.
 
 // {{INCLUDE_CULL_COMMON}}
 
 const LINE_CULL_WORLD_PAD: f32 = 0.1;
 
-// World-space length of `ndc_pad` at clip-space depth `w`. Uses the
-// smaller of the projection's x/y scales so the pad stays conservative.
-// Valid for both projections: perspective has w = view depth, ortho w = 1.
-fn line_world_pad(ndc_pad: f32, w: f32) -> f32 {
-    let vp = params.view_proj;
-    let sx = length(vec3<f32>(vp[0][0], vp[1][0], vp[2][0]));
-    let sy = length(vec3<f32>(vp[0][1], vp[1][1], vp[2][1]));
-    let scale = max(min(sx, sy), 1e-6);
-    return ndc_pad * max(w, 0.0) / scale;
-}
-
 struct LineInstance {
-    p0_pad: vec4<f32>,
+    p0_width: vec4<f32>,
     p1_pad: vec4<f32>,
     groups: vec2<u32>,
     _pad:   vec2<u32>,
@@ -41,14 +25,11 @@ fn cs_cull_line(
         return;
     }
     let inst = raw_inst[i];
-    let p0 = inst.p0_pad.xyz;
+    let p0 = inst.p0_width.xyz;
     let p1 = inst.p1_pad.xyz;
     let center = 0.5 * (p0 + p1);
     let half_len = 0.5 * length(p1 - p0);
-    let w0 = (params.view_proj * vec4<f32>(p0, 1.0)).w;
-    let w1 = (params.view_proj * vec4<f32>(p1, 1.0)).w;
-    let pad = LINE_CULL_WORLD_PAD + line_world_pad(params.kind_radius, max(w0, w1));
-    let radius = half_len + pad;
+    let radius = half_len + LINE_CULL_WORLD_PAD;
     if (should_cull(center, radius)) {
         return;
     }

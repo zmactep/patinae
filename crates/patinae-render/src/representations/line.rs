@@ -9,10 +9,10 @@
 //! Lines have no per-representation transparency, so the render pipeline has
 //! no group 3.
 //!
-//! Each instance is drawn as two screen-space quads (one per half-bond) so
+//! One-pixel lines use native segments. Wider bonds use one cap/body strip so
 //! the `line_width` setting works on WebGPU, which only rasterises
-//! `LineList` primitives at a fixed 1 px width. The build kernel stamps the
-//! resolved width into `LineInstance::p0_pad.w`.
+//! `LineList` primitives at a fixed 1 px width. Hit testing always uses strips. The build kernel stamps the
+//! resolved width into `LineInstance::p0_width.w`.
 
 use bytemuck::{Pod, Zeroable};
 use patinae_mol::DirtyFlags;
@@ -28,30 +28,53 @@ use crate::representations::Representation;
 use crate::representations::{BuildCtx, CullPlan, CullPlanCtx};
 
 // Lines have no per-instance world radius: their footprint is `line_width`
-// screen pixels. `plan_cull` passes the half-width in NDC units of the
-// smaller viewport axis through `CullParams::kind_radius`, and
-// `cull_line.wgsl` converts it to a world-space pad at each bond's depth.
-// Must match `LINE_PICK_MIN_HALF_WIDTH_PX` in `shaders/picking/line.wgsl`.
-const LINE_PICK_MIN_HALF_WIDTH_PX: f32 = 2.0;
+// screen pixels. `plan_cull` expands the side planes once per object to
+// cover the visual and picking footprints, leaving per-bond culling unchanged.
+// Shader constants are emitted by shader_source from these host-owned values.
+pub(crate) const LINE_PICK_MIN_HALF_WIDTH_PX: f32 = 2.0;
+pub(crate) const LINE_VISUAL_MIN_HALF_WIDTH_PX: f32 = 0.5;
+// A disc centered on a texel corner must reach its nearest sample (sqrt(0.5)).
+pub(crate) const LINE_PICK_MIN_TEXEL_RADIUS: f32 = 0.75;
 const LINE_CULL_MARGIN_PX: f32 = 1.0;
 
 fn line_cull_ndc_pad(line_width_px: f32, viewport_px: [f32; 2]) -> f32 {
-    let half_width_px =
-        (0.5 * line_width_px).max(LINE_PICK_MIN_HALF_WIDTH_PX) + LINE_CULL_MARGIN_PX;
+    // Bound every supported picking target, including integer truncation of
+    // small/odd dimensions. Culling is shared by visual and hit-test passes.
+    let minimum_scale = crate::memory::MIN_PICKING_SCALE;
+    let max_pixel_size = viewport_px.into_iter().fold(1.0_f32, |size, axis| {
+        size.max(axis.max(1.0) / (axis * minimum_scale).floor().max(1.0))
+    });
+    let half_width_px = (0.5 * line_width_px)
+        .max(LINE_PICK_MIN_HALF_WIDTH_PX)
+        .max(LINE_PICK_MIN_TEXEL_RADIUS * max_pixel_size)
+        + LINE_CULL_MARGIN_PX;
     2.0 * half_width_px / viewport_px[0].min(viewport_px[1]).max(1.0)
 }
 
-/// Two half-bond quads × two triangles × three vertices. Must match
-/// `LINE_VERTS_PER_HALF * 2` in `shaders/common/line_quad.wgsl`.
-pub(crate) const LINE_VERTICES_PER_INSTANCE: u32 = 12;
+// Expanding clip-space x/y bounds is depth-correct in either projection.
+// Keep z/w unchanged so near/far clipping retains the ordinary frustum.
+fn line_cull_frustum(mut view_proj: [[f32; 4]; 4], ndc_pad: f32) -> [[f32; 4]; 6] {
+    for column in &mut view_proj {
+        column[0] /= 1.0 + ndc_pad;
+        column[1] /= 1.0 + ndc_pad;
+    }
+    crate::compute::cull::frustum_planes_from_view_proj(&view_proj)
+}
 
-/// 48-byte instance entry. Layout matches `LineInstance` in
-/// `shaders/representations/line.wgsl`. `p0_pad.xyz` / `p1_pad.xyz` are the
-/// endpoints; `p0_pad.w` is the `line_width` in physical pixels.
+/// Two native segments preserve the separate endpoint atom owners.
+pub(crate) const LINE_NATIVE_VERTICES_PER_INSTANCE: u32 = 4;
+
+/// Four pairs span the two caps and the body, without a connector.
+pub(crate) const LINE_VERTICES_PER_INSTANCE: u32 = 8;
+pub(crate) const LINE_TOPOLOGY: wgpu::PrimitiveTopology = wgpu::PrimitiveTopology::TriangleStrip;
+
+/// 48-byte instance entry shared by the line compute and render shaders.
 #[repr(C, align(16))]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
 pub struct LineInstance {
-    pub p0_pad: [f32; 4],
+    /// First endpoint in xyz; line width in physical pixels in w.
+    pub p0_width: [f32; 4],
+    /// Second endpoint in xyz; unused alignment padding in w.
     pub p1_pad: [f32; 4],
     pub groups: [u32; 2],
     pub _pad: [u32; 2],
@@ -119,6 +142,10 @@ impl LineRep {
             line_width_px: 0.0,
             needs_dispatch: false,
         }
+    }
+
+    pub(crate) fn uses_native_lines(&self) -> bool {
+        self.line_width_px == 1.0
     }
 
     pub fn cull_bind_group(&self) -> Option<&wgpu::BindGroup> {
@@ -219,29 +246,19 @@ impl Representation for LineRep {
     }
 
     fn record_picking<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>) {
-        let (Some(instance_buf), Some(indirect_buf)) = (
-            self.gpu.compacted_instance_buffer(),
-            self.gpu.indirect_buffer(),
-        ) else {
-            return;
-        };
-        pass.set_vertex_buffer(0, instance_buf.slice(..));
-        pass.draw_indirect(indirect_buf, 0);
+        self.record_translucent(pass);
     }
 
     fn record_raw_picking<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>) {
-        let (Some(instance_buf), Some(indirect_buf)) = (
-            self.gpu.raw_instance_buffer(),
-            self.gpu.shadow_indirect_buffer(),
-        ) else {
-            return;
-        };
-        pass.set_vertex_buffer(0, instance_buf.slice(..));
-        pass.draw_indirect(indirect_buf, 0);
+        self.record_shadow_depth(pass);
     }
 
     fn prepare_shadow_depth(&self, encoder: &mut wgpu::CommandEncoder, queue: &wgpu::Queue) {
-        let seed = indirect_seed(LINE_VERTICES_PER_INSTANCE);
+        let seed = indirect_seed(if self.uses_native_lines() {
+            LINE_NATIVE_VERTICES_PER_INSTANCE
+        } else {
+            LINE_VERTICES_PER_INSTANCE
+        });
         self.gpu.prepare_raw_shadow_indirect(encoder, queue, &seed);
     }
 
@@ -296,9 +313,17 @@ impl Representation for LineRep {
 
     fn plan_cull(&mut self, ctx: &CullPlanCtx<'_>) -> Option<CullPlan<'_>> {
         let upper = self.cull_upper_bound()?;
-        let seed = indirect_seed(LINE_VERTICES_PER_INSTANCE);
+        let seed = indirect_seed(if self.uses_native_lines() {
+            LINE_NATIVE_VERTICES_PER_INSTANCE
+        } else {
+            LINE_VERTICES_PER_INSTANCE
+        });
         let ndc_pad = line_cull_ndc_pad(self.line_width_px, ctx.viewport_px);
-        self.gpu.plan_cull(ctx, upper, ndc_pad, &seed)
+        let padded = CullPlanCtx {
+            frustum_planes: line_cull_frustum(ctx.view_proj, ndc_pad),
+            ..*ctx
+        };
+        self.gpu.plan_cull(&padded, upper, 0.0, &seed)
     }
 
     fn memory_usage(&self) -> GpuMemoryUsage {
@@ -337,7 +362,48 @@ fn line_estimate(bond_count: u32, quality: RepQualityLevel) -> RepMemoryEstimate
 
 #[cfg(test)]
 mod tests {
-    use super::line_cull_ndc_pad;
+    use super::{line_cull_frustum, line_cull_ndc_pad};
+
+    #[test]
+    fn padded_frustum_covers_pixel_footprint_at_every_depth() {
+        for perspective in [false, true] {
+            let vp = [
+                [2.0, 0.0, 0.0, 0.0],
+                [0.0, 3.0, 0.0, 0.0],
+                [
+                    0.0,
+                    0.0,
+                    if perspective { -1.01 } else { -0.01 },
+                    if perspective { -1.0 } else { 0.0 },
+                ],
+                [
+                    0.0,
+                    0.0,
+                    if perspective { -1.01 } else { -0.01 },
+                    if perspective { 0.0 } else { 1.0 },
+                ],
+            ];
+            let planes = line_cull_frustum(vp, 0.125);
+            let original = crate::compute::cull::frustum_planes_from_view_proj(&vp);
+            assert_eq!(planes[4..], original[4..]);
+            for distance in [2.0, 30.0, 90.0] {
+                let w = if perspective { distance } else { 1.0 };
+                for axis in 0..2 {
+                    for sign in [-1.0, 1.0] {
+                        for (extent, visible) in [(1.124, true), (1.126, false)] {
+                            let mut p = [0.0, 0.0, -distance];
+                            p[axis] = sign * extent * w / vp[axis][axis];
+                            let inside = planes.iter().all(|plane| {
+                                plane[0] * p[0] + plane[1] * p[1] + plane[2] * p[2] + plane[3]
+                                    >= 0.0
+                            });
+                            assert_eq!(inside, visible, "perspective={perspective}, distance={distance}, axis={axis}, sign={sign}, extent={extent}");
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn cull_pad_covers_line_half_width_in_ndc() {
@@ -349,7 +415,20 @@ mod tests {
     #[test]
     fn cull_pad_never_drops_below_picking_footprint() {
         let pad = line_cull_ndc_pad(1.0, [100.0, 100.0]);
-        assert!((pad - 2.0 * 3.0 / 100.0).abs() < 1e-6);
+        assert!(pad >= 2.0 * (0.5 * 100.0 / 12.0 + 1.0) / 100.0);
         assert!(line_cull_ndc_pad(1.0, [0.0, 0.0]).is_finite());
+    }
+
+    #[test]
+    fn cull_pad_covers_rounded_picking_targets() {
+        for viewport in [[15.0, 511.0], [257.0, 255.0], [1.0, 1.0]] {
+            for scale in [0.125, 0.25, 0.5, 1.0] {
+                let pad = line_cull_ndc_pad(1.0, viewport);
+                for axis in viewport {
+                    let target = (axis * scale).floor().max(1.0);
+                    assert!(pad >= (axis / target + 2.0) / viewport[0].min(viewport[1]));
+                }
+            }
+        }
     }
 }
