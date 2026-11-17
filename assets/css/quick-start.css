@@ -1,0 +1,50 @@
+/* Small additions to the shared Structural biology 101 layout. */
+.quick-start .command-example { margin: 20px 0 26px; border-block: 1px solid var(--line); }
+.quick-start .command-example code { background: none; padding: 0; font: 12px/1.85 var(--mono); white-space: pre; }
+.quick-start .command-lines { padding: 12px 0; }
+.quick-start .command-line { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: start; gap: 12px; padding: 4px 0; }
+.quick-start .command-line code { white-space: pre-wrap; overflow-wrap: anywhere; }
+.quick-start .command-line [data-copy] { padding-top: 2px; }
+/* Keep each example’s actions together while long commands wrap. */
+.quick-start .command-line-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px 12px; max-width: 150px; }
+.quick-start .command-run { font: 12px/1.6 var(--mono); white-space: nowrap; }
+.quick-start .command-run[data-run-unavailable] { background: transparent; }
+.quick-start [data-copy],.quick-start [data-reset-chapter] { color: var(--accent); font: 12px/1.6 var(--mono); text-align: left; }
+.quick-start button:disabled { opacity: .45; cursor: default; }
+.quick-start button:focus-visible,.quick-start summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.quick-start .guide-status { padding: 10px 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.quick-start .desktop-tour { margin: 24px 0; }
+.quick-start .desktop-tour img { width: 100%; height: auto; border: 1px solid var(--line); }
+.quick-start details { border-block: 1px solid var(--line); margin: 24px 0; padding: 16px 0; }
+.quick-start summary { color: var(--accent); cursor: pointer; }
+.quick-start details[open] summary { margin-bottom: 18px; }
+.quick-start .docs-table caption { text-align: left; color: var(--ink); padding-bottom: 8px; }
+/* Reserve the history area even when empty so commands never resize the view. */
+.quick-start .docs-viewer-repl { flex: 0 0 180px; height: 180px; }
+@media (max-width: 900px) {
+  .quick-start .docs-viewer-panel { height: auto; }
+  .quick-start .docs-viewer-canvas { flex: none; height: 240px; }
+}
+
+/* Component glyphs follow the native Objects panel; SVG paths come from its Lucide assets. */
+.quick-start .component-key td:first-child { width: 38%; }
+.quick-start .component-label { display: inline-flex; align-items: center; gap: 10px; }
+.quick-start .component-glyph { display: inline-flex; align-items: center; justify-content: center; width: 28px; min-width: 28px; height: 24px; }
+.quick-start .component-glyph svg { display: block; width: 22px; height: 22px; }
+.quick-start .component-polymer span { width: 10px; height: 10px; border-radius: 50%; background: #00c8d7; }
+.quick-start .component-solvent { color: #a78bfa; font: 500 11px/1 var(--mono); }
+.quick-start .component-organic { color: #8e8e98; }
+.quick-start .component-inorganic { color: #f472b6; }
+
+.quick-start .action-pill-shot { max-width: 360px; margin: 20px 0 28px; }
+.quick-start .action-pill-shot img { display: block; width: 100%; height: auto; }
+
+.quick-start .response-icon { display: block; width: 24px; height: 24px; margin-top: 8px; }
+.quick-start .response-icon--normal { color: var(--accent); }
+.quick-start .response-icon--warning { color: #f59e0b; }
+.quick-start .response-icon--error { color: #ef4444; }
+
+/* Inline examples use a small play control without interrupting the sentence. */
+.quick-start .command-run-inline { background: none; border: 0; padding: 0 .15em; font: inherit; color: var(--accent); vertical-align: baseline; }
+.quick-start .command-run-inline::after { content: none; }
+.quick-start .command-run-inline:hover,.quick-start .command-run-inline.flash { background: none; color: var(--ink); }

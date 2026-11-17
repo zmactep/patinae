@@ -24,6 +24,7 @@
 .docs-hub-card:first-child .feature-title { font: 400 clamp(32px,3.5vw,48px)/1.1 var(--display); letter-spacing: -.025em; }
 .guide-action { grid-column: 3; grid-row: 1 / span 2; align-self: center; color: var(--accent); font-size: 15px; }
 .guide-action span { margin-left: 24px; }
+.docs-hub-card:not(:first-child) .guide-action { grid-column: 2; grid-row: auto; justify-self: start; }
 a.docs-hub-card:hover { border-color: var(--accent); }
 a.docs-hub-card:hover .feature-title { color: var(--accent); }
 
@@ -79,6 +80,9 @@ a.docs-hub-card:hover .feature-title { color: var(--accent); }
 .docs-viewer-canvas { flex: 1; min-height: 220px; position: relative; }
 .docs-viewer-canvas canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 .docs-viewer-repl { display: flex; flex-direction: column; border-top: 1px solid var(--line); min-height: 60px; max-height: 180px; background: var(--bg); }
+/* Let the nested panel shrink so long output scrolls within the REPL. */
+.docs-viewer-repl .patinae-panel-repl { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
+.docs-viewer-repl .repl-output { flex: 1; min-height: 0; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .docs-viewer-repl .repl-header { display: none; }
 .repl-output { overflow-y: auto; padding: 10px 0 0; color: var(--muted); font: 12px/1.6 var(--mono); overflow-wrap: anywhere; }
 .repl-input-row { display: flex; align-items: center; min-height: 44px; gap: 8px; flex-shrink: 0; }

@@ -1,0 +1,514 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Quick start with Patinae — Patinae Docs</title>
+    <meta name="description" content="Understand Patinae objects, representations, colors, settings and commands. Learn through an interactive hemoglobin scene and desktop examples." />
+    <meta name="theme-color" content="#0b0e10" />
+    <link rel="icon" href="../assets/images/patinae.png" />
+    <link rel="stylesheet" href="../assets/css/home-fonts.css" />
+    <link rel="stylesheet" href="../assets/css/home.css" />
+    <link rel="stylesheet" href="../assets/css/docs.css" />
+    <link rel="stylesheet" href="../assets/css/quick-start.css" />
+    <noscript><style>.doc-page { display: block; margin-bottom: 60px; } .doc-page-nav,.docs-viewer-panel,.cmd-run { display: none; }</style></noscript>
+    <script type="module" src="../js/quick-start.js"></script>
+    <script async src="https://stats.yakovlev.me/tracker.js" data-ackee-server="https://stats.yakovlev.me" data-ackee-domain-id="2a01f4d9-3b20-49cf-879f-48fdc6d9b8bb"></script>
+  </head>
+  <body class="docs-site quick-start">
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header wrap">
+      <a class="wordmark" href="../index.html" aria-label="Patinae home"><img src="../assets/images/patinae.png" width="30" height="30" alt="">Patinae</a>
+      <nav aria-label="Main navigation"><a href="../docs.html" aria-current="true">Docs</a><a href="https://github.com/zmactep/patinae">GitHub ↗</a></nav>
+    </header>
+
+    <div class="docs-interactive wrap">
+      <aside class="docs-sidebar" aria-label="Guide chapters"><div class="docs-sidebar-title">In this guide</div><ul><li><a href="#first-view">How a scene works</a></li>
+<li><a href="#get-patinae">First launch</a></li>
+<li><a href="#load">Load a structure</a></li>
+<li><a href="#navigate">Objects and the view</a></li>
+<li><a href="#commands">The command language</a></li>
+<li><a href="#camera">Camera control</a></li>
+<li><a href="#representations">Representations</a></li>
+<li><a href="#colour">Colors and schemes</a></li>
+<li><a href="#settings">Settings</a></li>
+<li><a href="#save">Keep your work</a></li>
+<li><a href="#try-it">Put it together</a></li></ul></aside>
+
+      <main class="docs-content" id="main"><a class="docs-back" href="../docs.html">← Documentation</a><noscript><p>This guide is readable without JavaScript. Run the examples in desktop Patinae to follow along.</p></noscript>
+<div class="doc-page" id="first-view" data-title="How a scene works" data-src="../assets/pdb/1HHO.pdb" data-command="hide everything; show cartoon, polymer; show sticks, resn HEM; color chain; color cpk, resn HEM; orient; zoom all, buffer=5">
+
+<div class="docs-hero"><h1>Quick start<br>with Patinae</h1><p>Understand the scene, then learn how to change it.</p></div>
+<div class="docs-section">
+<h2>One structure, several decisions</h2>
+<p>Where do the heme groups sit inside hemoglobin? To answer that question, we need the protein’s overall fold and a closer view of the small groups inside it. Here the protein is drawn as a cartoon, the hemes as sticks, and the two protein chains have different colors.</p>
+<p>The example is <a class="ext-link" href="https://www.rcsb.org/structure/1HHO">1HHO</a>. The coordinates shown here contain one alpha chain and one beta chain, each with a heme group. We’ll use 1HHO for the guided examples, then explore a different structure, 4HHB, in the final practice.</p>
+<table class="docs-table"><thead><tr><th scope="col">Part of the scene</th><th scope="col">What it means</th></tr></thead><tbody>
+<tr><td><strong>Object</strong></td><td>A loaded structure with a name, coordinates and atom information.</td></tr>
+<tr><td><strong>Representation</strong></td><td>How to draw it: a cartoon for the fold, sticks for bonds, a surface for the outer shape.</td></tr>
+<tr><td><strong>Color</strong></td><td>What to distinguish: one fixed color, or a scheme based on chains, elements or another property.</td></tr>
+<tr><td><strong>Setting</strong></td><td>A value that controls how Patinae looks or behaves, from stick thickness to the interface theme.</td></tr>
+<tr><td><strong>Camera</strong></td><td>Where you look from, how close you are and which part is in view.</td></tr>
+</tbody></table>
+<p>A <strong>command</strong> asks Patinae to perform an action. Many actions also have buttons or menu controls. Both routes can change the scene and the application’s settings.</p>
+<p>Drag the model to explore it. As you work through the guide, ask two questions: <em>what am I changing, and what do I want that change to reveal?</em></p>
+<p>Over the next few sections, we’ll explore how Patinae works: how to load a structure, control the camera, choose representations and colors, and adjust settings using commands and the interface.</p>
+<p>You can follow along in the desktop app—we’ll cover installation and your first launch in the next section—or work directly on these pages. The pages include a web version of Patinae, so you can manipulate the structure and practice the same command language as in the desktop app. The embedded layout provides a molecular view and a command prompt; the menus and Objects panel shown in the screenshots belong to the desktop app.</p>
+<p>For the biology behind chains, residues and structure files, see <a class="ext-link" href="structural-biology-101.html">Structural biology 101</a>.</p>
+</div>
+<div class="doc-page-nav"><button type="button" data-nav="prev"></button><span class="page-counter"></span><button type="button" data-nav="next"></button></div></div>
+
+<div class="doc-page" id="get-patinae" data-title="First launch" data-src="../assets/pdb/1HHO.pdb" data-command="hide everything; show cartoon, polymer; show sticks, resn HEM; color chain; color cpk, resn HEM; orient; zoom all, buffer=5">
+<div class="docs-section">
+            <h2>Install and open Patinae</h2>
+            <p>If you’re following along in the desktop app, start by downloading it from the <a class="ext-link" href="https://github.com/zmactep/patinae/releases/latest">latest release</a>. Choose the version for your computer below, then open Patinae. If you’re following along in the browser, you can continue to the next section, <strong>Load a structure</strong>; the example is already loaded here.</p>
+            <table class="docs-table">
+              <caption>Choose the download for your computer</caption>
+              <thead><tr><th scope="col">Platform</th><th scope="col">First launch</th></tr></thead>
+              <tbody>
+                <tr><td>macOS · Apple Silicon</td><td>Open <code>Patinae.dmg</code>, drag Patinae to Applications, then open it.</td></tr>
+                <tr><td>Windows · x86_64 or ARM64</td><td>Run the <code>patinae-setup-windows-…exe</code> installer matching your processor, then launch Patinae from the Start menu.</td></tr>
+                <tr><td>Linux · x86_64 or ARM64</td><td>Extract the matching <code>patinae-linux-…tar.gz</code> archive. Open a terminal in the extracted directory and run <code>./patinae</code>.</td></tr>
+              </tbody>
+            </table>
+            <h3>Your first launch</h3>
+            <p>Patinae opens on a welcome screen where you can open a file, fetch a structure from the PDB or try one of the examples.</p>
+            <figure class="desktop-tour"><a href="../assets/images/quick-start/first-launch.jpg"><img src="../assets/images/quick-start/first-launch.jpg" alt="Patinae welcome screen with a file drop area, a PDB ID field and example structures." width="1600" height="1109" loading="lazy"></a></figure>
+            <p>You can load a structure directly from this screen:</p>
+            <ul>
+              <li><strong>Fetch by PDB ID.</strong> Enter an identifier in the <strong>PDB ID</strong> field and click <strong>Fetch</strong> or press Enter.</li>
+              <li><strong>Open a file.</strong> Click the folder icon or the drop area above the PDB field to choose a local file, or drag a structure file into the window.</li>
+              <li><strong>Try an example.</strong> Click one of the <strong>Examples</strong> cards to load an antibody, a ligand-binding pocket, duplex DNA or a GPCR.</li>
+              <li><strong>Reopen recent work.</strong> When recent files are available, they appear under <strong>Recent</strong>; click a card to open one.</li>
+            </ul>
+            <p>Once a structure loads, it appears in the molecular view. The next chapter walks through loading 1HHO.</p>
+            <p>The browser exercises need WebGPU. If the interactive view cannot start, the text and command examples remain available, and you can follow the same steps in the desktop application.</p>
+          </div>
+<div class="doc-page-nav"><button type="button" data-nav="prev"></button><span class="page-counter"></span><button type="button" data-nav="next"></button></div></div>
+
+<div class="doc-page" id="load" data-title="Load a structure" data-src="../assets/pdb/1HHO.pdb" data-command="hide everything; show cartoon, polymer; show sticks, resn HEM; color chain; color cpk, resn HEM; orient; zoom all, buffer=5">
+<div class="docs-section">
+<h2>Load a structure</h2>
+<p>A structure file supplies coordinates and atom information. Loading it creates a named <strong>object</strong> in Patinae. Its name is how you find it in the Objects panel and refer to it in commands.</p>
+<p>In the browser, 1HHO is already loaded for you. In the desktop app, choose one of the routes below to load it.</p>
+<h3>Fetch from the welcome screen</h3>
+<p>Enter <code>1HHO</code> in the <strong>PDB ID</strong> field on the welcome screen, then click <strong>Fetch</strong> or press Enter. Wait for the structure to appear.</p>
+<h3>Or open a local file</h3>
+<p><a class="ext-link" href="../assets/pdb/1HHO.pdb" download>Download 1HHO.pdb</a>, then drag it into the window. You can also click the folder icon on the welcome screen to choose the file, or use <strong>File → Open…</strong>.</p>
+<h3>Fetch from the File menu</h3>
+<p><strong>File → Fetch PDB…</strong> is another way to download a structure, including when one is already open. Enter <code>1HHO</code> in <strong>PDB ID</strong>, leave <strong>Object name</strong> empty, choose <strong>PDB</strong>, then click <strong>Fetch</strong>. Patinae uses the PDB ID as the object name automatically.</p>
+<figure class="desktop-tour"><a href="../assets/images/quick-start/fetch.jpg"><img src="../assets/images/quick-start/fetch.jpg" alt="Fetch PDB dialog: PDB ID, object name and file format. PDB is selected." width="1100" height="940" loading="lazy"></a></figure>
+<p>Choose just one route; you do not need to load the example twice. The downloaded file appears as <code>1HHO</code> in Objects, as in the screenshots; Fetch uses <code>1hho</code>. Whenever a command refers to an object by name, use the name shown in your Objects panel.</p>
+<p>Once the structure is loaded, you can work with menus or commands. We will introduce the command equivalents after explaining their syntax.</p>
+<h3>Open a saved session</h3>
+<p>Structure files contain the molecular data you start from. We covered these formats in <a class="ext-link" href="structural-biology-101.html#databases">Structural biology 101: Databases and formats</a>. As you work in Patinae, you also choose how to show those structures: which representations to use, how to color them and where to place the camera.</p>
+<p>A <strong>session</strong> is the state of your work in Patinae. Saving it as a <strong>.prs file</strong> keeps the loaded structures together with their representations, colors, display settings and camera view. A session can contain several structures—for example, two proteins arranged for comparison.</p>
+<p>In the desktop app, you can open a <code>.prs</code> file through <strong>File → Open…</strong>, just as you would open a structure file. Patinae restores the saved scene, so you can continue without loading and styling everything again. You can also open a session prepared by someone else and explore or edit their scene. Later in this guide, we’ll save the scene you build.</p>
+</div>
+<div class="doc-page-nav"><button type="button" data-nav="prev"></button><span class="page-counter"></span><button type="button" data-nav="next"></button></div></div>
+
+<div class="doc-page" id="navigate" data-title="Objects and the view" data-src="../assets/pdb/1HHO.pdb" data-command="hide everything; show cartoon, polymer; show sticks, resn HEM; color chain; color cpk, resn HEM; orient; zoom all, buffer=5">
+<div class="docs-section">
+<h2>Objects and the view</h2>
+<p>In the desktop app, the <strong>Objects panel</strong> lists the structures you loaded. Click the arrow beside your structure’s name to see its components. In both the desktop app and the embedded web version, the <strong>viewport</strong> is the area where you see and explore the structure.</p>
+<figure class="desktop-tour"><a href="../assets/images/quick-start/overview.jpg"><img src="../assets/images/quick-start/overview.jpg" alt="Loaded hemoglobin in the central viewport, with the expanded Objects panel on the right." width="1600" height="1109" loading="lazy"></a></figure>
+<h3>Read the component rows</h3>
+<p>A structure file can contain more than the protein or nucleic acid you came to study. The expanded object lists polymer chains, water and other molecules present in the file. Patinae uses these icons to distinguish them:</p>
+<table class="docs-table component-key"><thead><tr><th scope="col">Component</th><th scope="col">What it contains</th></tr></thead><tbody>
+<tr><td><span class="component-label"><span class="component-glyph component-polymer" aria-hidden="true"><span></span></span>Polymers</span></td><td>Protein, DNA or RNA chains. In this example, <code>A</code> and <code>B</code> are the two protein chains. The dot reflects the chain’s displayed color.</td></tr>
+<tr><td><span class="component-label"><span class="component-glyph component-solvent" aria-hidden="true">SOL</span>Water</span></td><td>Water molecules recorded in the structure, commonly labeled <code>HOH</code>. They appear as solvent rows, separate from the polymer chains.</td></tr>
+<tr><td><span class="component-label"><span class="component-glyph component-organic"><svg aria-hidden="true" focusable="false"
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="12" cy="12" r="1" />
+  <path d="M20.2 20.2c2.04-2.03.02-7.36-4.5-11.9-4.54-4.52-9.87-6.54-11.9-4.5-2.04 2.03-.02 7.36 4.5 11.9 4.54 4.52 9.87 6.54 11.9 4.5Z" />
+  <path d="M15.7 15.7c4.52-4.54 6.54-9.87 4.5-11.9-2.03-2.04-7.36-.02-11.9 4.5-4.52 4.54-6.54 9.87-4.5 11.9 2.03 2.04 7.36.02 11.9-4.5Z" />
+</svg>
+</span>Organic components</span></td><td>Small organic molecules and other non-polymer components, such as ligands and cofactors. Here, <code>HEM</code> identifies the heme groups.</td></tr>
+<tr><td><span class="component-label"><span class="component-glyph component-inorganic"><svg aria-hidden="true" focusable="false"
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M2.7 10.3a2.41 2.41 0 0 0 0 3.41l7.59 7.59a2.41 2.41 0 0 0 3.41 0l7.59-7.59a2.41 2.41 0 0 0 0-3.41l-7.59-7.59a2.41 2.41 0 0 0-3.41 0Z" />
+</svg>
+</span>Inorganic components</span></td><td>Ions and other inorganic species. In the screenshot, <code>PO4</code> is a phosphate group.</td></tr>
+</tbody></table>
+<p>The labels in parentheses identify residues, and the number at the right is the row’s <strong>atom count</strong>. A label such as <code>HEM+1</code> means that the component contains HEM and one additional residue. The exact rows and their names depend on the structure file.</p>
+<p>These rows are parts of the same loaded object. Hover over a component row to reveal its representation and color controls; changes made there apply to that component. We’ll explore those controls in the following sections.</p>
+<h3>Move the camera</h3>
+<p>Rotating or zooming changes your view of the scene. It does not alter the molecule’s coordinates.</p>
+<table class="docs-table"><thead><tr><th scope="col">Action</th><th scope="col">Mouse or trackpad gesture</th></tr></thead><tbody>
+<tr><td>Rotate</td><td>Left-drag.</td></tr><tr><td>Pan</td><td>Shift + left-drag, or middle-drag.</td></tr><tr><td>Zoom</td><td>Right-drag up or down. In the desktop app, you can also pinch with two fingers on a multitouch trackpad.</td></tr><tr><td>Change visible depth</td><td>Scroll without holding a mouse button to widen or narrow the visible depth around the structure. Atoms outside this range are clipped from view.</td></tr>
+</tbody></table>
+<p>On these pages, <strong>Run</strong> and ▷ execute commands in the embedded view and add them, with their responses, to the history below it. <strong>Copy</strong> copies one command for you to paste into a prompt. Commands that require the desktop app have a disabled Run button with an explanatory tooltip. All execution controls are temporarily disabled while a scene or command is loading. Opening a chapter loads its prepared scene in the browser; <strong>Reset chapter</strong> restores that starting point. Both replace the previous browser scene, including any named camera views. Your desktop session keeps the changes you make as you move through the guide.</p>
+<p>Try moving the structure, then <button type="button" class="cmd-run" data-cmd="orient; zoom all, buffer=5" disabled>fit it back into view</button>. Later, you will use <code>orient</code> and <code>zoom</code> to do this from the command line.</p>
+<h3>Visibility is separate from appearance</h3>
+<p>In the desktop app, right-click the object’s row in <strong>Objects</strong> to hide or show it. You can also select the row and click the eye icon, <strong>Toggle visibility</strong>, in the <strong>action pill</strong>—the compact group of controls at the bottom of the Objects panel. Hiding an object keeps it loaded with its representations and colors. Right-click the row again, or click the eye again, to bring it back.</p>
+<figure class="action-pill-shot"><img src="../assets/images/quick-start/action-pill.jpg" alt="Action pill for one selected object. The eye icon, second from the right, toggles visibility." width="420" height="104" loading="lazy"></figure>
+<p>You can also hide one representation while keeping others visible. Before we explore representations in detail, we’ll introduce another important part of Patinae: its <strong>command language</strong>. Commands let you control every part of the scene, from the objects you load to their appearance and the camera view. In the next section, you’ll learn how to read and write a command; then we’ll use that language to control the camera and explore representations, colors and settings.</p>
+</div>
+<div class="doc-page-nav"><button type="button" data-nav="prev"></button><span class="page-counter"></span><button type="button" data-nav="next"></button></div></div>
+
+<div class="doc-page" id="commands" data-title="The command language" data-src="../assets/pdb/1HHO.pdb" data-command="hide everything; show cartoon, polymer; show sticks, resn HEM; color chain; color cpk, resn HEM; orient; zoom all, buffer=5">
+<div class="docs-section">
+<h2>The command language</h2>
+<p>The <strong>command line</strong>, called the <strong>REPL</strong> in Patinae’s interface, lets you give the application written instructions. On desktop, it appears at the bottom of the molecular view after you load your first structure. On these pages, use the prompt below the embedded view.</p>
+<p>Click the prompt, type a command and press <strong>Enter</strong> to run it. In the desktop app, <strong>⌘L on macOS</strong> or <strong>Ctrl+L on Windows and Linux</strong> moves focus to the prompt, ready for typing.</p>
+<p>Click the arrow at the right end of the desktop command bar to expand or collapse the <strong>history of commands and their output</strong>. Scroll through it to review what you ran and how Patinae responded. In both the desktop app and the embedded web version, use <strong>↑</strong> and <strong>↓</strong> with the prompt focused to recall earlier commands, edit them and run them again.</p>
+<p>If the desktop completion menu is open, the arrow keys move through suggestions instead. <strong>Tab</strong> or <strong>Enter</strong> accepts a suggestion; press Enter again when the command is complete. Press <strong>Esc</strong> to close the suggestions and use the arrow keys for history.</p>
+<figure class="desktop-tour"><a href="../assets/images/quick-start/repl-history.jpg"><img src="../assets/images/quick-start/repl-history.jpg" alt="Expanded desktop REPL: a normal color result, an orange warning followed by a setting value, and a red missing-argument error. The arrow at the right of the input bar collapses the history." width="850" height="540" loading="lazy"></a></figure>
+<h3>How a command is written</h3>
+<p>A command names an action and supplies its <strong>arguments</strong>: the information needed to carry it out. For example:</p>
+<div class="command-example"><div class="command-lines"><div class="command-line"><code id="syntax-1">color cyan, all</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="syntax-1" disabled>Run</button><button type="button" data-copy="syntax-1" aria-label="Copy command 1">Copy</button></span></div></div></div>
+<table class="docs-table"><thead><tr><th scope="col">Part</th><th scope="col">Meaning</th></tr></thead><tbody>
+<tr><td><code>color</code></td><td>The command: change color.</td></tr>
+<tr><td><code>cyan</code></td><td>The first argument: which color to use.</td></tr>
+<tr><td><code>all</code></td><td>The second argument: which atoms to affect.</td></tr>
+</tbody></table>
+<p><strong>Put a space after the command name and commas between arguments.</strong> Write <code>color cyan, all</code>, with no comma after <code>color</code>. An argument can itself contain spaces: in <code>show sticks, resn HEM</code>, <code>resn HEM</code> is one argument.</p>
+<p>Run the color command above, then <button type="button" class="cmd-run" data-cmd="color chain; color cpk, resn HEM" disabled>restore the scene colors</button>. The representation and camera stay the same.</p>
+<h3>Arguments depend on the command</h3>
+<p>Arguments have an order and a meaning defined by each command. Some are optional: <code>color cyan</code> uses all atoms by default. Some commands work without arguments, such as <code>orient</code> and <code>help</code>. Named arguments use <code>name=value</code>:</p>
+<div class="command-example"><div class="command-lines"><div class="command-line"><code id="named-1">zoom all, buffer=5</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="named-1" disabled>Run</button><button type="button" data-copy="named-1" aria-label="Copy command 1">Copy</button></span></div></div></div>
+<p>Here <code>all</code> is the target and <code>buffer=5</code> adds a margin around it. The comma still separates the arguments.</p>
+<h3>Read the response</h3>
+<p>Running a command asks Patinae to do something: change the scene, report a value or explain another command. Its output tells you what happened. The desktop REPL distinguishes three kinds of message:</p>
+<table class="docs-table"><thead><tr><th scope="col">Message</th><th scope="col">Meaning and example</th></tr></thead><tbody>
+<tr><td><strong>Normal output</strong><svg class="response-icon response-icon--normal" aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></td><td>The command completed successfully and returned a result. For example, <code>color cyan, all</code> reports <code>Color: 2396 atoms colored cyan</code> for this structure. The reply tells you how many atoms it affected; the count depends on the structure you loaded.</td></tr>
+<tr><td><strong>Warning</strong><svg class="response-icon response-icon--warning" aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></td><td>The command ran, but its response draws your attention to something you should check. For example, <code>get transparency</code>&nbsp;<button type="button" class="cmd-run command-run command-run-inline" data-run-example data-cmd="get transparency" aria-label="Run get transparency" title="Run get transparency" disabled><span aria-hidden="true">▷</span></button> reports <code>'transparency' is deprecated, use 'surface_transparency' instead</code>. The old setting name is still understood, so Patinae also returns its value. Use <code>get surface_transparency</code>&nbsp;<button type="button" class="cmd-run command-run command-run-inline" data-run-example data-cmd="get surface_transparency" aria-label="Run get surface_transparency" title="Run get surface_transparency" disabled><span aria-hidden="true">▷</span></button> in new commands.</td></tr>
+<tr><td><strong>Error</strong><svg class="response-icon response-icon--error" aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></td><td>The command was not executed, and the response explains why it failed. For example, <code>color</code>&nbsp;<button type="button" class="cmd-run command-run command-run-inline" data-run-example data-cmd="color" aria-label="Run color" title="Run color" disabled><span aria-hidden="true">▷</span></button> on its own reports <code>missing required argument: color</code>. Patinae needs a color value before it can carry out the action. Add the missing argument—for example, <code>color cyan, all</code>—and try again.</td></tr>
+</tbody></table>
+<p>One command can produce several messages, as the warning followed by a normal value in the screenshot shows. Some successful commands mainly change the view and print little or no additional text.</p>
+<h3>Let help explain the next command</h3>
+<p>Use <code>help</code> to list available commands. Give it a command name to see the description, usage, argument meanings, defaults and examples.</p>
+<div class="command-example"><div class="command-lines"><div class="command-line"><code id="help-1">help</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="help-1" disabled>Run</button><button type="button" data-copy="help-1" aria-label="Copy command 1">Copy</button></span></div>
+<div class="command-line"><code id="help-2">help color</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="help-2" disabled>Run</button><button type="button" data-copy="help-2" aria-label="Copy command 2">Copy</button></span></div>
+<div class="command-line"><code id="help-3">help show</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="help-3" disabled>Run</button><button type="button" data-copy="help-3" aria-label="Copy command 3">Copy</button></span></div>
+<div class="command-line"><code id="help-4">help set</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="help-4" disabled>Run</button><button type="button" data-copy="help-4" aria-label="Copy command 4">Copy</button></span></div></div></div>
+<p>In the output of <code>help color</code>, square brackets mark optional arguments; do not type those brackets. The examples show complete commands you can adapt. You do not need to memorize every argument.</p>
+<h3>Just enough about targets</h3>
+<p>Many commands accept a target, also called a <strong>selection</strong>. For this guide, use these ready-made expressions: <code>all</code> for all atoms, <code>polymer</code> for the protein in this example, and <code>resn HEM</code> for the heme residues. An object name such as <code>1HHO</code> targets that object. Building more precise selections belongs to the separate <strong>Selections</strong> lesson.</p>
+<h3>The * wildcard</h3>
+<p>In a name pattern, <code>*</code> matches zero or more characters. For example, <code>name C*</code> matches atom names beginning with C, such as C, CA and CB. To color the matching atoms cyan:</p>
+<div class="command-example"><div class="command-lines"><div class="command-line"><code id="wildcard-1">color cyan, name C*</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="wildcard-1" disabled>Run</button><button type="button" data-copy="wildcard-1" aria-label="Copy command 1">Copy</button></span></div></div></div>
+<p>This is a pattern for atom names, not a chemical-element test. The wildcard is useful where an argument accepts a name pattern; it does not replace arbitrary pieces of command syntax.</p>
+<details><summary>Command equivalents for loading, once the REPL is available</summary>
+<p>In the desktop app, these perform the same operations as Open and Fetch. Replace the local path with your file’s location; put paths containing spaces in double quotes. Fetch also works in the embedded view and adds another object. After trying it here, use <strong>Reset chapter</strong> to return to the prepared scene.</p>
+<div class="command-example"><div class="command-lines"><div class="command-line"><code id="load-1">load /path/to/1HHO.pdb</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-run-unavailable title="Replace this example path with a local file path in the desktop app." aria-label="Run in desktop app: load /path/to/1HHO.pdb" disabled>Run</button><button type="button" data-copy="load-1" aria-label="Copy command 1">Copy</button></span></div>
+<div class="command-line"><code id="load-2">fetch 1hho, type=pdb</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="load-2" disabled>Run</button><button type="button" data-copy="load-2" aria-label="Copy command 2">Copy</button></span></div></div></div>
+</details>
+<p>You can now read a command as an action plus its arguments. Next, we’ll use that syntax to control the camera.</p>
+</div>
+<div class="doc-page-nav"><button type="button" data-nav="prev"></button><span class="page-counter"></span><button type="button" data-nav="next"></button></div></div>
+
+<div class="doc-page" id="camera" data-title="Camera control" data-src="../assets/pdb/1HHO.pdb" data-command="hide everything; show cartoon, polymer; show sticks, resn HEM; color chain; color cpk, resn HEM; orient; zoom all, buffer=5">
+<div class="docs-section">
+<h2>Camera control</h2>
+<p>The camera determines where you look from, what sits in the center of the view and how much of the structure fits on screen. Camera commands change your view of the scene while keeping the atom coordinates, representations and colors intact.</p>
+<p>You have already moved the camera by dragging. Commands let you make the same kinds of adjustments with explicit targets and values. We’ll use the whole structure and the hemes to compare them.</p>
+<h3>Center, fit or orient?</h3>
+<table class="docs-table"><thead><tr><th scope="col">Command</th><th scope="col">What changes</th></tr></thead><tbody>
+<tr><td><code>center resn HEM</code>&nbsp;<button type="button" class="cmd-run command-run command-run-inline" data-run-example data-cmd="center resn HEM" aria-label="Run center resn HEM" title="Run center resn HEM" disabled><span aria-hidden="true">▷</span></button></td><td>Place the center of the hemes at the center of the view, keeping the viewing direction and camera distance.</td></tr>
+<tr><td><code>zoom resn HEM, buffer=5</code>&nbsp;<button type="button" class="cmd-run command-run command-run-inline" data-run-example data-cmd="zoom resn HEM, buffer=5" aria-label="Run zoom resn HEM, buffer=5" title="Run zoom resn HEM, buffer=5" disabled><span aria-hidden="true">▷</span></button></td><td>Center and fit the hemes in the view, keeping the viewing direction. The buffer adds a margin of 5 Å around the target.</td></tr>
+<tr><td><code>orient resn HEM</code>&nbsp;<button type="button" class="cmd-run command-run command-run-inline" data-run-example data-cmd="orient resn HEM" aria-label="Run orient resn HEM" title="Run orient resn HEM" disabled><span aria-hidden="true">▷</span></button></td><td>Choose a viewing direction from the target’s principal axes—the main directions of its shape—and fit it in the view.</td></tr>
+</tbody></table>
+<p>Try the three commands in the table in order: center on the hemes, fit them in the view, then orient to them. These commands use the hemes as a camera target. They do not hide the protein, although a close view may place parts of it outside the frame.</p>
+<p>For a whole-structure overview, use:</p>
+<div class="command-example"><div class="command-lines"><div class="command-line"><code id="camera-overview-1">orient all</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="camera-overview-1" disabled>Run</button><button type="button" data-copy="camera-overview-1" aria-label="Copy command 1">Copy</button></span></div>
+<div class="command-line"><code id="camera-overview-2">zoom all, buffer=5</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="camera-overview-2" disabled>Run</button><button type="button" data-copy="camera-overview-2" aria-label="Copy command 2">Copy</button></span></div></div></div>
+<p><code>orient</code> finds a useful starting angle from the geometry; you can still adjust it to show the feature you want to explain.</p>
+<h3>Turn and move by a known amount</h3>
+<p><code>turn</code> rotates the view by an angle in degrees. <code>move</code> shifts it by a distance in ångströms. Both take an axis and a value:</p>
+<div class="command-example"><div class="command-lines"><div class="command-line"><code id="camera-adjust-1">turn y, 30</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="camera-adjust-1" disabled>Run</button><button type="button" data-copy="camera-adjust-1" aria-label="Copy command 1">Copy</button></span></div>
+<div class="command-line"><code id="camera-adjust-2">move x, 3</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="camera-adjust-2" disabled>Run</button><button type="button" data-copy="camera-adjust-2" aria-label="Copy command 2">Copy</button></span></div></div></div>
+<p>Run the commands above to turn by 30° and move by 3 Å. These are relative changes: running a command twice applies the adjustment twice. To undo that sequence, reverse the last shift with <code>move x, -3</code>, then reverse the turn with <code>turn y, -30</code>.</p>
+<p>The axes are relative to the view: <code>x</code> runs horizontally, <code>y</code> vertically and <code>z</code> along the viewing direction. Turning around <code>z</code> rolls the image; moving along <code>z</code> changes the viewing distance.</p>
+<p>A turn uses the camera’s <strong>origin</strong> as its center of rotation. <code>center</code> and <code>zoom</code> set this point from their target. You can also set it explicitly with <code>origin resn HEM</code>, for example before turning around the heme region.</p>
+<h3>Control visible depth</h3>
+<p>Clipping limits the depth visible through the scene, which can help expose a buried feature. Atoms outside the clipping planes are still loaded. <code>clip slab, 20</code> sets the visible layer to 20 Å thick; it does not change the camera’s magnification.</p>
+<div class="command-example"><div class="command-lines"><div class="command-line"><code id="camera-clip-1">clip slab, 20</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="camera-clip-1" disabled>Run</button><button type="button" data-copy="camera-clip-1" aria-label="Copy command 1">Copy</button></span></div></div></div>
+<p>Try the 20 Å layer with the command above, then run <code>zoom all, buffer=5</code> to restore a depth range that contains the structure. For finer control, <code>clip near</code> and <code>clip far</code> adjust the front and back planes; <code>help clip</code> gives their syntax and examples.</p>
+<h3>Keep a useful camera view</h3>
+<p>Store a camera view before exploring another angle. Run the first command below, turn or move the view, then run the second to return:</p>
+<div class="command-example"><div class="command-lines"><div class="command-line"><code id="camera-view-1">view overview, store</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="camera-view-1" disabled>Run</button><button type="button" data-copy="camera-view-1" aria-label="Copy command 1">Copy</button></span></div>
+<div class="command-line"><code id="camera-view-2">view overview, recall</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="camera-view-2" disabled>Run</button><button type="button" data-copy="camera-view-2" aria-label="Copy command 2">Copy</button></span></div></div></div>
+<p>A named <strong>view</strong> keeps the camera orientation, position and clipping planes. Recalling it leaves your current colors and representations in place. A saved session, introduced later, preserves the wider scene.</p>
+<p><code>reset</code> returns the camera to its default orientation and fits the whole scene. This differs from <strong>Reset chapter</strong>, which restores the lesson’s prepared structure and appearance as well.</p>
+<h3>The same action with clicks</h3>
+<p>In the desktop app, the <strong>View</strong> menu provides these whole-scene actions:</p>
+<table class="docs-table"><thead><tr><th scope="col">Menu action</th><th scope="col">Command equivalent</th></tr></thead><tbody>
+<tr><td><strong>View → Center</strong></td><td><code>center all</code></td></tr>
+<tr><td><strong>View → Zoom All</strong></td><td><code>zoom all</code></td></tr>
+<tr><td><strong>View → Orient</strong></td><td><code>orient all</code></td></tr>
+<tr><td><strong>View → Reset</strong></td><td><code>reset</code></td></tr>
+</tbody></table>
+<p><strong>Zoom All</strong> also has the shortcut <strong>⌘0 on macOS</strong> or <strong>Ctrl+0 on Windows and Linux</strong>. The mouse and trackpad gestures introduced in <strong>Objects and the view</strong> remain available alongside these commands.</p>
+<p>Use commands when you want an exact angle, distance or target, and direct manipulation when you want to explore by eye. Before continuing, return to the overview with <code>orient all</code> and <code>zoom all, buffer=5</code>. Next we’ll change how the structure is drawn.</p>
+</div>
+<div class="doc-page-nav"><button type="button" data-nav="prev"></button><span class="page-counter"></span><button type="button" data-nav="next"></button></div></div>
+
+<div class="doc-page" id="representations" data-title="Representations" data-src="../assets/pdb/1HHO.pdb" data-command="hide everything; show cartoon, polymer; show sticks, resn HEM; color chain; color cpk, resn HEM; orient; zoom all, buffer=5">
+<div class="docs-section">
+<h2>Representations: what do you want to see?</h2>
+<p>A structure contains atom positions. A <strong>representation</strong> turns them into visible shapes. The same coordinates can be drawn in several ways, each emphasizing a different level of detail.</p>
+<p>Try the views below in the embedded scene. Each button changes the protein’s representation; the camera, colors and other atoms keep their current state.</p>
+<table class="docs-table"><thead><tr><th scope="col">Representation</th><th scope="col">What it shows well</th></tr></thead><tbody>
+<tr><td><button type="button" class="cmd-run" data-cmd="as cartoon, polymer" disabled>Cartoon</button></td><td>A simplified path through the protein, with helices and sheets. Use it to follow the fold; it leaves out individual side-chain atoms.</td></tr>
+<tr><td><button type="button" class="cmd-run" data-cmd="as lines, polymer" disabled>Lines</button></td><td>Thin lines for bonds. Useful for an overview of atomic connectivity with relatively little visual bulk.</td></tr>
+<tr><td><button type="button" class="cmd-run" data-cmd="as sticks, polymer" disabled>Sticks</button></td><td>Thick bonds that make local geometry easier to see. Good for a ligand or binding site; a whole protein can become crowded.</td></tr>
+<tr><td><button type="button" class="cmd-run" data-cmd="as spheres, polymer" disabled>Spheres</button></td><td>Atoms drawn with radii. Useful for packing and the space occupied by atoms; bonds and buried groups become harder to see.</td></tr>
+<tr><td><button type="button" class="cmd-run" data-cmd="as surface, polymer" disabled>Surface</button></td><td>A calculated molecular envelope. Useful for shape, grooves and pockets; it hides much of the internal structure.</td></tr>
+</tbody></table>
+<p>Choose the representation that makes your question easiest to answer. You can also combine them to show different levels of detail.</p>
+<h3>Combine levels of detail</h3>
+<p>For hemoglobin, a cartoon explains where the protein folds around the hemes, while sticks reveal the heme bonds. You can show both in the same scene:</p>
+<div class="command-example"><div class="command-lines"><div class="command-line"><code id="combined-1">hide everything</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="combined-1" disabled>Run</button><button type="button" data-copy="combined-1" aria-label="Copy command 1">Copy</button></span></div>
+<div class="command-line"><code id="combined-2">show cartoon, polymer</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="combined-2" disabled>Run</button><button type="button" data-copy="combined-2" aria-label="Copy command 2">Copy</button></span></div>
+<div class="command-line"><code id="combined-3">show sticks, resn HEM</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="combined-3" disabled>Run</button><button type="button" data-copy="combined-3" aria-label="Copy command 3">Copy</button></span></div></div></div>
+<p>Run these three commands in order. Notice which part each representation explains.</p>
+<h3>Show, hide and replace</h3>
+<p><code>show</code> adds a representation. <code>hide</code> removes it from the view. <code>as</code> replaces the existing representations for its target with one representation. These operations leave the atoms loaded.</p>
+<p>With the cartoon-and-heme combination visible, compare <code>show sticks, polymer</code>&nbsp;<button type="button" class="cmd-run command-run command-run-inline" data-run-example data-cmd="show sticks, polymer" aria-label="Run show sticks, polymer" title="Run show sticks, polymer" disabled><span aria-hidden="true">▷</span></button> with <code>as sticks, polymer</code> (the <strong>Sticks</strong> button in the table). The first adds sticks alongside the cartoon; the second leaves only sticks for the protein. The hemes are outside that target and keep their appearance. The representation buttons in the opening table use <code>as</code> in the same way: for example, <code>as surface, polymer</code> replaces the protein’s representations with a surface.</p>
+<h3>The same action with clicks</h3>
+<p>In the desktop app, hover over your structure’s row in <strong>Objects</strong> and click the pen-nib icon, <strong>Representations</strong>. Click <strong>cartoon</strong> to show or hide it. A highlighted representation is visible.</p>
+<p>For the object shown in the screenshot, these actions correspond to <code>show cartoon, 1HHO</code> and <code>hide cartoon, 1HHO</code>. Hover over a control to preview its command at the bottom of the menu.</p>
+<figure class="desktop-tour"><a href="../assets/images/quick-start/representations.jpg"><img src="../assets/images/quick-start/representations.jpg" alt="Representations menu with cartoon enabled; show cartoon, 1HHO appears at the bottom." width="1165" height="1060" loading="lazy"></a></figure>
+<p>If you fetched the structure, use <code>1hho</code> in place of <code>1HHO</code> in these commands.</p>
+<p>The menu on the object row acts on the whole object. The command examples above use <code>polymer</code> or <code>resn HEM</code> to give its protein and hemes different representations. Before continuing, restore the cartoon-and-heme view with the three commands under <strong>Combine levels of detail</strong>.</p>
+</div>
+<div class="doc-page-nav"><button type="button" data-nav="prev"></button><span class="page-counter"></span><button type="button" data-nav="next"></button></div></div>
+
+<div class="doc-page" id="colour" data-title="Colors and schemes" data-src="../assets/pdb/1HHO.pdb" data-command="hide everything; show cartoon, polymer; show sticks, resn HEM; color gray; color cpk, resn HEM; orient; zoom all, buffer=5">
+<div class="docs-section">
+<h2>Colors and color schemes</h2>
+<p>A representation decides <em>what shapes to draw</em>. Color decides <em>what differences to emphasize</em>. You can change either independently: recoloring a cartoon does not turn it into sticks.</p>
+<h3>Base colors and representation colors</h3>
+<p><code>color</code> changes the <strong>base color of atoms</strong>. Representations reuse these colors unless they have an explicit color of their own. This lets the cartoon, sticks and spheres share one color scheme.</p>
+<p>You can also give a representation its own color through settings such as <code>stick_color</code> or <code>cartoon_color</code>. An explicit representation color takes priority over the base color. We’ll try that in the next section, <strong>Settings</strong>.</p>
+<h3>A color is a value; a scheme is a rule</h3>
+<p>A named color such as <code>cyan</code>, <code>gray</code> or <code>orange</code> gives the target atoms one base color. A scheme assigns their base colors using an atom or residue property. Both are arguments to <code>color</code>.</p>
+<div class="command-example"><div class="command-lines"><div class="command-line"><code id="colour-values-1">color cyan, polymer</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="colour-values-1" disabled>Run</button><button type="button" data-copy="colour-values-1" aria-label="Copy command 1">Copy</button></span></div></div></div>
+<p>Run this command to give the protein atoms one base color. Then try the choices in the table, including <code>chain</code>, to compare a fixed color with schemes on the same cartoon. Each button applies its color argument to <code>polymer</code>:</p>
+<table class="docs-table"><thead><tr><th scope="col">Color argument</th><th scope="col">What it communicates</th></tr></thead><tbody>
+<tr><td><button type="button" class="cmd-run" data-cmd="color gray, polymer" disabled>gray</button></td><td>One neutral color. Useful when the protein provides context for a highlighted ligand.</td></tr>
+<tr><td><button type="button" class="cmd-run" data-cmd="color chain, polymer" disabled>chain</button></td><td>Different chains receive different colors. Useful for telling subunits apart.</td></tr>
+<tr><td><button type="button" class="cmd-run" data-cmd="color cpk, polymer" disabled>cpk</button></td><td>Color by chemical element. Most useful with atoms and bonds visible, rather than only a cartoon.</td></tr>
+<tr><td><button type="button" class="cmd-run" data-cmd="color ss, polymer" disabled>ss</button></td><td>Color by assigned secondary structure, such as helices, sheets and loops.</td></tr>
+<tr><td><button type="button" class="cmd-run" data-cmd="color index, polymer" disabled>index</button></td><td>A color progression along residue indices, useful for following the sequence through the fold.</td></tr>
+<tr><td><button type="button" class="cmd-run" data-cmd="color residue, polymer" disabled>residue</button></td><td>Color by residue type, useful when comparing the chemical character of amino acids.</td></tr>
+</tbody></table>
+<p>A color only has the meaning given by its scheme. Chain colors distinguish identities; they do not rank chains or measure a property. Tell your audience which scheme a figure uses.</p>
+<h3>Use two schemes for two questions</h3>
+<p>Apply <code>chain</code> to the protein using the table above, so the two subunits are easy to follow. Then give the hemes element colors so their chemistry is easier to read:</p>
+<div class="command-example"><div class="command-lines"><div class="command-line"><code id="colour-combination-2">color cpk, resn HEM</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="colour-combination-2" disabled>Run</button><button type="button" data-copy="colour-combination-2" aria-label="Copy command 2">Copy</button></span></div></div></div>
+<p>The cartoon inherits the protein’s chain colors, and the sticks inherit the hemes’ element colors. The representations themselves stay the same.</p>
+<h3>The same action with clicks</h3>
+<p>In the desktop app, hover over your structure’s row in <strong>Objects</strong> and click the palette icon, <strong>Colors</strong>. Keep <strong>base</strong> selected under <strong>Scope</strong>. Click a solid swatch to choose a fixed color, or a <strong>Scheme</strong> button such as <strong>by chain</strong> or <strong>by element</strong> to apply a color scheme.</p>
+<p>For the object shown in the screenshot, <strong>by chain</strong> corresponds to <code>color chain, 1HHO</code>. Hover over a control to preview its command at the bottom of the menu.</p>
+<figure class="desktop-tour"><a href="../assets/images/quick-start/colour.jpg"><img src="../assets/images/quick-start/colour.jpg" alt="Colors menu: solid swatches above color schemes, with base scope selected and color chain, 1HHO at the bottom." width="1165" height="1080" loading="lazy"></a></figure>
+<p>The menu on the object row acts on the whole object. The command examples above use <code>polymer</code> or <code>resn HEM</code> to give its protein and hemes different colors. In the next section, we’ll use the same menu to give sticks their own color and see how that interacts with the base colors.</p>
+</div>
+<div class="doc-page-nav"><button type="button" data-nav="prev"></button><span class="page-counter"></span><button type="button" data-nav="next"></button></div></div>
+
+<div class="doc-page" id="settings" data-title="Settings" data-src="../assets/pdb/1HHO.pdb" data-command="hide everything; show sticks, resn HEM; color cpk; orient resn HEM; zoom resn HEM, buffer=5">
+<div class="docs-section">
+<h2>Settings: customize Patinae</h2>
+<p><strong>Settings</strong> control how Patinae looks and behaves across the application: molecular representations, rendering, camera controls and the interface itself. Each setting stores a value that Patinae uses until you change it.</p>
+<p>A setting is not itself a command. <code>set</code> changes its value, <code>get</code> reads it, and <code>unset</code> resets it to a default or inherited value.</p>
+<p>Even the interface theme is a setting. In the desktop app, <code>get theme</code> reports the current choice. Use <code>set theme, light</code> for the light theme, <code>set theme, dark</code> for the dark theme, or <code>set theme, system</code> to follow your operating system’s appearance.</p>
+<h3>Tune a representation</h3>
+<p>For this exercise, we’ll use settings whose effect you can see on the molecule. For example, <code>stick_radius</code> controls how thick sticks are, and <code>sphere_scale</code> scales the displayed atom spheres.</p>
+<p>The embedded view isolates the hemes so the effect is easy to see. The examples below use the object name <code>1HHO</code>; if you fetched the structure, substitute <code>1hho</code>. On desktop, prepare the same view:</p>
+<div class="command-example"><div class="command-lines"><div class="command-line"><code id="settings-view-1">hide everything</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="settings-view-1" disabled>Run</button><button type="button" data-copy="settings-view-1" aria-label="Copy command 1">Copy</button></span></div>
+<div class="command-line"><code id="settings-view-2">show sticks, resn HEM</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="settings-view-2" disabled>Run</button><button type="button" data-copy="settings-view-2" aria-label="Copy command 2">Copy</button></span></div>
+<div class="command-line"><code id="settings-view-3">orient resn HEM</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="settings-view-3" disabled>Run</button><button type="button" data-copy="settings-view-3" aria-label="Copy command 3">Copy</button></span></div>
+<div class="command-line"><code id="settings-view-4">zoom resn HEM, buffer=5</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="settings-view-4" disabled>Run</button><button type="button" data-copy="settings-view-4" aria-label="Copy command 4">Copy</button></span></div></div></div>
+<p>Read the current radius before changing it:</p>
+<div class="command-example"><div class="command-lines"><div class="command-line"><code id="setting-read-1">get stick_radius</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="setting-read-1" disabled>Run</button><button type="button" data-copy="setting-read-1" aria-label="Copy command 1">Copy</button></span></div></div></div>
+<p>Keep that value so you can restore it later. Use the two commands below to compare thinner and thicker sticks on the hemes:</p>
+<div class="command-example"><div class="command-lines"><div class="command-line"><code id="setting-write-1">set stick_radius, 0.15</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="setting-write-1" disabled>Run</button><button type="button" data-copy="setting-write-1" aria-label="Copy command 1">Copy</button></span></div>
+<div class="command-line"><code id="setting-write-2">set stick_radius, 0.35</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="setting-write-2" disabled>Run</button><button type="button" data-copy="setting-write-2" aria-label="Copy command 2">Copy</button></span></div></div></div>
+<table class="docs-table"><thead><tr><th scope="col">Part</th><th scope="col">Role</th></tr></thead><tbody>
+<tr><td><code>set</code></td><td>The command: change a setting.</td></tr>
+<tr><td><code>stick_radius</code></td><td>The setting name, supplied as the first argument.</td></tr>
+<tr><td><code>0.35</code></td><td>The new value, supplied as the second argument.</td></tr>
+</tbody></table>
+<p>The sticks remain sticks and keep their colors. The atom positions and bond lengths do not change. Only the thickness used to draw them changes.</p>
+<h3>A stored setting or an argument for one action?</h3>
+<p><code>set stick_radius, 0.35</code> changes a value that remains in effect for later drawing. By contrast, <code>zoom all, buffer=5</code> supplies a margin to that zoom action. Both use arguments, but only the first changes a stored setting.</p>
+<h3>Global and local settings</h3>
+<p>A setting has a <strong>scope</strong>: where its value applies. Without a target, <code>set</code> changes the global value. For settings that support local values, add an object name or a selection as the third argument:</p>
+<table class="docs-table"><thead><tr><th scope="col">Scope</th><th scope="col">Example and effect</th></tr></thead><tbody>
+<tr><td><strong>Global</strong></td><td><code>set stick_radius, 0.35</code> sets the stick radius for objects that inherit the global value.</td></tr>
+<tr><td><strong>One object</strong></td><td><code>set stick_radius, 0.15, 1HHO</code>&nbsp;<button type="button" class="cmd-run command-run command-run-inline" data-run-example data-cmd="set stick_radius, 0.15, 1HHO" aria-label="Run set stick_radius, 0.15, 1HHO" title="Run set stick_radius, 0.15, 1HHO" disabled><span aria-hidden="true">▷</span></button> gives this object its own stick radius. Other objects keep their existing values.</td></tr>
+<tr><td><strong>Part of an object</strong></td><td><code>set stick_color, orange, resn HEM</code>&nbsp;<button type="button" class="cmd-run command-run command-run-inline" data-run-example data-cmd="set stick_color, orange, resn HEM" aria-label="Run set stick_color, orange, resn HEM" title="Run set stick_color, orange, resn HEM" disabled><span aria-hidden="true">▷</span></button> gives the heme atoms an explicit stick color. Other atoms and other representations keep their colors.</td></tr>
+</tbody></table>
+<p>A local value is an <strong>override</strong>: it takes precedence over the value it would otherwise inherit. Changing the global stick radius does not replace an object’s explicit radius. Use <code>get stick_radius, 1HHO</code> to inspect the value for that object.</p>
+<p>The supported scope depends on the setting. <code>theme</code> is global; <code>stick_radius</code> also supports object values; representation color settings such as <code>stick_color</code> also accept atom selections. Here, <code>resn HEM</code> is the same ready-made target used earlier; the separate Selections lesson explains how to build your own.</p>
+<h3>Reset a value with unset</h3>
+<p><code>unset</code> removes an explicit setting value. At global scope, it restores Patinae’s default. At local scope, it removes the override so the object or selected atoms inherit a value again:</p>
+<table class="docs-table"><thead><tr><th scope="col">Command</th><th scope="col">Result</th></tr></thead><tbody>
+<tr><td><code>unset stick_radius</code>&nbsp;<button type="button" class="cmd-run command-run command-run-inline" data-run-example data-cmd="unset stick_radius" aria-label="Run unset stick_radius" title="Run unset stick_radius" disabled><span aria-hidden="true">▷</span></button></td><td>Restore the global radius to its default, <code>0.25</code>. Object overrides remain in place.</td></tr>
+<tr><td><code>unset stick_radius, 1HHO</code>&nbsp;<button type="button" class="cmd-run command-run command-run-inline" data-run-example data-cmd="unset stick_radius, 1HHO" aria-label="Run unset stick_radius, 1HHO" title="Run unset stick_radius, 1HHO" disabled><span aria-hidden="true">▷</span></button></td><td>Remove this object’s radius override. It now uses the current global radius.</td></tr>
+<tr><td><code>unset stick_color, resn HEM</code>&nbsp;<button type="button" class="cmd-run command-run command-run-inline" data-run-example data-cmd="unset stick_color, resn HEM" aria-label="Run unset stick_color, resn HEM" title="Run unset stick_color, resn HEM" disabled><span aria-hidden="true">▷</span></button></td><td>Remove the explicit stick color from the heme atoms and return to inherited coloring.</td></tr>
+</tbody></table>
+<p><code>unset</code> does not undo the previous command or recover an earlier custom value. To restore a value you recorded with <code>get</code>, use <code>set</code> with that value. In the browser, <strong>Reset chapter</strong> restores the whole prepared scene.</p>
+<p>Use <code>help set</code>, <code>help get</code> and <code>help unset</code> to review their syntax. To reset the global stick radius in this example, run <code>unset stick_radius</code> from the table above. If you also tried the object override above, remove it with <code>unset stick_radius, 1HHO</code>.</p>
+<h3>Give sticks their own color</h3>
+<p>Now connect settings to the base colors introduced in the previous section. <code>stick_color</code> controls the color used by sticks; <code>cartoon_color</code> and <code>surface_color</code> do the same for their representations. These settings accept named colors and color schemes. Start by giving sticks an explicit orange color:</p>
+<div class="command-example"><div class="command-lines"><div class="command-line"><code id="setting-color-1">set stick_color, orange, 1HHO</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="setting-color-1" disabled>Run</button><button type="button" data-copy="setting-color-1" aria-label="Copy command 1">Copy</button></span></div></div></div>
+<p>The base colors and the colors of other representations remain unchanged.</p>
+<p>Next, change the base colors of the same atoms:</p>
+<div class="command-example"><div class="command-lines"><div class="command-line"><code id="setting-color-base">color cyan, 1HHO</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="setting-color-base" disabled>Run</button><button type="button" data-copy="setting-color-base" aria-label="Copy command 1">Copy</button></span></div></div></div>
+<p>The base color changes to cyan, but the sticks remain orange: their explicit color takes priority. Other representations that inherit base colors would now appear cyan.</p>
+<p>Remove the explicit stick color:</p>
+<div class="command-example"><div class="command-lines"><div class="command-line"><code id="setting-color-reset">unset stick_color, 1HHO</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="setting-color-reset" disabled>Run</button><button type="button" data-copy="setting-color-reset" aria-label="Copy command 1">Copy</button></span></div></div></div>
+<p>Removing the stick color override makes the sticks inherit the cyan base color in this prepared scene. If a global stick color has also been set in your own session, unset that value too to return to base coloring.</p>
+<h3>The same action with clicks</h3>
+<p>In the desktop app, hover over your structure’s row in <strong>Objects</strong> and click the palette icon, <strong>Colors</strong>. Under <strong>Scope</strong>, choose the <strong>sticks</strong> icon, then click the orange swatch.</p>
+<p>For the object shown in the screenshot, this corresponds to <code>set stick_color, orange, 1HHO</code>. Hover over a control to preview its command at the bottom of the menu.</p>
+<figure class="desktop-tour"><a href="../assets/images/quick-start/settings-colors.jpg"><img src="../assets/images/quick-start/settings-colors.jpg" alt="Colors menu for 1HHO with sticks selected under Scope, a small reset cross on the sticks tile, and set stick_color, orange, 1HHO shown at the bottom." width="1165" height="1080" loading="lazy"></a></figure>
+<p>To repeat the base-color step, select <strong>base</strong> and click the cyan swatch. This runs <code>color cyan, 1HHO</code>; the sticks remain orange. Selecting <strong>base</strong> only changes what your next color choice affects; it does not remove an existing representation color.</p>
+<p>To remove that override, click the small <strong>×</strong> at the top right of the sticks tile. Hovering over it shows <code>unset stick_color, 1HHO</code>, the command it runs. The sticks now inherit the cyan base color.</p>
+<p>The object row determines <em>which atoms</em> you affect. The menu’s <strong>Scope</strong> controls determine <em>which color</em> you change: base, sticks, cartoon and so on. To finish this exercise, remove the stick color override and restore element colors with <code>color cpk, 1HHO</code>&nbsp;<button type="button" class="cmd-run command-run command-run-inline" data-run-example data-cmd="color cpk, 1HHO" aria-label="Run color cpk, 1HHO" title="Run color cpk, 1HHO" disabled><span aria-hidden="true">▷</span></button>.</p>
+<p>You can now change a setting, check its scope and remove an override. The next section shows how to keep the scene you have built.</p>
+</div>
+<div class="doc-page-nav"><button type="button" data-nav="prev"></button><span class="page-counter"></span><button type="button" data-nav="next"></button></div></div>
+
+<div class="doc-page" id="save" data-title="Keep your work" data-src="../assets/pdb/1HHO.pdb" data-command="hide everything; show cartoon, polymer; show sticks, resn HEM; color chain; color cpk, resn HEM; orient; zoom all, buffer=5">
+<div class="docs-section">
+<h2>What do you want to keep?</h2>
+<p>Before saving, choose the representations, colors and camera view you want to keep. The examples below save your current scene; choose the output that preserves what you need. The saving and export steps below use the desktop app; the embedded lesson view does not provide file export.</p>
+<table class="docs-table"><thead><tr><th scope="col">Output</th><th scope="col">Use it for</th></tr></thead><tbody>
+<tr><td><strong>PRS session</strong></td><td>Continuing work on the scene: loaded structures, visual state and camera.</td></tr>
+<tr><td><strong>PNG image</strong></td><td>Showing this view in a slide or document. The image cannot be rotated or edited as a molecular scene.</td></tr>
+<tr><td><strong>PDB coordinates</strong></td><td>Taking the structure into another tool. It does not preserve your representations, colors and camera.</td></tr>
+</tbody></table>
+<h3>Save an editable session</h3>
+<p>Choose <strong>File → Save…</strong>, enter <code>hemoglobin.prs</code>, choose a folder and click Save.</p>
+<figure class="desktop-tour"><a href="../assets/images/quick-start/save.jpg"><img src="../assets/images/quick-start/save.jpg" alt="Save dialog with hemoglobin.prs as the filename." width="1348" height="420" loading="lazy"></a></figure>
+<p>The command equivalent is:</p>
+<div class="command-example"><div class="command-lines"><div class="command-line"><code id="save-1">save hemoglobin.prs</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-run-unavailable title="File export is available in the desktop app. Copy this command to run it there." aria-label="Run in desktop app: save hemoglobin.prs" disabled>Run</button><button type="button" data-copy="save-1" aria-label="Copy command 1">Copy</button></span></div></div></div>
+<p>A relative filename saves in the current working directory. Use the dialog to choose a destination, or supply a full path. Reopen the session with <strong>File → Open…</strong> or <code>load hemoglobin.prs</code>.</p>
+<h3>Export an image or coordinates</h3>
+<p>Choose <strong>File → Export PNG…</strong> to save a picture. For a specific width and height in pixels:</p>
+<div class="command-example"><div class="command-lines"><div class="command-line"><code id="png-1">png hemoglobin.png, 1600, 1200</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-run-unavailable title="File export is available in the desktop app. Copy this command to run it there." aria-label="Run in desktop app: png hemoglobin.png, 1600, 1200" disabled>Run</button><button type="button" data-copy="png-1" aria-label="Copy command 1">Copy</button></span></div></div></div>
+<p>To save the loaded atom coordinates instead:</p>
+<div class="command-example"><div class="command-lines"><div class="command-line"><code id="coordinates-1">save hemoglobin.pdb, all</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-run-unavailable title="File export is available in the desktop app. Copy this command to run it there." aria-label="Run in desktop app: save hemoglobin.pdb, all" disabled>Run</button><button type="button" data-copy="coordinates-1" aria-label="Copy command 1">Copy</button></span></div></div></div>
+<p>The filename extension changes what <code>save</code> writes. A PRS session and a PNG image make a useful pair: one for editing, one for sharing. Next, you’ll use these tools independently on 4HHB and produce two views of your own.</p>
+</div>
+<div class="doc-page-nav"><button type="button" data-nav="prev"></button><span class="page-counter"></span><button type="button" data-nav="next"></button></div></div>
+
+<div class="doc-page" id="try-it" data-title="Put it together" data-src="../assets/pdb/4HHB.pdb" data-command="as lines; color gray; orient; zoom all, buffer=5">
+<div class="docs-section">
+<h2>Independent practice: 4HHB</h2>
+<p>Apply what you have learned to <a class="ext-link" href="https://www.rcsb.org/structure/4HHB">4HHB, human deoxyhemoglobin</a>. Your goal is to prepare two views that answer different questions: <strong>how are the protein chains and hemes arranged?</strong> and <strong>what does one heme look like inside its protein environment?</strong></p>
+<p>The embedded view has 4HHB loaded as gray lines. Work through the tasks yourself using the command prompt; open a hint when you need one, then type its commands or use Run. Stay on this chapter while working: switching chapters or using <strong>Reset chapter</strong> replaces your scene and clears the camera views you have stored.</p>
+<h3>Start with the new structure</h3>
+<p>If you are working in the embedded view, skip this setup and start with task 1. In the desktop app, save your earlier work if you want to keep it, then run <code>reinitialize</code> to clear the current session:</p>
+<div class="command-example"><div class="command-lines"><div class="command-line"><code id="practice-load-1">reinitialize</code><span class="command-line-actions"><button type="button" data-copy="practice-load-1" aria-label="Copy command 1">Copy</button></span></div></div></div>
+<p>On desktop, the welcome screen returns, and the command line is unavailable until you load a structure. Enter <code>4HHB</code> in the welcome screen’s <strong>PDB ID</strong> field and click <strong>Fetch</strong>. You can also <a class="ext-link" href="../assets/pdb/4HHB.pdb" download>download 4HHB.pdb</a> and open that file from the welcome screen.</p>
+<p>Wait for the structure and command line to appear. Then set the initial appearance with <code>as lines</code> and <code>color gray</code>. In the embedded view, this preparation is already done.</p>
+<p>The examples in the hints use the object name <code>4HHB</code>, as loaded on this page. If you fetched it, substitute its name <code>4hhb</code>. For the close-up tasks, use this supplied target: <code>byres (first resn HEM)</code>. It selects the complete first heme residue. Use it as given here; building your own selection expressions belongs to the separate Selections lesson.</p>
+<h3>1. Read the structure before styling it</h3>
+<p>On desktop, expand the object in <strong>Objects</strong>. Identify the protein chains, hemes and water. How many protein chains and hemes are present? How does this compare with the 1HHO file used earlier? In the browser, inspect the structure and use the linked PDB entry to check its components.</p>
+<details><summary>Check the inventory</summary>
+<p>4HHB contains four protein chains and four hemes, one per chain. A and C are alpha chains; B and D are beta chains. The earlier 1HHO file contains two protein chains and two hemes. The difference reflects the contents of these coordinate files; 4HHB gives you the four-subunit assembly to explore.</p>
+</details>
+<h3>2. Build an overview that explains the assembly</h3>
+<p>Make the protein fold and the positions of all hemes easy to see. Remove visual clutter, choose suitable representations, distinguish the protein chains and preserve chemical-element colors on the hemes. Frame the whole structure.</p>
+<p><strong>Check:</strong> can a reader follow each chain and locate all four hemes? Compare chain colors with secondary-structure colors, then keep the scheme that best answers the overview question. Write one sentence explaining your choice.</p>
+<details><summary>Hint: separate the two visual jobs</summary>
+<p>A cartoon can show the protein fold while sticks show the hemes. Start with <code>hide everything</code>, then use <code>show</code> for each target. <code>color chain, polymer</code> distinguishes chains; <code>color cpk, resn HEM</code> colors heme atoms by element. Compare <code>color ss, polymer</code> before choosing your final scheme. Use <code>orient all</code> and <code>zoom all, buffer=5</code> as a starting camera view.</p>
+</details>
+<h3>3. Compare two ways of drawing one heme</h3>
+<p>Bring the first heme into view. Compare sticks, spheres, and both together on this same target. Keep enough protein context to see where the heme sits. Choose a representation for explaining bonds and another for explaining the space occupied by atoms.</p>
+<p><strong>Check:</strong> explain why <code>show</code> can combine representations and <code>as</code> replaces them. Finish with the heme shown as sticks so you can compare thickness and color in the later tasks.</p>
+<details><summary>Hint: keep the target fixed</summary>
+<div class="command-example"><div class="command-lines"><div class="command-line"><code id="practice-representations-1">zoom byres (first resn HEM), buffer=5</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="practice-representations-1" disabled>Run</button><button type="button" data-copy="practice-representations-1" aria-label="Copy command 1">Copy</button></span></div>
+<div class="command-line"><code id="practice-representations-2">show spheres, byres (first resn HEM)</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="practice-representations-2" disabled>Run</button><button type="button" data-copy="practice-representations-2" aria-label="Copy command 2">Copy</button></span></div>
+<div class="command-line"><code id="practice-representations-3">as spheres, byres (first resn HEM)</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="practice-representations-3" disabled>Run</button><button type="button" data-copy="practice-representations-3" aria-label="Copy command 3">Copy</button></span></div>
+<div class="command-line"><code id="practice-representations-4">as sticks, byres (first resn HEM)</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="practice-representations-4" disabled>Run</button><button type="button" data-copy="practice-representations-4" aria-label="Copy command 4">Copy</button></span></div></div></div>
+<p>The first <code>show</code> adds spheres to the existing sticks. The next <code>as</code> leaves only spheres on that heme. The last command returns it to sticks.</p>
+</details>
+<h3>4. Keep an overview and a close-up</h3>
+<p>Compose an overview and store it as <code>tetramer</code>. Compose a close-up of the first heme and store it as <code>heme_detail</code>. Use a small <code>turn</code> or <code>move</code> to improve the close-up. Try a thinner clipping layer to look into the protein, then choose a depth that keeps the feature you want to explain visible.</p>
+<p><strong>Check:</strong> recall each named view. The camera should change while the representations and colors remain as you set them. Keep both views for the final images.</p>
+<details><summary>Hint: store after composing</summary>
+<p>First compose the whole-structure overview, then store it:</p>
+<div class="command-example"><div class="command-lines"><div class="command-line"><code id="practice-views-1">view tetramer, store</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="practice-views-1" disabled>Run</button><button type="button" data-copy="practice-views-1" aria-label="Copy command 1">Copy</button></span></div>
+</div></div>
+<p>Now zoom to <code>byres (first resn HEM)</code>, adjust the angle and depth, then store that close-up:</p>
+<div class="command-example"><div class="command-lines"><div class="command-line"><code id="practice-views-2">view heme_detail, store</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="practice-views-2" disabled>Run</button><button type="button" data-copy="practice-views-2" aria-label="Copy command 2">Copy</button></span></div>
+</div></div>
+<p>Recall the two views to compare them:</p>
+<div class="command-example"><div class="command-lines"><div class="command-line"><code id="practice-views-3">view tetramer, recall</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="practice-views-3" disabled>Run</button><button type="button" data-copy="practice-views-3" aria-label="Copy command 3">Copy</button></span></div>
+<div class="command-line"><code id="practice-views-4">view heme_detail, recall</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="practice-views-4" disabled>Run</button><button type="button" data-copy="practice-views-4" aria-label="Copy command 4">Copy</button></span></div></div></div>
+<p>Try <code>turn y, 20</code>, <code>move x, 2</code> or <code>clip slab, 20</code> while composing. A new <code>zoom</code> fits the target and resets its clipping range, so apply your final clipping adjustment afterwards.</p>
+</details>
+<h3>5. Predict which color will be visible</h3>
+<p>Give the first heme an explicit orange stick color. Then change its base atom colors to cyan. Before you run the second command, predict what will happen. Finally, remove the explicit stick color.</p>
+<p><strong>Check:</strong> the sticks stay orange after the base-color change and become cyan after <code>unset</code>. Explain which value each step changed. Restore element colors on the heme when you are done.</p>
+<details><summary>Hint: color and stick_color change different values</summary>
+<div class="command-example"><div class="command-lines"><div class="command-line"><code id="practice-color-1">set stick_color, orange, byres (first resn HEM)</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="practice-color-1" disabled>Run</button><button type="button" data-copy="practice-color-1" aria-label="Copy command 1">Copy</button></span></div>
+<div class="command-line"><code id="practice-color-2">color cyan, byres (first resn HEM)</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="practice-color-2" disabled>Run</button><button type="button" data-copy="practice-color-2" aria-label="Copy command 2">Copy</button></span></div>
+<div class="command-line"><code id="practice-color-3">unset stick_color, byres (first resn HEM)</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="practice-color-3" disabled>Run</button><button type="button" data-copy="practice-color-3" aria-label="Copy command 3">Copy</button></span></div>
+<div class="command-line"><code id="practice-color-4">color cpk, byres (first resn HEM)</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="practice-color-4" disabled>Run</button><button type="button" data-copy="practice-color-4" aria-label="Copy command 4">Copy</button></span></div></div></div>
+</details>
+<h3>6. Test a global value and an object override</h3>
+<p>Set the global stick radius to <code>0.15</code> and the 4HHB object’s radius to <code>0.35</code>. Change the global value to <code>0.10</code>. Predict whether the sticks will become thinner, then remove the object override.</p>
+<p><strong>Check:</strong> the object keeps its explicit radius until you remove it; afterwards it uses the current global value. Use <code>get</code> to check both levels. Finish by choosing a radius that makes the heme readable in both saved views.</p>
+<details><summary>Hint: reset the level you changed</summary>
+<div class="command-example"><div class="command-lines"><div class="command-line"><code id="practice-radius-1">set stick_radius, 0.15</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="practice-radius-1" disabled>Run</button><button type="button" data-copy="practice-radius-1" aria-label="Copy command 1">Copy</button></span></div>
+<div class="command-line"><code id="practice-radius-2">set stick_radius, 0.35, 4HHB</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="practice-radius-2" disabled>Run</button><button type="button" data-copy="practice-radius-2" aria-label="Copy command 2">Copy</button></span></div>
+<div class="command-line"><code id="practice-radius-3">set stick_radius, 0.10</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="practice-radius-3" disabled>Run</button><button type="button" data-copy="practice-radius-3" aria-label="Copy command 3">Copy</button></span></div>
+<div class="command-line"><code id="practice-radius-4">get stick_radius</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="practice-radius-4" disabled>Run</button><button type="button" data-copy="practice-radius-4" aria-label="Copy command 4">Copy</button></span></div>
+<div class="command-line"><code id="practice-radius-5">get stick_radius, 4HHB</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="practice-radius-5" disabled>Run</button><button type="button" data-copy="practice-radius-5" aria-label="Copy command 5">Copy</button></span></div>
+<div class="command-line"><code id="practice-radius-6">unset stick_radius, 4HHB</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="practice-radius-6" disabled>Run</button><button type="button" data-copy="practice-radius-6" aria-label="Copy command 6">Copy</button></span></div></div></div>
+<p><code>unset stick_radius</code> would reset the global value instead. It would leave the object override in place.</p>
+</details>
+<h3>7. Repeat an action through the interface</h3>
+<p>On desktop, open <strong>Colors</strong> on the 4HHB object row. Choose <strong>sticks</strong> under <strong>Scope</strong> and assign a color. Read the command at the bottom of the menu, then remove that override with the tile’s small <strong>×</strong>. Repeat the same two actions in the command line.</p>
+<p><strong>Check:</strong> both routes give the same result. Explain why acting on the object row affects all its sticks, while the target in task 5 affects only the first heme. In the browser, practice the commands; this embedded layout does not include the Objects panel.</p>
+<h3>8. Deliver a scene and two images</h3>
+<p>Review both saved camera views. Restore your chosen chain colors, element-colored hemes and a useful stick radius. On desktop, save an editable session as <code>4hhb-study.prs</code> and export an image of each view. Reopen the session and check that you can still recall both views and edit the scene.</p>
+<p><strong>Check:</strong> write a short caption for each image stating the question it answers and the meaning of its colors. Keep the commands you used so someone else can repeat your choices. If you are working only in this page, finish with the two named views, captions and command list; file export is a desktop step.</p>
+<details><summary>Hint: recall before exporting</summary>
+<div class="command-example"><div class="command-lines"><div class="command-line"><code id="practice-save-1">save 4hhb-study.prs</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-run-unavailable title="File export is available in the desktop app. Copy this command to run it there." aria-label="Run in desktop app: save 4hhb-study.prs" disabled>Run</button><button type="button" data-copy="practice-save-1" aria-label="Copy command 1">Copy</button></span></div>
+<div class="command-line"><code id="practice-save-2">view tetramer, recall</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="practice-save-2" disabled>Run</button><button type="button" data-copy="practice-save-2" aria-label="Copy command 2">Copy</button></span></div>
+<div class="command-line"><code id="practice-save-3">png 4hhb-overview.png, 1600, 1200</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-run-unavailable title="File export is available in the desktop app. Copy this command to run it there." aria-label="Run in desktop app: png 4hhb-overview.png, 1600, 1200" disabled>Run</button><button type="button" data-copy="practice-save-3" aria-label="Copy command 3">Copy</button></span></div>
+<div class="command-line"><code id="practice-save-4">view heme_detail, recall</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="practice-save-4" disabled>Run</button><button type="button" data-copy="practice-save-4" aria-label="Copy command 4">Copy</button></span></div>
+<div class="command-line"><code id="practice-save-5">png 4hhb-heme-detail.png, 1600, 1200</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-run-unavailable title="File export is available in the desktop app. Copy this command to run it there." aria-label="Run in desktop app: png 4hhb-heme-detail.png, 1600, 1200" disabled>Run</button><button type="button" data-copy="practice-save-5" aria-label="Copy command 5">Copy</button></span></div></div></div>
+<p>Use the File menu if you prefer to choose a destination folder, or supply full paths in the commands. A PNG records the current view; the session keeps the editable scene and named camera views.</p>
+</details>
+<p>You have finished when your two views answer their questions and you can explain which changes affected the camera, representations, base colors or settings. Use <code>help</code> whenever you need to check a command. The separate <strong>Selections</strong> lesson develops the next skill: describing exactly which atoms an action should affect.</p>
+
+</div>
+<div class="doc-page-nav"><button type="button" data-nav="prev"></button><span class="page-counter"></span><button type="button" data-nav="next"></button></div></div>
+</main>
+
+      <aside class="docs-viewer-panel" aria-label="Interactive molecular viewer" aria-busy="true">
+        <div class="docs-viewer-heading"><span>Interactive view</span><button type="button" data-reset-chapter disabled>Reset chapter ↺</button></div>
+        <div class="docs-viewer-canvas" id="viewer-container"></div>
+        <p class="guide-status" id="guide-status" role="status" aria-live="polite">Preparing this view…</p>
+        <div class="docs-viewer-repl" id="viewer-repl"></div>
+      </aside>
+    </div>
+    <footer class="site-footer wrap"><div><a class="footer-name" href="../index.html">Patinae</a><span>© 2026 · <a href="https://github.com/zmactep">Pavel Yakovlev</a> · BSD 3-Clause</span></div><nav aria-label="Footer"><a href="../docs.html">Documentation</a><a href="https://github.com/zmactep/patinae">GitHub ↗</a></nav></footer>
+  </body>
+</html>

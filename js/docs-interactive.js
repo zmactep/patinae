@@ -7,9 +7,9 @@ function flashElement(el, className = "flash", ms = 400) {
   setTimeout(() => el.classList.remove(className), ms);
 }
 
-async function execCmdString(viewer, cmdStr) {
+async function execCmdString(viewer, cmdStr, runCommand = executeCommand) {
   for (const cmd of cmdStr.split(";").map(s => s.trim()).filter(Boolean))
-    await executeCommand(viewer, cmd);
+    await runCommand(viewer, cmd);
 }
 
 async function loadSources(viewer, src) {
@@ -29,7 +29,7 @@ async function loadSources(viewer, src) {
  * Inline commands use `data-cmd` (semicolon-separated) with optional
  * `data-src` for structure file(s) and `data-cmd-alt` for toggle behaviour.
  */
-export function initDocPages(viewer) {
+export function initDocPages(viewer, { onStateChange = () => {}, runCommand = executeCommand } = {}) {
   let setupSeq = 0;
   let viewerQueue = Promise.resolve();
 
@@ -42,7 +42,7 @@ export function initDocPages(viewer) {
   // ── Inline command clicks ─────────────────────────────────────────────
   document.addEventListener("click", async (e) => {
     const el = e.target.closest("[data-cmd]");
-    if (!el) return;
+    if (!el || !viewer || el.disabled) return;
     e.preventDefault();
     const src = el.dataset.src;
     const alt = el.dataset.cmdAlt;
@@ -60,6 +60,7 @@ export function initDocPages(viewer) {
     }
 
     try {
+      onStateChange("loading");
       await enqueueViewerOperation(async () => {
         if (seq !== setupSeq) return;
         if (src) {
@@ -67,11 +68,13 @@ export function initDocPages(viewer) {
           await loadSources(viewer, src);
           if (seq !== setupSeq) return;
         }
-        await execCmdString(viewer, cmdStr);
+        await execCmdString(viewer, cmdStr, runCommand);
         if (seq === setupSeq) flashElement(el);
       });
+      if (seq === setupSeq) onStateChange("ready");
     } catch (error) {
       console.error("Interactive viewer command failed:", error);
+      if (seq === setupSeq) onStateChange("error", error);
     }
   });
 
@@ -104,8 +107,11 @@ export function initDocPages(viewer) {
     if (pushState) history.pushState(null, "", "#" + page.id);
 
     // Viewer setup for this section
-    setupViewer(page).catch(error => {
+    const setup = setupViewer(page);
+    const seq = setupSeq;
+    setup.catch(error => {
       console.error("Viewer setup failed:", error);
+      if (seq === setupSeq) onStateChange("error", error);
     });
 
     // Prev / Next buttons
@@ -132,7 +138,10 @@ export function initDocPages(viewer) {
     const src = page.dataset.src;
     const command = page.dataset.command;
     const seq = ++setupSeq;
+    document.querySelectorAll("[data-cmd].toggled").forEach(el => el.classList.remove("toggled"));
+    if (!viewer) return Promise.resolve();
     if (!src && !command) return Promise.resolve();
+    onStateChange("loading");
 
     return enqueueViewerOperation(async () => {
       if (seq !== setupSeq) return;
@@ -150,15 +159,17 @@ export function initDocPages(viewer) {
       await executeCommand(viewer, "bg_color 0b0e10");
 
       await viewer.show();
+      if (seq === setupSeq) onStateChange("ready");
     });
   }
 
   // ── Navigation wiring ─────────────────────────────────────────────────
   document.addEventListener("click", (e) => {
-    const btn = e.target.closest("[data-nav]");
+    const btn = e.target.closest("[data-nav], [data-reset-chapter]");
     if (!btn) return;
     e.preventDefault();
-    if (btn.dataset.nav === "prev") showPage(currentIdx - 1);
+    if (btn.hasAttribute("data-reset-chapter")) showPage(currentIdx, false);
+    else if (btn.dataset.nav === "prev") showPage(currentIdx - 1);
     else if (btn.dataset.nav === "next") showPage(currentIdx + 1);
   });
 
