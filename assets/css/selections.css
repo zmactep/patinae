@@ -1,0 +1,9 @@
+.selection-frames {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 195px), 1fr));
+  gap: 16px;
+  margin: 24px 0;
+}
+.selection-frames figure { margin: 0; }
+.selection-frames img { display: block; width: 100%; height: auto; }
+.selection-frames figcaption { margin-top: 8px; color: var(--muted); font-size: 14px; }
