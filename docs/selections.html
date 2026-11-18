@@ -33,6 +33,7 @@
 <li><a href="#residues">From atoms to residues</a></li>
 <li><a href="#paths">Read a slash path</a></li>
 <li><a href="#practice">Practice on 4HHB</a></li>
+<li><a href="#cheatsheet">Selection algebra cheat sheet</a></li>
 </ul></aside>
 <main class="docs-content" id="main"><a class="docs-back" href="../docs.html">← Documentation</a><noscript><p>Run the examples in desktop Patinae to follow along.</p></noscript>
 <section class="doc-page" id="atom-sets" data-title="From objects to selections" data-src="../assets/pdb/1HHO.pdb" data-command="hide everything; show cartoon, polymer.protein; show lines, resn HEM; color gray; color cyan, chain A; color orange, resn HEM; label polymer.protein and resi 1 and name CA, chain; orient polymer.protein; zoom polymer.protein, buffer=3">
@@ -66,208 +67,28 @@
 <div class="doc-page-nav"><button type="button" data-nav="prev"></button><span class="page-counter"></span><button type="button" data-nav="next"></button></div>
 </section>
 
-<section class="doc-page" id="fields" data-title="Read an atom’s address" data-src="../assets/pdb/1HHO.pdb" data-command="select hemes, resn HEM; disable hemes; hide everything; show cartoon, polymer.protein; show sticks, resn HEM; color gray; color cyan, chain A; color orange, resn HEM; label polymer.protein and resi 1 and name CA, chain; orient polymer.protein; zoom polymer.protein, buffer=3">
+<section class="doc-page" id="fields" data-title="Read an atom’s address" data-src="../assets/pdb/1HHO.pdb" data-command="hide everything; show cartoon, polymer.protein; show sticks, resn HEM; color gray; color cyan, chain A; color orange, resn HEM; label polymer.protein and resi 1 and name CA, chain; orient polymer.protein; zoom polymer.protein, buffer=3">
 <div class="docs-section">
 <h2>Which field describes this atom?</h2>
 <p>Follow the gray ribbon of the beta chain to its orange heme. The iron at its center belongs to residue HEM 147. In this PDB file, the heme atoms appear in a later segment of chain B. Patinae labels the protein segment <code>B</code> and the segment containing its heme <code>B2</code>. The corresponding identifiers for the alpha chain are <code>A</code> and <code>A2</code>.</p>
-<table class="docs-table"><thead><tr><th scope="col">Field</th><th scope="col">Address of this iron in Patinae</th></tr></thead><tbody>
-<tr><td>Object</td><td>1HHO, the loaded structure</td></tr>
-<tr><td>Chain</td><td>B2, the segment containing this heme</td></tr>
-<tr><td>Residue name and number</td><td>HEM 147</td></tr>
-<tr><td>Atom name</td><td>FE, the atom label in this residue</td></tr>
-<tr><td>Element</td><td>Fe, the chemical element iron</td></tr>
-</tbody></table>
-<p>Try each filter on its own. Each command replaces <code>sample</code>. Which filters also find atoms in the other heme?</p>
-<div class="command-example"><div class="command-lines">
-<div class="command-line"><code id="example-4">select sample, chain B2</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-4" disabled>Run</button><button type="button" data-copy="example-4" aria-label="Copy select sample, chain B2">Copy</button></span></div>
-<div class="command-line"><code id="example-5">select sample, resn HEM</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-5" disabled>Run</button><button type="button" data-copy="example-5" aria-label="Copy select sample, resn HEM">Copy</button></span></div>
-<div class="command-line"><code id="example-6">select sample, resi 147</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-6" disabled>Run</button><button type="button" data-copy="example-6" aria-label="Copy select sample, resi 147">Copy</button></span></div>
-<div class="command-line"><code id="example-7">select sample, name FE</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-7" disabled>Run</button><button type="button" data-copy="example-7" aria-label="Copy select sample, name FE">Copy</button></span></div>
-<div class="command-line"><code id="example-8">select sample, elem Fe</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-8" disabled>Run</button><button type="button" data-copy="example-8" aria-label="Copy select sample, elem Fe">Copy</button></span></div>
-</div></div>
-<p>In this structure, <code>resn HEM</code> selects both hemes (86 atoms). Only the beta heme has residue number 147, so <code>resi 147</code> selects its 43 atoms. Each iron filter selects two atoms, one at the center of each heme.</p>
-<h3>How to choose atoms</h3>
-<p>Start with what you know about the atoms. If you know the residue number, use <code>resi</code>. If you want the protein backbone or all solvent atoms, a single keyword describes the whole group. For a measured property, give a comparison, such as <code>b &gt; 30</code>.</p>
-<p>Click an expression to run it on 1HHO. The viewer replaces <code>sample</code> with the matching atoms and reports their count. Alternate spellings are listed at the end of the reference.</p>
+<p>The iron’s atom name is <code>FE</code> and its element is <code>Fe</code>. Try <code>resi 147</code> to select the 43 atoms in the beta heme, then <code>e. Fe</code> to select the two iron atoms in the structure. Which field would you use to select both whole hemes?</p>
 <p>To see the individual atoms, switch to sticks for the structure and dots for the surrounding water.</p>
 <button type="button" class="cmd-run prepare-view" data-cmd="hide cartoon, polymer.protein; show sticks, not solvent; show dots, solvent" data-cmd-alt="hide dots, solvent; hide sticks, not solvent; show cartoon, polymer.protein; show sticks, resn HEM" disabled><span class="prepare-label">Prepare view</span><span class="restore-label">Restore overview</span></button>
+<p>Each expression replaces the selection named <code>sample</code>. The short forms and aliases take the same arguments as the full keywords. Try <code>elem Fe</code> and <code>e. Fe</code> in turn and watch the markers.</p>
 <div class="keyword-reference">
-<details open><summary>Atom and residue addresses</summary>
-<table class="keyword-table"><thead><tr><th scope="col">Expression</th><th scope="col">Which atoms it selects</th></tr></thead><tbody>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, name CA" aria-label="Run select sample, name CA" title="Run select sample, name CA" disabled><code>name CA</code></button></th><td>Atoms with this atom name. CA is the alpha carbon in each standard amino acid.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, elem Fe" aria-label="Run select sample, elem Fe" title="Run select sample, elem Fe" disabled><code>elem Fe</code></button></th><td>Atoms of this chemical element. Fe finds the two heme irons.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, resn HEM" aria-label="Run select sample, resn HEM" title="Run select sample, resn HEM" disabled><code>resn HEM</code></button></th><td>Every atom in a residue with this name, across all matching chains and objects.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, resi 147" aria-label="Run select sample, resi 147" title="Run select sample, resi 147" disabled><code>resi 147</code></button></th><td>Every atom with this residue number. A range such as <code>resi 10-15</code> includes both endpoints.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, chain B2" aria-label="Run select sample, chain B2" title="Run select sample, chain B2" disabled><code>chain B2</code></button></th><td>Atoms with this loaded chain identifier.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, model &quot;1HHO&quot;" aria-label="Run select sample, model &quot;1HHO&quot;" title="Run select sample, model &quot;1HHO&quot;" disabled><code>model &quot;1HHO&quot;</code></button></th><td>All atoms belonging to an object whose name matches the value.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, segi globin" aria-label="Run select sample, segi globin" title="Run select sample, segi globin" disabled><code>segi globin</code></button></th><td>Atoms with this segment identifier in their structure records. An exact segment match needs a populated segment field.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, alt A" aria-label="Run select sample, alt A" title="Run select sample, alt A" disabled><code>alt A</code></button></th><td>Atoms assigned alternate location A in the structure file.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, id 2287" aria-label="Run select sample, id 2287" title="Run select sample, id 2287" disabled><code>id 2287</code></button></th><td>The atom with this file serial number in each matching object. Serial 2287 is the beta-heme iron in 1HHO.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, index 0" aria-label="Run select sample, index 0" title="Run select sample, index 0" disabled><code>index 0</code></button></th><td>The atom at this zero-based position in each object. Index 0 is its first atom.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, rank 0" aria-label="Run select sample, rank 0" title="Run select sample, rank 0" disabled><code>rank 0</code></button></th><td>Atoms with this stored rank. In this PDB file every atom has the default rank of 0.</td></tr>
+<table class="keyword-table address-table"><thead><tr><th scope="col">Expression</th><th scope="col">Short form or alias</th><th scope="col">Which atoms it selects</th></tr></thead><tbody>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, name FE" aria-label="Run select sample, name FE" title="Run select sample, name FE" disabled><code>name FE</code></button></th><td class="short-form"><button type="button" class="keyword-example" data-cmd="select sample, n. FE" aria-label="Run select sample, n. FE" title="Run select sample, n. FE" disabled><code>n. FE</code></button></td><td>Atoms with this atom name. Each of the two hemes contains an atom named FE.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, elem Fe" aria-label="Run select sample, elem Fe" title="Run select sample, elem Fe" disabled><code>elem Fe</code></button></th><td class="short-form"><button type="button" class="keyword-example" data-cmd="select sample, e. Fe" aria-label="Run select sample, e. Fe" title="Run select sample, e. Fe" disabled><code>e. Fe</code></button></td><td>Atoms of this chemical element. Fe finds the two heme irons.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, resn HEM" aria-label="Run select sample, resn HEM" title="Run select sample, resn HEM" disabled><code>resn HEM</code></button></th><td class="short-form"><button type="button" class="keyword-example" data-cmd="select sample, r. HEM" aria-label="Run select sample, r. HEM" title="Run select sample, r. HEM" disabled><code>r. HEM</code></button></td><td>Every atom in a residue with this name, across all matching chains and objects.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, resi 147" aria-label="Run select sample, resi 147" title="Run select sample, resi 147" disabled><code>resi 147</code></button></th><td class="short-form"><button type="button" class="keyword-example" data-cmd="select sample, i. 147" aria-label="Run select sample, i. 147" title="Run select sample, i. 147" disabled><code>i. 147</code></button></td><td>Every atom with this residue number. A range such as <code>resi 10-15</code> includes both endpoints.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, chain B2" aria-label="Run select sample, chain B2" title="Run select sample, chain B2" disabled><code>chain B2</code></button></th><td class="short-form"><button type="button" class="keyword-example" data-cmd="select sample, c. B2" aria-label="Run select sample, c. B2" title="Run select sample, c. B2" disabled><code>c. B2</code></button></td><td>Atoms with this loaded chain identifier.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, model &quot;1HHO&quot;" aria-label="Run select sample, model &quot;1HHO&quot;" title="Run select sample, model &quot;1HHO&quot;" disabled><code>model &quot;1HHO&quot;</code></button></th><td class="short-form"><button type="button" class="keyword-example" data-cmd="select sample, m. &quot;1HHO&quot;" aria-label="Run select sample, m. &quot;1HHO&quot;" title="Run select sample, m. &quot;1HHO&quot;" disabled><code>m. &quot;1HHO&quot;</code></button> <button type="button" class="keyword-example" data-cmd="select sample, o. &quot;1HHO&quot;" aria-label="Run select sample, o. &quot;1HHO&quot;" title="Run select sample, o. &quot;1HHO&quot;" disabled><code>o. &quot;1HHO&quot;</code></button></td><td>All atoms belonging to an object whose name matches the value.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, segi globin" aria-label="Run select sample, segi globin" title="Run select sample, segi globin" disabled><code>segi globin</code></button></th><td class="short-form"><button type="button" class="keyword-example" data-cmd="select sample, s. globin" aria-label="Run select sample, s. globin" title="Run select sample, s. globin" disabled><code>s. globin</code></button></td><td>Atoms with this segment identifier in their structure records. An exact segment match needs a populated segment field.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, alt A" aria-label="Run select sample, alt A" title="Run select sample, alt A" disabled><code>alt A</code></button></th><td class="short-form"><button type="button" class="keyword-example" data-cmd="select sample, altloc A" aria-label="Run select sample, altloc A" title="Run select sample, altloc A" disabled><code>altloc A</code></button></td><td>Atoms assigned alternate location A in the structure file.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, id 2287" aria-label="Run select sample, id 2287" title="Run select sample, id 2287" disabled><code>id 2287</code></button></th><td class="short-form">—</td><td>The atom with this file serial number in each matching object. Serial 2287 is the beta-heme iron in 1HHO.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, index 0" aria-label="Run select sample, index 0" title="Run select sample, index 0" disabled><code>index 0</code></button></th><td class="short-form"><button type="button" class="keyword-example" data-cmd="select sample, idx. 0" aria-label="Run select sample, idx. 0" title="Run select sample, idx. 0" disabled><code>idx. 0</code></button></td><td>The atom at this zero-based position in each object. Index 0 is its first atom.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, rank 0" aria-label="Run select sample, rank 0" title="Run select sample, rank 0" disabled><code>rank 0</code></button></th><td class="short-form">—</td><td>Atoms with this stored rank. In this PDB file every atom has the default rank of 0.</td></tr>
 </tbody></table>
-</details>
-<details><summary>Molecules and structural features</summary>
-<table class="keyword-table"><thead><tr><th scope="col">Expression</th><th scope="col">Which atoms it selects</th></tr></thead><tbody>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, all" aria-label="Run select sample, all" title="Run select sample, all" disabled><code>all</code></button></th><td>Every atom in the scene.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, none" aria-label="Run select sample, none" title="Run select sample, none" disabled><code>none</code></button></th><td>The empty set of atoms.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, polymer" aria-label="Run select sample, polymer" title="Run select sample, polymer" disabled><code>polymer</code></button></th><td>Atoms classified as part of a polymer.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, polymer.protein" aria-label="Run select sample, polymer.protein" title="Run select sample, polymer.protein" disabled><code>polymer.protein</code></button></th><td>Atoms in protein residues.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, polymer.nucleic" aria-label="Run select sample, polymer.nucleic" title="Run select sample, polymer.nucleic" disabled><code>polymer.nucleic</code></button></th><td>Atoms in nucleic acid residues, including DNA and RNA.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, organic" aria-label="Run select sample, organic" title="Run select sample, organic" disabled><code>organic</code></button></th><td>Atoms classified as belonging to an organic small molecule.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, inorganic" aria-label="Run select sample, inorganic" title="Run select sample, inorganic" disabled><code>inorganic</code></button></th><td>Atoms classified as inorganic, for example atoms of an inorganic ion.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, solvent" aria-label="Run select sample, solvent" title="Run select sample, solvent" disabled><code>solvent</code></button></th><td>Atoms in solvent residues, including water.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, hetatm" aria-label="Run select sample, hetatm" title="Run select sample, hetatm" disabled><code>hetatm</code></button></th><td>Atoms marked as heteroatoms in the structure file. This can include heme and crystallographic water.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, metals" aria-label="Run select sample, metals" title="Run select sample, metals" disabled><code>metals</code></button></th><td>Atoms whose chemical element is a metal.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, hydrogens" aria-label="Run select sample, hydrogens" title="Run select sample, hydrogens" disabled><code>hydrogens</code></button></th><td>Hydrogen atoms present in the loaded coordinates.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, backbone" aria-label="Run select sample, backbone" title="Run select sample, backbone" disabled><code>backbone</code></button></th><td>Protein atoms named N, CA, C or O.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, sidechain" aria-label="Run select sample, sidechain" title="Run select sample, sidechain" disabled><code>sidechain</code></button></th><td>The remaining atoms of protein residues after removing those four backbone names.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, guide" aria-label="Run select sample, guide" title="Run select sample, guide" disabled><code>guide</code></button></th><td>The guide atoms used to trace polymers. Here each protein residue contributes its alpha carbon.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, ss H" aria-label="Run select sample, ss H" title="Run select sample, ss H" disabled><code>ss H</code></button></th><td>Atoms assigned a secondary-structure code. H selects helix, S selects sheet and L selects loop.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, pepseq H" aria-label="Run select sample, pepseq H" title="Run select sample, pepseq H" disabled><code>pepseq H</code></button></th><td>Atoms in residues matching the one-letter amino acid code. H finds histidines. This viewer checks one residue at a time.</td></tr>
-</tbody></table>
-</details>
-<details><summary>Measurements, charges and atom types</summary>
-<table class="keyword-table"><thead><tr><th scope="col">Expression</th><th scope="col">Which atoms it selects</th></tr></thead><tbody>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, b &gt; 30" aria-label="Run select sample, b &gt; 30" title="Run select sample, b &gt; 30" disabled><code>b &gt; 30</code></button></th><td>Atoms whose B factor exceeds 30 Å².</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, q &lt; 1" aria-label="Run select sample, q &lt; 1" title="Run select sample, q &lt; 1" disabled><code>q &lt; 1</code></button></th><td>Atoms with occupancy below 1 in the structure file.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, partial_charge &lt; 0" aria-label="Run select sample, partial_charge &lt; 0" title="Run select sample, partial_charge &lt; 0" disabled><code>partial_charge &lt; 0</code></button></th><td>Atoms with stored partial charge below zero.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, formal_charge &gt; 0" aria-label="Run select sample, formal_charge &gt; 0" title="Run select sample, formal_charge &gt; 0" disabled><code>formal_charge &gt; 0</code></button></th><td>Atoms with positive formal charge.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, x &gt; 30" aria-label="Run select sample, x &gt; 30" title="Run select sample, x &gt; 30" disabled><code>x &gt; 30</code></button></th><td>Atoms whose x coordinate exceeds 30 Å in the current coordinate set.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, y &gt; 30" aria-label="Run select sample, y &gt; 30" title="Run select sample, y &gt; 30" disabled><code>y &gt; 30</code></button></th><td>Atoms whose y coordinate exceeds 30 Å.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, z &gt; 30" aria-label="Run select sample, z &gt; 30" title="Run select sample, z &gt; 30" disabled><code>z &gt; 30</code></button></th><td>Atoms whose z coordinate exceeds 30 Å.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, donors" aria-label="Run select sample, donors" title="Run select sample, donors" disabled><code>donors</code></button></th><td>Atoms marked as hydrogen-bond donors. This file has no donor flags set.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, acceptors" aria-label="Run select sample, acceptors" title="Run select sample, acceptors" disabled><code>acceptors</code></button></th><td>Atoms marked as hydrogen-bond acceptors. This file has no acceptor flags set.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, bonded" aria-label="Run select sample, bonded" title="Run select sample, bonded" disabled><code>bonded</code></button></th><td>Atoms carrying the bonded flag.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, stereo Odd" aria-label="Run select sample, stereo Odd" title="Run select sample, stereo Odd" disabled><code>stereo Odd</code></button></th><td>Atoms with the specified stored stereo parity. Values are <code>Odd</code>, <code>Even</code>, <code>Either</code> and <code>None</code>.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, text_type CT" aria-label="Run select sample, text_type CT" title="Run select sample, text_type CT" disabled><code>text_type CT</code></button></th><td>Atoms with the matching atom-type text, when supplied by the input.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, numeric_type 1" aria-label="Run select sample, numeric_type 1" title="Run select sample, numeric_type 1" disabled><code>numeric_type 1</code></button></th><td>Matches the stored atom-type text against the requested value in this viewer.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, custom CT" aria-label="Run select sample, custom CT" title="Run select sample, custom CT" disabled><code>custom CT</code></button></th><td>Also matches the atom-type text in this viewer.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, p. b &gt; 30.0" aria-label="Run select sample, p. b &gt; 30.0" title="Run select sample, p. b &gt; 30.0" disabled><code>p. b &gt; 30.0</code></button></th><td>A comparison on a supported property. Use a space after <code>p.</code>. Supported fields are <code>b</code> or <code>b_factor</code>, <code>q</code> or <code>occupancy</code>, and <code>name</code>. Use a decimal for numeric properties.</td></tr>
-</tbody></table>
-</details>
-<details><summary>What is drawn or marked in the scene?</summary>
-<table class="keyword-table"><thead><tr><th scope="col">Expression</th><th scope="col">Which atoms it selects</th></tr></thead><tbody>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, visible" aria-label="Run select sample, visible" title="Run select sample, visible" disabled><code>visible</code></button></th><td>Atoms with at least one representation switched on.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, rep sticks" aria-label="Run select sample, rep sticks" title="Run select sample, rep sticks" disabled><code>rep sticks</code></button></th><td>Atoms currently drawn as sticks. Try this in the overview and again in the prepared view to see how the selection changes.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, color orange" aria-label="Run select sample, color orange" title="Run select sample, color orange" disabled><code>color orange</code></button></th><td>Atoms assigned this base color.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, cartoon_color orange" aria-label="Run select sample, cartoon_color orange" title="Run select sample, cartoon_color orange" disabled><code>cartoon_color orange</code></button></th><td>Atoms with this explicit cartoon color assignment.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, ribbon_color orange" aria-label="Run select sample, ribbon_color orange" title="Run select sample, ribbon_color orange" disabled><code>ribbon_color orange</code></button></th><td>Atoms with this explicit ribbon color assignment.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, label B" aria-label="Run select sample, label B" title="Run select sample, label B" disabled><code>label B</code></button></th><td>Atoms whose label text matches B in the scene.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, present" aria-label="Run select sample, present" title="Run select sample, present" disabled><code>present</code></button></th><td>Atoms with coordinates in the current state.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, state 1" aria-label="Run select sample, state 1" title="Run select sample, state 1" disabled><code>state 1</code></button></th><td>Atoms whose stored discrete-state number matches the value.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, instance 1" aria-label="Run select sample, instance 1" title="Run select sample, instance 1" disabled><code>instance 1</code></button></th><td>Atoms belonging to the specified copy of an instanced assembly. Copy numbers start at 1.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, flag 0" aria-label="Run select sample, flag 0" title="Run select sample, flag 0" disabled><code>flag 0</code></button></th><td>Atoms with the specified bit set in their atom flags.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, fixed" aria-label="Run select sample, fixed" title="Run select sample, fixed" disabled><code>fixed</code></button></th><td>Atoms carrying the fixed flag.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, restrained" aria-label="Run select sample, restrained" title="Run select sample, restrained" disabled><code>restrained</code></button></th><td>Atoms carrying the restraint flag.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, protected" aria-label="Run select sample, protected" title="Run select sample, protected" disabled><code>protected</code></button></th><td>Atoms carrying the exclusion flag.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, masked" aria-label="Run select sample, masked" title="Run select sample, masked" disabled><code>masked</code></button></th><td>Atoms marked as masked.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, enabled" aria-label="Run select sample, enabled" title="Run select sample, enabled" disabled><code>enabled</code></button></th><td>Atoms whose mask is off.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, %hemes" aria-label="Run select sample, %hemes" title="Run select sample, %hemes" disabled><code>%hemes</code></button></th><td>Atoms in an existing named selection. This chapter prepares <code>hemes</code> as the two HEM residues.</td></tr>
-</tbody></table>
-</details>
-<details><summary>Combine two sets or compare their members</summary>
-<table class="keyword-table"><thead><tr><th scope="col">Expression</th><th scope="col">Which atoms it selects</th></tr></thead><tbody>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, resn HEM and elem Fe" aria-label="Run select sample, resn HEM and elem Fe" title="Run select sample, resn HEM and elem Fe" disabled><code>resn HEM and elem Fe</code></button></th><td>Atoms that satisfy both conditions. A spaced minus sign subtracts one set from another. For example, <code>all - solvent</code> selects every atom outside the solvent.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, metals or solvent" aria-label="Run select sample, metals or solvent" title="Run select sample, metals or solvent" disabled><code>metals or solvent</code></button></th><td>Atoms that satisfy either condition, counting each atom once. Here the selection includes both irons and all water atoms. Inside a field, a plus sign lists alternative values, as in <code>name N+CA+C+O</code>.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, not polymer" aria-label="Run select sample, not polymer" title="Run select sample, not polymer" disabled><code>not polymer</code></button></th><td>All atoms outside the input selection.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, metals in resn HEM" aria-label="Run select sample, metals in resn HEM" title="Run select sample, metals in resn HEM" disabled><code>metals in resn HEM</code></button></th><td>Atoms on the left that also belong to the set on the right.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, chain A like chain B" aria-label="Run select sample, chain A like chain B" title="Run select sample, chain A like chain B" disabled><code>chain A like chain B</code></button></th><td>Atoms on the left whose residue name occurs somewhere in the right-hand set.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, first resn HEM" aria-label="Run select sample, first resn HEM" title="Run select sample, first resn HEM" disabled><code>first resn HEM</code></button></th><td>The first matching atom in atom order.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, last resn HEM" aria-label="Run select sample, last resn HEM" title="Run select sample, last resn HEM" disabled><code>last resn HEM</code></button></th><td>The last matching atom in atom order.</td></tr>
-</tbody></table>
-</details>
-<details><summary>Whole groups and bonded neighbors</summary>
-<table class="keyword-table"><thead><tr><th scope="col">Expression</th><th scope="col">Which atoms it selects</th></tr></thead><tbody>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, byres (elem Fe)" aria-label="Run select sample, byres (elem Fe)" title="Run select sample, byres (elem Fe)" disabled><code>byres (elem Fe)</code></button></th><td>All atoms of every residue touched by the input. Each heme iron brings in one whole heme.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, bychain (name FE)" aria-label="Run select sample, bychain (name FE)" title="Run select sample, bychain (name FE)" disabled><code>bychain (name FE)</code></button></th><td>All atoms in each loaded chain touched by the input.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, bysegment (name FE)" aria-label="Run select sample, bysegment (name FE)" title="Run select sample, bysegment (name FE)" disabled><code>bysegment (name FE)</code></button></th><td>All atoms sharing a segment identifier with an input atom in the same object. A blank segment ID can match many atoms.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, byobject (name FE)" aria-label="Run select sample, byobject (name FE)" title="Run select sample, byobject (name FE)" disabled><code>byobject (name FE)</code></button></th><td>All atoms in each object touched by the input.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, bymolecule (name FE)" aria-label="Run select sample, bymolecule (name FE)" title="Run select sample, bymolecule (name FE)" disabled><code>bymolecule (name FE)</code></button></th><td>All atoms reachable from the input through bonds.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, byfragment (name FE)" aria-label="Run select sample, byfragment (name FE)" title="Run select sample, byfragment (name FE)" disabled><code>byfragment (name FE)</code></button></th><td>The same bonded components reached by <code>bymolecule</code> in this viewer.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, bycalpha (name CB)" aria-label="Run select sample, bycalpha (name CB)" title="Run select sample, bycalpha (name CB)" disabled><code>bycalpha (name CB)</code></button></th><td>The alpha carbons of residues touched by the input.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, neighbor (name FE)" aria-label="Run select sample, neighbor (name FE)" title="Run select sample, neighbor (name FE)" disabled><code>neighbor (name FE)</code></button></th><td>Atoms directly bonded to the input, excluding the input atoms.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, bound_to (name FE)" aria-label="Run select sample, bound_to (name FE)" title="Run select sample, bound_to (name FE)" disabled><code>bound_to (name FE)</code></button></th><td>The input atoms together with their directly bonded neighbors.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, extend 2 (name FE)" aria-label="Run select sample, extend 2 (name FE)" title="Run select sample, extend 2 (name FE)" disabled><code>extend 2 (name FE)</code></button></th><td>The input plus atoms reachable in at most the specified number of bond steps.</td></tr>
-</tbody></table>
-</details>
-<details><summary>Distances in ångströms</summary>
-<table class="keyword-table"><thead><tr><th scope="col">Expression</th><th scope="col">Which atoms it selects</th></tr></thead><tbody>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, protein within 4 of hemes" aria-label="Run select sample, protein within 4 of hemes" title="Run select sample, protein within 4 of hemes" disabled><code>protein within 4 of hemes</code></button></th><td>Protein atoms within 4 Å of at least one heme atom. The word <code>of</code> introduces the reference selection.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, protein beyond 4 of hemes" aria-label="Run select sample, protein beyond 4 of hemes" title="Run select sample, protein beyond 4 of hemes" disabled><code>protein beyond 4 of hemes</code></button></th><td>Protein atoms outside that 4 Å neighborhood.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, protein near_to 4 of hemes" aria-label="Run select sample, protein near_to 4 of hemes" title="Run select sample, protein near_to 4 of hemes" disabled><code>protein near_to 4 of hemes</code></button></th><td>Uses the same distance test as <code>within</code> in this viewer.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, around 4 hemes" aria-label="Run select sample, around 4 hemes" title="Run select sample, around 4 hemes" disabled><code>around 4 hemes</code></button></th><td>Atoms within 4 Å of the input, excluding the heme atoms themselves.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, expand 4 hemes" aria-label="Run select sample, expand 4 hemes" title="Run select sample, expand 4 hemes" disabled><code>expand 4 hemes</code></button></th><td>The heme atoms plus their 4 Å neighborhood.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, gap 4 hemes" aria-label="Run select sample, gap 4 hemes" title="Run select sample, gap 4 hemes" disabled><code>gap 4 hemes</code></button></th><td>Uses the same atom-center distance as <code>around</code> in this viewer.</td></tr>
-</tbody></table>
-</details>
-<details><summary>Keywords with limited behavior in the web viewer</summary>
-<table class="keyword-table"><thead><tr><th scope="col">Expression</th><th scope="col">Which atoms it selects</th></tr></thead><tbody>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, delocalized" aria-label="Run select sample, delocalized" title="Run select sample, delocalized" disabled><code>delocalized</code></button></th><td>Reserved for atoms with delocalized bonding. The web viewer returns an empty selection.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, origin" aria-label="Run select sample, origin" title="Run select sample, origin" disabled><code>origin</code></button></th><td>The coordinate origin is a point. Used as an atom selection, this keyword returns an empty set.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, center" aria-label="Run select sample, center" title="Run select sample, center" disabled><code>center</code></button></th><td>The center is a point. Used as an atom selection, this keyword returns an empty set.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, byring (elem Fe)" aria-label="Run select sample, byring (elem Fe)" title="Run select sample, byring (elem Fe)" disabled><code>byring (elem Fe)</code></button></th><td>Returns the input atoms. Ring expansion is unavailable in this build.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, bycell (elem Fe)" aria-label="Run select sample, bycell (elem Fe)" title="Run select sample, bycell (elem Fe)" disabled><code>bycell (elem Fe)</code></button></th><td>Returns the input atoms. Unit-cell expansion is unavailable in this build.</td></tr>
-</tbody></table>
-</details>
-<details><summary>Alternate spellings</summary>
-<dl class="keyword-aliases">
-<div><dt><code>acceptors</code></dt><dd><code>acc.</code>, <code>hba.</code></dd></div>
-<div><dt><code>all</code></dt><dd><code>*</code></dd></div>
-<div><dt><code>alt</code></dt><dd><code>altloc</code></dd></div>
-<div><dt><code>and</code></dt><dd><code>&amp;</code></dd></div>
-<div><dt><code>around</code></dt><dd><code>a.</code></dd></div>
-<div><dt><code>backbone</code></dt><dd><code>bb.</code></dd></div>
-<div><dt><code>beyond</code></dt><dd><code>be.</code></dd></div>
-<div><dt><code>bound_to</code></dt><dd><code>bto.</code></dd></div>
-<div><dt><code>bycalpha</code></dt><dd><code>bca.</code></dd></div>
-<div><dt><code>bychain</code></dt><dd><code>bc.</code></dd></div>
-<div><dt><code>byfragment</code></dt><dd><code>byfrag</code>, <code>bf.</code></dd></div>
-<div><dt><code>bymolecule</code></dt><dd><code>bymol</code>, <code>bm.</code></dd></div>
-<div><dt><code>byobject</code></dt><dd><code>byobj</code>, <code>bo.</code></dd></div>
-<div><dt><code>byres</code></dt><dd><code>byresi</code>, <code>byresidue</code>, <code>br.</code></dd></div>
-<div><dt><code>bysegment</code></dt><dd><code>byseg</code>, <code>bysegi</code>, <code>bs.</code></dd></div>
-<div><dt><code>chain</code></dt><dd><code>c.</code></dd></div>
-<div><dt><code>delocalized</code></dt><dd><code>deloc.</code></dd></div>
-<div><dt><code>donors</code></dt><dd><code>don.</code>, <code>hbd.</code></dd></div>
-<div><dt><code>elem</code></dt><dd><code>element</code>, <code>symbol</code>, <code>e.</code></dd></div>
-<div><dt><code>expand</code></dt><dd><code>x.</code></dd></div>
-<div><dt><code>extend</code></dt><dd><code>xt.</code></dd></div>
-<div><dt><code>fixed</code></dt><dd><code>fxd.</code></dd></div>
-<div><dt><code>flag</code></dt><dd><code>f.</code></dd></div>
-<div><dt><code>formal_charge</code></dt><dd><code>fc.</code></dd></div>
-<div><dt><code>hetatm</code></dt><dd><code>het</code></dd></div>
-<div><dt><code>hydrogens</code></dt><dd><code>hydro</code>, <code>h.</code></dd></div>
-<div><dt><code>id</code></dt><dd><code>ID</code></dd></div>
-<div><dt><code>index</code></dt><dd><code>idx.</code></dd></div>
-<div><dt><code>inorganic</code></dt><dd><code>ino.</code></dd></div>
-<div><dt><code>like</code></dt><dd><code>l.</code></dd></div>
-<div><dt><code>masked</code></dt><dd><code>msk.</code></dd></div>
-<div><dt><code>model</code></dt><dd><code>object</code>, <code>m.</code>, <code>o.</code></dd></div>
-<div><dt><code>name</code></dt><dd><code>n.</code></dd></div>
-<div><dt><code>near_to</code></dt><dd><code>nto.</code></dd></div>
-<div><dt><code>neighbor</code></dt><dd><code>nbr.</code></dd></div>
-<div><dt><code>not</code></dt><dd><code>!</code></dd></div>
-<div><dt><code>numeric_type</code></dt><dd><code>nt.</code></dd></div>
-<div><dt><code>or</code></dt><dd><code>|</code>, <code>+</code></dd></div>
-<div><dt><code>organic</code></dt><dd><code>org.</code></dd></div>
-<div><dt><code>partial_charge</code></dt><dd><code>pc.</code></dd></div>
-<div><dt><code>pepseq</code></dt><dd><code>ps.</code></dd></div>
-<div><dt><code>polymer</code></dt><dd><code>pol.</code></dd></div>
-<div><dt><code>polymer.nucleic</code></dt><dd><code>nucleic</code>, <code>nuc.</code></dd></div>
-<div><dt><code>polymer.protein</code></dt><dd><code>protein</code>, <code>pro.</code></dd></div>
-<div><dt><code>present</code></dt><dd><code>pr.</code></dd></div>
-<div><dt><code>resi</code></dt><dd><code>resid</code>, <code>residue</code>, <code>resident</code>, <code>i.</code></dd></div>
-<div><dt><code>resn</code></dt><dd><code>resname</code>, <code>r.</code></dd></div>
-<div><dt><code>restrained</code></dt><dd><code>rst.</code></dd></div>
-<div><dt><code>segi</code></dt><dd><code>segid</code>, <code>segment</code>, <code>s.</code></dd></div>
-<div><dt><code>sidechain</code></dt><dd><code>sc.</code></dd></div>
-<div><dt><code>solvent</code></dt><dd><code>sol.</code></dd></div>
-<div><dt><code>text_type</code></dt><dd><code>tt.</code></dd></div>
-<div><dt><code>visible</code></dt><dd><code>v.</code></dd></div>
-<div><dt><code>within</code></dt><dd><code>w.</code></dd></div>
-</dl>
-</details>
 </div>
 </div>
 <div class="doc-page-nav"><button type="button" data-nav="prev"></button><span class="page-counter"></span><button type="button" data-nav="next"></button></div>
@@ -497,6 +318,203 @@
 <div class="command-line"><code id="example-84">select sample, outer_residues and name CA</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-84" disabled>Run</button><button type="button" data-copy="example-84" aria-label="Copy select sample, outer_residues and name CA">Copy</button></span></div>
 </div></div><p>At 6 Å, 120 atoms pass the distance test and 214 atoms belong to the 25 complete residues. Both differences return zero atoms. A single close atom at 4 Å was already enough to include its whole residue.</p>
 </details>
+</div>
+<div class="doc-page-nav"><button type="button" data-nav="prev"></button><span class="page-counter"></span><button type="button" data-nav="next"></button></div>
+</section>
+<section class="doc-page" id="cheatsheet" data-title="Selection algebra cheat sheet" data-src="../assets/pdb/1HHO.pdb" data-command="select hemes, resn HEM; disable hemes; hide everything; show cartoon, polymer.protein; show sticks, resn HEM; color gray; color cyan, chain A; color orange, resn HEM; label polymer.protein and resi 1 and name CA, chain; orient polymer.protein; zoom polymer.protein, buffer=3">
+<div class="docs-section">
+<h2>Selection algebra cheat sheet</h2>
+<p>Try an expression on 1HHO or use it as the target of your own command. Each button runs <code>select sample,</code> followed by the expression. This page defines <code>hemes</code> as <code>resn HEM</code>. In the console, <code>show sticks, sample</code> draws the current selection and <code>deselect</code> clears named selections.</p>
+<p>To see the individual atoms, switch to sticks for the structure and dots for the surrounding water.</p>
+<button type="button" class="cmd-run prepare-view" data-cmd="hide cartoon, polymer.protein; show sticks, not solvent; show dots, solvent" data-cmd-alt="hide dots, solvent; hide sticks, not solvent; show cartoon, polymer.protein; show sticks, resn HEM" disabled><span class="prepare-label">Prepare view</span><span class="restore-label">Restore overview</span></button>
+<div class="keyword-reference">
+<details open><summary>Expression patterns</summary>
+<table class="keyword-table"><thead><tr><th scope="col">Expression</th><th scope="col">How to read it</th></tr></thead><tbody>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, name N+CA+C+O" aria-label="Run select sample, name N+CA+C+O" title="Run select sample, name N+CA+C+O" disabled><code>name N+CA+C+O</code></button></th><td>List values of one field with a plus sign.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, resi 10-15" aria-label="Run select sample, resi 10-15" title="Run select sample, resi 10-15" disabled><code>resi 10-15</code></button></th><td>Include all residue numbers from 10 through 15.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, chain A*" aria-label="Run select sample, chain A*" title="Run select sample, chain A*" disabled><code>chain A*</code></button></th><td>Match any chain identifier starting with A.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, (chain A* or chain B*) and resn HEM" aria-label="Run select sample, (chain A* or chain B*) and resn HEM" title="Run select sample, (chain A* or chain B*) and resn HEM" disabled><code>(chain A* or chain B*) and resn HEM</code></button></th><td>Group the alternatives first. Without parentheses the precedence is <code>not</code>, then <code>and</code>, then <code>or</code>.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, /1HHO//B2/147/FE" aria-label="Run select sample, /1HHO//B2/147/FE" title="Run select sample, /1HHO//B2/147/FE" disabled><code>/1HHO//B2/147/FE</code></button></th><td>Read a path as object / segment / chain / residue / atom. The empty segment field allows any segment.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, byres (protein within 4 of hemes)" aria-label="Run select sample, byres (protein within 4 of hemes)" title="Run select sample, byres (protein within 4 of hemes)" disabled><code>byres (protein within 4 of hemes)</code></button></th><td>Find protein atoms within 4 Å of either heme, then include every atom in their residues.</td></tr>
+</tbody></table>
+</details>
+<details><summary>Atom and residue addresses</summary>
+<table class="keyword-table"><thead><tr><th scope="col">Expression</th><th scope="col">Which atoms it selects</th></tr></thead><tbody>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, name CA" aria-label="Run select sample, name CA" title="Run select sample, name CA" disabled><code>name CA</code></button></th><td>Atoms with this atom name. CA is the alpha carbon in each standard amino acid.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, elem Fe" aria-label="Run select sample, elem Fe" title="Run select sample, elem Fe" disabled><code>elem Fe</code></button></th><td>Atoms of this chemical element. Fe finds the two heme irons.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, resn HEM" aria-label="Run select sample, resn HEM" title="Run select sample, resn HEM" disabled><code>resn HEM</code></button></th><td>Every atom in a residue with this name, across all matching chains and objects.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, resi 147" aria-label="Run select sample, resi 147" title="Run select sample, resi 147" disabled><code>resi 147</code></button></th><td>Every atom with this residue number. A range such as <code>resi 10-15</code> includes both endpoints.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, chain B2" aria-label="Run select sample, chain B2" title="Run select sample, chain B2" disabled><code>chain B2</code></button></th><td>Atoms with this loaded chain identifier.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, model &quot;1HHO&quot;" aria-label="Run select sample, model &quot;1HHO&quot;" title="Run select sample, model &quot;1HHO&quot;" disabled><code>model &quot;1HHO&quot;</code></button></th><td>All atoms belonging to an object whose name matches the value.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, segi globin" aria-label="Run select sample, segi globin" title="Run select sample, segi globin" disabled><code>segi globin</code></button></th><td>Atoms with this segment identifier in their structure records. An exact segment match needs a populated segment field.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, alt A" aria-label="Run select sample, alt A" title="Run select sample, alt A" disabled><code>alt A</code></button></th><td>Atoms assigned alternate location A in the structure file.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, id 2287" aria-label="Run select sample, id 2287" title="Run select sample, id 2287" disabled><code>id 2287</code></button></th><td>The atom with this file serial number in each matching object. Serial 2287 is the beta-heme iron in 1HHO.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, index 0" aria-label="Run select sample, index 0" title="Run select sample, index 0" disabled><code>index 0</code></button></th><td>The atom at this zero-based position in each object. Index 0 is its first atom.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, rank 0" aria-label="Run select sample, rank 0" title="Run select sample, rank 0" disabled><code>rank 0</code></button></th><td>Atoms with this stored rank. In this PDB file every atom has the default rank of 0.</td></tr>
+</tbody></table>
+</details>
+<details><summary>Molecules and structural features</summary>
+<table class="keyword-table"><thead><tr><th scope="col">Expression</th><th scope="col">Which atoms it selects</th></tr></thead><tbody>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, all" aria-label="Run select sample, all" title="Run select sample, all" disabled><code>all</code></button></th><td>Every atom in the scene.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, none" aria-label="Run select sample, none" title="Run select sample, none" disabled><code>none</code></button></th><td>The empty set of atoms.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, polymer" aria-label="Run select sample, polymer" title="Run select sample, polymer" disabled><code>polymer</code></button></th><td>Atoms classified as part of a polymer.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, polymer.protein" aria-label="Run select sample, polymer.protein" title="Run select sample, polymer.protein" disabled><code>polymer.protein</code></button></th><td>Atoms in protein residues.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, polymer.nucleic" aria-label="Run select sample, polymer.nucleic" title="Run select sample, polymer.nucleic" disabled><code>polymer.nucleic</code></button></th><td>Atoms in nucleic acid residues, including DNA and RNA.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, organic" aria-label="Run select sample, organic" title="Run select sample, organic" disabled><code>organic</code></button></th><td>Atoms classified as belonging to an organic small molecule.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, inorganic" aria-label="Run select sample, inorganic" title="Run select sample, inorganic" disabled><code>inorganic</code></button></th><td>Atoms classified as inorganic, for example atoms of an inorganic ion.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, solvent" aria-label="Run select sample, solvent" title="Run select sample, solvent" disabled><code>solvent</code></button></th><td>Atoms in solvent residues, including water.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, hetatm" aria-label="Run select sample, hetatm" title="Run select sample, hetatm" disabled><code>hetatm</code></button></th><td>Atoms marked as heteroatoms in the structure file. This can include heme and crystallographic water.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, metals" aria-label="Run select sample, metals" title="Run select sample, metals" disabled><code>metals</code></button></th><td>Atoms whose chemical element is a metal.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, hydrogens" aria-label="Run select sample, hydrogens" title="Run select sample, hydrogens" disabled><code>hydrogens</code></button></th><td>Hydrogen atoms present in the loaded coordinates.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, backbone" aria-label="Run select sample, backbone" title="Run select sample, backbone" disabled><code>backbone</code></button></th><td>Protein atoms named N, CA, C or O.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, sidechain" aria-label="Run select sample, sidechain" title="Run select sample, sidechain" disabled><code>sidechain</code></button></th><td>The remaining atoms of protein residues after removing those four backbone names.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, guide" aria-label="Run select sample, guide" title="Run select sample, guide" disabled><code>guide</code></button></th><td>The guide atoms used to trace polymers. Here each protein residue contributes its alpha carbon.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, ss H" aria-label="Run select sample, ss H" title="Run select sample, ss H" disabled><code>ss H</code></button></th><td>Atoms assigned a secondary-structure code. H selects helix, S selects sheet and L selects loop.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, pepseq H" aria-label="Run select sample, pepseq H" title="Run select sample, pepseq H" disabled><code>pepseq H</code></button></th><td>Atoms in residues matching the one-letter amino acid code. H finds histidines. This viewer checks one residue at a time.</td></tr>
+</tbody></table>
+</details>
+<details><summary>Measurements, charges and atom types</summary>
+<table class="keyword-table"><thead><tr><th scope="col">Expression</th><th scope="col">Which atoms it selects</th></tr></thead><tbody>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, b &gt; 30" aria-label="Run select sample, b &gt; 30" title="Run select sample, b &gt; 30" disabled><code>b &gt; 30</code></button></th><td>Atoms whose B factor exceeds 30 Å².</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, q &lt; 1" aria-label="Run select sample, q &lt; 1" title="Run select sample, q &lt; 1" disabled><code>q &lt; 1</code></button></th><td>Atoms with occupancy below 1 in the structure file.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, partial_charge &lt; 0" aria-label="Run select sample, partial_charge &lt; 0" title="Run select sample, partial_charge &lt; 0" disabled><code>partial_charge &lt; 0</code></button></th><td>Atoms with stored partial charge below zero.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, formal_charge &gt; 0" aria-label="Run select sample, formal_charge &gt; 0" title="Run select sample, formal_charge &gt; 0" disabled><code>formal_charge &gt; 0</code></button></th><td>Atoms with positive formal charge.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, x &gt; 30" aria-label="Run select sample, x &gt; 30" title="Run select sample, x &gt; 30" disabled><code>x &gt; 30</code></button></th><td>Atoms whose x coordinate exceeds 30 Å in the current coordinate set.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, y &gt; 30" aria-label="Run select sample, y &gt; 30" title="Run select sample, y &gt; 30" disabled><code>y &gt; 30</code></button></th><td>Atoms whose y coordinate exceeds 30 Å.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, z &gt; 30" aria-label="Run select sample, z &gt; 30" title="Run select sample, z &gt; 30" disabled><code>z &gt; 30</code></button></th><td>Atoms whose z coordinate exceeds 30 Å.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, donors" aria-label="Run select sample, donors" title="Run select sample, donors" disabled><code>donors</code></button></th><td>Atoms marked as hydrogen-bond donors. This file has no donor flags set.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, acceptors" aria-label="Run select sample, acceptors" title="Run select sample, acceptors" disabled><code>acceptors</code></button></th><td>Atoms marked as hydrogen-bond acceptors. This file has no acceptor flags set.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, bonded" aria-label="Run select sample, bonded" title="Run select sample, bonded" disabled><code>bonded</code></button></th><td>Atoms carrying the bonded flag.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, stereo Odd" aria-label="Run select sample, stereo Odd" title="Run select sample, stereo Odd" disabled><code>stereo Odd</code></button></th><td>Atoms with the specified stored stereo parity. Values are <code>Odd</code>, <code>Even</code>, <code>Either</code> and <code>None</code>.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, text_type CT" aria-label="Run select sample, text_type CT" title="Run select sample, text_type CT" disabled><code>text_type CT</code></button></th><td>Atoms with the matching atom-type text, when supplied by the input.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, numeric_type 1" aria-label="Run select sample, numeric_type 1" title="Run select sample, numeric_type 1" disabled><code>numeric_type 1</code></button></th><td>Matches the stored atom-type text against the requested value in this viewer.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, custom CT" aria-label="Run select sample, custom CT" title="Run select sample, custom CT" disabled><code>custom CT</code></button></th><td>Also matches the atom-type text in this viewer.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, p. b &gt; 30.0" aria-label="Run select sample, p. b &gt; 30.0" title="Run select sample, p. b &gt; 30.0" disabled><code>p. b &gt; 30.0</code></button></th><td>A comparison on a supported property. Use a space after <code>p.</code>. Supported fields are <code>b</code> or <code>b_factor</code>, <code>q</code> or <code>occupancy</code>, and <code>name</code>. Use a decimal for numeric properties.</td></tr>
+</tbody></table>
+</details>
+<details><summary>What is drawn or marked in the scene?</summary>
+<table class="keyword-table"><thead><tr><th scope="col">Expression</th><th scope="col">Which atoms it selects</th></tr></thead><tbody>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, visible" aria-label="Run select sample, visible" title="Run select sample, visible" disabled><code>visible</code></button></th><td>Atoms with at least one representation switched on.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, rep sticks" aria-label="Run select sample, rep sticks" title="Run select sample, rep sticks" disabled><code>rep sticks</code></button></th><td>Atoms currently drawn as sticks. Try this in the overview and again in the prepared view to see how the selection changes.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, color orange" aria-label="Run select sample, color orange" title="Run select sample, color orange" disabled><code>color orange</code></button></th><td>Atoms assigned this base color.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, cartoon_color orange" aria-label="Run select sample, cartoon_color orange" title="Run select sample, cartoon_color orange" disabled><code>cartoon_color orange</code></button></th><td>Atoms with this explicit cartoon color assignment.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, ribbon_color orange" aria-label="Run select sample, ribbon_color orange" title="Run select sample, ribbon_color orange" disabled><code>ribbon_color orange</code></button></th><td>Atoms with this explicit ribbon color assignment.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, label B" aria-label="Run select sample, label B" title="Run select sample, label B" disabled><code>label B</code></button></th><td>Atoms whose label text matches B in the scene.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, present" aria-label="Run select sample, present" title="Run select sample, present" disabled><code>present</code></button></th><td>Atoms with coordinates in the current state.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, state 1" aria-label="Run select sample, state 1" title="Run select sample, state 1" disabled><code>state 1</code></button></th><td>Atoms whose stored discrete-state number matches the value.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, instance 1" aria-label="Run select sample, instance 1" title="Run select sample, instance 1" disabled><code>instance 1</code></button></th><td>Atoms belonging to the specified copy of an instanced assembly. Copy numbers start at 1.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, flag 0" aria-label="Run select sample, flag 0" title="Run select sample, flag 0" disabled><code>flag 0</code></button></th><td>Atoms with the specified bit set in their atom flags.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, fixed" aria-label="Run select sample, fixed" title="Run select sample, fixed" disabled><code>fixed</code></button></th><td>Atoms carrying the fixed flag.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, restrained" aria-label="Run select sample, restrained" title="Run select sample, restrained" disabled><code>restrained</code></button></th><td>Atoms carrying the restraint flag.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, protected" aria-label="Run select sample, protected" title="Run select sample, protected" disabled><code>protected</code></button></th><td>Atoms carrying the exclusion flag.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, masked" aria-label="Run select sample, masked" title="Run select sample, masked" disabled><code>masked</code></button></th><td>Atoms marked as masked.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, enabled" aria-label="Run select sample, enabled" title="Run select sample, enabled" disabled><code>enabled</code></button></th><td>Atoms whose mask is off.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, %hemes" aria-label="Run select sample, %hemes" title="Run select sample, %hemes" disabled><code>%hemes</code></button></th><td>Atoms in an existing named selection. This chapter prepares <code>hemes</code> as the two HEM residues.</td></tr>
+</tbody></table>
+</details>
+<details><summary>Combine two sets or compare their members</summary>
+<table class="keyword-table"><thead><tr><th scope="col">Expression</th><th scope="col">Which atoms it selects</th></tr></thead><tbody>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, resn HEM and elem Fe" aria-label="Run select sample, resn HEM and elem Fe" title="Run select sample, resn HEM and elem Fe" disabled><code>resn HEM and elem Fe</code></button></th><td>Atoms that satisfy both conditions. A spaced minus sign subtracts one set from another. For example, <code>all - solvent</code> selects every atom outside the solvent.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, metals or solvent" aria-label="Run select sample, metals or solvent" title="Run select sample, metals or solvent" disabled><code>metals or solvent</code></button></th><td>Atoms that satisfy either condition, counting each atom once. Here the selection includes both irons and all water atoms. Inside a field, a plus sign lists alternative values, as in <code>name N+CA+C+O</code>.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, not polymer" aria-label="Run select sample, not polymer" title="Run select sample, not polymer" disabled><code>not polymer</code></button></th><td>All atoms outside the input selection.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, metals in resn HEM" aria-label="Run select sample, metals in resn HEM" title="Run select sample, metals in resn HEM" disabled><code>metals in resn HEM</code></button></th><td>Atoms on the left that also belong to the set on the right.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, chain A like chain B" aria-label="Run select sample, chain A like chain B" title="Run select sample, chain A like chain B" disabled><code>chain A like chain B</code></button></th><td>Atoms on the left whose residue name occurs somewhere in the right-hand set.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, first resn HEM" aria-label="Run select sample, first resn HEM" title="Run select sample, first resn HEM" disabled><code>first resn HEM</code></button></th><td>The first matching atom in atom order.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, last resn HEM" aria-label="Run select sample, last resn HEM" title="Run select sample, last resn HEM" disabled><code>last resn HEM</code></button></th><td>The last matching atom in atom order.</td></tr>
+</tbody></table>
+</details>
+<details><summary>Whole groups and bonded neighbors</summary>
+<table class="keyword-table"><thead><tr><th scope="col">Expression</th><th scope="col">Which atoms it selects</th></tr></thead><tbody>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, byres (elem Fe)" aria-label="Run select sample, byres (elem Fe)" title="Run select sample, byres (elem Fe)" disabled><code>byres (elem Fe)</code></button></th><td>All atoms of every residue touched by the input. Each heme iron brings in one whole heme.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, bychain (name FE)" aria-label="Run select sample, bychain (name FE)" title="Run select sample, bychain (name FE)" disabled><code>bychain (name FE)</code></button></th><td>All atoms in each loaded chain touched by the input.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, bysegment (name FE)" aria-label="Run select sample, bysegment (name FE)" title="Run select sample, bysegment (name FE)" disabled><code>bysegment (name FE)</code></button></th><td>All atoms sharing a segment identifier with an input atom in the same object. A blank segment ID can match many atoms.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, byobject (name FE)" aria-label="Run select sample, byobject (name FE)" title="Run select sample, byobject (name FE)" disabled><code>byobject (name FE)</code></button></th><td>All atoms in each object touched by the input.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, bymolecule (name FE)" aria-label="Run select sample, bymolecule (name FE)" title="Run select sample, bymolecule (name FE)" disabled><code>bymolecule (name FE)</code></button></th><td>All atoms reachable from the input through bonds.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, byfragment (name FE)" aria-label="Run select sample, byfragment (name FE)" title="Run select sample, byfragment (name FE)" disabled><code>byfragment (name FE)</code></button></th><td>The same bonded components reached by <code>bymolecule</code> in this viewer.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, bycalpha (name CB)" aria-label="Run select sample, bycalpha (name CB)" title="Run select sample, bycalpha (name CB)" disabled><code>bycalpha (name CB)</code></button></th><td>The alpha carbons of residues touched by the input.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, neighbor (name FE)" aria-label="Run select sample, neighbor (name FE)" title="Run select sample, neighbor (name FE)" disabled><code>neighbor (name FE)</code></button></th><td>Atoms directly bonded to the input, excluding the input atoms.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, bound_to (name FE)" aria-label="Run select sample, bound_to (name FE)" title="Run select sample, bound_to (name FE)" disabled><code>bound_to (name FE)</code></button></th><td>The input atoms together with their directly bonded neighbors.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, extend 2 (name FE)" aria-label="Run select sample, extend 2 (name FE)" title="Run select sample, extend 2 (name FE)" disabled><code>extend 2 (name FE)</code></button></th><td>The input plus atoms reachable in at most the specified number of bond steps.</td></tr>
+</tbody></table>
+</details>
+<details><summary>Distances in ångströms</summary>
+<table class="keyword-table"><thead><tr><th scope="col">Expression</th><th scope="col">Which atoms it selects</th></tr></thead><tbody>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, protein within 4 of hemes" aria-label="Run select sample, protein within 4 of hemes" title="Run select sample, protein within 4 of hemes" disabled><code>protein within 4 of hemes</code></button></th><td>Protein atoms within 4 Å of at least one heme atom. The word <code>of</code> introduces the reference selection.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, protein beyond 4 of hemes" aria-label="Run select sample, protein beyond 4 of hemes" title="Run select sample, protein beyond 4 of hemes" disabled><code>protein beyond 4 of hemes</code></button></th><td>Protein atoms outside that 4 Å neighborhood.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, protein near_to 4 of hemes" aria-label="Run select sample, protein near_to 4 of hemes" title="Run select sample, protein near_to 4 of hemes" disabled><code>protein near_to 4 of hemes</code></button></th><td>Uses the same distance test as <code>within</code> in this viewer.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, around 4 hemes" aria-label="Run select sample, around 4 hemes" title="Run select sample, around 4 hemes" disabled><code>around 4 hemes</code></button></th><td>Atoms within 4 Å of the input, excluding the heme atoms themselves.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, expand 4 hemes" aria-label="Run select sample, expand 4 hemes" title="Run select sample, expand 4 hemes" disabled><code>expand 4 hemes</code></button></th><td>The heme atoms plus their 4 Å neighborhood.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, gap 4 hemes" aria-label="Run select sample, gap 4 hemes" title="Run select sample, gap 4 hemes" disabled><code>gap 4 hemes</code></button></th><td>Uses the same atom-center distance as <code>around</code> in this viewer.</td></tr>
+</tbody></table>
+</details>
+<details><summary>Keywords with limited behavior in the web viewer</summary>
+<table class="keyword-table"><thead><tr><th scope="col">Expression</th><th scope="col">Which atoms it selects</th></tr></thead><tbody>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, delocalized" aria-label="Run select sample, delocalized" title="Run select sample, delocalized" disabled><code>delocalized</code></button></th><td>Reserved for atoms with delocalized bonding. The web viewer returns an empty selection.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, origin" aria-label="Run select sample, origin" title="Run select sample, origin" disabled><code>origin</code></button></th><td>The coordinate origin is a point. Used as an atom selection, this keyword returns an empty set.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, center" aria-label="Run select sample, center" title="Run select sample, center" disabled><code>center</code></button></th><td>The center is a point. Used as an atom selection, this keyword returns an empty set.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, byring (elem Fe)" aria-label="Run select sample, byring (elem Fe)" title="Run select sample, byring (elem Fe)" disabled><code>byring (elem Fe)</code></button></th><td>Returns the input atoms. Ring expansion is unavailable in this build.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, bycell (elem Fe)" aria-label="Run select sample, bycell (elem Fe)" title="Run select sample, bycell (elem Fe)" disabled><code>bycell (elem Fe)</code></button></th><td>Returns the input atoms. Unit-cell expansion is unavailable in this build.</td></tr>
+</tbody></table>
+</details>
+<details><summary>Alternate spellings</summary>
+<dl class="keyword-aliases">
+<div><dt><code>acceptors</code></dt><dd><code>acc.</code>, <code>hba.</code></dd></div>
+<div><dt><code>all</code></dt><dd><code>*</code></dd></div>
+<div><dt><code>alt</code></dt><dd><code>altloc</code></dd></div>
+<div><dt><code>and</code></dt><dd><code>&amp;</code></dd></div>
+<div><dt><code>around</code></dt><dd><code>a.</code></dd></div>
+<div><dt><code>backbone</code></dt><dd><code>bb.</code></dd></div>
+<div><dt><code>beyond</code></dt><dd><code>be.</code></dd></div>
+<div><dt><code>bound_to</code></dt><dd><code>bto.</code></dd></div>
+<div><dt><code>bycalpha</code></dt><dd><code>bca.</code></dd></div>
+<div><dt><code>bychain</code></dt><dd><code>bc.</code></dd></div>
+<div><dt><code>byfragment</code></dt><dd><code>byfrag</code>, <code>bf.</code></dd></div>
+<div><dt><code>bymolecule</code></dt><dd><code>bymol</code>, <code>bm.</code></dd></div>
+<div><dt><code>byobject</code></dt><dd><code>byobj</code>, <code>bo.</code></dd></div>
+<div><dt><code>byres</code></dt><dd><code>byresi</code>, <code>byresidue</code>, <code>br.</code></dd></div>
+<div><dt><code>bysegment</code></dt><dd><code>byseg</code>, <code>bysegi</code>, <code>bs.</code></dd></div>
+<div><dt><code>chain</code></dt><dd><code>c.</code></dd></div>
+<div><dt><code>delocalized</code></dt><dd><code>deloc.</code></dd></div>
+<div><dt><code>donors</code></dt><dd><code>don.</code>, <code>hbd.</code></dd></div>
+<div><dt><code>elem</code></dt><dd><code>element</code>, <code>symbol</code>, <code>e.</code></dd></div>
+<div><dt><code>expand</code></dt><dd><code>x.</code></dd></div>
+<div><dt><code>extend</code></dt><dd><code>xt.</code></dd></div>
+<div><dt><code>fixed</code></dt><dd><code>fxd.</code></dd></div>
+<div><dt><code>flag</code></dt><dd><code>f.</code></dd></div>
+<div><dt><code>formal_charge</code></dt><dd><code>fc.</code></dd></div>
+<div><dt><code>hetatm</code></dt><dd><code>het</code></dd></div>
+<div><dt><code>hydrogens</code></dt><dd><code>hydro</code>, <code>h.</code></dd></div>
+<div><dt><code>id</code></dt><dd><code>ID</code></dd></div>
+<div><dt><code>index</code></dt><dd><code>idx.</code></dd></div>
+<div><dt><code>inorganic</code></dt><dd><code>ino.</code></dd></div>
+<div><dt><code>like</code></dt><dd><code>l.</code></dd></div>
+<div><dt><code>masked</code></dt><dd><code>msk.</code></dd></div>
+<div><dt><code>model</code></dt><dd><code>object</code>, <code>m.</code>, <code>o.</code></dd></div>
+<div><dt><code>name</code></dt><dd><code>n.</code></dd></div>
+<div><dt><code>near_to</code></dt><dd><code>nto.</code></dd></div>
+<div><dt><code>neighbor</code></dt><dd><code>nbr.</code></dd></div>
+<div><dt><code>not</code></dt><dd><code>!</code></dd></div>
+<div><dt><code>numeric_type</code></dt><dd><code>nt.</code></dd></div>
+<div><dt><code>or</code></dt><dd><code>|</code>, <code>+</code></dd></div>
+<div><dt><code>organic</code></dt><dd><code>org.</code></dd></div>
+<div><dt><code>partial_charge</code></dt><dd><code>pc.</code></dd></div>
+<div><dt><code>pepseq</code></dt><dd><code>ps.</code></dd></div>
+<div><dt><code>polymer</code></dt><dd><code>pol.</code></dd></div>
+<div><dt><code>polymer.nucleic</code></dt><dd><code>nucleic</code>, <code>nuc.</code></dd></div>
+<div><dt><code>polymer.protein</code></dt><dd><code>protein</code>, <code>pro.</code></dd></div>
+<div><dt><code>present</code></dt><dd><code>pr.</code></dd></div>
+<div><dt><code>resi</code></dt><dd><code>resid</code>, <code>residue</code>, <code>resident</code>, <code>i.</code></dd></div>
+<div><dt><code>resn</code></dt><dd><code>resname</code>, <code>r.</code></dd></div>
+<div><dt><code>restrained</code></dt><dd><code>rst.</code></dd></div>
+<div><dt><code>segi</code></dt><dd><code>segid</code>, <code>segment</code>, <code>s.</code></dd></div>
+<div><dt><code>sidechain</code></dt><dd><code>sc.</code></dd></div>
+<div><dt><code>solvent</code></dt><dd><code>sol.</code></dd></div>
+<div><dt><code>text_type</code></dt><dd><code>tt.</code></dd></div>
+<div><dt><code>visible</code></dt><dd><code>v.</code></dd></div>
+<div><dt><code>within</code></dt><dd><code>w.</code></dd></div>
+</dl>
+</details>
+</div>
 </div>
 <div class="doc-page-nav"><button type="button" data-nav="prev"></button><span class="page-counter"></span><button type="button" data-nav="next"></button></div>
 </section>

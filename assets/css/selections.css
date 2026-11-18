@@ -113,3 +113,13 @@
   .keyword-table td { padding: 6px 0 14px; }
   .keyword-aliases > div { grid-template-columns: minmax(0, 42%) minmax(0, 1fr); }
 }
+
+.address-table thead th:first-child { width: 26%; }
+.address-table thead th:nth-child(2) { width: 26%; }
+.address-table .short-form { padding-right: 12px; }
+.address-table .short-form button { margin-block: 2px; }
+@container (max-width: 460px) {
+  .address-table tbody tr { display: grid; grid-template-columns: 1fr 1fr; align-items: center; }
+  .address-table tbody th, .address-table .short-form { padding: 12px 4px 0 0; }
+  .address-table td:last-child { grid-column: 1 / -1; }
+}
