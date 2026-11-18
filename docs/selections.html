@@ -204,20 +204,39 @@
 <section class="doc-page" id="paths" data-title="Read a slash path" data-src="../assets/pdb/1HHO.pdb" data-command="hide everything; show cartoon, polymer.protein; show sticks, resn HEM; color gray; color chain, polymer; color orange, resn HEM; label polymer.protein and resi 1 and name CA, chain; orient polymer.protein; zoom polymer.protein, buffer=3">
 <div class="docs-section">
 <h2>Two addresses for the same iron</h2>
-<p>A slash path writes successive fields in a fixed order. Read this one from the left. A leading slash starts at the object, and the empty segment field between two slashes leaves that field unrestricted.</p>
-<table class="docs-table"><thead><tr><th scope="col">Position</th><th scope="col">Value in this address</th></tr></thead><tbody>
-<tr><td>Object</td><td>1HHO</td></tr>
-<tr><td>Segment</td><td>(empty)</td></tr>
-<tr><td>Chain</td><td>A2</td></tr>
-<tr><td>Residue</td><td>143</td></tr>
-<tr><td>Atom name</td><td>FE</td></tr>
-</tbody></table>
+<p>A slash path gives the same address as a set of field tests. Its five slots are <code>/object/segment/chain/residue/atom</code>. In <code>/1HHO//A2/143/FE</code>, the two slashes after <code>1HHO</code> leave the segment open. Any segment can match. The next value, <code>A2</code>, still occupies the chain slot.</p>
 <div class="command-example"><div class="command-lines">
 <div class="command-line"><code id="example-47">select sample, 1HHO and chain A2 and resi 143 and name FE</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-47" disabled>Run</button><button type="button" data-copy="example-47" aria-label="Copy select sample, 1HHO and chain A2 and resi 143 and name FE">Copy</button></span></div>
 <div class="command-line"><code id="example-48">select sample, /1HHO//A2/143/FE</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-48" disabled>Run</button><button type="button" data-copy="example-48" aria-label="Copy select sample, /1HHO//A2/143/FE">Copy</button></span></div>
+</div></div>
+<p>Both commands mark the iron in the heme on chain A2. Now try leaving out parts of its address.</p>
+<h3>Skip a field or stop early</h3>
+<p>With a leading <code>/</code>, read from the object on the left. You can omit any field. If another value follows, keep the slashes on either side of the empty field so the next value stays in its slot. If you have given the last field you care about, stop there.</p>
+<p>Click a path to replace <code>sample</code>. Watch what happens to the single iron marker when you drop the atom name, then the residue number.</p>
+<div class="keyword-reference">
+<table class="keyword-table"><thead><tr><th scope="col">Path</th><th scope="col">What it selects in 1HHO</th></tr></thead><tbody>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, /1HHO//A2/143" aria-label="Run select sample, /1HHO//A2/143" disabled><code>/1HHO//A2/143</code></button></th><td>Drop the atom name. All 43 atoms of the A2 heme match.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, /1HHO//A2" aria-label="Run select sample, /1HHO//A2" disabled><code>/1HHO//A2</code></button></th><td>Stop at the chain. Its 50 atoms include the heme, a phosphate and an oxygen molecule.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, /1HHO///143" aria-label="Run select sample, /1HHO///143" disabled><code>/1HHO///143</code></button></th><td>Leave the chain open. Residue 143 now matches both the A2 heme and a histidine in chain B (53 atoms in total).</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, /1HHO//A2//FE" aria-label="Run select sample, /1HHO//A2//FE" disabled><code>/1HHO//A2//FE</code></button></th><td>Leave the residue open but keep the atom name. Only one atom in A2 is named FE.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, ///A2/143/FE" aria-label="Run select sample, ///A2/143/FE" disabled><code>///A2/143/FE</code></button></th><td>Leave the object and segment open. This finds the same iron here and would search every object in a larger scene.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, /////FE" aria-label="Run select sample, /////FE" disabled><code>/////FE</code></button></th><td>Leave the first four slots open. This is <code>name FE</code> in path form and marks both irons.</td></tr>
+</tbody></table>
+</div>
+<h3>Write a path from the atom end</h3>
+<p>Without a leading <code>/</code>, read the slots from the right. In <code>A2/143/FE</code>, the last value is the atom name, the one before it is the residue, and the one before that is the chain. A path with just two values, such as <code>HEM/FE</code>, gives the residue and atom. For an atom name alone, use <code>name FE</code> or <code>/////FE</code>.</p>
+<div class="keyword-reference">
+<table class="keyword-table"><thead><tr><th scope="col">Path</th><th scope="col">What it selects in 1HHO</th></tr></thead><tbody>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, A2/143/FE" aria-label="Run select sample, A2/143/FE" disabled><code>A2/143/FE</code></button></th><td>Chain A2, residue 143, atom FE. This selects the same iron as <code>///A2/143/FE</code>.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, HEM/FE" aria-label="Run select sample, HEM/FE" disabled><code>HEM/FE</code></button></th><td>Atom FE in any residue named HEM. Both heme irons light up.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, A/10-15/CA" aria-label="Run select sample, A/10-15/CA" disabled><code>A/10-15/CA</code></button></th><td>One alpha carbon per residue from 10 through 15 in chain A (6 atoms).</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, 10-15/CA" aria-label="Run select sample, 10-15/CA" disabled><code>10-15/CA</code></button></th><td>Drop the chain. Both protein chains contribute their six alpha carbons (12 atoms).</td></tr>
+</tbody></table>
+</div>
+<p>To look more closely at any of these selections, zoom to <code>sample</code>.</p>
+<div class="command-example"><div class="command-lines">
 <div class="command-line"><code id="example-49">zoom sample, buffer=5</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-49" disabled>Run</button><button type="button" data-copy="example-49" aria-label="Copy zoom sample, buffer=5">Copy</button></span></div>
 </div></div>
-<p>Both selections place a marker on the same iron atom. A path is convenient for a known address. A field expression can also describe a whole class of atoms before you know their addresses.</p>
 <details><summary>Selection reference</summary>
 <table class="docs-table"><thead><tr><th scope="col">Expression</th><th scope="col">Atoms it describes</th></tr></thead><tbody>
 <tr><td><code>all</code> / <code>none</code></td><td>Every atom in the scene / the empty set.</td></tr>
