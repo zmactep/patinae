@@ -1,3 +1,7 @@
+.selection-guide .docs-viewer-heading { align-items: center; flex-wrap: wrap; }
+.selection-view-actions { display: flex; align-items: center; gap: 16px; }
+.selection-view-actions button { min-height: 28px; color: var(--accent); font: 12px/1.6 var(--mono); }
+
 .selection-frames {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 195px), 1fr));
