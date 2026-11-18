@@ -7,3 +7,100 @@
 .selection-frames figure { margin: 0; }
 .selection-frames img { display: block; width: 100%; height: auto; }
 .selection-frames figcaption { margin-top: 8px; color: var(--muted); font-size: 14px; }
+
+/* Keep the reference sized to the reading column beside the viewer. */
+.keyword-reference { container-type: inline-size; }
+.keyword-reference > details {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+.keyword-reference > details:last-child { border-bottom: 1px solid var(--line); }
+.keyword-reference > details > summary {
+  padding: 16px 0;
+  margin: 0;
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--ink);
+}
+.keyword-reference summary::marker { color: var(--accent); font-size: .8em; }
+.keyword-reference > details[open] > summary { margin-bottom: 0; }
+
+.keyword-table {
+  width: 100%;
+  margin-bottom: 18px;
+  border-collapse: collapse;
+  table-layout: fixed;
+  text-align: left;
+}
+.keyword-table thead th {
+  padding: 8px 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--muted);
+}
+.keyword-table thead th:first-child { width: 34%; }
+.keyword-table tbody tr { border-top: 1px solid var(--line); }
+.keyword-table tbody th { padding: 8px 16px 8px 0; font-weight: 400; }
+.keyword-table td { padding: 12px 0; font-size: 16px; line-height: 1.5; color: var(--ink); }
+.keyword-table td code { display: inline-block; max-width: 100%; }
+
+.keyword-example {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
+  min-height: 44px;
+  padding: 6px 10px;
+  border: 1px solid #354a40;
+  border-radius: 4px;
+  background: #14201b;
+  color: var(--accent);
+  text-align: left;
+}
+.keyword-example::before {
+  content: "";
+  flex: none;
+  border-block: 4px solid transparent;
+  border-left: 6px solid currentColor;
+}
+.keyword-example code, .keyword-aliases code {
+  padding: 0;
+  background: transparent;
+  font: 15px/1.45 var(--mono);
+  color: inherit;
+}
+.keyword-example:hover:enabled, .keyword-example.flash {
+  background: #22342b;
+  border-color: var(--accent);
+  color: var(--ink);
+}
+.keyword-reference .keyword-example:disabled { opacity: 1; background: transparent; border-color: transparent; }
+.keyword-example:disabled::before { visibility: hidden; }
+
+.keyword-aliases { margin: 0 0 20px; }
+.keyword-aliases > div {
+  display: grid;
+  grid-template-columns: 34% 1fr;
+  align-items: baseline;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+.keyword-aliases dt { padding-right: 12px; color: var(--ink); }
+.keyword-aliases dd { margin: 0; color: var(--accent); }
+
+@container (max-width: 460px) {
+  .keyword-table { display: block; }
+  .keyword-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .keyword-table tbody, .keyword-table tr, .keyword-table tbody th, .keyword-table td { display: block; }
+  .keyword-table tbody th { padding: 12px 0 0; }
+  .keyword-table td { padding: 6px 0 14px; }
+  .keyword-aliases > div { grid-template-columns: minmax(0, 42%) minmax(0, 1fr); }
+}
