@@ -150,30 +150,24 @@
 <div class="doc-page-nav"><button type="button" data-nav="prev"></button><span class="page-counter"></span><button type="button" data-nav="next"></button></div>
 </section>
 
-<section class="doc-page" id="distance" data-title="Measure a neighborhood" data-src="../assets/pdb/1HHO.pdb" data-command="select heme_a, chain A2 and resn HEM; select protein_a, chain A and polymer.protein; select near_a, protein_a within 4 of heme_a; select pocket_a, byres (near_a); disable *_a; hide everything; color gray; color chain, polymer; show sticks, heme_a; color orange, heme_a; set sphere_scale, 0.24; orient heme_a; turn y, 75; zoom heme_a, buffer=5">
+<section class="doc-page" id="distance" data-title="Measure a neighborhood" data-src="../assets/pdb/1HHO.pdb" data-command="select protein_a, chain A and polymer.protein; select heme_a, chain A2 and resn HEM; select wider_a, protein_a within 6 of heme_a; disable *_a; hide everything; color gray; color chain, polymer; show lines, byres (wider_a); show sticks, heme_a; color orange, heme_a; set sphere_scale, 0.36; orient heme_a; turn y, 75; zoom heme_a, buffer=5">
 <div class="docs-section">
 <h2>Which protein atoms are within 4 Å?</h2>
-<p>The orange sticks show the heme from chain A. Define the two sides of the question. The candidates are protein atoms in chain A. The reference is the group of 43 heme atoms in A2. These names are also prepared when you enter this chapter directly.</p>
+<p>The orange sticks are the heme of chain A. The thin turquoise lines trace nearby protein residues. Follow one of those lines toward the heme. Which of its atoms would you expect to fall within 4 Å?</p>
+<p>The candidates are the protein atoms in chain A (<code>protein_a</code>). The reference is its heme (<code>heme_a</code>). Read <code>protein_a within 4 of heme_a</code> from left to right. A protein atom qualifies if it lies within 4 Å of <em>any</em> heme atom, including those at the edge of the ring.</p>
+<h3>Compare the two distances</h3>
+<p>Choose 4 Å to mark the 35 qualifying atoms with yellow spheres. Then choose 6 Å. The same 35 stay yellow and the 107 additional atoms appear as turquoise spheres. Switch back to 4 Å to see which atoms drop out.</p>
+<div class="distance-views" role="group" aria-label="Distance cutoff"><button type="button" class="cmd-run prepare-view" data-cmd="select protein_a, chain A and polymer.protein; select heme_a, chain A2 and resn HEM; select near_a, protein_a within 4 of heme_a; disable *_a; color yellow, near_a; hide spheres, protein_a; show spheres, near_a" disabled>Show 4 Å</button> <button type="button" class="cmd-run prepare-view" data-cmd="select protein_a, chain A and polymer.protein; select heme_a, chain A2 and resn HEM; select near_a, protein_a within 4 of heme_a; disable *_a; color yellow, near_a; hide spheres, protein_a; select wider_a, protein_a within 6 of heme_a; disable wider_a; show spheres, wider_a" disabled>Show 6 Å</button></div>
+<details><summary>Read the selection commands</summary>
+<p>Define the protein and the heme first. The next two commands use the same candidates and reference, changing only the distance in ångströms.</p>
 <div class="command-example"><div class="command-lines">
 <div class="command-line"><code id="example-25">select protein_a, chain A and polymer.protein</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-25" disabled>Run</button><button type="button" data-copy="example-25" aria-label="Copy select protein_a, chain A and polymer.protein">Copy</button></span></div>
 <div class="command-line"><code id="example-26">select heme_a, chain A2 and resn HEM</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-26" disabled>Run</button><button type="button" data-copy="example-26" aria-label="Copy select heme_a, chain A2 and resn HEM">Copy</button></span></div>
-</div></div>
-<p>Read the distance expression from left to right. Keep an atom from <code>protein_a</code> if it lies within 4 ångströms of <em>any</em> atom in <code>heme_a</code>. A protein atom can qualify at the rim of the heme even if it is far from the central iron.</p>
-<div class="command-example"><div class="command-lines">
 <div class="command-line"><code id="example-27">select near_a, protein_a within 4 of heme_a</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-27" disabled>Run</button><button type="button" data-copy="example-27" aria-label="Copy select near_a, protein_a within 4 of heme_a">Copy</button></span></div>
-<div class="command-line"><code id="example-28">disable *_a</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-28" disabled>Run</button><button type="button" data-copy="example-28" aria-label="Copy disable *_a">Copy</button></span></div>
-<div class="command-line"><code id="example-29">show spheres, near_a</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-29" disabled>Run</button><button type="button" data-copy="example-29" aria-label="Copy show spheres, near_a">Copy</button></span></div>
-<div class="command-line"><code id="example-30">color yellow, near_a</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-30" disabled>Run</button><button type="button" data-copy="example-30" aria-label="Copy color yellow, near_a">Copy</button></span></div>
-</div></div>
-<p>The console reports <strong>35 atoms</strong>. The small spheres mark their positions. <code>disable *_a</code> hides the markers for the named selections ending in _a. Their atoms remain available for drawing and measurement.</p>
-<h3>Move the boundary</h3>
-<p>If the cutoff grows to 6 Å, can a previously selected atom drop out?</p>
-<div class="command-example"><div class="command-lines">
 <div class="command-line"><code id="example-31">select wider_a, protein_a within 6 of heme_a</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-31" disabled>Run</button><button type="button" data-copy="example-31" aria-label="Copy select wider_a, protein_a within 6 of heme_a">Copy</button></span></div>
-<div class="command-line"><code id="example-32">disable *_a</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-32" disabled>Run</button><button type="button" data-copy="example-32" aria-label="Copy disable *_a">Copy</button></span></div>
-<div class="command-line"><code id="example-33">show spheres, wider_a</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-33" disabled>Run</button><button type="button" data-copy="example-33" aria-label="Copy show spheres, wider_a">Copy</button></span></div>
 </div></div>
-<p>There are now 142 atoms. The original 35 remain yellow. The additional atoms form a wider shell around the same heme.</p>
+<p>The console reports 35 atoms for <code>near_a</code> and 142 for <code>wider_a</code>. The distance buttons also draw the selected atoms as spheres.</p>
+</details>
 </div>
 <div class="doc-page-nav"><button type="button" data-nav="prev"></button><span class="page-counter"></span><button type="button" data-nav="next"></button></div>
 </section>
