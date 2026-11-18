@@ -25,7 +25,7 @@
 
     <div class="docs-interactive wrap">
       <aside class="docs-sidebar" aria-label="Guide chapters"><div class="docs-sidebar-title">In this guide</div><ul>
-<li><a href="#atom-sets">What a selection holds</a></li>
+<li><a href="#atom-sets">From objects to selections</a></li>
 <li><a href="#fields">Read an atom’s address</a></li>
 <li><a href="#logic">Combine sets</a></li>
 <li><a href="#grouping">Group conditions</a></li>
@@ -35,21 +35,28 @@
 <li><a href="#practice">Practice on 4HHB</a></li>
 </ul></aside>
 <main class="docs-content" id="main"><a class="docs-back" href="../docs.html">← Documentation</a><noscript><p>Run the examples in desktop Patinae to follow along.</p></noscript>
-<section class="doc-page" id="atom-sets" data-title="What a selection holds" data-src="../assets/pdb/1HHO.pdb" data-command="hide everything; show cartoon, polymer.protein; show lines, resn HEM; color gray; color cyan, chain A; color orange, resn HEM; label polymer.protein and resi 1 and name CA, chain; orient polymer.protein; zoom polymer.protein, buffer=3">
+<section class="doc-page" id="atom-sets" data-title="From objects to selections" data-src="../assets/pdb/1HHO.pdb" data-command="hide everything; show cartoon, polymer.protein; show lines, resn HEM; color gray; color cyan, chain A; color orange, resn HEM; label polymer.protein and resi 1 and name CA, chain; orient polymer.protein; zoom polymer.protein, buffer=3">
 <div class="docs-section">
-<div class="docs-hero"><h1>Selection algebra</h1><p>Which residues of hemoglobin touch its heme?</p></div>
-<h2>Start with the two hemes</h2>
-<p>Rotate the two-chain hemoglobin model from Quick start (1HHO). The cyan ribbon is chain A, the gray ribbon is chain B, and each holds an orange heme. Our question concerns the protein around just one of them. First, find both hemes.</p>
+<div class="docs-hero"><h1>Selection algebra</h1><p>In <a class="ext-link" href="quick-start.html">Quick start</a>, you used commands to color a structure, change its representation and move the camera. Giving a command an object name makes the whole object its target. What if you want to work on just part of it?</p></div>
+<h2>Give a command a group of atoms</h2>
+<p>A <strong>selection</strong> is a group of atoms from any of the objects in a scene. It can contain a single atom, part of a molecule, or atoms from several objects at once. When you give a selection to a command such as <code>color</code>, the command colors only those atoms.</p>
+<p>Try this on the hemoglobin model from Quick start. Its object name is <code>1HHO</code>. Run the first command to turn the whole model gray. Then run the second and watch which parts turn orange.</p>
+<div class="command-example"><div class="command-lines">
+<div class="command-line"><code id="color-object">color gray, 1HHO</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="color-object" disabled>Run</button><button type="button" data-copy="color-object" aria-label="Copy color gray, 1HHO">Copy</button></span></div>
+<div class="command-line"><code id="color-hemes">color orange, resn HEM</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="color-hemes" disabled>Run</button><button type="button" data-copy="color-hemes" aria-label="Copy color orange, resn HEM">Copy</button></span></div>
+</div></div>
+<p>Both hemes turn orange and the protein ribbons stay gray. The expression <code>resn HEM</code> selects every atom whose residue name is HEM. You can use that expression directly wherever a command accepts a selection.</p>
+<h3>Give the selection a name</h3>
+<p>If you want to work with those atoms again, you can name the group. Here <code>select</code> gives it the name <code>hemes</code>.</p>
 <div class="command-example"><div class="command-lines">
 <div class="command-line"><code id="example-1">select hemes, resn HEM</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-1" disabled>Run</button><button type="button" data-copy="example-1" aria-label="Copy select hemes, resn HEM">Copy</button></span></div>
 </div></div>
-<p>Look for selection markers on the two orange groups and read the number in the console. <strong>86 atoms</strong> means 43 atoms in each heme. A selection is a set of atoms. Even when you ask for a residue by name, Patinae returns its atoms.</p>
-<p>Read the command from the comma outward. The expression <code>resn HEM</code> matches every atom whose residue name is HEM. The command <code>select</code> gives that set the name <code>hemes</code>. Now use the name twice.</p>
+<p>The markers appear on both hemes. The console reports <strong>86 atoms</strong>, 43 in each heme. Use the name to draw those atoms as sticks, then to fit the camera around them.</p>
 <div class="command-example"><div class="command-lines">
 <div class="command-line"><code id="example-2">show sticks, hemes</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-2" disabled>Run</button><button type="button" data-copy="example-2" aria-label="Copy show sticks, hemes">Copy</button></span></div>
 <div class="command-line"><code id="example-3">zoom hemes, buffer=4</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-3" disabled>Run</button><button type="button" data-copy="example-3" aria-label="Copy zoom hemes, buffer=4">Copy</button></span></div>
 </div></div>
-<p>The first command draws the thin orange heme bonds as thicker sticks. The second fits the camera around the same atoms. You can type commands in the prompt or use Run beside each example. Reset chapter restores its opening view.</p>
+<p>Now suppose you want to see the protein residues around just one of the two hemes. How would you specify which heme you mean? Start by reading the address of its iron atom.</p>
 </div>
 <div class="doc-page-nav"><button type="button" data-nav="prev"></button><span class="page-counter"></span><button type="button" data-nav="next"></button></div>
 </section>
