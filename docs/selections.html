@@ -36,17 +36,17 @@
 <li><a href="#cheatsheet">Selection algebra cheat sheet</a></li>
 </ul></aside>
 <main class="docs-content" id="main"><a class="docs-back" href="../docs.html">← Documentation</a><noscript><p>Run the examples in desktop Patinae to follow along.</p></noscript>
-<section class="doc-page" id="atom-sets" data-title="From objects to selections" data-src="../assets/pdb/1HHO.pdb" data-command="hide everything; show cartoon, polymer.protein; show lines, resn HEM; color gray; color cyan, chain A; color orange, resn HEM; label polymer.protein and resi 1 and name CA, chain; orient polymer.protein; zoom polymer.protein, buffer=3">
+<section class="doc-page" id="atom-sets" data-title="From objects to selections" data-src="../assets/pdb/1HHO.pdb" data-command="hide everything; show cartoon, polymer.protein; show lines, resn HEM; color gray; color chain, polymer; color orange, resn HEM; label polymer.protein and resi 1 and name CA, chain; orient polymer.protein; zoom polymer.protein, buffer=3">
 <div class="docs-section">
 <div class="docs-hero"><h1>Selection algebra</h1><p>In <a class="ext-link" href="quick-start.html">Quick start</a>, you used commands to color a structure, change its representation and move the camera. Giving a command an object name makes the whole object its target. What if you want to work on just part of it?</p></div>
 <h2>Give a command a group of atoms</h2>
 <p>A <strong>selection</strong> is a group of atoms from any of the objects in a scene. It can contain a single atom, part of a molecule, or atoms from several objects at once. When you give a selection to a command such as <code>color</code>, the command colors only those atoms.</p>
-<p>Try this on the hemoglobin model from Quick start. Its object name is <code>1HHO</code>. Run the first command to turn the whole model gray. Then run the second and watch which parts turn orange.</p>
+<p>Try this on the hemoglobin model from Quick start. Its object name is <code>1HHO</code>. Run the first command to color the entire object by chain, including its heme segments. Then run the second and watch which parts turn orange.</p>
 <div class="command-example"><div class="command-lines">
-<div class="command-line"><code id="color-object">color gray, 1HHO</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="color-object" disabled>Run</button><button type="button" data-copy="color-object" aria-label="Copy color gray, 1HHO">Copy</button></span></div>
+<div class="command-line"><code id="color-object">color chain, 1HHO</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="color-object" disabled>Run</button><button type="button" data-copy="color-object" aria-label="Copy color chain, 1HHO">Copy</button></span></div>
 <div class="command-line"><code id="color-hemes">color orange, resn HEM</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="color-hemes" disabled>Run</button><button type="button" data-copy="color-hemes" aria-label="Copy color orange, resn HEM">Copy</button></span></div>
 </div></div>
-<p>Both hemes turn orange and the protein ribbons stay gray. The expression <code>resn HEM</code> selects every atom whose residue name is HEM. You can use that expression directly wherever a command accepts a selection.</p>
+<p>Both hemes turn orange while the protein ribbons keep their chain colors. The expression <code>resn HEM</code> selects every atom whose residue name is HEM. You can use that expression directly wherever a command accepts a selection.</p>
 <h3>Give the selection a name</h3>
 <p>If you want to work with those atoms again, you can name the group. Here <code>select</code> gives it the name <code>hemes</code>.</p>
 <div class="command-example"><div class="command-lines">
@@ -94,7 +94,7 @@
 <div class="doc-page-nav"><button type="button" data-nav="prev"></button><span class="page-counter"></span><button type="button" data-nav="next"></button></div>
 </section>
 
-<section class="doc-page" id="logic" data-title="Combine sets" data-src="../assets/pdb/1HHO.pdb" data-command="hide everything; show cartoon, polymer.protein; show sticks, resn HEM; color gray; color cyan, chain A; color orange, resn HEM; label polymer.protein and resi 1 and name CA, chain; orient polymer.protein; zoom polymer.protein, buffer=3">
+<section class="doc-page" id="logic" data-title="Combine sets" data-src="../assets/pdb/1HHO.pdb" data-command="hide everything; show cartoon, polymer.protein; show sticks, resn HEM; color gray; color chain, polymer; color orange, resn HEM; label polymer.protein and resi 1 and name CA, chain; orient polymer.protein; zoom polymer.protein, buffer=3">
 <div class="docs-section">
 <h2>What survives each operation?</h2>
 <p>Use two overlapping sets. <code>chain A*</code> means every atom whose loaded chain identifier starts with A. In this file that includes the alpha protein, its heme and other atoms in its PDB chain. <code>resn HEM</code> covers both hemes. The camera stays still as you replace the selection.</p>
@@ -113,7 +113,7 @@
 <div class="command-example"><div class="command-lines">
 <div class="command-line"><code id="example-16">select sample, chain A* or resn HEM</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-16" disabled>Run</button><button type="button" data-copy="example-16" aria-label="Copy select sample, chain A* or resn HEM">Copy</button></span></div>
 </div></div>
-<p>The beta heme joins the A atoms. The gray beta protein stays outside. An atom in both sets is counted once.</p>
+<p>The beta heme joins the A atoms. The pink beta protein stays outside. An atom in both sets is counted once.</p>
 <h3>Difference</h3>
 <p>Keep the A atoms and exclude every heme atom. Check the cyan protein and its orange heme separately.</p>
 <div class="command-example"><div class="command-lines">
@@ -131,7 +131,7 @@
 <div class="doc-page-nav"><button type="button" data-nav="prev"></button><span class="page-counter"></span><button type="button" data-nav="next"></button></div>
 </section>
 
-<section class="doc-page" id="grouping" data-title="Group conditions" data-src="../assets/pdb/1HHO.pdb" data-command="hide everything; show cartoon, polymer.protein; show sticks, resn HEM; color gray; color cyan, chain A; color orange, resn HEM; label polymer.protein and resi 1 and name CA, chain; orient polymer.protein; zoom polymer.protein, buffer=3">
+<section class="doc-page" id="grouping" data-title="Group conditions" data-src="../assets/pdb/1HHO.pdb" data-command="hide everything; show cartoon, polymer.protein; show sticks, resn HEM; color gray; color chain, polymer; color orange, resn HEM; label polymer.protein and resi 1 and name CA, chain; orient polymer.protein; zoom polymer.protein, buffer=3">
 <div class="docs-section">
 <h2>Follow one atom through the brackets</h2>
 <p>Pick any atom in the cyan protein ribbon. It belongs to an A segment and its residue name differs from HEM. Decide whether it should be selected by each of these expressions before pressing Run.</p>
@@ -150,7 +150,7 @@
 <div class="doc-page-nav"><button type="button" data-nav="prev"></button><span class="page-counter"></span><button type="button" data-nav="next"></button></div>
 </section>
 
-<section class="doc-page" id="distance" data-title="Measure a neighborhood" data-src="../assets/pdb/1HHO.pdb" data-command="select heme_a, chain A2 and resn HEM; select protein_a, chain A and polymer.protein; select near_a, protein_a within 4 of heme_a; select pocket_a, byres (near_a); disable *_a; hide everything; color gray; show sticks, heme_a; color orange, heme_a; set sphere_scale, 0.24; orient heme_a; turn y, 75; zoom heme_a, buffer=5">
+<section class="doc-page" id="distance" data-title="Measure a neighborhood" data-src="../assets/pdb/1HHO.pdb" data-command="select heme_a, chain A2 and resn HEM; select protein_a, chain A and polymer.protein; select near_a, protein_a within 4 of heme_a; select pocket_a, byres (near_a); disable *_a; hide everything; color gray; color chain, polymer; show sticks, heme_a; color orange, heme_a; set sphere_scale, 0.24; orient heme_a; turn y, 75; zoom heme_a, buffer=5">
 <div class="docs-section">
 <h2>Which protein atoms are within 4 Å?</h2>
 <p>The orange sticks show the heme from chain A. Define the two sides of the question. The candidates are protein atoms in chain A. The reference is the group of 43 heme atoms in A2. These names are also prepared when you enter this chapter directly.</p>
@@ -163,7 +163,7 @@
 <div class="command-line"><code id="example-27">select near_a, protein_a within 4 of heme_a</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-27" disabled>Run</button><button type="button" data-copy="example-27" aria-label="Copy select near_a, protein_a within 4 of heme_a">Copy</button></span></div>
 <div class="command-line"><code id="example-28">disable *_a</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-28" disabled>Run</button><button type="button" data-copy="example-28" aria-label="Copy disable *_a">Copy</button></span></div>
 <div class="command-line"><code id="example-29">show spheres, near_a</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-29" disabled>Run</button><button type="button" data-copy="example-29" aria-label="Copy show spheres, near_a">Copy</button></span></div>
-<div class="command-line"><code id="example-30">color cyan, near_a</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-30" disabled>Run</button><button type="button" data-copy="example-30" aria-label="Copy color cyan, near_a">Copy</button></span></div>
+<div class="command-line"><code id="example-30">color yellow, near_a</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-30" disabled>Run</button><button type="button" data-copy="example-30" aria-label="Copy color yellow, near_a">Copy</button></span></div>
 </div></div>
 <p>The console reports <strong>35 atoms</strong>. The small spheres mark their positions. <code>disable *_a</code> hides the markers for the named selections ending in _a. Their atoms remain available for drawing and measurement.</p>
 <h3>Move the boundary</h3>
@@ -173,28 +173,28 @@
 <div class="command-line"><code id="example-32">disable *_a</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-32" disabled>Run</button><button type="button" data-copy="example-32" aria-label="Copy disable *_a">Copy</button></span></div>
 <div class="command-line"><code id="example-33">show spheres, wider_a</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-33" disabled>Run</button><button type="button" data-copy="example-33" aria-label="Copy show spheres, wider_a">Copy</button></span></div>
 </div></div>
-<p>There are now 142 atoms. The original 35 remain cyan. The additional atoms form a wider shell around the same heme.</p>
+<p>There are now 142 atoms. The original 35 remain yellow. The additional atoms form a wider shell around the same heme.</p>
 </div>
 <div class="doc-page-nav"><button type="button" data-nav="prev"></button><span class="page-counter"></span><button type="button" data-nav="next"></button></div>
 </section>
 
-<section class="doc-page" id="residues" data-title="From atoms to residues" data-src="../assets/pdb/1HHO.pdb" data-command="select heme_a, chain A2 and resn HEM; select protein_a, chain A and polymer.protein; select near_a, protein_a within 4 of heme_a; select pocket_a, byres (near_a); disable *_a; hide everything; color gray; show sticks, heme_a; color orange, heme_a; set sphere_scale, 0.24; orient heme_a; turn y, 75; zoom heme_a, buffer=5">
+<section class="doc-page" id="residues" data-title="From atoms to residues" data-src="../assets/pdb/1HHO.pdb" data-command="select heme_a, chain A2 and resn HEM; select protein_a, chain A and polymer.protein; select near_a, protein_a within 4 of heme_a; select pocket_a, byres (near_a); disable *_a; hide everything; color gray; color chain, polymer; show sticks, heme_a; color orange, heme_a; set sphere_scale, 0.24; orient heme_a; turn y, 75; zoom heme_a, buffer=5">
 <div class="docs-section">
 <h2>Recover the residues around the heme</h2>
-<p>An atom can sit close to the heme while the rest of its residue extends away. Start with the same 35 atoms from the previous chapter. Draw them as cyan spheres.</p>
+<p>An atom can sit close to the heme while the rest of its residue extends away. Start with the same 35 atoms from the previous chapter. Draw them as yellow spheres.</p>
 <div class="command-example"><div class="command-lines">
 <div class="command-line"><code id="example-34">select near_a, protein_a within 4 of heme_a</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-34" disabled>Run</button><button type="button" data-copy="example-34" aria-label="Copy select near_a, protein_a within 4 of heme_a">Copy</button></span></div>
 <div class="command-line"><code id="example-35">disable *_a</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-35" disabled>Run</button><button type="button" data-copy="example-35" aria-label="Copy disable *_a">Copy</button></span></div>
 <div class="command-line"><code id="example-36">show spheres, near_a</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-36" disabled>Run</button><button type="button" data-copy="example-36" aria-label="Copy show spheres, near_a">Copy</button></span></div>
-<div class="command-line"><code id="example-37">color cyan, near_a</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-37" disabled>Run</button><button type="button" data-copy="example-37" aria-label="Copy color cyan, near_a">Copy</button></span></div>
+<div class="command-line"><code id="example-37">color yellow, near_a</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-37" disabled>Run</button><button type="button" data-copy="example-37" aria-label="Copy color yellow, near_a">Copy</button></span></div>
 </div></div>
-<p>Now keep every residue that contains at least one of those atoms. Leave the spheres in place and draw the complete residues as sticks. Watch where the sticks extend beyond the cyan atoms.</p>
+<p>Now keep every residue that contains at least one of those atoms. Leave the spheres in place and draw the complete residues as sticks. Watch where the sticks extend beyond the yellow atoms.</p>
 <div class="command-example"><div class="command-lines">
 <div class="command-line"><code id="example-38">select pocket_a, byres (near_a)</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-38" disabled>Run</button><button type="button" data-copy="example-38" aria-label="Copy select pocket_a, byres (near_a)">Copy</button></span></div>
 <div class="command-line"><code id="example-39">disable *_a</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-39" disabled>Run</button><button type="button" data-copy="example-39" aria-label="Copy disable *_a">Copy</button></span></div>
 <div class="command-line"><code id="example-40">show sticks, pocket_a</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-40" disabled>Run</button><button type="button" data-copy="example-40" aria-label="Copy show sticks, pocket_a">Copy</button></span></div>
 </div></div>
-<div class="selection-frames"><figure><img src="../assets/images/selections/near.webp" width="480" height="500" alt="Orange heme surrounded by 35 cyan spheres at the positions of nearby protein atoms."><figcaption>35 protein atoms pass the distance test.</figcaption></figure><figure><img src="../assets/images/selections/pocket.webp" width="480" height="500" alt="The same cyan atoms and orange heme with bonds drawn through all 18 surrounding residues."><figcaption>158 atoms belong to the 18 complete residues.</figcaption></figure></div>
+<div class="selection-frames"><figure><img src="../assets/images/selections/near.webp" width="480" height="500" alt="Orange heme surrounded by 35 yellow spheres at the positions of nearby protein atoms."><figcaption>35 protein atoms pass the distance test.</figcaption></figure><figure><img src="../assets/images/selections/pocket.webp" width="480" height="500" alt="The same yellow atoms and orange heme with bonds drawn through all 18 surrounding residues."><figcaption>158 atoms belong to the 18 complete residues.</figcaption></figure></div>
 <p>The result contains <strong>158 atoms in 18 residues</strong>. Count one alpha carbon per selected protein residue as a cross-check.</p>
 <div class="command-example"><div class="command-lines">
 <div class="command-line"><code id="example-41">select sample, pocket_a and name CA</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-41" disabled>Run</button><button type="button" data-copy="example-41" aria-label="Copy select sample, pocket_a and name CA">Copy</button></span></div>
@@ -216,7 +216,7 @@
 <div class="doc-page-nav"><button type="button" data-nav="prev"></button><span class="page-counter"></span><button type="button" data-nav="next"></button></div>
 </section>
 
-<section class="doc-page" id="paths" data-title="Read a slash path" data-src="../assets/pdb/1HHO.pdb" data-command="hide everything; show cartoon, polymer.protein; show sticks, resn HEM; color gray; color cyan, chain A; color orange, resn HEM; label polymer.protein and resi 1 and name CA, chain; orient polymer.protein; zoom polymer.protein, buffer=3">
+<section class="doc-page" id="paths" data-title="Read a slash path" data-src="../assets/pdb/1HHO.pdb" data-command="hide everything; show cartoon, polymer.protein; show sticks, resn HEM; color gray; color chain, polymer; color orange, resn HEM; label polymer.protein and resi 1 and name CA, chain; orient polymer.protein; zoom polymer.protein, buffer=3">
 <div class="docs-section">
 <h2>Two addresses for the same iron</h2>
 <p>A slash path writes successive fields in a fixed order. Read this one from the left. A leading slash starts at the object, and the empty segment field between two slashes leaves that field unrestricted.</p>
@@ -256,7 +256,7 @@
 <div class="doc-page-nav"><button type="button" data-nav="prev"></button><span class="page-counter"></span><button type="button" data-nav="next"></button></div>
 </section>
 
-<section class="doc-page" id="practice" data-title="Practice on 4HHB" data-src="../assets/pdb/4HHB.pdb" data-command="hide everything; show cartoon, polymer.protein; show sticks, resn HEM; color chain; color orange, resn HEM; label polymer.protein and resi 1 and name CA, chain; orient polymer.protein; zoom polymer.protein, buffer=3">
+<section class="doc-page" id="practice" data-title="Practice on 4HHB" data-src="../assets/pdb/4HHB.pdb" data-command="hide everything; show cartoon, polymer.protein; show sticks, resn HEM; color gray; color chain, polymer; color orange, resn HEM; label polymer.protein and resi 1 and name CA, chain; orient polymer.protein; zoom polymer.protein, buffer=3">
 <div class="docs-section">
 <h2>Find a heme pocket in 4HHB</h2>
 <p>You now have four protein chains, A through D, each with a heme. Their heme segments are A2 through D2. Work in the prompt and check your prediction on the model. The last exercise builds on the names you create in exercise 4.</p>
@@ -296,11 +296,11 @@
 <div class="command-line"><code id="example-68">select pocket_d, byres (near_d)</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-68" disabled>Run</button><button type="button" data-copy="example-68" aria-label="Copy select pocket_d, byres (near_d)">Copy</button></span></div>
 <div class="command-line"><code id="example-69">hide everything</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-69" disabled>Run</button><button type="button" data-copy="example-69" aria-label="Copy hide everything">Copy</button></span></div>
 <div class="command-line"><code id="example-70">show sticks, heme_d or pocket_d</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-70" disabled>Run</button><button type="button" data-copy="example-70" aria-label="Copy show sticks, heme_d or pocket_d">Copy</button></span></div>
-<div class="command-line"><code id="example-71">color gray, pocket_d</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-71" disabled>Run</button><button type="button" data-copy="example-71" aria-label="Copy color gray, pocket_d">Copy</button></span></div>
+<div class="command-line"><code id="example-71">color chain, polymer</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-71" disabled>Run</button><button type="button" data-copy="example-71" aria-label="Copy color chain, polymer">Copy</button></span></div>
 <div class="command-line"><code id="example-72">color orange, heme_d</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-72" disabled>Run</button><button type="button" data-copy="example-72" aria-label="Copy color orange, heme_d">Copy</button></span></div>
 <div class="command-line"><code id="example-73">set sphere_scale, 0.24</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-73" disabled>Run</button><button type="button" data-copy="example-73" aria-label="Copy set sphere_scale, 0.24">Copy</button></span></div>
 <div class="command-line"><code id="example-74">show spheres, near_d</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-74" disabled>Run</button><button type="button" data-copy="example-74" aria-label="Copy show spheres, near_d">Copy</button></span></div>
-<div class="command-line"><code id="example-75">color cyan, near_d</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-75" disabled>Run</button><button type="button" data-copy="example-75" aria-label="Copy color cyan, near_d">Copy</button></span></div>
+<div class="command-line"><code id="example-75">color yellow, near_d</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-75" disabled>Run</button><button type="button" data-copy="example-75" aria-label="Copy color yellow, near_d">Copy</button></span></div>
 <div class="command-line"><code id="example-76">zoom pocket_d, buffer=2</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-76" disabled>Run</button><button type="button" data-copy="example-76" aria-label="Copy zoom pocket_d, buffer=2">Copy</button></span></div>
 <div class="command-line"><code id="example-77">select sample, pocket_d and name CA</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-77" disabled>Run</button><button type="button" data-copy="example-77" aria-label="Copy select sample, pocket_d and name CA">Copy</button></span></div>
 <div class="command-line"><code id="example-78">disable sample</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-78" disabled>Run</button><button type="button" data-copy="example-78" aria-label="Copy disable sample">Copy</button></span></div>
@@ -321,7 +321,7 @@
 </div>
 <div class="doc-page-nav"><button type="button" data-nav="prev"></button><span class="page-counter"></span><button type="button" data-nav="next"></button></div>
 </section>
-<section class="doc-page" id="cheatsheet" data-title="Selection algebra cheat sheet" data-src="../assets/pdb/1HHO.pdb" data-command="select hemes, resn HEM; disable hemes; hide everything; show cartoon, polymer.protein; show sticks, resn HEM; color gray; color cyan, chain A; color orange, resn HEM; label polymer.protein and resi 1 and name CA, chain; orient polymer.protein; zoom polymer.protein, buffer=3">
+<section class="doc-page" id="cheatsheet" data-title="Selection algebra cheat sheet" data-src="../assets/pdb/1HHO.pdb" data-command="select hemes, resn HEM; disable hemes; hide everything; show cartoon, polymer.protein; show sticks, resn HEM; color gray; color chain, polymer; color orange, resn HEM; label polymer.protein and resi 1 and name CA, chain; orient polymer.protein; zoom polymer.protein, buffer=3">
 <div class="docs-section">
 <h2>Selection algebra cheat sheet</h2>
 <p>Try an expression on 1HHO or use it as the target of your own command. Each button runs <code>select sample,</code> followed by the expression. This page defines <code>hemes</code> as <code>resn HEM</code>. In the console, <code>show sticks, sample</code> draws the current selection and <code>deselect</code> clears named selections.</p>
