@@ -8,6 +8,15 @@
 .selection-frames img { display: block; width: 100%; height: auto; }
 .selection-frames figcaption { margin-top: 8px; color: var(--muted); font-size: 14px; }
 
+.cmd-run.prepare-view {
+  min-height: 44px;
+  margin-bottom: 20px;
+  padding: 8px 16px;
+  font: 500 15px/1.4 var(--body);
+}
+.prepare-view::after, .prepare-view .restore-label, .prepare-view.toggled .prepare-label { display: none; }
+.prepare-view.toggled .restore-label { display: inline; }
+
 /* Keep the reference sized to the reading column beside the viewer. */
 .keyword-reference { container-type: inline-size; }
 .keyword-reference > details {

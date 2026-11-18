@@ -89,6 +89,8 @@
 <h3>How to choose atoms</h3>
 <p>Start with what you know about the atoms. If you know the residue number, use <code>resi</code>. If you want the protein backbone or all solvent atoms, a single keyword describes the whole group. For a measured property, give a comparison, such as <code>b &gt; 30</code>.</p>
 <p>Click an expression to run it on 1HHO. The viewer replaces <code>sample</code> with the matching atoms and reports their count. Alternate spellings are listed at the end of the reference.</p>
+<p>To see the individual atoms, switch to sticks for the structure and dots for the surrounding water.</p>
+<button type="button" class="cmd-run prepare-view" data-cmd="hide cartoon, polymer.protein; show sticks, not solvent; show dots, solvent" data-cmd-alt="hide dots, solvent; hide sticks, not solvent; show cartoon, polymer.protein; show sticks, resn HEM" disabled><span class="prepare-label">Prepare view</span><span class="restore-label">Restore overview</span></button>
 <div class="keyword-reference">
 <details open><summary>Atom and residue addresses</summary>
 <table class="keyword-table"><thead><tr><th scope="col">Expression</th><th scope="col">Which atoms it selects</th></tr></thead><tbody>
@@ -147,7 +149,7 @@
 <details><summary>What is drawn or marked in the scene?</summary>
 <table class="keyword-table"><thead><tr><th scope="col">Expression</th><th scope="col">Which atoms it selects</th></tr></thead><tbody>
 <tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, visible" aria-label="Run select sample, visible" title="Run select sample, visible" disabled><code>visible</code></button></th><td>Atoms with at least one representation switched on.</td></tr>
-<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, rep sticks" aria-label="Run select sample, rep sticks" title="Run select sample, rep sticks" disabled><code>rep sticks</code></button></th><td>Atoms with the requested representation switched on. Here the hemes are drawn as sticks.</td></tr>
+<tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, rep sticks" aria-label="Run select sample, rep sticks" title="Run select sample, rep sticks" disabled><code>rep sticks</code></button></th><td>Atoms currently drawn as sticks. Try this in the overview and again in the prepared view to see how the selection changes.</td></tr>
 <tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, color orange" aria-label="Run select sample, color orange" title="Run select sample, color orange" disabled><code>color orange</code></button></th><td>Atoms assigned this base color.</td></tr>
 <tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, cartoon_color orange" aria-label="Run select sample, cartoon_color orange" title="Run select sample, cartoon_color orange" disabled><code>cartoon_color orange</code></button></th><td>Atoms with this explicit cartoon color assignment.</td></tr>
 <tr><th scope="row"><button type="button" class="keyword-example" data-cmd="select sample, ribbon_color orange" aria-label="Run select sample, ribbon_color orange" title="Run select sample, ribbon_color orange" disabled><code>ribbon_color orange</code></button></th><td>Atoms with this explicit ribbon color assignment.</td></tr>
