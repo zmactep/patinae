@@ -158,7 +158,7 @@
 <h3>Compare the two distances</h3>
 <p>Choose 4 Å to mark the 35 qualifying atoms with yellow spheres. Then choose 6 Å. The same 35 stay yellow and the 107 additional atoms appear as turquoise spheres. Switch back to 4 Å to see which atoms drop out.</p>
 <div class="distance-views" role="group" aria-label="Distance cutoff"><button type="button" class="cmd-run prepare-view" data-cmd="select protein_a, chain A and polymer.protein; select heme_a, chain A2 and resn HEM; select near_a, protein_a within 4 of heme_a; disable *_a; color yellow, near_a; hide spheres, protein_a; show spheres, near_a" disabled>Show 4 Å</button> <button type="button" class="cmd-run prepare-view" data-cmd="select protein_a, chain A and polymer.protein; select heme_a, chain A2 and resn HEM; select near_a, protein_a within 4 of heme_a; disable *_a; color yellow, near_a; hide spheres, protein_a; select wider_a, protein_a within 6 of heme_a; disable wider_a; show spheres, wider_a" disabled>Show 6 Å</button></div>
-<details><summary>Read the selection commands</summary>
+<h3>Read the selection commands</h3>
 <p>Define the protein and the heme first. The next two commands use the same candidates and reference, changing only the distance in ångströms.</p>
 <div class="command-example"><div class="command-lines">
 <div class="command-line"><code id="example-25">select protein_a, chain A and polymer.protein</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-25" disabled>Run</button><button type="button" data-copy="example-25" aria-label="Copy select protein_a, chain A and polymer.protein">Copy</button></span></div>
@@ -167,7 +167,6 @@
 <div class="command-line"><code id="example-31">select wider_a, protein_a within 6 of heme_a</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-31" disabled>Run</button><button type="button" data-copy="example-31" aria-label="Copy select wider_a, protein_a within 6 of heme_a">Copy</button></span></div>
 </div></div>
 <p>The console reports 35 atoms for <code>near_a</code> and 142 for <code>wider_a</code>. The distance buttons also draw the selected atoms as spheres.</p>
-</details>
 </div>
 <div class="doc-page-nav"><button type="button" data-nav="prev"></button><span class="page-counter"></span><button type="button" data-nav="next"></button></div>
 </section>
@@ -180,7 +179,7 @@
 <h3>Compare atoms and whole residues</h3>
 <p>Choose <strong>Show whole residues</strong> to draw all 18 residues as sticks. The yellow spheres stay in place. The turquoise sticks trace the 123 additional atoms, bringing the total to 158. Choose <strong>Show nearby atoms</strong> to return to the 35 that passed the distance test.</p>
 <div class="distance-views" role="group" aria-label="Selection extent"><button type="button" class="cmd-run prepare-view" data-cmd="select protein_a, chain A and polymer.protein; select heme_a, chain A2 and resn HEM; select near_a, protein_a within 4 of heme_a; select pocket_a, byres (near_a); disable *_a; disable sample; hide sticks, protein_a" disabled>Show nearby atoms</button> <button type="button" class="cmd-run prepare-view" data-cmd="select protein_a, chain A and polymer.protein; select heme_a, chain A2 and resn HEM; select near_a, protein_a within 4 of heme_a; select pocket_a, byres (near_a); disable *_a; disable sample; show sticks, pocket_a" disabled>Show whole residues</button></div>
-<details><summary>Read the selection commands</summary>
+<h3>Read the selection commands</h3>
 <p>The first command measures from the heme. The second expands the result to whole residues. To count those residues, select their alpha carbons. Each of these protein residues contains one.</p>
 <div class="command-example"><div class="command-lines">
 <div class="command-line"><code id="residue-neighbors">select near_a, protein_a within 4 of heme_a</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="residue-neighbors" disabled>Run</button><button type="button" data-copy="residue-neighbors" aria-label="Copy select near_a, protein_a within 4 of heme_a">Copy</button></span></div>
@@ -196,10 +195,8 @@
 <div class="command-example"><div class="command-lines">
 <div class="command-line"><code id="example-44">select sample, bychain (near_a)</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-44" disabled>Run</button><button type="button" data-copy="example-44" aria-label="Copy select sample, bychain (near_a)">Copy</button></span></div>
 </div></div>
-</details>
-<details><summary>Compare the two views side by side</summary>
+<h3>Compare the two views side by side</h3>
 <div class="selection-frames"><figure><img src="../assets/images/selections/near.webp" width="480" height="500" alt="Orange heme surrounded by 35 yellow spheres at the positions of nearby protein atoms."><figcaption>35 protein atoms pass the distance test.</figcaption></figure><figure><img src="../assets/images/selections/pocket.webp" width="480" height="500" alt="The same yellow atoms and orange heme with bonds drawn through all 18 surrounding residues."><figcaption>158 atoms belong to the 18 complete residues.</figcaption></figure></div>
-</details>
 </div>
 <div class="doc-page-nav"><button type="button" data-nav="prev"></button><span class="page-counter"></span><button type="button" data-nav="next"></button></div>
 </section>
