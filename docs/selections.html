@@ -64,23 +64,23 @@
 <section class="doc-page" id="fields" data-title="Read an atom’s address" data-src="../assets/pdb/1HHO.pdb" data-command="hide everything; show cartoon, polymer.protein; show sticks, resn HEM; color gray; color cyan, chain A; color orange, resn HEM; label polymer.protein and resi 1 and name CA, chain; orient polymer.protein; zoom polymer.protein, buffer=3">
 <div class="docs-section">
 <h2>Which field describes this atom?</h2>
-<p>Look at the iron in the heme that belongs to the alpha chain. The structure file calls the chain A. When Patinae reads this PDB file it gives separate chain identifiers to segments that recur later in the file. Here the protein is <code>A</code> and its heme is in <code>A2</code>. The beta chain has a matching pair, <code>B</code> and <code>B2</code>.</p>
+<p>Follow the gray ribbon of the beta chain to its orange heme. The iron at its center belongs to residue HEM 147. In this PDB file, the heme atoms appear in a later segment of chain B. Patinae labels the protein segment <code>B</code> and the segment containing its heme <code>B2</code>. The corresponding identifiers for the alpha chain are <code>A</code> and <code>A2</code>.</p>
 <table class="docs-table"><thead><tr><th scope="col">Field</th><th scope="col">Address of this iron in Patinae</th></tr></thead><tbody>
 <tr><td>Object</td><td>1HHO, the loaded structure</td></tr>
-<tr><td>Chain</td><td>A2, the segment containing this heme</td></tr>
-<tr><td>Residue name and number</td><td>HEM 143</td></tr>
+<tr><td>Chain</td><td>B2, the segment containing this heme</td></tr>
+<tr><td>Residue name and number</td><td>HEM 147</td></tr>
 <tr><td>Atom name</td><td>FE, the atom label in this residue</td></tr>
 <tr><td>Element</td><td>Fe, the chemical element iron</td></tr>
 </tbody></table>
 <p>Try each filter on its own. Each command replaces <code>sample</code>. Which filters also find atoms in the other heme?</p>
 <div class="command-example"><div class="command-lines">
-<div class="command-line"><code id="example-4">select sample, chain A</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-4" disabled>Run</button><button type="button" data-copy="example-4" aria-label="Copy select sample, chain A">Copy</button></span></div>
+<div class="command-line"><code id="example-4">select sample, chain B2</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-4" disabled>Run</button><button type="button" data-copy="example-4" aria-label="Copy select sample, chain B2">Copy</button></span></div>
 <div class="command-line"><code id="example-5">select sample, resn HEM</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-5" disabled>Run</button><button type="button" data-copy="example-5" aria-label="Copy select sample, resn HEM">Copy</button></span></div>
-<div class="command-line"><code id="example-6">select sample, resi 143</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-6" disabled>Run</button><button type="button" data-copy="example-6" aria-label="Copy select sample, resi 143">Copy</button></span></div>
+<div class="command-line"><code id="example-6">select sample, resi 147</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-6" disabled>Run</button><button type="button" data-copy="example-6" aria-label="Copy select sample, resi 147">Copy</button></span></div>
 <div class="command-line"><code id="example-7">select sample, name FE</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-7" disabled>Run</button><button type="button" data-copy="example-7" aria-label="Copy select sample, name FE">Copy</button></span></div>
 <div class="command-line"><code id="example-8">select sample, elem Fe</code><span class="command-line-actions"><button type="button" class="cmd-run command-run" data-run-example data-cmd-ref="example-8" disabled>Run</button><button type="button" data-copy="example-8" aria-label="Copy select sample, elem Fe">Copy</button></span></div>
 </div></div>
-<p>Both iron filters find two atoms here. Residue number 143 also occurs in the beta protein. The residue number alone cannot identify our heme.</p>
+<p>In this structure, <code>resn HEM</code> selects both hemes (86 atoms). Only the beta heme has residue number 147, so <code>resi 147</code> selects its 43 atoms. Each iron filter selects two atoms, one at the center of each heme.</p>
 <h3>Names, lists and ranges</h3>
 <p>In the protein, CA is the name of the alpha carbon of each residue. Element C includes those atoms and the other carbons in the protein. Predict which selection has more atoms.</p>
 <div class="command-example"><div class="command-lines">
