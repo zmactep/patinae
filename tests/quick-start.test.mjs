@@ -79,11 +79,12 @@ test('standalone examples have matching Run controls, except the copy-only sessi
       continue;
     }
     assert.match(row, /data-run-example/);
-    if (/^(save|png|load)\s/.test(command)) {
+    if (command === 'load /path/to/1HHO.pdb') {
       assert.match(row, /data-run-unavailable title="[^"]+"/);
       assert.doesNotMatch(row, /data-cmd=/);
     } else {
       const id = row.match(/<code id="([^"]+)"/)[1];
+      assert.doesNotMatch(row, /data-run-unavailable/);
       assert.equal(row.match(/data-cmd-ref="([^"]+)"/)[1], id);
       assert.equal(fixture(command).buttons[0].dataset.cmd, command.trim());
       assert.doesNotMatch(row, /data-cmd=/, 'Run must not store a second copy of the command');

@@ -1,11 +1,11 @@
-class W {
+class M {
   static __wrap(e) {
-    const t = Object.create(W.prototype);
-    return t.__wbg_ptr = e, X.register(t, t.__wbg_ptr, t), t;
+    const t = Object.create(M.prototype);
+    return t.__wbg_ptr = e, J.register(t, t.__wbg_ptr, t), t;
   }
   __destroy_into_raw() {
     const e = this.__wbg_ptr;
-    return this.__wbg_ptr = 0, X.unregister(this), e;
+    return this.__wbg_ptr = 0, J.unregister(this), e;
   }
   free() {
     const e = this.__destroy_into_raw();
@@ -24,9 +24,9 @@ class W {
    */
   cancel_task(e) {
     try {
-      const i = o.__wbindgen_add_to_stack_pointer(-16), u = l(e, o.__wbindgen_export, o.__wbindgen_export2), f = w;
-      o.webviewer_cancel_task(i, this.__wbg_ptr, u, f);
-      var t = s().getInt32(i + 0, !0), _ = s().getInt32(i + 4, !0), r = s().getInt32(i + 8, !0);
+      const c = o.__wbindgen_add_to_stack_pointer(-16), u = l(e, o.__wbindgen_export, o.__wbindgen_export2), f = w;
+      o.webviewer_cancel_task(c, this.__wbg_ptr, u, f);
+      var t = s().getInt32(c + 0, !0), _ = s().getInt32(c + 4, !0), r = s().getInt32(c + 8, !0);
       if (r)
         throw b(_);
       return b(t);
@@ -42,13 +42,13 @@ class W {
    */
   command_files(e, t) {
     try {
-      const p = o.__wbindgen_add_to_stack_pointer(-16), k = l(e, o.__wbindgen_export, o.__wbindgen_export2), O = w;
-      var _ = m(t) ? 0 : l(t, o.__wbindgen_export, o.__wbindgen_export2), r = w;
-      o.webviewer_command_files(p, this.__wbg_ptr, k, O, _, r);
-      var i = s().getInt32(p + 0, !0), u = s().getInt32(p + 4, !0), f = s().getInt32(p + 8, !0);
+      const m = o.__wbindgen_add_to_stack_pointer(-16), h = l(e, o.__wbindgen_export, o.__wbindgen_export2), I = w;
+      var _ = p(t) ? 0 : l(t, o.__wbindgen_export, o.__wbindgen_export2), r = w;
+      o.webviewer_command_files(m, this.__wbg_ptr, h, I, _, r);
+      var c = s().getInt32(m + 0, !0), u = s().getInt32(m + 4, !0), f = s().getInt32(m + 8, !0);
       if (f)
         throw b(u);
-      return b(i);
+      return b(c);
     } finally {
       o.__wbindgen_add_to_stack_pointer(16);
     }
@@ -67,9 +67,9 @@ class W {
    */
   count_atoms(e) {
     try {
-      const i = o.__wbindgen_add_to_stack_pointer(-16), u = l(e, o.__wbindgen_export, o.__wbindgen_export2), f = w;
-      o.webviewer_count_atoms(i, this.__wbg_ptr, u, f);
-      var t = s().getInt32(i + 0, !0), _ = s().getInt32(i + 4, !0), r = s().getInt32(i + 8, !0);
+      const c = o.__wbindgen_add_to_stack_pointer(-16), u = l(e, o.__wbindgen_export, o.__wbindgen_export2), f = w;
+      o.webviewer_count_atoms(c, this.__wbg_ptr, u, f);
+      var t = s().getInt32(c + 0, !0), _ = s().getInt32(c + 4, !0), r = s().getInt32(c + 8, !0);
       if (r)
         throw b(_);
       return t >>> 0;
@@ -89,8 +89,8 @@ class W {
    * @returns {Promise<WebViewer>}
    */
   static createWithMemoryProfile(e, t, _, r) {
-    const i = l(e, o.__wbindgen_export, o.__wbindgen_export2), u = w, f = l(r, o.__wbindgen_export, o.__wbindgen_export2), p = w, k = o.webviewer_createWithMemoryProfile(i, u, t, _, f, p);
-    return b(k);
+    const c = l(e, o.__wbindgen_export, o.__wbindgen_export2), u = w, f = l(r, o.__wbindgen_export, o.__wbindgen_export2), m = w, h = o.webviewer_createWithMemoryProfile(c, u, t, _, f, m);
+    return b(h);
   }
   /**
    * Create a new WebViewer bound to a `<canvas>` element.
@@ -104,7 +104,7 @@ class W {
    * @returns {Promise<WebViewer>}
    */
   static create(e, t, _) {
-    const r = l(e, o.__wbindgen_export, o.__wbindgen_export2), i = w, u = o.webviewer_create(r, i, t, _);
+    const r = l(e, o.__wbindgen_export, o.__wbindgen_export2), c = w, u = o.webviewer_create(r, c, t, _);
     return b(u);
   }
   /**
@@ -114,9 +114,9 @@ class W {
    */
   execute(e) {
     try {
-      const i = o.__wbindgen_add_to_stack_pointer(-16), u = l(e, o.__wbindgen_export, o.__wbindgen_export2), f = w;
-      o.webviewer_execute(i, this.__wbg_ptr, u, f);
-      var t = s().getInt32(i + 0, !0), _ = s().getInt32(i + 4, !0), r = s().getInt32(i + 8, !0);
+      const c = o.__wbindgen_add_to_stack_pointer(-16), u = l(e, o.__wbindgen_export, o.__wbindgen_export2), f = w;
+      o.webviewer_execute(c, this.__wbg_ptr, u, f);
+      var t = s().getInt32(c + 0, !0), _ = s().getInt32(c + 4, !0), r = s().getInt32(c + 8, !0);
       if (r)
         throw b(_);
       return b(t);
@@ -134,12 +134,54 @@ class W {
    */
   execute_with_files(e, t) {
     try {
-      const u = o.__wbindgen_add_to_stack_pointer(-16), f = l(e, o.__wbindgen_export, o.__wbindgen_export2), p = w;
-      o.webviewer_execute_with_files(u, this.__wbg_ptr, f, p, a(t));
-      var _ = s().getInt32(u + 0, !0), r = s().getInt32(u + 4, !0), i = s().getInt32(u + 8, !0);
-      if (i)
+      const u = o.__wbindgen_add_to_stack_pointer(-16), f = l(e, o.__wbindgen_export, o.__wbindgen_export2), m = w;
+      o.webviewer_execute_with_files(u, this.__wbg_ptr, f, m, a(t));
+      var _ = s().getInt32(u + 0, !0), r = s().getInt32(u + 4, !0), c = s().getInt32(u + 8, !0);
+      if (c)
         throw b(r);
       return b(_);
+    } finally {
+      o.__wbindgen_add_to_stack_pointer(16);
+    }
+  }
+  /**
+   * Serialize a built-in file format without changing command history.
+   * @param {string} filename
+   * @param {string} selection
+   * @param {number} state
+   * @returns {Blob}
+   */
+  export_file(e, t, _) {
+    try {
+      const f = o.__wbindgen_add_to_stack_pointer(-16), m = l(e, o.__wbindgen_export, o.__wbindgen_export2), h = w, I = l(t, o.__wbindgen_export, o.__wbindgen_export2), G = w;
+      o.webviewer_export_file(f, this.__wbg_ptr, m, h, I, G, _);
+      var r = s().getInt32(f + 0, !0), c = s().getInt32(f + 4, !0), u = s().getInt32(f + 8, !0);
+      if (u)
+        throw b(c);
+      return b(r);
+    } finally {
+      o.__wbindgen_add_to_stack_pointer(16);
+    }
+  }
+  /**
+   * Renders the current scene and resolves to a PNG Blob.
+   *
+   * # Errors
+   *
+   * Rejects invalid sizes, overlapping exports, GPU errors, or a closed viewer.
+   * @param {number | null} [width]
+   * @param {number | null} [height]
+   * @param {boolean | null} [transparent]
+   * @returns {Promise<any>}
+   */
+  export_png(e, t, _) {
+    try {
+      const f = o.__wbindgen_add_to_stack_pointer(-16);
+      o.webviewer_export_png(f, this.__wbg_ptr, !p(e), p(e) ? 0 : e, !p(t), p(t) ? 0 : t, p(_) ? 16777215 : _ ? 1 : 0);
+      var r = s().getInt32(f + 0, !0), c = s().getInt32(f + 4, !0), u = s().getInt32(f + 8, !0);
+      if (u)
+        throw b(c);
+      return b(r);
     } finally {
       o.__wbindgen_add_to_stack_pointer(16);
     }
@@ -216,9 +258,9 @@ class W {
    */
   get_task(e) {
     try {
-      const i = o.__wbindgen_add_to_stack_pointer(-16), u = l(e, o.__wbindgen_export, o.__wbindgen_export2), f = w;
-      o.webviewer_get_task(i, this.__wbg_ptr, u, f);
-      var t = s().getInt32(i + 0, !0), _ = s().getInt32(i + 4, !0), r = s().getInt32(i + 8, !0);
+      const c = o.__wbindgen_add_to_stack_pointer(-16), u = l(e, o.__wbindgen_export, o.__wbindgen_export2), f = w;
+      o.webviewer_get_task(c, this.__wbg_ptr, u, f);
+      var t = s().getInt32(c + 0, !0), _ = s().getInt32(c + 4, !0), r = s().getInt32(c + 8, !0);
       if (r)
         throw b(_);
       return b(t);
@@ -253,9 +295,9 @@ class W {
    */
   list_tasks(e) {
     try {
-      const i = o.__wbindgen_add_to_stack_pointer(-16);
-      o.webviewer_list_tasks(i, this.__wbg_ptr, a(e));
-      var t = s().getInt32(i + 0, !0), _ = s().getInt32(i + 4, !0), r = s().getInt32(i + 8, !0);
+      const c = o.__wbindgen_add_to_stack_pointer(-16);
+      o.webviewer_list_tasks(c, this.__wbg_ptr, a(e));
+      var t = s().getInt32(c + 0, !0), _ = s().getInt32(c + 4, !0), r = s().getInt32(c + 8, !0);
       if (r)
         throw b(_);
       return b(t);
@@ -272,11 +314,11 @@ class W {
    */
   load_data(e, t, _) {
     try {
-      const f = o.__wbindgen_add_to_stack_pointer(-16), p = Se(e, o.__wbindgen_export), k = w, O = l(t, o.__wbindgen_export, o.__wbindgen_export2), Q = w, ee = l(_, o.__wbindgen_export, o.__wbindgen_export2), te = w;
-      o.webviewer_load_data(f, this.__wbg_ptr, p, k, O, Q, ee, te);
-      var r = s().getInt32(f + 0, !0), i = s().getInt32(f + 4, !0), u = s().getInt32(f + 8, !0);
+      const f = o.__wbindgen_add_to_stack_pointer(-16), m = Ae(e, o.__wbindgen_export), h = w, I = l(t, o.__wbindgen_export, o.__wbindgen_export2), G = w, te = l(_, o.__wbindgen_export, o.__wbindgen_export2), ne = w;
+      o.webviewer_load_data(f, this.__wbg_ptr, m, h, I, G, te, ne);
+      var r = s().getInt32(f + 0, !0), c = s().getInt32(f + 4, !0), u = s().getInt32(f + 8, !0);
       if (u)
-        throw b(i);
+        throw b(c);
       return b(r);
     } finally {
       o.__wbindgen_add_to_stack_pointer(16);
@@ -289,10 +331,10 @@ class W {
   manipulation_cursor() {
     let e, t;
     try {
-      const i = o.__wbindgen_add_to_stack_pointer(-16);
-      o.webviewer_manipulation_cursor(i, this.__wbg_ptr);
-      var _ = s().getInt32(i + 0, !0), r = s().getInt32(i + 4, !0);
-      return e = _, t = r, d(_, r);
+      const c = o.__wbindgen_add_to_stack_pointer(-16);
+      o.webviewer_manipulation_cursor(c, this.__wbg_ptr);
+      var _ = s().getInt32(c + 0, !0), r = s().getInt32(c + 4, !0);
+      return e = _, t = r, g(_, r);
     } finally {
       o.__wbindgen_add_to_stack_pointer(16), o.__wbindgen_export4(e, t, 1);
     }
@@ -410,7 +452,7 @@ class W {
    * @param {Function | null} [listener]
    */
   set_task_listener(e) {
-    o.webviewer_set_task_listener(this.__wbg_ptr, m(e) ? 0 : a(e));
+    o.webviewer_set_task_listener(this.__wbg_ptr, p(e) ? 0 : a(e));
   }
   /**
    * @returns {any}
@@ -439,29 +481,29 @@ class W {
    * @returns {Promise<any>}
    */
   wait_task(e, t) {
-    const _ = l(e, o.__wbindgen_export, o.__wbindgen_export2), r = w, i = o.webviewer_wait_task(this.__wbg_ptr, _, r, !m(t), m(t) ? 0 : t);
-    return b(i);
+    const _ = l(e, o.__wbindgen_export, o.__wbindgen_export2), r = w, c = o.webviewer_wait_task(this.__wbg_ptr, _, r, !p(t), p(t) ? 0 : t);
+    return b(c);
   }
 }
-Symbol.dispose && (W.prototype[Symbol.dispose] = W.prototype.free);
-function Ae() {
+Symbol.dispose && (M.prototype[Symbol.dispose] = M.prototype.free);
+function Oe() {
   o.init();
 }
-function Z() {
+function Q() {
   return {
     __proto__: null,
     "./patinae_web_bg.js": {
       __proto__: null,
       __wbg_Error_30c8987f7c2ed4e2: function(e, t) {
-        const _ = Error(d(e, t));
+        const _ = Error(g(e, t));
         return a(_);
       },
       __wbg_Number_14af1003b8dd5ead: function(e) {
         return Number(n(e));
       },
       __wbg_String_8564e559799eccda: function(e, t) {
-        const _ = String(n(t)), r = l(_, o.__wbindgen_export, o.__wbindgen_export2), i = w;
-        s().setInt32(e + 4, i, !0), s().setInt32(e + 0, r, !0);
+        const _ = String(n(t)), r = l(_, o.__wbindgen_export, o.__wbindgen_export2), c = w;
+        s().setInt32(e + 4, c, !0), s().setInt32(e + 0, r, !0);
       },
       __wbg_Window_a2a6c4d665047b14: function(e) {
         const t = n(e).Window;
@@ -473,15 +515,15 @@ function Z() {
       },
       __wbg___wbindgen_bigint_get_as_i64_a2383202b9353e4c: function(e, t) {
         const _ = n(t), r = typeof _ == "bigint" ? _ : void 0;
-        s().setBigInt64(e + 8, m(r) ? BigInt(0) : r, !0), s().setInt32(e + 0, !m(r), !0);
+        s().setBigInt64(e + 8, p(r) ? BigInt(0) : r, !0), s().setInt32(e + 0, !p(r), !0);
       },
       __wbg___wbindgen_boolean_get_5b446f51afd21013: function(e) {
         const t = n(e), _ = typeof t == "boolean" ? t : void 0;
-        return m(_) ? 16777215 : _ ? 1 : 0;
+        return p(_) ? 16777215 : _ ? 1 : 0;
       },
       __wbg___wbindgen_debug_string_4687d8d8c2017d52: function(e, t) {
-        const _ = q(n(t)), r = l(_, o.__wbindgen_export, o.__wbindgen_export2), i = w;
-        s().setInt32(e + 4, i, !0), s().setInt32(e + 0, r, !0);
+        const _ = q(n(t)), r = l(_, o.__wbindgen_export, o.__wbindgen_export2), c = w;
+        s().setInt32(e + 4, c, !0), s().setInt32(e + 0, r, !0);
       },
       __wbg___wbindgen_in_92f62ee1427d9e49: function(e, t) {
         return n(e) in n(t);
@@ -513,15 +555,15 @@ function Z() {
       },
       __wbg___wbindgen_number_get_2e0e7dee9f701a71: function(e, t) {
         const _ = n(t), r = typeof _ == "number" ? _ : void 0;
-        s().setFloat64(e + 8, m(r) ? 0 : r, !0), s().setInt32(e + 0, !m(r), !0);
+        s().setFloat64(e + 8, p(r) ? 0 : r, !0), s().setInt32(e + 0, !p(r), !0);
       },
       __wbg___wbindgen_string_get_0380ccaa2f57f0d9: function(e, t) {
         const _ = n(t), r = typeof _ == "string" ? _ : void 0;
-        var i = m(r) ? 0 : l(r, o.__wbindgen_export, o.__wbindgen_export2), u = w;
-        s().setInt32(e + 4, u, !0), s().setInt32(e + 0, i, !0);
+        var c = p(r) ? 0 : l(r, o.__wbindgen_export, o.__wbindgen_export2), u = w;
+        s().setInt32(e + 4, u, !0), s().setInt32(e + 0, c, !0);
       },
       __wbg___wbindgen_throw_41e9ee4f547fc59a: function(e, t) {
-        throw new Error(d(e, t));
+        throw new Error(g(e, t));
       },
       __wbg__wbg_cb_unref_dcc1a90847f04c41: function(e) {
         n(e)._wbg_cb_unref();
@@ -533,7 +575,7 @@ function Z() {
         return n(e).aborted;
       },
       __wbg_arrayBuffer_f07be74819944ea2: function() {
-        return g(function(e) {
+        return d(function(e) {
           const t = n(e).arrayBuffer();
           return a(t);
         }, arguments);
@@ -543,19 +585,19 @@ function Z() {
         return a(_);
       },
       __wbg_beginRenderPass_3c53642423af50dc: function() {
-        return g(function(e, t) {
+        return d(function(e, t) {
           const _ = n(e).beginRenderPass(n(t));
           return a(_);
         }, arguments);
       },
       __wbg_call_187d372bd5fdd4aa: function() {
-        return g(function(e, t, _) {
+        return d(function(e, t, _) {
           const r = n(e).call(n(t), n(_));
           return a(r);
         }, arguments);
       },
       __wbg_call_6137034ef55c9d0f: function() {
-        return g(function(e, t) {
+        return d(function(e, t) {
           const _ = n(e).call(n(t));
           return a(_);
         }, arguments);
@@ -566,33 +608,42 @@ function Z() {
       __wbg_clearBuffer_82ba999c294f42fb: function(e, t, _) {
         n(e).clearBuffer(n(t), _);
       },
+      __wbg_click_d990e70c576b7c54: function(e) {
+        n(e).click();
+      },
       __wbg_configure_1e2c1c9edad07d26: function() {
-        return g(function(e, t) {
+        return d(function(e, t) {
           n(e).configure(n(t));
         }, arguments);
       },
+      __wbg_convertToBlob_ce4dcf84d91118e0: function() {
+        return d(function(e) {
+          const t = n(e).convertToBlob();
+          return a(t);
+        }, arguments);
+      },
       __wbg_copyBufferToBuffer_01766818654a9868: function() {
-        return g(function(e, t, _, r, i) {
-          n(e).copyBufferToBuffer(n(t), _, n(r), i);
+        return d(function(e, t, _, r, c) {
+          n(e).copyBufferToBuffer(n(t), _, n(r), c);
         }, arguments);
       },
       __wbg_copyBufferToBuffer_9c174b96fb08d551: function() {
-        return g(function(e, t, _, r, i, u) {
-          n(e).copyBufferToBuffer(n(t), _, n(r), i, u);
+        return d(function(e, t, _, r, c, u) {
+          n(e).copyBufferToBuffer(n(t), _, n(r), c, u);
         }, arguments);
       },
       __wbg_copyTextureToBuffer_1234b3210431ad05: function() {
-        return g(function(e, t, _, r) {
+        return d(function(e, t, _, r) {
           n(e).copyTextureToBuffer(n(t), n(_), n(r));
         }, arguments);
       },
       __wbg_copyTextureToTexture_d2e6a1eb3254b828: function() {
-        return g(function(e, t, _, r) {
+        return d(function(e, t, _, r) {
           n(e).copyTextureToTexture(n(t), n(_), n(r));
         }, arguments);
       },
       __wbg_createBindGroupLayout_b1bd63b4e88459d8: function() {
-        return g(function(e, t) {
+        return d(function(e, t) {
           const _ = n(e).createBindGroupLayout(n(t));
           return a(_);
         }, arguments);
@@ -602,7 +653,7 @@ function Z() {
         return a(_);
       },
       __wbg_createBuffer_d800e9b1d41b2ee5: function() {
-        return g(function(e, t) {
+        return d(function(e, t) {
           const _ = n(e).createBuffer(n(t));
           return a(_);
         }, arguments);
@@ -615,12 +666,24 @@ function Z() {
         const _ = n(e).createComputePipeline(n(t));
         return a(_);
       },
+      __wbg_createElement_74049073a11f9c31: function() {
+        return d(function(e, t, _) {
+          const r = n(e).createElement(g(t, _));
+          return a(r);
+        }, arguments);
+      },
+      __wbg_createObjectURL_2f3b38279fe61801: function() {
+        return d(function(e, t) {
+          const _ = URL.createObjectURL(n(t)), r = l(_, o.__wbindgen_export, o.__wbindgen_export2), c = w;
+          s().setInt32(e + 4, c, !0), s().setInt32(e + 0, r, !0);
+        }, arguments);
+      },
       __wbg_createPipelineLayout_6eab52c327118937: function(e, t) {
         const _ = n(e).createPipelineLayout(n(t));
         return a(_);
       },
       __wbg_createRenderPipeline_0ebb7ebc653e9207: function() {
-        return g(function(e, t) {
+        return d(function(e, t) {
           const _ = n(e).createRenderPipeline(n(t));
           return a(_);
         }, arguments);
@@ -634,13 +697,13 @@ function Z() {
         return a(_);
       },
       __wbg_createTexture_ed7e9fc04dd54d84: function() {
-        return g(function(e, t) {
+        return d(function(e, t) {
           const _ = n(e).createTexture(n(t));
           return a(_);
         }, arguments);
       },
       __wbg_createView_da41c2d2cb212715: function() {
-        return g(function(e, t) {
+        return d(function(e, t) {
           const _ = n(e).createView(n(t));
           return a(_);
         }, arguments);
@@ -649,27 +712,27 @@ function Z() {
         console.debug(n(e));
       },
       __wbg_description_83b8a393160021b9: function(e, t) {
-        const _ = n(t).description, r = l(_, o.__wbindgen_export, o.__wbindgen_export2), i = w;
-        s().setInt32(e + 4, i, !0), s().setInt32(e + 0, r, !0);
+        const _ = n(t).description, r = l(_, o.__wbindgen_export, o.__wbindgen_export2), c = w;
+        s().setInt32(e + 4, c, !0), s().setInt32(e + 0, r, !0);
       },
       __wbg_dispatchWorkgroups_56b943172790add0: function(e, t, _, r) {
         n(e).dispatchWorkgroups(t >>> 0, _ >>> 0, r >>> 0);
       },
       __wbg_document_9854e03c05fc8834: function(e) {
         const t = n(e).document;
-        return m(t) ? 0 : a(t);
+        return p(t) ? 0 : a(t);
       },
       __wbg_done_b41a1d26cdb37fb6: function(e) {
         return n(e).done;
       },
-      __wbg_drawIndexed_638959aae942557c: function(e, t, _, r, i, u) {
-        n(e).drawIndexed(t >>> 0, _ >>> 0, r >>> 0, i, u >>> 0);
+      __wbg_drawIndexed_638959aae942557c: function(e, t, _, r, c, u) {
+        n(e).drawIndexed(t >>> 0, _ >>> 0, r >>> 0, c, u >>> 0);
       },
       __wbg_drawIndirect_269c8a4880a070c8: function(e, t, _) {
         n(e).drawIndirect(n(t), _);
       },
-      __wbg_draw_086a9578fc9898c2: function(e, t, _, r, i) {
-        n(e).draw(t >>> 0, _ >>> 0, r >>> 0, i >>> 0);
+      __wbg_draw_086a9578fc9898c2: function(e, t, _, r, c) {
+        n(e).draw(t >>> 0, _ >>> 0, r >>> 0, c >>> 0);
       },
       __wbg_end_82fd0c12ba185009: function(e) {
         n(e).end();
@@ -680,7 +743,7 @@ function Z() {
       __wbg_error_757e9472f8410341: function(e, t) {
         let _, r;
         try {
-          _ = e, r = t, console.error(d(e, t));
+          _ = e, r = t, console.error(g(e, t));
         } finally {
           o.__wbindgen_export4(_, r, 1);
         }
@@ -689,8 +752,13 @@ function Z() {
         console.error(n(e));
       },
       __wbg_fetch_b322877f1ed6457d: function(e, t, _, r) {
-        const i = n(e).fetch(d(t, _), n(r));
-        return a(i);
+        const c = n(e).fetch(g(t, _), n(r));
+        return a(c);
+      },
+      __wbg_fillText_f0d2960d6cb040ca: function() {
+        return d(function(e, t, _, r, c) {
+          n(e).fillText(g(t, _), r, c);
+        }, arguments);
       },
       __wbg_finish_09ec094c10f41e7b: function(e) {
         const t = n(e).finish();
@@ -700,51 +768,57 @@ function Z() {
         const _ = n(e).finish(n(t));
         return a(_);
       },
+      __wbg_fontBoundingBoxAscent_694ba20be295b1c3: function(e) {
+        return n(e).fontBoundingBoxAscent;
+      },
+      __wbg_fontBoundingBoxDescent_e0d660bcc3049b29: function(e) {
+        return n(e).fontBoundingBoxDescent;
+      },
       __wbg_getContext_635e36719cad2623: function() {
-        return g(function(e, t, _) {
-          const r = n(e).getContext(d(t, _));
-          return m(r) ? 0 : a(r);
+        return d(function(e, t, _) {
+          const r = n(e).getContext(g(t, _));
+          return p(r) ? 0 : a(r);
         }, arguments);
       },
       __wbg_getContext_e567868594d2e0c6: function() {
-        return g(function(e, t, _) {
-          const r = n(e).getContext(d(t, _));
-          return m(r) ? 0 : a(r);
+        return d(function(e, t, _) {
+          const r = n(e).getContext(g(t, _));
+          return p(r) ? 0 : a(r);
         }, arguments);
       },
       __wbg_getCurrentTexture_9f3b84d0eaa6cd95: function() {
-        return g(function(e) {
+        return d(function(e) {
           const t = n(e).getCurrentTexture();
           return a(t);
         }, arguments);
       },
       __wbg_getElementById_cc94972b404e4eaa: function(e, t, _) {
-        const r = n(e).getElementById(d(t, _));
-        return m(r) ? 0 : a(r);
+        const r = n(e).getElementById(g(t, _));
+        return p(r) ? 0 : a(r);
       },
       __wbg_getMappedRange_fb54c6327b2d8d20: function() {
-        return g(function(e, t, _) {
+        return d(function(e, t, _) {
           const r = n(e).getMappedRange(t, _);
           return a(r);
         }, arguments);
       },
       __wbg_getPreferredCanvasFormat_0ef5034c8902201b: function(e) {
         const t = n(e).getPreferredCanvasFormat();
-        return (h.indexOf(t) + 1 || 102) - 1;
+        return (v.indexOf(t) + 1 || 102) - 1;
       },
       __wbg_getRandomValues_a608c4436c19407a: function() {
-        return g(function(e, t) {
+        return d(function(e, t) {
           globalThis.crypto.getRandomValues(B(e, t));
         }, arguments);
       },
       __wbg_get_31af05bd4842a84f: function() {
-        return g(function(e, t) {
+        return d(function(e, t) {
           const _ = Reflect.get(n(e), n(t));
           return a(_);
         }, arguments);
       },
       __wbg_get_658f6698067d9515: function() {
-        return g(function(e, t) {
+        return d(function(e, t) {
           const _ = Reflect.get(n(e), n(t));
           return a(_);
         }, arguments);
@@ -755,7 +829,7 @@ function Z() {
       },
       __wbg_get_fd12a9100976c296: function(e, t) {
         const _ = n(e)[t >>> 0];
-        return m(_) ? 0 : a(_);
+        return p(_) ? 0 : a(_);
       },
       __wbg_get_unchecked_288889d017702237: function(e, t) {
         const _ = n(e)[t >>> 0];
@@ -773,8 +847,12 @@ function Z() {
         return n(e).height;
       },
       __wbg_href_221703ee1ed727fc: function(e, t) {
-        const _ = n(t).href, r = l(_, o.__wbindgen_export, o.__wbindgen_export2), i = w;
-        s().setInt32(e + 4, i, !0), s().setInt32(e + 0, r, !0);
+        const _ = n(t).href, r = l(_, o.__wbindgen_export, o.__wbindgen_export2), c = w;
+        s().setInt32(e + 4, c, !0), s().setInt32(e + 0, r, !0);
+      },
+      __wbg_href_9628eff073accef7: function(e, t) {
+        const _ = n(t).href, r = l(_, o.__wbindgen_export, o.__wbindgen_export2), c = w;
+        s().setInt32(e + 4, c, !0), s().setInt32(e + 0, r, !0);
       },
       __wbg_info_26925f73a2eee895: function(e) {
         console.info(n(e));
@@ -792,10 +870,55 @@ function Z() {
         }
         return t;
       },
+      __wbg_instanceof_Blob_7c6191a4cd5834d3: function(e) {
+        let t;
+        try {
+          t = n(e) instanceof Blob;
+        } catch {
+          t = !1;
+        }
+        return t;
+      },
+      __wbg_instanceof_GpuOutOfMemoryError_5c3b8a2499f59adb: function(e) {
+        let t;
+        try {
+          t = n(e) instanceof GPUOutOfMemoryError;
+        } catch {
+          t = !1;
+        }
+        return t;
+      },
+      __wbg_instanceof_GpuValidationError_7659e07b12d4e184: function(e) {
+        let t;
+        try {
+          t = n(e) instanceof GPUValidationError;
+        } catch {
+          t = !1;
+        }
+        return t;
+      },
+      __wbg_instanceof_HtmlAnchorElement_e2e601da36602959: function(e) {
+        let t;
+        try {
+          t = n(e) instanceof HTMLAnchorElement;
+        } catch {
+          t = !1;
+        }
+        return t;
+      },
       __wbg_instanceof_HtmlCanvasElement_0a30c11fbbf41841: function(e) {
         let t;
         try {
           t = n(e) instanceof HTMLCanvasElement;
+        } catch {
+          t = !1;
+        }
+        return t;
+      },
+      __wbg_instanceof_OffscreenCanvasRenderingContext2d_957f1a991324c9dc: function(e) {
+        let t;
+        try {
+          t = n(e) instanceof OffscreenCanvasRenderingContext2D;
         } catch {
           t = !1;
         }
@@ -845,8 +968,8 @@ function Z() {
         return a(t);
       },
       __wbg_label_7add8cb37a6ef98f: function(e, t) {
-        const _ = n(t).label, r = l(_, o.__wbindgen_export, o.__wbindgen_export2), i = w;
-        s().setInt32(e + 4, i, !0), s().setInt32(e + 0, r, !0);
+        const _ = n(t).label, r = l(_, o.__wbindgen_export, o.__wbindgen_export2), c = w;
+        s().setInt32(e + 4, c, !0), s().setInt32(e + 0, r, !0);
       },
       __wbg_length_7f3c00c40364105e: function(e) {
         return n(e).length;
@@ -866,8 +989,8 @@ function Z() {
         console.log(n(e));
       },
       __wbg_mapAsync_b0597127f5037286: function(e, t, _, r) {
-        const i = n(e).mapAsync(t >>> 0, _, r);
-        return a(i);
+        const c = n(e).mapAsync(t >>> 0, _, r);
+        return a(c);
       },
       __wbg_maxBindGroupsPlusVertexBuffers_52369f089736ef9d: function(e) {
         return n(e).maxBindGroupsPlusVertexBuffers;
@@ -956,6 +1079,16 @@ function Z() {
       __wbg_maxVertexBuffers_75d881156591f5da: function(e) {
         return n(e).maxVertexBuffers;
       },
+      __wbg_measureText_57347b02ada3a4ad: function() {
+        return d(function(e, t, _) {
+          const r = n(e).measureText(g(t, _));
+          return a(r);
+        }, arguments);
+      },
+      __wbg_message_2aad50368e15e8f1: function(e, t) {
+        const _ = n(t).message, r = l(_, o.__wbindgen_export, o.__wbindgen_export2), c = w;
+        s().setInt32(e + 4, c, !0), s().setInt32(e + 0, r, !0);
+      },
       __wbg_minStorageBufferOffsetAlignment_5ba9b77792bdadb3: function(e) {
         return n(e).minStorageBufferOffsetAlignment;
       },
@@ -982,24 +1115,28 @@ function Z() {
         return a(/* @__PURE__ */ new Map());
       },
       __wbg_new_2e41357094e99294: function() {
-        return g(function() {
+        return d(function() {
           const e = new AbortController();
           return a(e);
         }, arguments);
       },
+      __wbg_new_343a093a3c2ffb4e: function(e, t) {
+        const _ = new Error(g(e, t));
+        return a(_);
+      },
       __wbg_new_5502aad30c185fc8: function(e, t) {
         try {
           var _ = { a: e, b: t }, r = (u, f) => {
-            const p = _.a;
+            const m = _.a;
             _.a = 0;
             try {
-              return U(p, _.b, u, f);
+              return $(m, _.b, u, f);
             } finally {
-              _.a = p;
+              _.a = m;
             }
           };
-          const i = new Promise(r);
-          return a(i);
+          const c = new Promise(r);
+          return a(c);
         } finally {
           _.a = 0;
         }
@@ -1008,8 +1145,12 @@ function Z() {
         const e = new Object();
         return a(e);
       },
+      __wbg_new_6ab88fbe741af6b5: function(e, t) {
+        const _ = new RangeError(g(e, t));
+        return a(_);
+      },
       __wbg_new_a217df4351db4b9b: function() {
-        return g(function(e, t) {
+        return d(function(e, t) {
           const _ = new OffscreenCanvas(e >>> 0, t >>> 0);
           return a(_);
         }, arguments);
@@ -1018,6 +1159,10 @@ function Z() {
         const e = new Array();
         return a(e);
       },
+      __wbg_new_from_slice_9a868026ffa4208a: function(e, t) {
+        const _ = new Uint8Array(B(e, t));
+        return a(_);
+      },
       __wbg_new_typed_689a3a281a8d4da6: function() {
         const e = new Object();
         return a(e);
@@ -1025,36 +1170,48 @@ function Z() {
       __wbg_new_typed_b01cb72a8af741a3: function(e, t) {
         try {
           var _ = { a: e, b: t }, r = (u, f) => {
-            const p = _.a;
+            const m = _.a;
             _.a = 0;
             try {
-              return U(p, _.b, u, f);
+              return $(m, _.b, u, f);
             } finally {
-              _.a = p;
+              _.a = m;
             }
           };
-          const i = new Promise(r);
-          return a(i);
+          const c = new Promise(r);
+          return a(c);
         } finally {
           _.a = 0;
         }
       },
       __wbg_new_with_base_29cdb449ce79d2d5: function() {
-        return g(function(e, t, _, r) {
-          const i = new URL(d(e, t), d(_, r));
-          return a(i);
+        return d(function(e, t, _, r) {
+          const c = new URL(g(e, t), g(_, r));
+          return a(c);
         }, arguments);
       },
       __wbg_new_with_byte_offset_and_length_2f5d7fc2a828b74d: function(e, t, _) {
         const r = new Uint8Array(n(e), t >>> 0, _ >>> 0);
         return a(r);
       },
+      __wbg_new_with_u8_array_sequence_f380e3e783ae5617: function() {
+        return d(function(e) {
+          const t = new Blob(n(e));
+          return a(t);
+        }, arguments);
+      },
+      __wbg_new_with_u8_clamped_array_and_sh_af3f0dee40638e18: function() {
+        return d(function(e, t, _, r) {
+          const c = new ImageData(Be(e, t), _ >>> 0, r >>> 0);
+          return a(c);
+        }, arguments);
+      },
       __wbg_next_33784799010f1bbe: function(e) {
         const t = n(e).next;
         return a(t);
       },
       __wbg_next_f4aac29c42af995c: function() {
-        return g(function(e) {
+        return d(function(e) {
           const t = n(e).next();
           return a(t);
         }, arguments);
@@ -1067,6 +1224,10 @@ function Z() {
       },
       __wbg_now_e7c6795a7f81e10f: function(e) {
         return n(e).now();
+      },
+      __wbg_of_d5dbecdc59e02e34: function(e) {
+        const t = Array.of(n(e));
+        return a(t);
       },
       __wbg_ok_125878a7db256ecb: function(e) {
         return n(e).ok;
@@ -1081,14 +1242,26 @@ function Z() {
       },
       __wbg_performance_d0d7b03fc649b694: function(e) {
         const t = n(e).performance;
-        return m(t) ? 0 : a(t);
+        return p(t) ? 0 : a(t);
+      },
+      __wbg_popErrorScope_182b8e03671d81ef: function(e) {
+        const t = n(e).popErrorScope();
+        return a(t);
       },
       __wbg_prototypesetcall_bc27214492979395: function(e, t, _) {
         Uint8Array.prototype.set.call(B(e, t), n(_));
       },
+      __wbg_pushErrorScope_fa7df784c43bdb51: function(e, t) {
+        n(e).pushErrorScope(be[t]);
+      },
+      __wbg_putImageData_7bf1e9dea494ea50: function() {
+        return d(function(e, t, _, r) {
+          n(e).putImageData(n(t), _, r);
+        }, arguments);
+      },
       __wbg_querySelectorAll_6aebfe3df1fb2014: function() {
-        return g(function(e, t, _) {
-          const r = n(e).querySelectorAll(d(t, _));
+        return d(function(e, t, _) {
+          const r = n(e).querySelectorAll(g(t, _));
           return a(r);
         }, arguments);
       },
@@ -1118,14 +1291,19 @@ function Z() {
         const t = Promise.resolve(n(e));
         return a(t);
       },
+      __wbg_revokeObjectURL_479ff72c2d109d80: function() {
+        return d(function(e, t) {
+          URL.revokeObjectURL(g(e, t));
+        }, arguments);
+      },
       __wbg_setBindGroup_0b7c2a055ef1f314: function() {
-        return g(function(e, t, _, r, i, u, f) {
-          n(e).setBindGroup(t >>> 0, n(_), J(r, i), u, f >>> 0);
+        return d(function(e, t, _, r, c, u, f) {
+          n(e).setBindGroup(t >>> 0, n(_), K(r, c), u, f >>> 0);
         }, arguments);
       },
       __wbg_setBindGroup_11bdbb60cc8b54b9: function() {
-        return g(function(e, t, _, r, i, u, f) {
-          n(e).setBindGroup(t >>> 0, n(_), J(r, i), u, f >>> 0);
+        return d(function(e, t, _, r, c, u, f) {
+          n(e).setBindGroup(t >>> 0, n(_), K(r, c), u, f >>> 0);
         }, arguments);
       },
       __wbg_setBindGroup_418c3e0eb6943ce0: function(e, t, _) {
@@ -1137,8 +1315,8 @@ function Z() {
       __wbg_setIndexBuffer_01327df91742b73e: function(e, t, _, r) {
         n(e).setIndexBuffer(n(t), D[_], r);
       },
-      __wbg_setIndexBuffer_241097e303986c14: function(e, t, _, r, i) {
-        n(e).setIndexBuffer(n(t), D[_], r, i);
+      __wbg_setIndexBuffer_241097e303986c14: function(e, t, _, r, c) {
+        n(e).setIndexBuffer(n(t), D[_], r, c);
       },
       __wbg_setPipeline_5146f7b8d2b4af5c: function(e, t) {
         n(e).setPipeline(n(t));
@@ -1146,25 +1324,25 @@ function Z() {
       __wbg_setPipeline_b6f981027e02cd16: function(e, t) {
         n(e).setPipeline(n(t));
       },
-      __wbg_setScissorRect_889235eeb784732b: function(e, t, _, r, i) {
-        n(e).setScissorRect(t >>> 0, _ >>> 0, r >>> 0, i >>> 0);
+      __wbg_setScissorRect_889235eeb784732b: function(e, t, _, r, c) {
+        n(e).setScissorRect(t >>> 0, _ >>> 0, r >>> 0, c >>> 0);
       },
       __wbg_setTimeout_db7bbc18a17e152a: function() {
-        return g(function(e, t, _) {
+        return d(function(e, t, _) {
           return n(e).setTimeout(n(t), _);
         }, arguments);
       },
       __wbg_setVertexBuffer_6db3b60e99280744: function(e, t, _, r) {
         n(e).setVertexBuffer(t >>> 0, n(_), r);
       },
-      __wbg_setVertexBuffer_cbf4ca1627c02f4c: function(e, t, _, r, i) {
-        n(e).setVertexBuffer(t >>> 0, n(_), r, i);
+      __wbg_setVertexBuffer_cbf4ca1627c02f4c: function(e, t, _, r, c) {
+        n(e).setVertexBuffer(t >>> 0, n(_), r, c);
       },
-      __wbg_setViewport_c0be08dcc8965ccf: function(e, t, _, r, i, u, f) {
-        n(e).setViewport(t, _, r, i, u, f);
+      __wbg_setViewport_c0be08dcc8965ccf: function(e, t, _, r, c, u, f) {
+        n(e).setViewport(t, _, r, c, u, f);
       },
       __wbg_set_145a351398b48c65: function() {
-        return g(function(e, t, _) {
+        return d(function(e, t, _) {
           return Reflect.set(n(e), n(t), n(_));
         }, arguments);
       },
@@ -1182,22 +1360,22 @@ function Z() {
         n(e).a = t;
       },
       __wbg_set_access_a099cfbbeec9b96f: function(e, t) {
-        n(e).access = le[t];
+        n(e).access = me[t];
       },
       __wbg_set_address_mode_u_a68737cf5d288f95: function(e, t) {
-        n(e).addressModeU = G[t];
+        n(e).addressModeU = L[t];
       },
       __wbg_set_address_mode_v_b1c3c45933f540d1: function(e, t) {
-        n(e).addressModeV = G[t];
+        n(e).addressModeV = L[t];
       },
       __wbg_set_address_mode_w_889c31cf7022c764: function(e, t) {
-        n(e).addressModeW = G[t];
+        n(e).addressModeW = L[t];
       },
       __wbg_set_alpha_106f21a936a85eba: function(e, t) {
         n(e).alpha = n(t);
       },
       __wbg_set_alpha_mode_5544568dbac50280: function(e, t) {
-        n(e).alphaMode = ae[t];
+        n(e).alphaMode = se[t];
       },
       __wbg_set_alpha_to_coverage_enabled_3372ce329447b8f1: function(e, t) {
         n(e).alphaToCoverageEnabled = t !== 0;
@@ -1209,10 +1387,10 @@ function Z() {
         n(e).arrayStride = t;
       },
       __wbg_set_aspect_a48d046965270281: function(e, t) {
-        n(e).aspect = H[t];
+        n(e).aspect = Y[t];
       },
       __wbg_set_aspect_b1a9909bf315433f: function(e, t) {
-        n(e).aspect = H[t];
+        n(e).aspect = Y[t];
       },
       __wbg_set_attributes_9e38cb1dde387a5b: function(e, t, _) {
         n(e).attributes = x(t, _);
@@ -1266,7 +1444,7 @@ function Z() {
         n(e).clearValue = n(t);
       },
       __wbg_set_code_5d5b0b9e2fd0dca7: function(e, t, _) {
-        n(e).code = d(t, _);
+        n(e).code = g(t, _);
       },
       __wbg_set_color_8ecace4011f47d2e: function(e, t) {
         n(e).color = n(t);
@@ -1275,10 +1453,10 @@ function Z() {
         n(e).colorAttachments = x(t, _);
       },
       __wbg_set_compare_080c9e492ff36990: function(e, t) {
-        n(e).compare = F[t];
+        n(e).compare = R[t];
       },
       __wbg_set_compare_817cf3695599eaa6: function(e, t) {
-        n(e).compare = F[t];
+        n(e).compare = R[t];
       },
       __wbg_set_compute_bc754d9e37f6e4c9: function(e, t) {
         n(e).compute = n(t);
@@ -1287,7 +1465,7 @@ function Z() {
         n(e).count = t >>> 0;
       },
       __wbg_set_cull_mode_85d2b4ab0ce3a564: function(e, t) {
-        n(e).cullMode = ue[t];
+        n(e).cullMode = fe[t];
       },
       __wbg_set_depth_bias_95abf479cae3f3cd: function(e, t) {
         n(e).depthBias = t;
@@ -1302,13 +1480,13 @@ function Z() {
         n(e).depthClearValue = t;
       },
       __wbg_set_depth_compare_a90de4e3714397ab: function(e, t) {
-        n(e).depthCompare = F[t];
+        n(e).depthCompare = R[t];
       },
       __wbg_set_depth_fail_op_b5c64541d1b6b482: function(e, t) {
-        n(e).depthFailOp = L[t];
+        n(e).depthFailOp = j[t];
       },
       __wbg_set_depth_load_op_932888016d762d3e: function(e, t) {
-        n(e).depthLoadOp = z[t];
+        n(e).depthLoadOp = U[t];
       },
       __wbg_set_depth_or_array_layers_e2f074a0284e4806: function(e, t) {
         n(e).depthOrArrayLayers = t >>> 0;
@@ -1323,7 +1501,7 @@ function Z() {
         n(e).depthStencil = n(t);
       },
       __wbg_set_depth_store_op_9054814f164ab55d: function(e, t) {
-        n(e).depthStoreOp = R[t];
+        n(e).depthStoreOp = E[t];
       },
       __wbg_set_depth_write_enabled_31a821ee1fb3b0b3: function(e, t) {
         n(e).depthWriteEnabled = t !== 0;
@@ -1332,13 +1510,16 @@ function Z() {
         n(e).device = n(t);
       },
       __wbg_set_dimension_3da9d03131a9f446: function(e, t) {
-        n(e).dimension = pe[t];
+        n(e).dimension = xe[t];
       },
       __wbg_set_dimension_56332450afa3e0c0: function(e, t) {
-        n(e).dimension = j[t];
+        n(e).dimension = z[t];
+      },
+      __wbg_set_download_327e0fbad75893f0: function(e, t, _) {
+        n(e).download = g(t, _);
       },
       __wbg_set_dst_factor_865ba9aaf187890c: function(e, t) {
-        n(e).dstFactor = $[t];
+        n(e).dstFactor = H[t];
       },
       __wbg_set_end_of_pass_write_index_8f164f9e60d4ad16: function(e, t) {
         n(e).endOfPassWriteIndex = t >>> 0;
@@ -1353,46 +1534,52 @@ function Z() {
         n(e).entries = x(t, _);
       },
       __wbg_set_entry_point_71cef95c137b5774: function(e, t, _) {
-        n(e).entryPoint = d(t, _);
+        n(e).entryPoint = g(t, _);
       },
       __wbg_set_entry_point_ac8db535971761fe: function(e, t, _) {
-        n(e).entryPoint = d(t, _);
+        n(e).entryPoint = g(t, _);
       },
       __wbg_set_entry_point_b70f98f5025a114d: function(e, t, _) {
-        n(e).entryPoint = d(t, _);
+        n(e).entryPoint = g(t, _);
       },
       __wbg_set_external_texture_7f966c604c4f8098: function(e, t) {
         n(e).externalTexture = n(t);
       },
       __wbg_set_fail_op_d59d0187e4111dfe: function(e, t) {
-        n(e).failOp = L[t];
+        n(e).failOp = j[t];
+      },
+      __wbg_set_fillStyle_16593c82bd7127ca: function(e, t, _) {
+        n(e).fillStyle = g(t, _);
+      },
+      __wbg_set_font_7ef69121e02464cd: function(e, t, _) {
+        n(e).font = g(t, _);
       },
       __wbg_set_format_23f7f32549751d43: function(e, t) {
-        n(e).format = h[t];
+        n(e).format = v[t];
       },
       __wbg_set_format_283dca56552f07a3: function(e, t) {
-        n(e).format = h[t];
+        n(e).format = v[t];
       },
       __wbg_set_format_5080a858117ad2c1: function(e, t) {
-        n(e).format = xe[t];
+        n(e).format = he[t];
       },
       __wbg_set_format_66735b94bd868ba2: function(e, t) {
-        n(e).format = h[t];
+        n(e).format = v[t];
       },
       __wbg_set_format_7f2bdbfb101b1ae1: function(e, t) {
-        n(e).format = h[t];
+        n(e).format = v[t];
       },
       __wbg_set_format_92732ea75d3b79f5: function(e, t) {
-        n(e).format = h[t];
+        n(e).format = v[t];
       },
       __wbg_set_format_f009e603f7d4c28e: function(e, t) {
-        n(e).format = h[t];
+        n(e).format = v[t];
       },
       __wbg_set_fragment_d2b0ec97d7cf8d47: function(e, t) {
         n(e).fragment = n(t);
       },
       __wbg_set_front_face_d3f8a2e07e7b25dd: function(e, t) {
-        n(e).frontFace = fe[t];
+        n(e).frontFace = ge[t];
       },
       __wbg_set_g_b527ee8a9bed553d: function(e, t) {
         n(e).g = t;
@@ -1409,50 +1596,53 @@ function Z() {
       __wbg_set_height_fde391767df1ce27: function(e, t) {
         n(e).height = t >>> 0;
       },
+      __wbg_set_href_f7219c6cbf6bedc3: function(e, t, _) {
+        n(e).href = g(t, _);
+      },
       __wbg_set_label_09e2da5f8522dbe8: function(e, t, _) {
-        n(e).label = d(t, _);
+        n(e).label = g(t, _);
       },
       __wbg_set_label_17202740051e9722: function(e, t, _) {
-        n(e).label = d(t, _);
+        n(e).label = g(t, _);
       },
       __wbg_set_label_17b4858e1eef23dd: function(e, t, _) {
-        n(e).label = d(t, _);
+        n(e).label = g(t, _);
       },
       __wbg_set_label_2fefb39c0e0dbbe8: function(e, t, _) {
-        n(e).label = d(t, _);
+        n(e).label = g(t, _);
       },
       __wbg_set_label_3cb2322e6f6db14c: function(e, t, _) {
-        n(e).label = d(t, _);
+        n(e).label = g(t, _);
       },
       __wbg_set_label_3f2ccaafef5ff7c9: function(e, t, _) {
-        n(e).label = d(t, _);
+        n(e).label = g(t, _);
       },
       __wbg_set_label_612add98a4398f92: function(e, t, _) {
-        n(e).label = d(t, _);
+        n(e).label = g(t, _);
       },
       __wbg_set_label_70a09ee68d6b1b26: function(e, t, _) {
-        n(e).label = d(t, _);
+        n(e).label = g(t, _);
       },
       __wbg_set_label_92cd3811e96b487c: function(e, t, _) {
-        n(e).label = d(t, _);
+        n(e).label = g(t, _);
       },
       __wbg_set_label_9c2a186152427ee0: function(e, t, _) {
-        n(e).label = d(t, _);
+        n(e).label = g(t, _);
       },
       __wbg_set_label_c3eaf136aa464cba: function(e, t, _) {
-        n(e).label = d(t, _);
+        n(e).label = g(t, _);
       },
       __wbg_set_label_c7987704d29f284b: function(e, t, _) {
-        n(e).label = d(t, _);
+        n(e).label = g(t, _);
       },
       __wbg_set_label_cfe64bca8945ee30: function(e, t, _) {
-        n(e).label = d(t, _);
+        n(e).label = g(t, _);
       },
       __wbg_set_label_e02179cf97e95763: function(e, t, _) {
-        n(e).label = d(t, _);
+        n(e).label = g(t, _);
       },
       __wbg_set_label_ee172cd5f6a96961: function(e, t, _) {
-        n(e).label = d(t, _);
+        n(e).label = g(t, _);
       },
       __wbg_set_layout_454e3a091b390cd4: function(e, t) {
         n(e).layout = n(t);
@@ -1464,13 +1654,13 @@ function Z() {
         n(e).layout = n(t);
       },
       __wbg_set_layout_gpu_auto_layout_mode_06a2b95af1043098: function(e, t) {
-        n(e).layout = E[t];
+        n(e).layout = N[t];
       },
       __wbg_set_layout_gpu_auto_layout_mode_ee432e515c357fa8: function(e, t) {
-        n(e).layout = E[t];
+        n(e).layout = N[t];
       },
       __wbg_set_load_op_c56b1269acc2d51f: function(e, t) {
-        n(e).loadOp = z[t];
+        n(e).loadOp = U[t];
       },
       __wbg_set_lod_max_clamp_db24179f67f3aa31: function(e, t) {
         n(e).lodMaxClamp = t;
@@ -1479,7 +1669,7 @@ function Z() {
         n(e).lodMinClamp = t;
       },
       __wbg_set_mag_filter_db8e6b42d4f8846d: function(e, t) {
-        n(e).magFilter = N[t];
+        n(e).magFilter = X[t];
       },
       __wbg_set_mapped_at_creation_3f320fef6761b02c: function(e, t) {
         n(e).mappedAtCreation = t !== 0;
@@ -1494,7 +1684,7 @@ function Z() {
         n(e).minBindingSize = t;
       },
       __wbg_set_min_filter_d435bbfc5a637757: function(e, t) {
-        n(e).minFilter = N[t];
+        n(e).minFilter = X[t];
       },
       __wbg_set_mip_level_count_047936c630acee7b: function(e, t) {
         n(e).mipLevelCount = t >>> 0;
@@ -1506,10 +1696,10 @@ function Z() {
         n(e).mipLevel = t >>> 0;
       },
       __wbg_set_mipmap_filter_62fb49a84b0747ff: function(e, t) {
-        n(e).mipmapFilter = be[t];
+        n(e).mipmapFilter = de[t];
       },
       __wbg_set_mode_7edfbc344ef9c650: function(e, t) {
-        n(e).mode = se[t];
+        n(e).mode = ue[t];
       },
       __wbg_set_module_392eeaa269f203b0: function(e, t) {
         n(e).module = n(t);
@@ -1536,16 +1726,16 @@ function Z() {
         n(e).offset = t;
       },
       __wbg_set_operation_00a77386523b88f9: function(e, t) {
-        n(e).operation = ce[t];
+        n(e).operation = ie[t];
       },
       __wbg_set_origin_gpu_origin_3d_dict_0619d4860adb4eb6: function(e, t) {
         n(e).origin = n(t);
       },
       __wbg_set_pass_op_3cf10feb3d76ab97: function(e, t) {
-        n(e).passOp = L[t];
+        n(e).passOp = j[t];
       },
       __wbg_set_power_preference_b42d00a8facfbade: function(e, t) {
-        n(e).powerPreference = ge[t];
+        n(e).powerPreference = we[t];
       },
       __wbg_set_primitive_e796cf76f0ff89f3: function(e, t) {
         n(e).primitive = n(t);
@@ -1584,13 +1774,19 @@ function Z() {
         n(e).sampleCount = t >>> 0;
       },
       __wbg_set_sample_type_ebc5fcd029513bda: function(e, t) {
-        n(e).sampleType = me[t];
+        n(e).sampleType = ye[t];
       },
       __wbg_set_sampler_89cb4a7efcfc6005: function(e, t) {
         n(e).sampler = n(t);
       },
       __wbg_set_shader_location_3fb9f6a012eba494: function(e, t) {
         n(e).shaderLocation = t >>> 0;
+      },
+      __wbg_set_shadowBlur_ce92d714e5f7f326: function(e, t) {
+        n(e).shadowBlur = t;
+      },
+      __wbg_set_shadowColor_7f658dc71a527985: function(e, t, _) {
+        n(e).shadowColor = g(t, _);
       },
       __wbg_set_signal_2dbd377604627f26: function(e, t) {
         n(e).signal = n(t);
@@ -1605,7 +1801,7 @@ function Z() {
         n(e).size = n(t);
       },
       __wbg_set_src_factor_6f2c9ec8e4d3d979: function(e, t) {
-        n(e).srcFactor = $[t];
+        n(e).srcFactor = H[t];
       },
       __wbg_set_stencil_back_c54d0443b8b6a957: function(e, t) {
         n(e).stencilBack = n(t);
@@ -1617,7 +1813,7 @@ function Z() {
         n(e).stencilFront = n(t);
       },
       __wbg_set_stencil_load_op_37d20deccb26a0f1: function(e, t) {
-        n(e).stencilLoadOp = z[t];
+        n(e).stencilLoadOp = U[t];
       },
       __wbg_set_stencil_read_mask_021ef4271b24352c: function(e, t) {
         n(e).stencilReadMask = t >>> 0;
@@ -1626,19 +1822,19 @@ function Z() {
         n(e).stencilReadOnly = t !== 0;
       },
       __wbg_set_stencil_store_op_501f91638dd386e6: function(e, t) {
-        n(e).stencilStoreOp = R[t];
+        n(e).stencilStoreOp = E[t];
       },
       __wbg_set_stencil_write_mask_ec1c12237e094bdd: function(e, t) {
         n(e).stencilWriteMask = t >>> 0;
       },
       __wbg_set_step_mode_3cbbdeba1e5dfd62: function(e, t) {
-        n(e).stepMode = ye[t];
+        n(e).stepMode = ve[t];
       },
       __wbg_set_storage_texture_786aea7c5773b6c1: function(e, t) {
         n(e).storageTexture = n(t);
       },
       __wbg_set_store_op_678f33376d741711: function(e, t) {
-        n(e).storeOp = R[t];
+        n(e).storeOp = E[t];
       },
       __wbg_set_strip_index_format_70313df755145d5e: function(e, t) {
         n(e).stripIndexFormat = D[t];
@@ -1662,13 +1858,13 @@ function Z() {
         n(e).toneMapping = n(t);
       },
       __wbg_set_topology_b92cfe523bd9653b: function(e, t) {
-        n(e).topology = de[t];
+        n(e).topology = le[t];
       },
       __wbg_set_type_43e0092f16775979: function(e, t) {
-        n(e).type = we[t];
+        n(e).type = pe[t];
       },
       __wbg_set_type_79cec55caf4cdb6d: function(e, t) {
-        n(e).type = ie[t];
+        n(e).type = ae[t];
       },
       __wbg_set_unclipped_depth_32b7caf29fa5633d: function(e, t) {
         n(e).unclippedDepth = t !== 0;
@@ -1689,10 +1885,10 @@ function Z() {
         n(e).vertex = n(t);
       },
       __wbg_set_view_dimension_893e2d16561e56e8: function(e, t) {
-        n(e).viewDimension = j[t];
+        n(e).viewDimension = z[t];
       },
       __wbg_set_view_dimension_f2c5fe4bf927c3fe: function(e, t) {
-        n(e).viewDimension = j[t];
+        n(e).viewDimension = z[t];
       },
       __wbg_set_view_formats_427069064d8b7139: function(e, t, _) {
         n(e).viewFormats = x(t, _);
@@ -1735,28 +1931,28 @@ function Z() {
         return a(t);
       },
       __wbg_stack_3b0d974bbf31e44f: function(e, t) {
-        const _ = n(t).stack, r = l(_, o.__wbindgen_export, o.__wbindgen_export2), i = w;
-        s().setInt32(e + 4, i, !0), s().setInt32(e + 0, r, !0);
+        const _ = n(t).stack, r = l(_, o.__wbindgen_export, o.__wbindgen_export2), c = w;
+        s().setInt32(e + 4, c, !0), s().setInt32(e + 0, r, !0);
       },
       __wbg_static_accessor_GLOBAL_266715b9d96ba635: function() {
         const e = typeof global > "u" ? null : global;
-        return m(e) ? 0 : a(e);
+        return p(e) ? 0 : a(e);
       },
       __wbg_static_accessor_GLOBAL_THIS_10fb7dc1ae063179: function() {
         const e = typeof globalThis > "u" ? null : globalThis;
-        return m(e) ? 0 : a(e);
+        return p(e) ? 0 : a(e);
       },
       __wbg_static_accessor_SELF_0b583911f537483a: function() {
         const e = typeof self > "u" ? null : self;
-        return m(e) ? 0 : a(e);
+        return p(e) ? 0 : a(e);
       },
       __wbg_static_accessor_WINDOW_d7f903d1508cbdc4: function() {
         const e = typeof window > "u" ? null : window;
-        return m(e) ? 0 : a(e);
+        return p(e) ? 0 : a(e);
       },
       __wbg_statusText_bceed558320dd590: function(e, t) {
-        const _ = n(t).statusText, r = l(_, o.__wbindgen_export, o.__wbindgen_export2), i = w;
-        s().setInt32(e + 4, i, !0), s().setInt32(e + 0, r, !0);
+        const _ = n(t).statusText, r = l(_, o.__wbindgen_export, o.__wbindgen_export2), c = w;
+        s().setInt32(e + 4, c, !0), s().setInt32(e + 0, r, !0);
       },
       __wbg_status_ce0a98d3c57125f3: function(e) {
         return n(e).status;
@@ -1792,31 +1988,34 @@ function Z() {
         console.warn(n(e));
       },
       __wbg_webviewer_new: function(e) {
-        const t = W.__wrap(e);
+        const t = M.__wrap(e);
         return a(t);
       },
       __wbg_width_3d0dce3d9892e35e: function(e) {
         return n(e).width;
       },
+      __wbg_width_e95ad291d52fe17e: function(e) {
+        return n(e).width;
+      },
       __wbg_writeBuffer_f4bb3f54adfe1330: function() {
-        return g(function(e, t, _, r, i, u, f) {
-          n(e).writeBuffer(n(t), _, B(r, i), u, f);
+        return d(function(e, t, _, r, c, u, f) {
+          n(e).writeBuffer(n(t), _, B(r, c), u, f);
         }, arguments);
       },
       __wbindgen_generic_0000000000000001: function(e, t) {
-        const _ = C(e, t, ne);
+        const _ = W(e, t, _e);
         return a(_);
       },
       __wbindgen_generic_0000000000000002: function(e, t) {
-        const _ = C(e, t, _e);
+        const _ = W(e, t, re);
         return a(_);
       },
       __wbindgen_generic_0000000000000003: function(e, t) {
-        const _ = C(e, t, re);
+        const _ = W(e, t, oe);
         return a(_);
       },
       __wbindgen_generic_0000000000000004: function(e, t) {
-        const _ = C(e, t, oe);
+        const _ = W(e, t, ce);
         return a(_);
       },
       __wbindgen_generic_0000000000000005: function(e) {
@@ -1830,7 +2029,7 @@ function Z() {
         return a(_);
       },
       __wbindgen_generic_0000000000000008: function(e, t) {
-        const _ = d(e, t);
+        const _ = g(e, t);
         return a(_);
       },
       __wbindgen_generic_0000000000000009: function(e) {
@@ -1847,228 +2046,235 @@ function Z() {
     }
   };
 }
-function U(c, e, t, _) {
-  o.__wasm_bindgen_func_elem_17407(c, e, a(t), a(_));
+function $(i, e, t, _) {
+  o.__wasm_bindgen_func_elem_18685(i, e, a(t), a(_));
 }
-function ne(c, e, t) {
+function _e(i, e, t) {
   try {
-    const i = o.__wbindgen_add_to_stack_pointer(-16);
-    o.__wasm_bindgen_func_elem_17405(i, c, e, a(t));
-    var _ = s().getInt32(i + 0, !0), r = s().getInt32(i + 4, !0);
+    const c = o.__wbindgen_add_to_stack_pointer(-16);
+    o.__wasm_bindgen_func_elem_18683(c, i, e, a(t));
+    var _ = s().getInt32(c + 0, !0), r = s().getInt32(c + 4, !0);
     if (r)
       throw b(_);
   } finally {
     o.__wbindgen_add_to_stack_pointer(16);
   }
 }
-function _e(c, e, t) {
+function re(i, e, t) {
   try {
-    const i = o.__wbindgen_add_to_stack_pointer(-16);
-    o.__wasm_bindgen_func_elem_15734(i, c, e, a(t));
-    var _ = s().getInt32(i + 0, !0), r = s().getInt32(i + 4, !0);
+    const c = o.__wbindgen_add_to_stack_pointer(-16);
+    o.__wasm_bindgen_func_elem_16884(c, i, e, a(t));
+    var _ = s().getInt32(c + 0, !0), r = s().getInt32(c + 4, !0);
     if (r)
       throw b(_);
   } finally {
     o.__wbindgen_add_to_stack_pointer(16);
   }
 }
-function re(c, e, t) {
+function oe(i, e, t) {
   try {
-    const i = o.__wbindgen_add_to_stack_pointer(-16);
-    o.__wasm_bindgen_func_elem_15734_49(i, c, e, a(t));
-    var _ = s().getInt32(i + 0, !0), r = s().getInt32(i + 4, !0);
+    const c = o.__wbindgen_add_to_stack_pointer(-16);
+    o.__wasm_bindgen_func_elem_16884_51(c, i, e, a(t));
+    var _ = s().getInt32(c + 0, !0), r = s().getInt32(c + 4, !0);
     if (r)
       throw b(_);
   } finally {
     o.__wbindgen_add_to_stack_pointer(16);
   }
 }
-function oe(c, e, t) {
+function ce(i, e, t) {
   try {
-    const i = o.__wbindgen_add_to_stack_pointer(-16);
-    o.__wasm_bindgen_func_elem_15734_50(i, c, e, a(t));
-    var _ = s().getInt32(i + 0, !0), r = s().getInt32(i + 4, !0);
+    const c = o.__wbindgen_add_to_stack_pointer(-16);
+    o.__wasm_bindgen_func_elem_16884_52(c, i, e, a(t));
+    var _ = s().getInt32(c + 0, !0), r = s().getInt32(c + 4, !0);
     if (r)
       throw b(_);
   } finally {
     o.__wbindgen_add_to_stack_pointer(16);
   }
 }
-const G = ["clamp-to-edge", "repeat", "mirror-repeat"], E = ["auto"], $ = ["zero", "one", "src", "one-minus-src", "src-alpha", "one-minus-src-alpha", "dst", "one-minus-dst", "dst-alpha", "one-minus-dst-alpha", "src-alpha-saturated", "constant", "one-minus-constant", "src1", "one-minus-src1", "src1-alpha", "one-minus-src1-alpha"], ce = ["add", "subtract", "reverse-subtract", "min", "max"], ie = ["uniform", "storage", "read-only-storage"], ae = ["opaque", "premultiplied"], se = ["standard", "extended"], F = ["never", "less", "equal", "less-equal", "greater", "not-equal", "greater-equal", "always"], ue = ["none", "front", "back"], N = ["nearest", "linear"], fe = ["ccw", "cw"], D = ["uint16", "uint32"], z = ["load", "clear"], be = ["nearest", "linear"], ge = ["low-power", "high-performance"], de = ["point-list", "line-list", "line-strip", "triangle-list", "triangle-strip"], we = ["filtering", "non-filtering", "comparison"], L = ["keep", "zero", "replace", "invert", "increment-clamp", "decrement-clamp", "increment-wrap", "decrement-wrap"], le = ["write-only", "read-only", "read-write"], R = ["store", "discard"], H = ["all", "stencil-only", "depth-only"], pe = ["1d", "2d", "3d"], h = ["r8unorm", "r8snorm", "r8uint", "r8sint", "r16unorm", "r16snorm", "r16uint", "r16sint", "r16float", "rg8unorm", "rg8snorm", "rg8uint", "rg8sint", "r32uint", "r32sint", "r32float", "rg16unorm", "rg16snorm", "rg16uint", "rg16sint", "rg16float", "rgba8unorm", "rgba8unorm-srgb", "rgba8snorm", "rgba8uint", "rgba8sint", "bgra8unorm", "bgra8unorm-srgb", "rgb9e5ufloat", "rgb10a2uint", "rgb10a2unorm", "rg11b10ufloat", "rg32uint", "rg32sint", "rg32float", "rgba16unorm", "rgba16snorm", "rgba16uint", "rgba16sint", "rgba16float", "rgba32uint", "rgba32sint", "rgba32float", "stencil8", "depth16unorm", "depth24plus", "depth24plus-stencil8", "depth32float", "depth32float-stencil8", "bc1-rgba-unorm", "bc1-rgba-unorm-srgb", "bc2-rgba-unorm", "bc2-rgba-unorm-srgb", "bc3-rgba-unorm", "bc3-rgba-unorm-srgb", "bc4-r-unorm", "bc4-r-snorm", "bc5-rg-unorm", "bc5-rg-snorm", "bc6h-rgb-ufloat", "bc6h-rgb-float", "bc7-rgba-unorm", "bc7-rgba-unorm-srgb", "etc2-rgb8unorm", "etc2-rgb8unorm-srgb", "etc2-rgb8a1unorm", "etc2-rgb8a1unorm-srgb", "etc2-rgba8unorm", "etc2-rgba8unorm-srgb", "eac-r11unorm", "eac-r11snorm", "eac-rg11unorm", "eac-rg11snorm", "astc-4x4-unorm", "astc-4x4-unorm-srgb", "astc-5x4-unorm", "astc-5x4-unorm-srgb", "astc-5x5-unorm", "astc-5x5-unorm-srgb", "astc-6x5-unorm", "astc-6x5-unorm-srgb", "astc-6x6-unorm", "astc-6x6-unorm-srgb", "astc-8x5-unorm", "astc-8x5-unorm-srgb", "astc-8x6-unorm", "astc-8x6-unorm-srgb", "astc-8x8-unorm", "astc-8x8-unorm-srgb", "astc-10x5-unorm", "astc-10x5-unorm-srgb", "astc-10x6-unorm", "astc-10x6-unorm-srgb", "astc-10x8-unorm", "astc-10x8-unorm-srgb", "astc-10x10-unorm", "astc-10x10-unorm-srgb", "astc-12x10-unorm", "astc-12x10-unorm-srgb", "astc-12x12-unorm", "astc-12x12-unorm-srgb"], me = ["float", "unfilterable-float", "depth", "sint", "uint"], j = ["1d", "2d", "2d-array", "cube", "cube-array", "3d"], xe = ["uint8", "uint8x2", "uint8x4", "sint8", "sint8x2", "sint8x4", "unorm8", "unorm8x2", "unorm8x4", "snorm8", "snorm8x2", "snorm8x4", "uint16", "uint16x2", "uint16x4", "sint16", "sint16x2", "sint16x4", "unorm16", "unorm16x2", "unorm16x4", "snorm16", "snorm16x2", "snorm16x4", "float16", "float16x2", "float16x4", "float32", "float32x2", "float32x3", "float32x4", "uint32", "uint32x2", "uint32x3", "uint32x4", "sint32", "sint32x2", "sint32x3", "sint32x4", "unorm10-10-10-2", "unorm8x4-bgra"], ye = ["vertex", "instance"], X = typeof FinalizationRegistry > "u" ? { register: () => {
+const L = ["clamp-to-edge", "repeat", "mirror-repeat"], N = ["auto"], H = ["zero", "one", "src", "one-minus-src", "src-alpha", "one-minus-src-alpha", "dst", "one-minus-dst", "dst-alpha", "one-minus-dst-alpha", "src-alpha-saturated", "constant", "one-minus-constant", "src1", "one-minus-src1", "src1-alpha", "one-minus-src1-alpha"], ie = ["add", "subtract", "reverse-subtract", "min", "max"], ae = ["uniform", "storage", "read-only-storage"], se = ["opaque", "premultiplied"], ue = ["standard", "extended"], R = ["never", "less", "equal", "less-equal", "greater", "not-equal", "greater-equal", "always"], fe = ["none", "front", "back"], be = ["validation", "out-of-memory", "internal"], X = ["nearest", "linear"], ge = ["ccw", "cw"], D = ["uint16", "uint32"], U = ["load", "clear"], de = ["nearest", "linear"], we = ["low-power", "high-performance"], le = ["point-list", "line-list", "line-strip", "triangle-list", "triangle-strip"], pe = ["filtering", "non-filtering", "comparison"], j = ["keep", "zero", "replace", "invert", "increment-clamp", "decrement-clamp", "increment-wrap", "decrement-wrap"], me = ["write-only", "read-only", "read-write"], E = ["store", "discard"], Y = ["all", "stencil-only", "depth-only"], xe = ["1d", "2d", "3d"], v = ["r8unorm", "r8snorm", "r8uint", "r8sint", "r16unorm", "r16snorm", "r16uint", "r16sint", "r16float", "rg8unorm", "rg8snorm", "rg8uint", "rg8sint", "r32uint", "r32sint", "r32float", "rg16unorm", "rg16snorm", "rg16uint", "rg16sint", "rg16float", "rgba8unorm", "rgba8unorm-srgb", "rgba8snorm", "rgba8uint", "rgba8sint", "bgra8unorm", "bgra8unorm-srgb", "rgb9e5ufloat", "rgb10a2uint", "rgb10a2unorm", "rg11b10ufloat", "rg32uint", "rg32sint", "rg32float", "rgba16unorm", "rgba16snorm", "rgba16uint", "rgba16sint", "rgba16float", "rgba32uint", "rgba32sint", "rgba32float", "stencil8", "depth16unorm", "depth24plus", "depth24plus-stencil8", "depth32float", "depth32float-stencil8", "bc1-rgba-unorm", "bc1-rgba-unorm-srgb", "bc2-rgba-unorm", "bc2-rgba-unorm-srgb", "bc3-rgba-unorm", "bc3-rgba-unorm-srgb", "bc4-r-unorm", "bc4-r-snorm", "bc5-rg-unorm", "bc5-rg-snorm", "bc6h-rgb-ufloat", "bc6h-rgb-float", "bc7-rgba-unorm", "bc7-rgba-unorm-srgb", "etc2-rgb8unorm", "etc2-rgb8unorm-srgb", "etc2-rgb8a1unorm", "etc2-rgb8a1unorm-srgb", "etc2-rgba8unorm", "etc2-rgba8unorm-srgb", "eac-r11unorm", "eac-r11snorm", "eac-rg11unorm", "eac-rg11snorm", "astc-4x4-unorm", "astc-4x4-unorm-srgb", "astc-5x4-unorm", "astc-5x4-unorm-srgb", "astc-5x5-unorm", "astc-5x5-unorm-srgb", "astc-6x5-unorm", "astc-6x5-unorm-srgb", "astc-6x6-unorm", "astc-6x6-unorm-srgb", "astc-8x5-unorm", "astc-8x5-unorm-srgb", "astc-8x6-unorm", "astc-8x6-unorm-srgb", "astc-8x8-unorm", "astc-8x8-unorm-srgb", "astc-10x5-unorm", "astc-10x5-unorm-srgb", "astc-10x6-unorm", "astc-10x6-unorm-srgb", "astc-10x8-unorm", "astc-10x8-unorm-srgb", "astc-10x10-unorm", "astc-10x10-unorm-srgb", "astc-12x10-unorm", "astc-12x10-unorm-srgb", "astc-12x12-unorm", "astc-12x12-unorm-srgb"], ye = ["float", "unfilterable-float", "depth", "sint", "uint"], z = ["1d", "2d", "2d-array", "cube", "cube-array", "3d"], he = ["uint8", "uint8x2", "uint8x4", "sint8", "sint8x2", "sint8x4", "unorm8", "unorm8x2", "unorm8x4", "snorm8", "snorm8x2", "snorm8x4", "uint16", "uint16x2", "uint16x4", "sint16", "sint16x2", "sint16x4", "unorm16", "unorm16x2", "unorm16x4", "snorm16", "snorm16x2", "snorm16x4", "float16", "float16x2", "float16x4", "float32", "float32x2", "float32x3", "float32x4", "uint32", "uint32x2", "uint32x3", "uint32x4", "sint32", "sint32x2", "sint32x3", "sint32x4", "unorm10-10-10-2", "unorm8x4-bgra"], ve = ["vertex", "instance"], J = typeof FinalizationRegistry > "u" ? { register: () => {
 }, unregister: () => {
-} } : new FinalizationRegistry((c) => o.__wbg_webviewer_free(c, 1));
-function a(c) {
-  T === y.length && y.push(y.length + 1);
-  const e = T;
-  return T = y[e], y[e] = c, e;
+} } : new FinalizationRegistry((i) => o.__wbg_webviewer_free(i, 1));
+function a(i) {
+  P === y.length && y.push(y.length + 1);
+  const e = P;
+  return P = y[e], y[e] = i, e;
 }
-const Y = typeof FinalizationRegistry > "u" ? { register: () => {
+const Z = typeof FinalizationRegistry > "u" ? { register: () => {
 }, unregister: () => {
-} } : new FinalizationRegistry((c) => o.__wbindgen_export5(c.a, c.b));
-function q(c) {
-  const e = typeof c;
-  if (e == "number" || e == "boolean" || c == null)
-    return `${c}`;
+} } : new FinalizationRegistry((i) => o.__wbindgen_export5(i.a, i.b));
+function q(i) {
+  const e = typeof i;
+  if (e == "number" || e == "boolean" || i == null)
+    return `${i}`;
   if (e == "string")
-    return `"${c}"`;
+    return `"${i}"`;
   if (e == "symbol") {
-    const r = c.description;
+    const r = i.description;
     return r == null ? "Symbol" : `Symbol(${r})`;
   }
   if (e == "function") {
-    const r = c.name;
+    const r = i.name;
     return typeof r == "string" && r.length > 0 ? `Function(${r})` : "Function";
   }
-  if (Array.isArray(c)) {
-    const r = c.length;
-    let i = "[";
-    r > 0 && (i += q(c[0]));
+  if (Array.isArray(i)) {
+    const r = i.length;
+    let c = "[";
+    r > 0 && (c += q(i[0]));
     for (let u = 1; u < r; u++)
-      i += ", " + q(c[u]);
-    return i += "]", i;
+      c += ", " + q(i[u]);
+    return c += "]", c;
   }
-  const t = /\[object ([^\]]+)\]/.exec(toString.call(c));
+  const t = /\[object ([^\]]+)\]/.exec(toString.call(i));
   let _;
   if (t && t.length > 1)
     _ = t[1];
   else
-    return toString.call(c);
+    return toString.call(i);
   if (_ == "Object")
     try {
-      return "Object(" + JSON.stringify(c) + ")";
+      return "Object(" + JSON.stringify(i) + ")";
     } catch {
       return "Object";
     }
-  return c instanceof Error ? `${c.name}: ${c.message}
-${c.stack}` : _;
+  return i instanceof Error ? `${i.name}: ${i.message}
+${i.stack}` : _;
 }
-function he(c) {
-  c < 1028 || (y[c] = T, T = c);
+function Se(i) {
+  i < 1028 || (y[i] = P, P = i);
 }
-function x(c, e) {
-  c = c >>> 0;
+function x(i, e) {
+  i = i >>> 0;
   const t = s(), _ = [];
-  for (let r = c; r < c + 4 * e; r += 4)
+  for (let r = i; r < i + 4 * e; r += 4)
     _.push(n(t.getUint32(r, !0)));
   return _;
 }
-function J(c, e) {
-  return c = c >>> 0, ve().subarray(c / 4, c / 4 + e);
+function K(i, e) {
+  return i = i >>> 0, ke().subarray(i / 4, i / 4 + e);
 }
-function B(c, e) {
-  return c = c >>> 0, S().subarray(c / 1, c / 1 + e);
+function B(i, e) {
+  return i = i >>> 0, k().subarray(i / 1, i / 1 + e);
 }
-let v = null;
+function Be(i, e) {
+  return i = i >>> 0, Ie().subarray(i / 1, i / 1 + e);
+}
+let S = null;
 function s() {
-  return (v === null || v.buffer.detached === !0 || v.buffer.detached === void 0 && v.buffer !== o.memory.buffer) && (v = new DataView(o.memory.buffer)), v;
+  return (S === null || S.buffer.detached === !0 || S.buffer.detached === void 0 && S.buffer !== o.memory.buffer) && (S = new DataView(o.memory.buffer)), S;
 }
-function d(c, e) {
-  return Be(c >>> 0, e);
-}
-let I = null;
-function ve() {
-  return (I === null || I.byteLength === 0) && (I = new Uint32Array(o.memory.buffer)), I;
+function g(i, e) {
+  return Ce(i >>> 0, e);
 }
 let A = null;
-function S() {
-  return (A === null || A.byteLength === 0) && (A = new Uint8Array(o.memory.buffer)), A;
+function ke() {
+  return (A === null || A.byteLength === 0) && (A = new Uint32Array(o.memory.buffer)), A;
 }
-function n(c) {
-  return y[c];
+let T = null;
+function k() {
+  return (T === null || T.byteLength === 0) && (T = new Uint8Array(o.memory.buffer)), T;
 }
-function g(c, e) {
+let C = null;
+function Ie() {
+  return (C === null || C.byteLength === 0) && (C = new Uint8ClampedArray(o.memory.buffer)), C;
+}
+function n(i) {
+  return y[i];
+}
+function d(i, e) {
   try {
-    return c.apply(this, e);
+    return i.apply(this, e);
   } catch (t) {
     o.__wbindgen_export3(a(t));
   }
 }
 let y = new Array(1024).fill(void 0);
 y.push(void 0, null, !0, !1);
-let T = y.length;
-function m(c) {
-  return c == null;
+let P = y.length;
+function p(i) {
+  return i == null;
 }
-function C(c, e, t) {
-  const _ = { a: c, b: e, cnt: 1 }, r = (...i) => {
+function W(i, e, t) {
+  const _ = { a: i, b: e, cnt: 1 }, r = (...c) => {
     _.cnt++;
     const u = _.a;
     _.a = 0;
     try {
-      return t(u, _.b, ...i);
+      return t(u, _.b, ...c);
     } finally {
       _.a = u, r._wbg_cb_unref();
     }
   };
   return r._wbg_cb_unref = () => {
-    --_.cnt === 0 && (o.__wbindgen_export5(_.a, _.b), _.a = 0, Y.unregister(_));
-  }, Y.register(r, _, _), r;
+    --_.cnt === 0 && (o.__wbindgen_export5(_.a, _.b), _.a = 0, Z.unregister(_));
+  }, Z.register(r, _, _), r;
 }
-function Se(c, e) {
-  const t = e(c.length * 1, 1) >>> 0;
-  return S().set(c, t / 1), w = c.length, t;
+function Ae(i, e) {
+  const t = e(i.length * 1, 1) >>> 0;
+  return k().set(i, t / 1), w = i.length, t;
 }
-function l(c, e, t) {
+function l(i, e, t) {
   if (t === void 0) {
-    const f = P.encode(c), p = e(f.length, 1) >>> 0;
-    return S().subarray(p, p + f.length).set(f), w = f.length, p;
+    const f = O.encode(i), m = e(f.length, 1) >>> 0;
+    return k().subarray(m, m + f.length).set(f), w = f.length, m;
   }
-  let _ = c.length, r = e(_, 1) >>> 0;
-  const i = S();
+  let _ = i.length, r = e(_, 1) >>> 0;
+  const c = k();
   let u = 0;
   for (; u < _; u++) {
-    const f = c.charCodeAt(u);
+    const f = i.charCodeAt(u);
     if (f > 127) break;
-    i[r + u] = f;
+    c[r + u] = f;
   }
   if (u !== _) {
-    u !== 0 && (c = c.slice(u)), r = t(r, _, _ = u + c.length * 3, 1) >>> 0;
-    const f = S().subarray(r + u, r + _), p = P.encodeInto(c, f);
-    u += p.written, r = t(r, _, u, 1) >>> 0;
+    u !== 0 && (i = i.slice(u)), r = t(r, _, _ = u + i.length * 3, 1) >>> 0;
+    const f = k().subarray(r + u, r + _), m = O.encodeInto(i, f);
+    u += m.written, r = t(r, _, u, 1) >>> 0;
   }
   return w = u, r;
 }
-function b(c) {
-  const e = n(c);
-  return he(c), e;
+function b(i) {
+  const e = n(i);
+  return Se(i), e;
 }
-let M = new TextDecoder("utf-8", { ignoreBOM: !0, fatal: !0 });
-M.decode();
-const ke = 2146435072;
+let F = new TextDecoder("utf-8", { ignoreBOM: !0, fatal: !0 });
+F.decode();
+const Te = 2146435072;
 let V = 0;
-function Be(c, e) {
-  return V += e, V >= ke && (M = new TextDecoder("utf-8", { ignoreBOM: !0, fatal: !0 }), M.decode(), V = e), M.decode(S().subarray(c, c + e));
+function Ce(i, e) {
+  return V += e, V >= Te && (F = new TextDecoder("utf-8", { ignoreBOM: !0, fatal: !0 }), F.decode(), V = e), F.decode(k().subarray(i, i + e));
 }
-const P = new TextEncoder();
-"encodeInto" in P || (P.encodeInto = function(c, e) {
-  const t = P.encode(c);
+const O = new TextEncoder();
+"encodeInto" in O || (O.encodeInto = function(i, e) {
+  const t = O.encode(i);
   return e.set(t), {
-    read: c.length,
+    read: i.length,
     written: t.length
   };
 });
 let w = 0, o;
-function K(c, e) {
-  return o = c.exports, v = null, I = null, A = null, o.__wbindgen_start(), o;
+function ee(i, e) {
+  return o = i.exports, S = null, A = null, T = null, C = null, o.__wbindgen_start(), o;
 }
-async function Ie(c, e) {
-  if (typeof Response == "function" && c instanceof Response) {
-    if (!c.ok)
-      throw new Error(`failed to fetch Wasm: ${c.status} ${c.statusText} fetching '${c.url}'`);
+async function Pe(i, e) {
+  if (typeof Response == "function" && i instanceof Response) {
+    if (!i.ok)
+      throw new Error(`failed to fetch Wasm: ${i.status} ${i.statusText} fetching '${i.url}'`);
     if (typeof WebAssembly.instantiateStreaming == "function")
       try {
-        return await WebAssembly.instantiateStreaming(c, e);
+        return await WebAssembly.instantiateStreaming(i, e);
       } catch (r) {
-        if (t(c.type) && c.headers.get("Content-Type") !== "application/wasm")
+        if (t(i.type) && i.headers.get("Content-Type") !== "application/wasm")
           console.warn("`WebAssembly.instantiateStreaming` failed because your server does not serve Wasm with `application/wasm` MIME type. Falling back to `WebAssembly.instantiate` which is slower. Original error:\n", r);
         else
           throw r;
       }
-    const _ = await c.arrayBuffer();
+    const _ = await i.arrayBuffer();
     return await WebAssembly.instantiate(_, e);
   } else {
-    const _ = await WebAssembly.instantiate(c, e);
-    return _ instanceof WebAssembly.Instance ? { instance: _, module: c } : _;
+    const _ = await WebAssembly.instantiate(i, e);
+    return _ instanceof WebAssembly.Instance ? { instance: _, module: i } : _;
   }
   function t(_) {
     switch (_) {
@@ -2080,25 +2286,25 @@ async function Ie(c, e) {
     return !1;
   }
 }
-function Te(c) {
+function Me(i) {
   if (o !== void 0) return o;
-  c !== void 0 && (Object.getPrototypeOf(c) === Object.prototype ? { module: c } = c : console.warn("using deprecated parameters for `initSync()`; pass a single object instead"));
-  const e = Z();
-  c instanceof WebAssembly.Module || (c = new WebAssembly.Module(c));
-  const t = new WebAssembly.Instance(c, e);
-  return K(t);
+  i !== void 0 && (Object.getPrototypeOf(i) === Object.prototype ? { module: i } = i : console.warn("using deprecated parameters for `initSync()`; pass a single object instead"));
+  const e = Q();
+  i instanceof WebAssembly.Module || (i = new WebAssembly.Module(i));
+  const t = new WebAssembly.Instance(i, e);
+  return ee(t);
 }
-async function Pe(c) {
+async function We(i) {
   if (o !== void 0) return o;
-  c !== void 0 && (Object.getPrototypeOf(c) === Object.prototype ? { module_or_path: c } = c : console.warn("using deprecated parameters for the initialization function; pass a single object instead")), c === void 0 && (c = new URL("patinae_web_bg.wasm", /* @__PURE__ */ ((r) => r)(import.meta.url)));
-  const e = Z();
-  (typeof c == "string" || typeof Request == "function" && c instanceof Request || typeof URL == "function" && c instanceof URL) && (c = fetch(c));
-  const { instance: t, module: _ } = await Ie(await c, e);
-  return K(t);
+  i !== void 0 && (Object.getPrototypeOf(i) === Object.prototype ? { module_or_path: i } = i : console.warn("using deprecated parameters for the initialization function; pass a single object instead")), i === void 0 && (i = new URL("patinae_web_bg.wasm", /* @__PURE__ */ ((r) => r)(import.meta.url)));
+  const e = Q();
+  (typeof i == "string" || typeof Request == "function" && i instanceof Request || typeof URL == "function" && i instanceof URL) && (i = fetch(i));
+  const { instance: t, module: _ } = await Pe(await i, e);
+  return ee(t);
 }
 export {
-  W as WebViewer,
-  Pe as default,
-  Ae as init,
-  Te as initSync
+  M as WebViewer,
+  We as default,
+  Oe as init,
+  Me as initSync
 };

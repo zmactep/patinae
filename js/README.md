@@ -1,12 +1,14 @@
 # Website viewer bundle
 
-The generated `patinae-viewer.js`, `patinae_web-DmhO40xJ.js`, and
+The generated `patinae-viewer.js`, `patinae_web-q1teE-kv.js`, and
 `patinae_web_bg.wasm` were built from Patinae commit
-`d2736dd138491e5bc26015997638bc2a05756a5e` (package version 0.5.3)
+`4eaac6c5a2931dcebca632f4b73c0387e46c7257` (package version 0.5.3)
 with `npm run build` in `web/`, using the committed Cargo and npm lockfiles.
 
-This includes the browser startup timing fix from `b078ac0` and the stick
-rendering fix from `ea7a2a6`. The published v0.5.3 web archive predates these
+This build supports browser downloads of sessions, selected coordinates, and
+PNG images at custom resolutions. It includes the browser startup timing fix
+from `b078ac0` and the stick rendering fix from `ea7a2a6`.
+The published v0.5.3 web archive predates these
 fixes and fails at viewer initialization with `time not implemented on this
 platform`; do not replace this bundle with that archive.
 

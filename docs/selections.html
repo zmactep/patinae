@@ -297,6 +297,10 @@
 <div class="command-line"><code id="example-78">disable sample</code></div>
 <div class="command-line"><code id="example-79">disable *_d</code></div>
 </div></div><p>29 nearby atoms belong to 14 residues containing 121 atoms in all. The spheres identify which atoms first brought each residue into the pocket.</p>
+<p>Export the heme and its 14 surrounding residues to inspect their coordinates in another program. The selection after the comma determines which atoms go into the PDB file. Click <strong>Run</strong> to download it.</p>
+<div class="command-example"><div class="command-lines">
+<div class="command-line"><code id="save-d-pocket">save 4hhb-heme-pocket.pdb, heme_d or pocket_d</code></div>
+</div></div>
 </details>
 <h3>5. Test a larger radius</h3><p>Keep your 4 Å selections. Build new atom and residue selections at 6 Å. Predict how many atoms the old set could lose, and test both sets by taking differences.</p><details><summary>Hint</summary>
 <p>An atom lost from the old set would match the old selection and the complement of the new one. If you used Deselect after exercise 4, rerun its first four commands to restore the names.</p>
