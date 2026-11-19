@@ -830,7 +830,7 @@ checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 
 [[package]]
 name = "patinae-algos"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "bitflags",
  "lin_alg",
@@ -841,7 +841,7 @@ dependencies = [
 
 [[package]]
 name = "patinae-cmd"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "ahash",
  "lin_alg",
@@ -861,7 +861,7 @@ dependencies = [
 
 [[package]]
 name = "patinae-color"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "ahash",
  "serde",
@@ -870,7 +870,7 @@ dependencies = [
 
 [[package]]
 name = "patinae-io"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "flate2",
  "lin_alg",
@@ -881,7 +881,7 @@ dependencies = [
 
 [[package]]
 name = "patinae-mol"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "ahash",
  "bitflags",
@@ -899,7 +899,7 @@ dependencies = [
 
 [[package]]
 name = "patinae-render"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "bytemuck",
  "image",
@@ -916,7 +916,7 @@ dependencies = [
 
 [[package]]
 name = "patinae-scene"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "ahash",
  "bitflags",
@@ -936,7 +936,7 @@ dependencies = [
 
 [[package]]
 name = "patinae-select"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "ahash",
  "bitvec",
@@ -950,7 +950,7 @@ dependencies = [
 
 [[package]]
 name = "patinae-session"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "ahash",
  "flate2",
@@ -968,7 +968,7 @@ dependencies = [
 
 [[package]]
 name = "patinae-settings"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "ahash",
  "dirs",
@@ -983,7 +983,7 @@ dependencies = [
 
 [[package]]
 name = "patinae-web"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "console_error_panic_hook",
  "console_log",
