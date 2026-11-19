@@ -23,6 +23,15 @@ impl CaptureRenderer for ViewportRenderer {
         themed: &ThemedPalette,
         clear_color: [f32; 3],
     ) -> Result<(), ViewerError> {
+        self.refresh_recovery_for_scene_change(registry);
+        if let Some(message) = self.apply_runtime_memory_policy(settings, registry) {
+            log::info!("{message}");
+        }
+        if self.recovery.is_blocked() {
+            return Err(ViewerError::capture_error(
+                "Rendering is blocked after GPU memory exhaustion",
+            ));
+        }
         // Build per-atom colours + render objects via the same bridges the
         // live frame uses, so the captured PNG matches the on-screen scene
         // (modulo resolution).
@@ -60,37 +69,15 @@ impl CaptureRenderer for ViewportRenderer {
             lod,
         };
 
-        // Apply the silhouette setting before render.
-        let common = &settings.shading.common;
-        let silhouette_ink =
-            resolve_literal_color(common.silhouette_color, named, [0.0, 0.0, 0.0, 1.0]);
-        if common.silhouettes {
-            self.state
-                .set_silhouette(true, common.silhouette_width, silhouette_ink);
-        } else {
-            self.state.set_silhouette(false, 1.0, silhouette_ink);
-        }
-        let full = &settings.shading.full;
-        self.state.set_shadows(
-            settings.shading.mode == ShadingMode::Full,
-            full.shadow_map_size.max(64) as u32,
-            full.shadow_bias,
-            full.shadow_intensity,
-            full.shadow_pcf.max(1) as u32,
-        );
-        configure_ambient_occlusion(&mut self.state, settings);
+        configure_frame_effects(&mut self.state, settings, named);
         self.state
             .set_clear_color(clear_color, settings.ui.opaque_background);
-        self.state.set_fxaa(effective_fxaa(settings));
 
         patinae_render::capture::capture_png(&mut self.state, path, width, height, &frame, &input)
             .map_err(|e| ViewerError::capture_error(e.to_string()))?;
         drop(object_inputs);
         registry.clear_all_dirty_objects();
 
-        // Restore live viewport size on the next frame — `render_frame`
-        // detects the dimension mismatch and resizes back.
-        self.last_viewport_size = None;
         Ok(())
     }
 

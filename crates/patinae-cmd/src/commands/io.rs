@@ -1782,6 +1782,26 @@ fn save_to(
 /// Save current view as PNG image
 struct PngCommand;
 
+fn png_dimension(
+    args: &ParsedCommand,
+    position: usize,
+    name: &str,
+) -> Result<Option<u32>, CmdError> {
+    let Some(value) = args.arg(position, name).filter(|v| v.is_some()) else {
+        return Ok(None);
+    };
+    value
+        .as_float()
+        .filter(|v| v.fract() == 0.0 && (1.0..=f64::from(u32::MAX)).contains(v))
+        .map(|v| Some(v as u32))
+        .ok_or_else(|| {
+            CmdError::invalid_argument(
+                name,
+                format!("expected a positive integer pixel count, got {value}"),
+            )
+        })
+}
+
 impl Command for PngCommand {
     fn name(&self) -> &str {
         "png"
@@ -1826,11 +1846,8 @@ impl Command for PngCommand {
             .str_arg(0, "filename")
             .ok_or_else(|| CmdError::missing_argument("filename".to_string()))?;
 
-        // Get width (optional)
-        let width = args.int_arg(1, "width").map(|v| v as u32);
-
-        // Get height (optional)
-        let height = args.int_arg(2, "height").map(|v| v as u32);
+        let width = png_dimension(args, 1, "width")?;
+        let height = png_dimension(args, 2, "height")?;
 
         // Get dpi (optional, not yet used)
         let _dpi = args.float_arg(3, "dpi");
@@ -1845,6 +1862,19 @@ impl Command for PngCommand {
         } else {
             path.to_path_buf()
         };
+
+        match ctx.submit_async_request(AsyncCommandRequest::ExportPng {
+            filename: path.to_string_lossy().into_owned(),
+            width,
+            height,
+            quiet: quiet || ctx.quiet,
+        }) {
+            crate::AsyncCommandAcceptance::Accepted(_) => return Ok(()),
+            crate::AsyncCommandAcceptance::Rejected(error) => {
+                return Err(CmdError::execution(error.to_string()))
+            }
+            crate::AsyncCommandAcceptance::Unsupported => {}
+        }
 
         if let Some(vp_img) = ctx.viewer.get_viewport_image() {
             // Export stored viewport image overlay
@@ -1913,6 +1943,74 @@ mod tests {
     use patinae_scene::{Session, SessionAdapter, ViewportImage};
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn png_host_receives_normalized_filename_and_optional_dimensions() {
+        let mut session = Session::new();
+        let mut redraw = false;
+        let mut adapter = SessionAdapter {
+            session: &mut session,
+            render_context: None,
+            default_size: (800, 600),
+            needs_redraw: &mut redraw,
+        };
+        let mut executor = CommandExecutor::new();
+        let mut requests = Vec::new();
+        let id = crate::tasks::TaskId::new(1, 1);
+        let mut sink = |request| {
+            requests.push(request);
+            crate::AsyncCommandAcceptance::Accepted(id)
+        };
+        for command in [
+            "png scene, 801, 509",
+            "png scene.PNG, height=300, quiet=1",
+            "png scene.png",
+        ] {
+            let output = executor
+                .do_with_async_sink(&mut adapter, command, false, Some(&mut sink))
+                .unwrap();
+            assert_eq!(output.task_ids, [id]);
+        }
+        let expected = [
+            ("scene.png", Some(801), Some(509), false),
+            ("scene.PNG", None, Some(300), true),
+            ("scene.png", None, None, false),
+        ];
+        for (request, expected) in requests.iter().zip(expected) {
+            let crate::AsyncCommandRequest::ExportPng {
+                filename,
+                width,
+                height,
+                quiet,
+            } = request
+            else {
+                panic!("expected a PNG export request")
+            };
+            assert_eq!((filename.as_str(), *width, *height, *quiet), expected);
+        }
+    }
+
+    #[test]
+    fn png_rejects_invalid_dimensions_before_admission() {
+        let mut session = Session::new();
+        let mut redraw = false;
+        let mut adapter = SessionAdapter {
+            session: &mut session,
+            render_context: None,
+            default_size: (800, 600),
+            needs_redraw: &mut redraw,
+        };
+        let mut executor = CommandExecutor::new();
+        for parameter in ["0", "-10", "12.5", "4294967296", "abc", "NaN"] {
+            let command = format!("png scene.png, width={parameter}");
+            let mut sink = |_| panic!("invalid dimensions reached host admission");
+            let result = executor.execute_captured(&mut adapter, &command, false, Some(&mut sink));
+            assert!(
+                result.result.unwrap_err().to_string().contains("width"),
+                "{command}"
+            );
+        }
+    }
 
     #[test]
     fn png_exports_stored_viewport_image_overlay() {

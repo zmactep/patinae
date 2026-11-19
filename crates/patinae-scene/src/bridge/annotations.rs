@@ -102,14 +102,25 @@ impl ProjectedSceneLabels {
         bundles: &[ResolvedAnnotationBundle],
         scale: f32,
     ) -> bool {
+        self.rebuild_for_frame(&camera.view_projection_columns(), viewport, bundles, scale)
+    }
+
+    /// Updates the overlay using the view-projection matrix uploaded for this frame.
+    pub fn rebuild_for_frame(
+        &mut self,
+        view_proj: &[[f32; 4]; 4],
+        viewport: (f32, f32, f32, f32),
+        bundles: &[ResolvedAnnotationBundle],
+        scale: f32,
+    ) -> bool {
         let fingerprint = (
-            projection_fingerprint(camera, viewport, bundles),
+            projection_fingerprint(view_proj, viewport, bundles),
             scale.to_bits(),
         );
         if self.fingerprint == Some(fingerprint) {
             return false;
         }
-        self.labels = project_annotation_labels_with_scale(camera, viewport, bundles, scale);
+        self.labels = project_frame_labels(view_proj, viewport, bundles, scale);
         self.fingerprint = Some(fingerprint);
         true
     }
@@ -142,6 +153,16 @@ pub fn project_annotation_labels_with_scale(
     bundles: &[ResolvedAnnotationBundle],
     scale: f32,
 ) -> Vec<ProjectedAnnotationLabel> {
+    project_frame_labels(&camera.view_projection_columns(), viewport, bundles, scale)
+}
+
+/// Projects labels with the frame's view-projection matrix and logical-to-physical pixel scale.
+pub fn project_frame_labels(
+    view_proj: &[[f32; 4]; 4],
+    viewport: (f32, f32, f32, f32),
+    bundles: &[ResolvedAnnotationBundle],
+    scale: f32,
+) -> Vec<ProjectedAnnotationLabel> {
     let (viewport_x, viewport_y, viewport_width, viewport_height) = viewport;
     if !scale.is_finite()
         || scale <= 0.0
@@ -160,7 +181,7 @@ pub fn project_annotation_labels_with_scale(
         .iter()
         .flat_map(|bundle| &bundle.labels)
         .filter_map(|label| {
-            let (x, y) = camera.project_to_screen(label.position, viewport)?;
+            let (x, y) = crate::camera::project_to_viewport(view_proj, label.position, viewport)?;
             let x = x + label.label_offset[0] * scale;
             let y = y + label.label_offset[1] * scale;
             if !(viewport_x..=max_x).contains(&x) || !(viewport_y..=max_y).contains(&y) {
@@ -184,16 +205,15 @@ pub fn project_annotation_labels_with_scale(
 }
 
 fn projection_fingerprint(
-    camera: &Camera,
+    view_proj: &[[f32; 4]; 4],
     viewport: (f32, f32, f32, f32),
     bundles: &[ResolvedAnnotationBundle],
 ) -> u64 {
     let mut hasher = DefaultHasher::new();
-    for value in camera
-        .view_matrix()
-        .data
-        .into_iter()
-        .chain(camera.projection_matrix().data)
+    for value in view_proj
+        .iter()
+        .flatten()
+        .copied()
         .chain([viewport.0, viewport.1, viewport.2, viewport.3])
     {
         value.to_bits().hash(&mut hasher);
@@ -819,6 +839,53 @@ mod tests {
         assert!(projected[0].size.is_finite() && projected[0].size > 0.0);
         assert_eq!(projected[0].owner_id, bundle(&cache, "labels").owner_id);
         assert_eq!(projected[0].insertion_ordinal, 0);
+    }
+
+    #[test]
+    fn overlays_follow_the_rendered_projection_and_target_aspect() {
+        let anchor = Vec3::new(2.0, 1.0, 20.0);
+        let (source, keys) = molecule("source", &[anchor]);
+        let mut session = crate::Session::new();
+        session.registry.add(source);
+        let mut labels = LabelObject::with_entities(
+            "labels",
+            vec![LabelEntity::new(AtomAnchor::new("source", keys[0]), "CA")],
+        );
+        labels.set_label_offset(0, [3.0, -2.0]);
+        session.registry.add(labels);
+        let resolved = rebuild(&session.registry, &session.settings);
+        let mut cache = ProjectedSceneLabels::default();
+        for (orthoscopic, width, height, scale) in [
+            (false, 400, 200, 1.0),
+            (true, 400, 200, 1.0),
+            (true, 300, 400, 2.0),
+        ] {
+            session.settings.ui.orthoscopic = orthoscopic;
+            let frame =
+                crate::bridge::frame_uniforms_from_session(&session, (width, height), [0.0; 3]);
+            let viewport = (0.0, 0.0, width as f32, height as f32);
+            assert!(cache.rebuild_for_frame(&frame.view_proj, viewport, resolved.bundles(), scale));
+            assert!(!cache.rebuild_for_frame(
+                &frame.view_proj,
+                viewport,
+                resolved.bundles(),
+                scale
+            ));
+            let [label] = cache.labels() else {
+                panic!("expected one visible label")
+            };
+            let view = session.camera.current_view();
+            let distance = if orthoscopic {
+                view.position.z
+            } else {
+                view.position.z - anchor.z
+            };
+            let px_per_unit =
+                height as f32 / (2.0 * distance * (view.fov.to_radians() / 2.0).tan());
+            let x = width as f32 * 0.5 + anchor.x * px_per_unit + 3.0 * scale;
+            let y = height as f32 * 0.5 - anchor.y * px_per_unit - 2.0 * scale;
+            assert!((label.x - x).abs() < 0.001 && (label.y - y).abs() < 0.001);
+        }
     }
 
     #[test]

@@ -95,7 +95,10 @@ impl RenderState {
         }
 
         let snapshot = self.memory_snapshot();
-        let fixed_reserved_bytes = super::picking_budget::fixed_reserved_without_picking(&snapshot);
+        let fixed_reserved_bytes = super::picking_budget::fixed_reserved_without_picking(&snapshot)
+            .saturating_sub(self.capture.resident_bytes())
+            // Only picking readbacks are replaceable here.
+            .saturating_add(self.capture.staging_bytes());
         let total_atoms = total_atom_count(input.objects);
         let decision = plan_picking_budget(
             self.memory.policy,
@@ -104,6 +107,11 @@ impl RenderState {
             active_rep_count,
             total_atoms,
         );
+        if decision.allowed {
+            self.reserve_viewport_bytes(
+                fixed_reserved_bytes.saturating_add(decision.estimated_bytes),
+            );
+        }
 
         if !decision.allowed {
             if !self.memory.warned_picking_budget_denied {
@@ -240,7 +248,7 @@ impl RenderState {
             return;
         }
 
-        self.record_overlay_id_pass(encoder);
+        self.record_overlay_id_pass(encoder, &self.targets, &self.ctx.frame.bind_group);
         self.picking.overlay_id_pass_initialized = true;
         self.picking.overlay_id_view_proj_hash = view_proj_hash;
     }
@@ -365,26 +373,31 @@ impl RenderState {
         self.record_id_pass_to(
             encoder,
             id_pass,
-            picking_view,
-            picking_depth_view,
+            (picking_view, picking_depth_view),
+            &self.ctx.frame.bind_group,
             IdPassPurpose::HitTest,
             region,
         );
     }
 
-    pub(super) fn record_overlay_id_pass(&self, encoder: &mut wgpu::CommandEncoder) {
+    pub(super) fn record_overlay_id_pass(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        targets: &crate::frame::FrameTargets,
+        uniform_bind_group: &wgpu::BindGroup,
+    ) {
         let (Some(id_pass), Some(overlay_view), Some(overlay_depth_view)) = (
             self.picking.id_pass.as_ref(),
-            self.targets.overlay_id.as_ref(),
-            self.targets.overlay_id_depth.as_ref(),
+            targets.overlay_id.as_ref(),
+            targets.overlay_id_depth.as_ref(),
         ) else {
             return;
         };
         self.record_id_pass_to(
             encoder,
             id_pass,
-            overlay_view,
-            overlay_depth_view,
+            (overlay_view, overlay_depth_view),
+            uniform_bind_group,
             IdPassPurpose::Overlay,
             None,
         );
@@ -394,8 +407,8 @@ impl RenderState {
         &self,
         encoder: &mut wgpu::CommandEncoder,
         id_pass: &crate::picking::PickingPass,
-        target: &wgpu::TextureView,
-        depth: &wgpu::TextureView,
+        (target, depth): (&wgpu::TextureView, &wgpu::TextureView),
+        uniform_bind_group: &wgpu::BindGroup,
         purpose: IdPassPurpose,
         region: Option<PickRegion>,
     ) {
@@ -431,7 +444,7 @@ impl RenderState {
         if let Some(region) = region {
             pass.set_scissor_rect(region.x, region.y, region.width, region.height);
         }
-        pass.set_bind_group(0, &self.ctx.frame.bind_group, &[]);
+        pass.set_bind_group(0, uniform_bind_group, &[]);
         pass.set_bind_group(1, &self.ctx.lighting.bind_group, &[]);
         let mut current = None;
         for key in &self.scene.draw_order {
@@ -521,7 +534,8 @@ impl RenderState {
         let view_proj_hash = hash_view_proj(&self.uniforms.view_proj);
         let rebuilt = self.record_pending_compute_builds(encoder);
         self.prepare_instance_draws(encoder);
-        self.dispatch_cull(encoder, view_proj_hash, rebuilt);
+        let uniforms = self.uniforms;
+        self.dispatch_cull(encoder, &uniforms, view_proj_hash, rebuilt);
         let camera_changed = view_proj_hash != self.picking.last_view_proj_hash;
         let (width, height) = self.targets.picking_dims();
         let region = PickRegion::around(x, y, width, height);

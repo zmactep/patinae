@@ -3,8 +3,8 @@
 use super::*;
 
 impl ViewportRenderer {
-    pub(super) fn refresh_recovery_for_scene_change(&mut self, session: &mut Session) {
-        let generation = session.registry.generation();
+    pub(super) fn refresh_recovery_for_scene_change(&mut self, registry: &mut ObjectRegistry) {
+        let generation = registry.generation();
         if generation == self.last_registry_generation {
             return;
         }
@@ -23,8 +23,8 @@ impl ViewportRenderer {
         } else {
             self.drop_transient_resources();
         }
-        session.registry.mark_all_dirty();
-        self.last_registry_generation = session.registry.generation();
+        registry.mark_all_dirty();
+        self.last_registry_generation = registry.generation();
         log::info!(
             "renderer memory recovery reset after scene generation changed; baseline profile={}",
             base_profile
@@ -124,15 +124,18 @@ impl ViewportRenderer {
         }
     }
 
-    pub(super) fn apply_runtime_memory_policy(&mut self, session: &mut Session) -> Option<String> {
-        let requested =
-            render_memory_policy_from_settings(&session.settings, self.auto_memory_policy);
+    pub(super) fn apply_runtime_memory_policy(
+        &mut self,
+        settings: &Settings,
+        registry: &mut ObjectRegistry,
+    ) -> Option<String> {
+        let requested = render_memory_policy_from_settings(settings, self.auto_memory_policy);
         if !self.recovery.request_profile(requested.profile) {
             return None;
         }
         self.rebuild_for_policy(requested);
-        session.registry.mark_all_dirty();
-        self.last_registry_generation = session.registry.generation();
+        registry.mark_all_dirty();
+        self.last_registry_generation = registry.generation();
         let mut message = format!(
             "Renderer memory profile switched to {} by user setting.",
             requested.profile
@@ -205,7 +208,7 @@ mod tests {
         let mut viewport =
             ViewportRenderer::from_prepared(state, config, WgpuErrorFlags::default());
         let mut session = Session::new();
-        viewport.refresh_recovery_for_scene_change(&mut session);
+        viewport.refresh_recovery_for_scene_change(&mut session.registry);
 
         for (expected, redraw) in [
             (RenderMemoryProfile::Performance, true),
@@ -217,8 +220,10 @@ mod tests {
             assert_eq!(outcome.request_redraw, redraw);
             let stage = viewport.recovery;
             assert_eq!(stage.effective_profile(), expected);
-            viewport.refresh_recovery_for_scene_change(&mut session);
-            assert!(viewport.apply_runtime_memory_policy(&mut session).is_none());
+            viewport.refresh_recovery_for_scene_change(&mut session.registry);
+            assert!(viewport
+                .apply_runtime_memory_policy(&session.settings, &mut session.registry)
+                .is_none());
             assert_eq!(viewport.recovery, stage);
         }
         assert!(viewport.recovery.is_blocked());
@@ -227,7 +232,7 @@ mod tests {
         assert!(!outcome.present_frame);
 
         session.registry.invalidate();
-        viewport.refresh_recovery_for_scene_change(&mut session);
+        viewport.refresh_recovery_for_scene_change(&mut session.registry);
         assert!(viewport.recovery.is_normal());
         assert_eq!(
             viewport.config.memory.profile,

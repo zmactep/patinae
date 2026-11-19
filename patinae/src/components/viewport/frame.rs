@@ -9,7 +9,7 @@ impl ViewportRenderer {
         width: u32,
         height: u32,
     ) -> ViewportRenderOutcome {
-        self.refresh_recovery_for_scene_change(session);
+        self.refresh_recovery_for_scene_change(&mut session.registry);
         if self.wgpu_errors.take_device_lost() {
             return self.block_after_device_loss();
         }
@@ -17,7 +17,9 @@ impl ViewportRenderer {
             return self.recover_after_oom(session);
         }
 
-        if let Some(warning) = self.apply_runtime_memory_policy(session) {
+        if let Some(warning) =
+            self.apply_runtime_memory_policy(&session.settings, &mut session.registry)
+        {
             return ViewportRenderOutcome::recovery(Some(warning), true);
         }
         if self.recovery.is_blocked() {
@@ -94,42 +96,9 @@ impl ViewportRenderer {
         // TouchAreas every frame and break hover/click detection).
         session.registry.clear_all_dirty_objects();
 
-        // 5) Marker bits already flow through `render_scene` →
-        // `RenderObjectInput.atom_markers` → `marker_lut`. The legacy
-        // `apply_highlight` / `selection_mut` path is gone; the `max_atoms`
-        // value is no longer consumed here.
+        configure_frame_effects(&mut self.state, &session.settings, &session.named_palette);
 
-        // 6) Silhouette pass on/off from settings.
-        let common = &session.settings.shading.common;
-        let silhouette_ink = resolve_literal_color(
-            common.silhouette_color,
-            &session.named_palette,
-            [0.0, 0.0, 0.0, 1.0],
-        );
-        if common.silhouettes {
-            self.state
-                .set_silhouette(true, common.silhouette_width, silhouette_ink);
-        } else {
-            self.state.set_silhouette(false, 1.0, silhouette_ink);
-        }
-
-        let full = &session.settings.shading.full;
-        self.state.set_shadows(
-            session.settings.shading.mode == ShadingMode::Full,
-            full.shadow_map_size.max(64) as u32,
-            full.shadow_bias,
-            full.shadow_intensity,
-            full.shadow_pcf.max(1) as u32,
-        );
-        // 6b) Ambient-occlusion config. Skripkin uses a multi-directional
-        // shadow atlas; Classic / Full use the explicit screen-space AO
-        // settings.
-        configure_ambient_occlusion(&mut self.state, &session.settings);
-        // 6c) FXAA postprocess. Default-enabled; toggle via
-        // `set fxaa_enabled, 0`.
-        self.state.set_fxaa(effective_fxaa(&session.settings));
-
-        // 7) Build (or reuse) the offscreen colour texture handed back to
+        // Build (or reuse) the offscreen colour texture handed back to
         // Slint each frame and run the FrameGraph. We keep a ring of
         // textures and rotate. Slint may still be sampling
         // the previous frame's texture when we kick off this frame —
@@ -212,26 +181,5 @@ impl ViewportRenderer {
         }
 
         Ok(self.color_textures[idx].clone())
-    }
-}
-pub(super) fn effective_fxaa(settings: &Settings) -> bool {
-    settings.ui.antialias > 0 && settings.fxaa.enabled
-}
-
-pub(super) fn configure_ambient_occlusion(state: &mut RenderState, settings: &Settings) {
-    let ssao = &settings.ssao;
-    if settings.shading.mode == ShadingMode::Skripkin {
-        let skripkin = &settings.shading.skripkin;
-        state.set_ssao(false, ssao.radius, ssao.intensity, ssao.bias);
-        state.set_skripkin_ao(
-            true,
-            skripkin.directions.max(1) as u32,
-            skripkin.map_size.max(32) as u32,
-            skripkin.bias,
-            skripkin.intensity,
-        );
-    } else {
-        state.set_skripkin_ao(false, 1, 32, 0.0, 0.0);
-        state.set_ssao(ssao.enabled, ssao.radius, ssao.intensity, ssao.bias);
     }
 }

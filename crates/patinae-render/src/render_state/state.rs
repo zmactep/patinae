@@ -127,6 +127,7 @@ pub(super) struct SceneRuntime {
     pub(super) cull_pass_initialized: bool,
     /// View-projection hash that produced the cached compacted cull buffers.
     pub(super) last_cull_view_proj_hash: u64,
+    pub(super) last_cull_viewport: [f32; 2],
     /// Cheap CPU heuristic refreshed in `sync` — `true` if any object
     /// supplied a selection or hover marker.
     /// Used to skip selection overlay work over scenes with no selection /
@@ -238,7 +239,44 @@ pub(super) enum PickingTextureSource {
     Reprojected,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum FramePurpose {
+    Viewport,
+    Capture,
+}
+
+/// Attachments and parameters for one invocation of the shared color passes.
+pub(super) struct RenderFrame<'a> {
+    pub(super) targets: &'a FrameTargets,
+    pub(super) bindings: &'a FrameBindings,
+    pub(super) uniform_bind_group: &'a wgpu::BindGroup,
+    pub(super) output: &'a wgpu::TextureView,
+    pub(super) background: wgpu::Color,
+    pub(super) purpose: FramePurpose,
+    pub(super) ssao_phase: f32,
+}
+
+pub(super) struct SsaoBindings {
+    pub(super) compute: wgpu::BindGroup,
+    pub(super) blur_h: wgpu::BindGroup,
+    pub(super) blur_v: wgpu::BindGroup,
+    pub(super) compose: wgpu::BindGroup,
+}
+
+pub(super) struct FrameBindings {
+    pub(super) composite_bind_group: wgpu::BindGroup,
+    /// `None` until overlay id resources exist and silhouettes are enabled.
+    pub(super) silhouette_bind_group: Option<wgpu::BindGroup>,
+    /// `None` when marking is unavailable, disabled, or overlay targets do not
+    /// exist.
+    pub(super) marking_bind_groups: Option<MarkingBindGroups>,
+    pub(super) ssao: Option<SsaoBindings>,
+    pub(super) fxaa_bind_group: Option<wgpu::BindGroup>,
+    pub(super) fxaa_overlay_bind_group: Option<wgpu::BindGroup>,
+}
+
 pub(super) struct ScreenRuntime {
+    pub(super) bindings: FrameBindings,
     pub(super) composite: WboitComposite,
     /// Lazily created when silhouettes are enabled. Silhouettes read the
     /// overlay id texture and are independent from hit-test picking.
@@ -249,12 +287,6 @@ pub(super) struct ScreenRuntime {
     /// Compact atom marker overlay. Always draws recent-atom spheres and also
     /// draws selection dots when the lite memory fallback is active.
     pub(super) atom_markers: AtomMarkersPass,
-    pub(super) composite_bind_group: wgpu::BindGroup,
-    /// `None` until overlay id resources exist and silhouettes are enabled.
-    pub(super) silhouette_bind_group: Option<wgpu::BindGroup>,
-    /// `None` when marking is unavailable, disabled, or overlay targets do not
-    /// exist.
-    pub(super) marking_bind_groups: Option<MarkingBindGroups>,
     pub(super) marking_bindings_dirty: bool,
     pub(super) marking_params_dirty: bool,
     pub(super) marking_offsets_dirty: bool,
@@ -274,22 +306,16 @@ pub(super) struct ScreenRuntime {
     pub(super) ssao_blur: SsaoBlur,
     pub(super) ssao_compose: SsaoComposePass,
     pub(super) ssao_resources: SsaoResources,
-    pub(super) ssao_bind_group: Option<wgpu::BindGroup>,
-    pub(super) ssao_blur_h_bind_group: Option<wgpu::BindGroup>,
-    pub(super) ssao_blur_v_bind_group: Option<wgpu::BindGroup>,
-    pub(super) ssao_compose_bind_group: Option<wgpu::BindGroup>,
     /// Cached SSAO settings from the host. `enabled=false` skips the
     /// entire SSAO chain (no compute dispatches, no compose pass).
     pub(super) ssao_enabled: bool,
-    pub(super) ssao_intensity: f32,
+    pub(super) ssao_radius_bias: [f32; 2],
     /// Frame counter used to jitter SSAO sample pattern each frame.
     pub(super) ssao_frame_counter: u32,
     /// When enabled, every colour-writing pass writes to
     /// `targets.color_scratch_view`; the final FXAA pass then writes to the
     /// host target.
     pub(super) fxaa_pass: FxaaPass,
-    pub(super) fxaa_bind_group: Option<wgpu::BindGroup>,
-    pub(super) fxaa_overlay_bind_group: Option<wgpu::BindGroup>,
     pub(super) fxaa_enabled: bool,
     /// Host clear colour for the visible colour target. Alpha is driven by
     /// `opaque_background`; transparent captures keep alpha at 0.
@@ -327,6 +353,7 @@ pub(super) struct MemoryRuntime {
 }
 
 pub struct RenderState {
+    pub(super) capture: super::capture_flow::CaptureCache,
     pub ctx: RenderContext,
     pub targets: FrameTargets,
     pub uniforms: FrameUniforms,

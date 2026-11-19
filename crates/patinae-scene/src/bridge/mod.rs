@@ -34,12 +34,12 @@ mod picking;
 mod strokes;
 
 pub use annotations::{
-    project_annotation_labels, project_annotation_labels_with_scale, ProjectedAnnotationLabel,
-    ProjectedSceneLabels, ResolvedSceneAnnotations,
+    project_annotation_labels, project_annotation_labels_with_scale, project_frame_labels,
+    ProjectedAnnotationLabel, ProjectedSceneLabels, ResolvedSceneAnnotations,
 };
 pub use cache::{CachedRenderFrame, CachedRenderScene};
 pub use colors::ResolvedSceneColors;
-pub use frame::{frame_uniforms_from_camera, frame_uniforms_from_session};
+pub use frame::{configure_frame_effects, frame_uniforms_from_camera, frame_uniforms_from_session};
 pub use markers::{ResolvedSceneMarkers, MARKER_RECENT};
 pub use objects::{visit_render_objects, visit_render_scene, visit_render_scene_deferred};
 pub use picking::resolve_pick;

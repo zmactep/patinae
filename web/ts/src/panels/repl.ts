@@ -49,6 +49,12 @@ export class ReplPanel {
       for (const msg of result.messages) {
         this.appendOutputMessage({ level: msg.kind.toLowerCase() as OutputMessage["level"], text: msg.text, format: msg.format });
       }
+      if ("Err" in result.result) {
+        const error = result.result.Err;
+        if (!result.messages.some(msg => msg.kind === "Error" && msg.text === error)) {
+          this.appendLine(error, "error");
+        }
+      }
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       if (this.historyIdx > 0) {

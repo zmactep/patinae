@@ -186,7 +186,9 @@ impl SessionOwner {
             let kind = match &request {
                 AsyncCommandRequest::Fetch(_) => "fetch",
                 AsyncCommandRequest::LoadUrl { .. } => "load",
-                AsyncCommandRequest::LoadFile { .. } => return AsyncCommandAcceptance::Unsupported,
+                AsyncCommandRequest::LoadFile { .. } | AsyncCommandRequest::ExportPng { .. } => {
+                    return AsyncCommandAcceptance::Unsupported;
+                }
                 AsyncCommandRequest::RunScript { .. } => "script",
                 AsyncCommandRequest::Plugin(request) => &request.kind,
             };

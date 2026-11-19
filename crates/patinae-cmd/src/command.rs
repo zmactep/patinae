@@ -154,6 +154,13 @@ pub enum AsyncCommandRequest {
         name: String,
         format: Option<String>,
     },
+    /// Render the current scene and download the encoded PNG through the host.
+    ExportPng {
+        filename: String,
+        width: Option<u32>,
+        height: Option<u32>,
+        quiet: bool,
+    },
 }
 
 /// Serializable plugin work description, containing no task identity.

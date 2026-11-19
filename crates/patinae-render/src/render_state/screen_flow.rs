@@ -98,7 +98,7 @@ impl RenderState {
             self.scene.scene_store.marker_lut_buffer(),
             self.targets.marking_mask.as_ref(),
         ) else {
-            self.screen.marking_bind_groups = None;
+            self.screen.bindings.marking_bind_groups = None;
             self.screen.marking_bindings_dirty = true;
             self.screen.marking_params_dirty = true;
             self.screen.marking_offsets_dirty = true;
@@ -106,7 +106,7 @@ impl RenderState {
             return;
         };
         let Some(scene_color) = self.targets.color_scratch_view.as_ref() else {
-            self.screen.marking_bind_groups = None;
+            self.screen.bindings.marking_bind_groups = None;
             self.screen.marking_bindings_dirty = true;
             return;
         };
@@ -126,8 +126,9 @@ impl RenderState {
             self.screen.marking_params_dirty = false;
         }
 
-        if self.screen.marking_bind_groups.is_none() || self.screen.marking_bindings_dirty {
-            self.screen.marking_bind_groups = Some(marking.make_bind_groups(
+        if self.screen.bindings.marking_bind_groups.is_none() || self.screen.marking_bindings_dirty
+        {
+            self.screen.bindings.marking_bind_groups = Some(marking.make_bind_groups(
                 &self.ctx.device,
                 overlay_id,
                 marker_lut,
@@ -139,55 +140,55 @@ impl RenderState {
     }
 
     pub(super) fn refresh_ssao_bind_groups(&mut self) {
-        let (Some(ssao_view), Some(ssao_blurred_view)) = (
-            self.targets.ssao_view.as_ref(),
-            self.targets.ssao_blurred_view.as_ref(),
-        ) else {
-            self.screen.ssao_bind_group = None;
-            self.screen.ssao_blur_h_bind_group = None;
-            self.screen.ssao_blur_v_bind_group = None;
-            self.screen.ssao_compose_bind_group = None;
-            return;
-        };
+        self.screen.bindings.ssao = self.ssao_bindings(&self.targets, &self.ctx.frame.buffer);
+    }
 
-        self.screen.ssao_bind_group = Some(self.screen.ssao_compute.make_bind_group(
-            &self.ctx.device,
-            &self.ctx.frame.buffer,
-            &self.screen.ssao_resources.ssao_params_buffer,
-            &self.targets.depth,
-            ssao_view,
-        ));
-        self.screen.ssao_blur_h_bind_group = Some(self.screen.ssao_blur.make_bind_group(
-            &self.ctx.device,
-            &self.screen.ssao_resources.blur_h_params_buffer,
-            &self.targets.depth,
-            ssao_view,
-            ssao_blurred_view,
-        ));
-        self.screen.ssao_blur_v_bind_group = Some(self.screen.ssao_blur.make_bind_group(
-            &self.ctx.device,
-            &self.screen.ssao_resources.blur_v_params_buffer,
-            &self.targets.depth,
-            ssao_blurred_view,
-            ssao_view,
-        ));
-        self.screen.ssao_compose_bind_group = Some(
-            self.screen
-                .ssao_compose
-                .make_bind_group(&self.ctx.device, ssao_view),
-        );
+    pub(super) fn ssao_bindings(
+        &self,
+        targets: &crate::frame::FrameTargets,
+        uniform_buffer: &wgpu::Buffer,
+    ) -> Option<SsaoBindings> {
+        let ao = targets.ssao_view.as_ref()?;
+        let blurred = targets.ssao_blurred_view.as_ref()?;
+        let device = &self.ctx.device;
+        let resources = &self.screen.ssao_resources;
+        Some(SsaoBindings {
+            compute: self.screen.ssao_compute.make_bind_group(
+                device,
+                uniform_buffer,
+                &resources.ssao_params_buffer,
+                &targets.depth,
+                ao,
+            ),
+            blur_h: self.screen.ssao_blur.make_bind_group(
+                device,
+                &resources.blur_h_params_buffer,
+                &targets.depth,
+                ao,
+                blurred,
+            ),
+            blur_v: self.screen.ssao_blur.make_bind_group(
+                device,
+                &resources.blur_v_params_buffer,
+                &targets.depth,
+                blurred,
+                ao,
+            ),
+            compose: self.screen.ssao_compose.make_bind_group(device, ao),
+        })
     }
 
     pub(super) fn refresh_fxaa_bind_group(&mut self) {
-        self.screen.fxaa_bind_group = self.targets.color_scratch_view.as_ref().map(|view| {
-            self.screen
-                .fxaa_pass
-                .make_bind_group(&self.ctx.device, view)
-        });
+        self.screen.bindings.fxaa_bind_group =
+            self.targets.color_scratch_view.as_ref().map(|view| {
+                self.screen
+                    .fxaa_pass
+                    .make_bind_group(&self.ctx.device, view)
+            });
     }
 
     pub(super) fn refresh_overlay_bind_groups(&mut self) {
-        self.screen.silhouette_bind_group = match (
+        self.screen.bindings.silhouette_bind_group = match (
             self.screen.silhouette.as_ref(),
             self.targets.overlay_id.as_ref(),
         ) {
@@ -195,41 +196,37 @@ impl RenderState {
             _ => None,
         };
 
-        self.screen.fxaa_overlay_bind_group = match self.targets.overlay_color_scratch.as_ref() {
-            Some(view) => Some(
-                self.screen
-                    .fxaa_pass
-                    .make_bind_group(&self.ctx.device, view),
-            ),
-            None => None,
-        };
+        self.screen.bindings.fxaa_overlay_bind_group =
+            match self.targets.overlay_color_scratch.as_ref() {
+                Some(view) => Some(
+                    self.screen
+                        .fxaa_pass
+                        .make_bind_group(&self.ctx.device, view),
+                ),
+                None => None,
+            };
 
         self.refresh_marking_resources();
     }
 
     pub(super) fn record_ssao_chain(
-        &mut self,
+        &self,
+        frame: &RenderFrame<'_>,
         encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
     ) {
         if !self.screen.ssao_enabled {
             return;
         }
-        let (
-            Some(ssao_bind_group),
-            Some(ssao_blur_h_bind_group),
-            Some(ssao_blur_v_bind_group),
-            Some(ssao_compose_bind_group),
-        ) = (
-            self.screen.ssao_bind_group.as_ref(),
-            self.screen.ssao_blur_h_bind_group.as_ref(),
-            self.screen.ssao_blur_v_bind_group.as_ref(),
-            self.screen.ssao_compose_bind_group.as_ref(),
-        )
-        else {
+        let Some(ssao) = &frame.bindings.ssao else {
             return;
         };
-        self.screen.ssao_frame_counter = self.screen.ssao_frame_counter.wrapping_add(1);
+        let [radius, bias] = self.screen.ssao_radius_bias;
+        self.ctx.queue.write_buffer(
+            &self.screen.ssao_resources.ssao_params_buffer,
+            0,
+            bytemuck::bytes_of(&[radius, bias, frame.ssao_phase]),
+        );
 
         #[cfg(feature = "stats")]
         let ssao_ts = self.stats.compute_pass_timestamp_writes(StatsPass::Ssao);
@@ -237,7 +234,7 @@ impl RenderState {
         let ssao_ts = None;
         self.screen
             .ssao_compute
-            .dispatch(encoder, ssao_bind_group, &self.targets, ssao_ts);
+            .dispatch(encoder, &ssao.compute, frame.targets, ssao_ts);
 
         #[cfg(feature = "stats")]
         let blur_ts = self
@@ -247,10 +244,10 @@ impl RenderState {
         let blur_ts = None;
         self.screen
             .ssao_blur
-            .dispatch(encoder, ssao_blur_h_bind_group, &self.targets, blur_ts);
+            .dispatch(encoder, &ssao.blur_h, frame.targets, blur_ts);
         self.screen
             .ssao_blur
-            .dispatch(encoder, ssao_blur_v_bind_group, &self.targets, None);
+            .dispatch(encoder, &ssao.blur_v, frame.targets, None);
 
         #[cfg(feature = "stats")]
         let compose_ts = self
@@ -260,22 +257,19 @@ impl RenderState {
         let compose_ts = None;
         self.screen
             .ssao_compose
-            .record(target, encoder, ssao_compose_bind_group, compose_ts);
+            .record(target, encoder, &ssao.compose, compose_ts);
     }
 
     pub(super) fn record_marking_overlay(
         &self,
+        frame: &RenderFrame<'_>,
         encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
-        has_marker: bool,
     ) {
-        if !has_marker {
-            return;
-        }
         let (Some(marking), Some(marking_bg), Some(mask)) = (
             self.screen.marking.as_ref(),
-            self.screen.marking_bind_groups.as_ref(),
-            self.targets.marking_mask.as_ref(),
+            frame.bindings.marking_bind_groups.as_ref(),
+            frame.targets.marking_mask.as_ref(),
         ) else {
             return;
         };
@@ -290,6 +284,7 @@ impl RenderState {
 
     pub(super) fn record_atom_markers(
         &self,
+        frame: &RenderFrame<'_>,
         encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
     ) {
@@ -301,8 +296,8 @@ impl RenderState {
         atom_markers.record(
             encoder,
             target,
-            &self.targets.depth,
-            &self.ctx.frame.bind_group,
+            &frame.targets.depth,
+            frame.uniform_bind_group,
             &self.ctx.lighting.bind_group,
             &self.scene.scene_store,
         );
@@ -310,12 +305,13 @@ impl RenderState {
 
     pub(super) fn record_silhouette_overlay(
         &self,
+        frame: &RenderFrame<'_>,
         encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
     ) {
         let (Some(silhouette), Some(silhouette_bg), Some(params)) = (
             self.screen.silhouette.as_ref(),
-            self.screen.silhouette_bind_group.as_ref(),
+            frame.bindings.silhouette_bind_group.as_ref(),
             self.screen.silhouette_params,
         ) else {
             return;
@@ -333,20 +329,21 @@ impl RenderState {
 
     pub(super) fn record_fxaa(
         &self,
+        frame: &RenderFrame<'_>,
         encoder: &mut wgpu::CommandEncoder,
-        target: &wgpu::TextureView,
         use_overlay_source: bool,
     ) {
         if !self.screen.fxaa_enabled {
             return;
         }
         let bg = if use_overlay_source {
-            self.screen
+            frame
+                .bindings
                 .fxaa_overlay_bind_group
                 .as_ref()
-                .or(self.screen.fxaa_bind_group.as_ref())
+                .or(frame.bindings.fxaa_bind_group.as_ref())
         } else {
-            self.screen.fxaa_bind_group.as_ref()
+            frame.bindings.fxaa_bind_group.as_ref()
         };
         let Some(bg) = bg else {
             return;
@@ -355,6 +352,8 @@ impl RenderState {
         let fxaa_ts = self.stats.render_pass_timestamp_writes(StatsPass::Fxaa);
         #[cfg(not(feature = "stats"))]
         let fxaa_ts = None;
-        self.screen.fxaa_pass.record(target, encoder, bg, fxaa_ts);
+        self.screen
+            .fxaa_pass
+            .record(frame.output, encoder, bg, frame.background, fxaa_ts);
     }
 }

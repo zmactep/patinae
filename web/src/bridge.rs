@@ -35,6 +35,8 @@ use crate::event;
 use crate::gpu::GpuState;
 use crate::render_loop;
 
+#[path = "png.rs"]
+mod png;
 #[path = "tasks.rs"]
 mod tasks;
 use tasks::browser_task_runner;
@@ -306,7 +308,6 @@ async fn create_web_viewer(
             width,
             height,
             picking_enabled,
-            selection_overlay_enabled,
             hover_hit: None,
             pending_hover: None,
             hover_epoch: 0,
@@ -333,6 +334,8 @@ async fn create_web_viewer(
             tasks: browser_task_runner(),
             aborts: HashMap::new(),
             task_listener: None,
+            png_in_progress: false,
+            closed: false,
         })),
     })
 }
@@ -348,6 +351,8 @@ pub struct WebViewer {
 }
 
 struct WebState {
+    png_in_progress: bool,
+    closed: bool,
     tasks: patinae_cmd::tasks::TaskRunner,
     aborts: HashMap<patinae_cmd::tasks::TaskId, web_sys::AbortController>,
     task_listener: Option<js_sys::Function>,
@@ -367,7 +372,6 @@ struct WebState {
     width: u32,
     height: u32,
     picking_enabled: bool,
-    selection_overlay_enabled: bool,
     hover_hit: Option<PickHit>,
     /// In-flight GPU hover pick. New hover events while this is `Some` replace
     /// `queued_hover`, so the GPU readback pipeline never has more than one
@@ -683,9 +687,7 @@ impl WebState {
     /// Render one frame to the canvas.
     pub fn render_frame(&mut self) {
         let t0 = performance_now_ms();
-        self.refresh_recovery_for_scene_change();
-        self.apply_runtime_memory_policy();
-        if self.recovery.is_blocked() {
+        if self.prepare_frame_memory().is_err() {
             self.needs_redraw = false;
             return;
         }
@@ -733,6 +735,16 @@ impl WebState {
         self.last_render_ms = render_ms;
         self.perf_history.push(render_ms);
         self.render_count = self.render_count.saturating_add(1);
+    }
+
+    /// Applies current session settings before any live or offscreen GPU work.
+    fn prepare_frame_memory(&mut self) -> Result<(), &'static str> {
+        self.refresh_recovery_for_scene_change();
+        self.apply_runtime_memory_policy();
+        if self.recovery.is_blocked() {
+            return Err("Rendering is blocked after GPU memory exhaustion");
+        }
+        Ok(())
     }
 
     fn apply_runtime_memory_policy(&mut self) {
@@ -907,8 +919,8 @@ impl WebState {
     /// Enable or disable the visible selection / hover overlay. Hit-test
     /// picking remains controlled by `set_picking_enabled`.
     pub fn set_selection_overlay_enabled(&mut self, enabled: bool) {
-        self.selection_overlay_enabled = enabled;
         if let Some(gpu) = &mut self.gpu {
+            gpu.config.selection_overlay = enabled;
             gpu.state.set_selection_overlay_enabled(enabled);
         }
         self.needs_redraw = true;
@@ -1499,10 +1511,13 @@ impl WebState {
     }
 
     pub fn get_labels(&self) -> JsValue {
+        let Some(gpu) = &self.gpu else {
+            return JsValue::NULL;
+        };
         let viewport = (0.0, 0.0, self.width as f32, self.height as f32);
         let mut projected = self.projected_labels.borrow_mut();
-        projected.rebuild_with_scale(
-            &self.session.camera,
+        projected.rebuild_for_frame(
+            &gpu.state.uniforms.view_proj,
             viewport,
             self.render_scene.annotation_bundles(),
             self.display_scale,

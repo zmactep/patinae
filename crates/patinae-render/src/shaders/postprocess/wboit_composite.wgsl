@@ -1,10 +1,7 @@
 // WBOIT composite — full-screen resolve of accum/reveal into final color.
 //
-// final.rgb = accum.rgb / max(accum.a, ε) * (1 - reveal) + dst.rgb * reveal
-// final.a   = 1 - reveal
-//
-// Pipeline writes to the swap-chain target with blend disabled (it's an
-// override write per pixel, no incremental blend with previous frame).
+// The shader returns premultiplied color and coverage. The pipeline blends
+// src + dst * reveal for both color and alpha.
 
 @group(0) @binding(0) var accum_tex:   texture_2d<f32>;
 @group(0) @binding(1) var reveal_tex:  texture_2d<f32>;
@@ -39,8 +36,9 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let accum  = textureSample(accum_tex,  samp, in.uv);
     let reveal = textureSample(reveal_tex, samp, in.uv).r;
 
-    let avg = accum.rgb / max(accum.a, 1e-5);
+    // The output is an 8-bit color target. Bound specular highlights before
+    // premultiplication so the same source color composites over any background.
+    let avg = saturate(accum.rgb / max(accum.a, 1e-5));
     let coverage = 1.0 - reveal;
-    // Composite onto a transparent destination — caller can blend on top.
     return vec4<f32>(avg * coverage, coverage);
 }

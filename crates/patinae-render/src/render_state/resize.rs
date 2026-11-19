@@ -5,6 +5,7 @@ use crate::picking::PickingMode;
 
 impl RenderState {
     pub fn resize(&mut self, viewport: (u32, u32)) {
+        self.discard_capture_targets();
         let lazy_manual_picking = uses_lazy_manual_picking(self.memory.policy);
         let with_picking =
             self.picking.picking_mode != PickingMode::Disabled && !lazy_manual_picking;
@@ -28,7 +29,7 @@ impl RenderState {
 
         self.ctx.upload_frame(&self.uniforms);
 
-        self.screen.composite_bind_group = self.screen.composite.make_bind_group(
+        self.screen.bindings.composite_bind_group = self.screen.composite.make_bind_group(
             &self.ctx.device,
             &self.targets.accum,
             &self.targets.reveal,

@@ -64,13 +64,45 @@ impl RenderState {
         if self.memory.sync_error.is_some() {
             return;
         }
-        #[cfg(feature = "stats")]
-        self.stats.mark_record_start();
+        let needs_overlay_id = self.prepare_viewport_targets();
+        let uniforms = self.uniforms;
+        let hash = self.prepare_frame_geometry(encoder, &uniforms, FramePurpose::Viewport);
+        let camera_changed = hash != self.picking.last_view_proj_hash;
+        self.refresh_visible_picking_texture(encoder, hash, camera_changed, false);
+        if needs_overlay_id {
+            self.refresh_overlay_id_texture(encoder, hash);
+        }
 
-        let wants_selection_overlay = self.screen.selection_overlay_enabled
+        let phase = (self.screen.ssao_frame_counter as f32 * 0.618_034).fract();
+        if self.screen.ssao_enabled {
+            self.screen.ssao_frame_counter = self.screen.ssao_frame_counter.wrapping_add(1);
+        }
+        self.render_frame(
+            encoder,
+            RenderFrame {
+                targets: &self.targets,
+                bindings: &self.screen.bindings,
+                uniform_bind_group: &self.ctx.frame.bind_group,
+                output: target,
+                background: self.screen.clear_color,
+                purpose: FramePurpose::Viewport,
+                ssao_phase: phase,
+            },
+        );
+        self.scene.scene_dirty = false;
+        #[cfg(feature = "stats")]
+        self.finish_frame_stats(encoder);
+    }
+
+    fn wants_selection_overlay(&self) -> bool {
+        self.screen.selection_overlay_enabled
             && self.memory.policy.overlays.selection_enabled
             && self.scene.has_any_marker
-            && self.screen.marking.is_some();
+            && self.screen.marking.is_some()
+    }
+
+    fn prepare_viewport_targets(&mut self) -> bool {
+        let wants_selection_overlay = self.wants_selection_overlay();
         let has_silhouette = self.memory.policy.overlays.silhouette_enabled
             && self.screen.silhouette_params.is_some()
             && self.screen.silhouette.is_some();
@@ -98,8 +130,8 @@ impl RenderState {
                 )
             } else {
                 self.targets.clear_marking_targets();
-                self.screen.marking_bind_groups = None;
-                self.screen.fxaa_overlay_bind_group = None;
+                self.screen.bindings.marking_bind_groups = None;
+                self.screen.bindings.fxaa_overlay_bind_group = None;
                 false
             };
             if id_allocated || marking_allocated {
@@ -108,9 +140,9 @@ impl RenderState {
             }
             if id_allocated
                 || marking_allocated
-                || self.screen.silhouette_bind_group.is_none() && has_silhouette
-                || self.screen.marking_bind_groups.is_none() && wants_selection_overlay
-                || self.screen.fxaa_overlay_bind_group.is_none()
+                || self.screen.bindings.silhouette_bind_group.is_none() && has_silhouette
+                || self.screen.bindings.marking_bind_groups.is_none() && wants_selection_overlay
+                || self.screen.bindings.fxaa_overlay_bind_group.is_none()
                     && wants_selection_overlay
                     && self.screen.fxaa_enabled
             {
@@ -118,70 +150,78 @@ impl RenderState {
             }
         } else if self.targets.overlay_id.is_some() {
             self.targets.clear_overlay_targets();
-            self.screen.silhouette_bind_group = None;
-            self.screen.marking_bind_groups = None;
-            self.screen.fxaa_overlay_bind_group = None;
+            self.screen.bindings.silhouette_bind_group = None;
+            self.screen.bindings.marking_bind_groups = None;
+            self.screen.bindings.fxaa_overlay_bind_group = None;
             self.invalidate_overlay_id_cache();
         }
 
-        let has_selection_overlay =
-            wants_selection_overlay && self.screen.marking_bind_groups.is_some();
-        let needs_overlay_id = has_selection_overlay || has_silhouette;
-        let render_scene_to_scratch = self.screen.fxaa_enabled || has_selection_overlay;
-        let effective_target: wgpu::TextureView = if render_scene_to_scratch {
-            self.targets
-                .color_scratch_view
-                .as_ref()
-                .cloned()
-                .unwrap_or_else(|| target.clone())
-        } else {
-            target.clone()
-        };
-        let effective_target = &effective_target;
+        has_silhouette
+            || wants_selection_overlay && self.screen.bindings.marking_bind_groups.is_some()
+    }
 
-        let view_proj_hash = hash_view_proj(&self.uniforms.view_proj);
-        let camera_changed = view_proj_hash != self.picking.last_view_proj_hash;
-
-        self.poll_viewport_lod();
+    pub(super) fn prepare_frame_geometry(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        uniforms: &crate::FrameUniforms,
+        purpose: FramePurpose,
+    ) -> u64 {
+        #[cfg(feature = "stats")]
+        self.stats.mark_record_start();
+        let hash = hash_view_proj(&uniforms.view_proj);
+        if purpose == FramePurpose::Viewport {
+            self.poll_viewport_lod();
+        }
         let compute_rebuilt = self.record_pending_compute_builds(encoder);
         self.prepare_instance_draws(encoder);
-        self.dispatch_cull(encoder, view_proj_hash, compute_rebuilt);
-        self.record_viewport_lod_readbacks(encoder);
-        self.record_shadow_pass(encoder);
-
-        self.refresh_visible_picking_texture(encoder, view_proj_hash, camera_changed, false);
-        if needs_overlay_id {
-            self.refresh_overlay_id_texture(encoder, view_proj_hash);
+        self.dispatch_cull(encoder, uniforms, hash, compute_rebuilt);
+        if purpose == FramePurpose::Viewport {
+            self.record_viewport_lod_readbacks(encoder);
         }
+        self.record_shadow_pass(encoder, uniforms);
+        hash
+    }
 
+    #[cfg(feature = "stats")]
+    pub(super) fn finish_frame_stats(&mut self, encoder: &mut wgpu::CommandEncoder) {
+        self.stats.mark_record_end();
+        self.stats.resolve_and_map(encoder, &self.ctx.queue);
+    }
+
+    pub(super) fn render_frame(&self, encoder: &mut wgpu::CommandEncoder, frame: RenderFrame<'_>) {
+        let has_selection_overlay =
+            frame.bindings.marking_bind_groups.is_some() && self.wants_selection_overlay();
+        let effective_target = if self.screen.fxaa_enabled || has_selection_overlay {
+            frame
+                .targets
+                .color_scratch_view
+                .as_ref()
+                .unwrap_or(frame.output)
+        } else {
+            frame.output
+        };
         let n_wboit = self.count_wboit_reps();
         let n_fast_overlay = self.count_fast_overlay_reps();
-        self.record_opaque_pass(encoder, effective_target);
-        self.record_ssao_chain(encoder, effective_target);
-        self.record_fast_overlay_pass(encoder, effective_target, n_fast_overlay);
-        self.record_translucent_pass(encoder, n_wboit);
-        self.record_wboit_composite(encoder, effective_target, n_wboit);
-        self.record_stroke_overlay(encoder, effective_target);
-        self.record_silhouette_overlay(encoder, effective_target);
-        self.record_atom_markers(encoder, effective_target);
+        self.record_opaque_pass(&frame, encoder, effective_target);
+        self.record_ssao_chain(&frame, encoder, effective_target);
+        self.record_fast_overlay_pass(&frame, encoder, effective_target, n_fast_overlay);
+        self.record_translucent_pass(&frame, encoder, n_wboit);
+        self.record_wboit_composite(&frame, encoder, effective_target, n_wboit);
+        self.record_stroke_overlay(&frame, encoder, effective_target);
+        self.record_silhouette_overlay(&frame, encoder, effective_target);
+        if frame.purpose == FramePurpose::Viewport {
+            self.record_atom_markers(&frame, encoder, effective_target);
+        }
         if has_selection_overlay {
             if let Some(overlay_target) = if self.screen.fxaa_enabled {
-                self.targets.overlay_color_scratch.as_ref()
+                frame.targets.overlay_color_scratch.as_ref()
             } else {
-                Some(target)
+                Some(frame.output)
             } {
-                self.record_marking_overlay(encoder, overlay_target, true);
+                self.record_marking_overlay(&frame, encoder, overlay_target);
             }
         }
-        self.record_fxaa(encoder, target, has_selection_overlay);
-
-        self.scene.scene_dirty = false;
-
-        #[cfg(feature = "stats")]
-        {
-            self.stats.mark_record_end();
-            self.stats.resolve_and_map(encoder, &self.ctx.queue);
-        }
+        self.record_fxaa(&frame, encoder, has_selection_overlay);
     }
 
     pub(super) fn refresh_visible_picking_texture(

@@ -45,27 +45,31 @@ impl RenderState {
     pub(super) fn dispatch_cull(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
+        uniforms: &crate::FrameUniforms,
         view_proj_hash: u64,
         compute_rebuilt: bool,
     ) {
-        if !should_dispatch_cull(
-            self.scene.cull_pass_initialized,
-            self.scene.scene_dirty,
-            compute_rebuilt,
-            self.scene.last_cull_view_proj_hash,
-            view_proj_hash,
-        ) {
+        let viewport = [uniforms.viewport[0], uniforms.viewport[1]];
+        if self.scene.last_cull_viewport == viewport
+            && !should_dispatch_cull(
+                self.scene.cull_pass_initialized,
+                self.scene.scene_dirty,
+                compute_rebuilt,
+                self.scene.last_cull_view_proj_hash,
+                view_proj_hash,
+            )
+        {
             return;
         }
 
-        let view_proj = self.uniforms.view_proj;
+        let view_proj = uniforms.view_proj;
         let frustum_planes = frustum_planes_from_view_proj(&view_proj);
         let queue = self.ctx.queue.clone();
         let plan_ctx = CullPlanCtx {
             queue: &queue,
             view_proj,
             frustum_planes,
-            viewport_px: [self.uniforms.viewport[0], self.uniforms.viewport[1]],
+            viewport_px: viewport,
         };
         let mut dispatched: u32 = 0;
 
@@ -109,6 +113,7 @@ impl RenderState {
 
         self.scene.cull_pass_initialized = true;
         self.scene.last_cull_view_proj_hash = view_proj_hash;
+        self.scene.last_cull_viewport = viewport;
     }
 
     pub(super) fn record_viewport_lod_readbacks(&mut self, encoder: &mut wgpu::CommandEncoder) {
@@ -242,12 +247,30 @@ mod tests {
                 .ctx
                 .device
                 .create_command_encoder(&Default::default());
-            renderer.dispatch_cull(&mut encoder, 7, false);
+            let uniforms = renderer.uniforms;
+            renderer.dispatch_cull(&mut encoder, &uniforms, 7, false);
             renderer.ctx.queue.submit([encoder.finish()]);
             assert!(renderer.scene.cull_pass_initialized);
             assert_eq!(renderer.scene.last_cull_view_proj_hash, 7);
             // A completed frame consumes the scene dirty bit.
             renderer.scene.scene_dirty = false;
+        }
+
+        // Changing export resolution can change screen-space LOD even with the same projection.
+        let live = renderer.uniforms;
+        let mut export = live;
+        export.set_viewport(128, 128);
+        for frame in [&export, &live] {
+            let mut encoder = renderer
+                .ctx
+                .device
+                .create_command_encoder(&Default::default());
+            renderer.dispatch_cull(&mut encoder, frame, 7, false);
+            renderer.ctx.queue.submit([encoder.finish()]);
+            assert_eq!(
+                renderer.scene.last_cull_viewport,
+                [frame.viewport[0], frame.viewport[1]]
+            );
         }
     }
 

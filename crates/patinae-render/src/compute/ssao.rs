@@ -365,6 +365,12 @@ impl SsaoResources {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        // The sampling kernel is constant. Each frame updates only radius, bias and phase.
+        ctx.queue.write_buffer(
+            &ssao_params_buffer,
+            0,
+            bytemuck::bytes_of(&SsaoParams::new(0.0, 0.0, 0.0)),
+        );
         let blur_h_params_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("patinae.ssao_blur.params.h"),
             size: SsaoBlurParams::SIZE,

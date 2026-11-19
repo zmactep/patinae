@@ -34,6 +34,7 @@ impl RenderState {
 
     pub(super) fn record_opaque_pass(
         &self,
+        frame: &RenderFrame<'_>,
         encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
     ) {
@@ -42,6 +43,13 @@ impl RenderState {
         #[cfg(not(feature = "stats"))]
         let opaque_ts = None;
 
+        // FXAA needs scene coverage regardless of the output background. On
+        // the direct path source-over blending can start on the background.
+        let clear = if self.screen.fxaa_enabled {
+            wgpu::Color::TRANSPARENT
+        } else {
+            frame.background
+        };
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("patinae.opaque_pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -49,12 +57,12 @@ impl RenderState {
                 depth_slice: None,
                 resolve_target: None,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(self.screen.clear_color),
+                    load: wgpu::LoadOp::Clear(clear),
                     store: wgpu::StoreOp::Store,
                 },
             })],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: &self.targets.depth,
+                view: &frame.targets.depth,
                 depth_ops: Some(wgpu::Operations {
                     load: wgpu::LoadOp::Clear(1.0),
                     store: wgpu::StoreOp::Store,
@@ -66,7 +74,7 @@ impl RenderState {
             multiview_mask: None,
         });
 
-        pass.set_bind_group(0, &self.ctx.frame.bind_group, &[]);
+        pass.set_bind_group(0, frame.uniform_bind_group, &[]);
         pass.set_bind_group(1, &self.ctx.lighting.bind_group, &[]);
         let mut current = None;
         for key in &self.scene.draw_order {
@@ -103,7 +111,12 @@ impl RenderState {
         self.record_maps_opaque(&mut pass);
     }
 
-    pub(super) fn record_translucent_pass(&self, encoder: &mut wgpu::CommandEncoder, n_wboit: u32) {
+    pub(super) fn record_translucent_pass(
+        &self,
+        frame: &RenderFrame<'_>,
+        encoder: &mut wgpu::CommandEncoder,
+        n_wboit: u32,
+    ) {
         if n_wboit == 0 {
             return;
         }
@@ -118,7 +131,7 @@ impl RenderState {
             label: Some("patinae.translucent_pass"),
             color_attachments: &[
                 Some(wgpu::RenderPassColorAttachment {
-                    view: &self.targets.accum,
+                    view: &frame.targets.accum,
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
@@ -127,7 +140,7 @@ impl RenderState {
                     },
                 }),
                 Some(wgpu::RenderPassColorAttachment {
-                    view: &self.targets.reveal,
+                    view: &frame.targets.reveal,
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
@@ -142,7 +155,7 @@ impl RenderState {
                 }),
             ],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: &self.targets.depth,
+                view: &frame.targets.depth,
                 depth_ops: Some(wgpu::Operations {
                     load: wgpu::LoadOp::Load,
                     store: wgpu::StoreOp::Store,
@@ -154,7 +167,7 @@ impl RenderState {
             multiview_mask: None,
         });
 
-        pass.set_bind_group(0, &self.ctx.frame.bind_group, &[]);
+        pass.set_bind_group(0, frame.uniform_bind_group, &[]);
         pass.set_bind_group(1, &self.ctx.lighting.bind_group, &[]);
         let mut current = None;
         for key in &self.scene.draw_order {
@@ -193,6 +206,7 @@ impl RenderState {
 
     pub(super) fn record_fast_overlay_pass(
         &self,
+        frame: &RenderFrame<'_>,
         encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
         n_fast_overlay: u32,
@@ -219,7 +233,7 @@ impl RenderState {
                 },
             })],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: &self.targets.depth,
+                view: &frame.targets.depth,
                 depth_ops: Some(wgpu::Operations {
                     load: wgpu::LoadOp::Load,
                     store: wgpu::StoreOp::Store,
@@ -231,7 +245,7 @@ impl RenderState {
             multiview_mask: None,
         });
 
-        pass.set_bind_group(0, &self.ctx.frame.bind_group, &[]);
+        pass.set_bind_group(0, frame.uniform_bind_group, &[]);
         pass.set_bind_group(1, &self.ctx.lighting.bind_group, &[]);
         let mut current = None;
         for key in &self.scene.draw_order {
@@ -269,6 +283,7 @@ impl RenderState {
 
     pub(super) fn record_wboit_composite(
         &self,
+        frame: &RenderFrame<'_>,
         encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
         n_wboit: u32,
@@ -301,12 +316,13 @@ impl RenderState {
         });
 
         pass.set_pipeline(&self.screen.composite.pipeline);
-        pass.set_bind_group(0, &self.screen.composite_bind_group, &[]);
+        pass.set_bind_group(0, &frame.bindings.composite_bind_group, &[]);
         pass.draw(0..3, 0..1);
     }
 
     pub(super) fn record_stroke_overlay(
         &self,
+        frame: &RenderFrame<'_>,
         encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
     ) {
@@ -326,7 +342,7 @@ impl RenderState {
                 },
             })],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: &self.targets.depth,
+                view: &frame.targets.depth,
                 depth_ops: Some(wgpu::Operations {
                     load: wgpu::LoadOp::Load,
                     store: wgpu::StoreOp::Store,
@@ -338,7 +354,7 @@ impl RenderState {
             multiview_mask: None,
         });
         pass.set_pipeline(&self.geometry.stroke_pipeline.pipeline);
-        pass.set_bind_group(0, &self.ctx.frame.bind_group, &[]);
+        pass.set_bind_group(0, frame.uniform_bind_group, &[]);
         for object_id in &self.scene.stroke_draw_order {
             if let Some(entry) = self.scene.strokes.get(object_id) {
                 entry.record(&mut pass);

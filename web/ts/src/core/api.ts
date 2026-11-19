@@ -207,6 +207,20 @@ export class PatinaeViewer {
     );
   }
 
+  /** Render a PNG at the requested pixel dimensions, including scene labels. */
+  async exportPng(options: { width?: number; height?: number; transparent?: boolean } = {}): Promise<Blob> {
+    const { width, height, transparent } = options;
+    for (const [name, value] of Object.entries({ width, height })) {
+      if (value !== undefined && typeof value !== "number") {
+        throw new TypeError(`PNG ${name} must be a number`);
+      }
+    }
+    if (transparent !== undefined && typeof transparent !== "boolean") {
+      throw new TypeError("PNG transparent must be a boolean");
+    }
+    return this.core.requestWasm("export_png", wasm => wasm.export_png(width, height, transparent));
+  }
+
   /** URL loading uses the common parser and returns accepted task identities. */
   async loadUrl(url: string, options?: { name?: string; format?: string }): Promise<CommandOutput> {
     let command = `load ${JSON.stringify(new URL(url, location.href).href)}`;

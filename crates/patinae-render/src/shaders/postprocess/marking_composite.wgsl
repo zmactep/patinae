@@ -76,7 +76,7 @@ fn fs_main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
     var out = fetch_scene(coord, dims);
 
     let mask = fetch_rg(mask_tex, coord, dims);
-    if mask.x == 0.0 && mask.y == 0.0 {
+    if (mask.x == 0.0 && mask.y == 0.0) || out.a == 0.0 {
         return out;
     }
 
@@ -85,7 +85,8 @@ fn fs_main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
     let selected_rim = smoothstep(0.04, 0.55, mask.x * (mask.x - min_m.x));
     let hover_rim = smoothstep(0.04, 0.55, mask.y * (mask.y - min_m.y));
 
-    out = vec4<f32>(compress_highlights(out.rgb, mask.x * 0.86), out.a);
+    // Tint the unassociated scene color, then restore its original coverage.
+    out = vec4<f32>(compress_highlights(out.rgb / out.a, mask.x * 0.86), out.a);
     out = tint(out, SELECTED_FILL, mask.x * 0.60);
     out = screen_add(out, SELECTED_RIM, selected_rim * 0.42);
 
@@ -93,5 +94,5 @@ fn fs_main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
     // hover, not as a stronger selection.
     out = tint(out, HOVER_TINT, mask.y * 0.44);
     out = screen_add(out, HOVER_RIM, hover_rim * 0.70);
-    return out;
+    return vec4<f32>(out.rgb * out.a, out.a);
 }

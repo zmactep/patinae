@@ -312,42 +312,6 @@ impl RenderState {
 
         let ssao_resources = SsaoResources::new(&ctx);
 
-        let (
-            ssao_bind_group,
-            ssao_blur_h_bind_group,
-            ssao_blur_v_bind_group,
-            ssao_compose_bind_group,
-        ) = match (
-            targets.ssao_view.as_ref(),
-            targets.ssao_blurred_view.as_ref(),
-        ) {
-            (Some(ssao_view), Some(ssao_blurred_view)) => (
-                Some(ssao_compute.make_bind_group(
-                    &ctx.device,
-                    &ctx.frame.buffer,
-                    &ssao_resources.ssao_params_buffer,
-                    &targets.depth,
-                    ssao_view,
-                )),
-                Some(ssao_blur.make_bind_group(
-                    &ctx.device,
-                    &ssao_resources.blur_h_params_buffer,
-                    &targets.depth,
-                    ssao_view,
-                    ssao_blurred_view,
-                )),
-                Some(ssao_blur.make_bind_group(
-                    &ctx.device,
-                    &ssao_resources.blur_v_params_buffer,
-                    &targets.depth,
-                    ssao_blurred_view,
-                    ssao_view,
-                )),
-                Some(ssao_compose.make_bind_group(&ctx.device, ssao_view)),
-            ),
-            _ => (None, None, None, None),
-        };
-
         report_stage("lighting");
 
         let fxaa_pass = FxaaPass::new(&ctx);
@@ -434,13 +398,18 @@ impl RenderState {
             },
 
             screen: ScreenRuntime {
+                bindings: FrameBindings {
+                    composite_bind_group,
+                    silhouette_bind_group,
+                    marking_bind_groups: None,
+                    ssao: None,
+                    fxaa_bind_group,
+                    fxaa_overlay_bind_group: None,
+                },
                 composite,
                 silhouette,
                 marking,
                 atom_markers,
-                composite_bind_group,
-                silhouette_bind_group,
-                marking_bind_groups: None,
                 marking_bindings_dirty: true,
                 marking_params_dirty: true,
                 marking_offsets_dirty: true,
@@ -453,16 +422,10 @@ impl RenderState {
                 ssao_blur,
                 ssao_compose,
                 ssao_resources,
-                ssao_bind_group,
-                ssao_blur_h_bind_group,
-                ssao_blur_v_bind_group,
-                ssao_compose_bind_group,
                 ssao_enabled: false,
-                ssao_intensity: 1.0,
+                ssao_radius_bias: [0.0; 2],
                 ssao_frame_counter: 0,
                 fxaa_pass,
-                fxaa_bind_group,
-                fxaa_overlay_bind_group: None,
                 fxaa_enabled: false,
                 clear_color: wgpu::Color::TRANSPARENT,
             },
@@ -524,6 +487,7 @@ impl PreparedRenderState {
             stats,
         } = self;
         RenderState {
+            capture: Default::default(),
             ctx,
             targets,
             uniforms,
@@ -546,6 +510,7 @@ impl PreparedRenderState {
                 scene_dirty: true,
                 cull_pass_initialized: false,
                 last_cull_view_proj_hash: 0,
+                last_cull_viewport: [0.0; 2],
                 has_any_marker: false,
                 marker_object_hash: 0,
                 scene_bounds: None,

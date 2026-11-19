@@ -128,7 +128,7 @@ impl App {
         } else {
             let viewport = (0.0, 0.0, vw as f32, vh as f32);
             renderer
-                .annotation_labels(&self.kernel.session.camera, viewport, sf)
+                .annotation_labels(viewport, sf)
                 .iter()
                 .map(|label| viewport_label_from_projected(label, sf))
                 .collect()

@@ -1,13 +1,47 @@
 //! `FrameUniforms` builder from the host's `Session`. Mirrors the camera
 //! / clip / light / fog math the live render path needs.
 
-use patinae_render::FrameUniforms;
+use patinae_color::{resolve_literal_color, NamedPalette};
+use patinae_render::{FrameUniforms, RenderState};
 use patinae_settings::{Settings, ShadingMode};
 
 use crate::camera::{Camera, Projection};
 use crate::session::Session;
 
 const PROJECTION_INVERSE_EPSILON: f32 = 1.0e-8;
+
+/// Apply the scene's lighting and screen-space effects to viewport and capture frames.
+pub fn configure_frame_effects(state: &mut RenderState, settings: &Settings, named: &NamedPalette) {
+    let common = &settings.shading.common;
+    let ink = resolve_literal_color(common.silhouette_color, named, [0.0, 0.0, 0.0, 1.0]);
+    state.set_silhouette(common.silhouettes, common.silhouette_width, ink);
+
+    let full = &settings.shading.full;
+    state.set_shadows(
+        settings.shading.mode == ShadingMode::Full,
+        full.shadow_map_size.max(64) as u32,
+        full.shadow_bias,
+        full.shadow_intensity,
+        full.shadow_pcf.max(1) as u32,
+    );
+
+    let ssao = &settings.ssao;
+    if settings.shading.mode == ShadingMode::Skripkin {
+        let skripkin = &settings.shading.skripkin;
+        state.set_ssao(false, ssao.radius, ssao.intensity, ssao.bias);
+        state.set_skripkin_ao(
+            true,
+            skripkin.directions.max(1) as u32,
+            skripkin.map_size.max(32) as u32,
+            skripkin.bias,
+            skripkin.intensity,
+        );
+    } else {
+        state.set_skripkin_ao(false, 1, 32, 0.0, 0.0);
+        state.set_ssao(ssao.enabled, ssao.radius, ssao.intensity, ssao.bias);
+    }
+    state.set_fxaa(settings.ui.antialias > 0 && settings.fxaa.enabled);
+}
 
 /// Build `patinae_render::FrameUniforms` from the host's `Session`.
 /// `clear_color` is used as the fog tint when depth-cue / fog are on.
@@ -34,9 +68,9 @@ pub fn frame_uniforms_from_camera(
     clear_color: [f32; 3],
 ) -> FrameUniforms {
     let mut u = FrameUniforms::default();
-    let view = camera.view_matrix();
     let aspect = (viewport_size.0.max(1) as f32) / (viewport_size.1.max(1) as f32);
     let scene_view = camera.current_view();
+    let view = scene_view.view_matrix();
     let projection = if settings.ui.orthoscopic {
         Projection::Orthographic
     } else {

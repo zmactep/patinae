@@ -1,8 +1,6 @@
 use super::state::*;
-use crate::compute::ssao::SsaoParams;
 use crate::passes::lighting::MAX_ATLAS_DIRECTIONS;
 use crate::passes::selection_dots::uses_selection_dots_fallback;
-use crate::postprocess::fxaa::FxaaParams;
 use crate::postprocess::marking::MarkingPass;
 use crate::postprocess::silhouette::SilhouetteParams;
 use crate::postprocess::silhouette::SilhouettePass;
@@ -42,8 +40,8 @@ impl RenderState {
             }
             self.screen.selection_overlay_enabled = false;
             self.screen.selection_dots_enabled = true;
-            self.screen.marking_bind_groups = None;
-            self.screen.fxaa_overlay_bind_group = None;
+            self.screen.bindings.marking_bind_groups = None;
+            self.screen.bindings.fxaa_overlay_bind_group = None;
             self.targets.clear_marking_targets();
             if !was_enabled {
                 self.screen.atom_markers_rebuild_all = true;
@@ -62,8 +60,8 @@ impl RenderState {
                 self.memory.warned_selection_denied = true;
             }
             self.screen.selection_overlay_enabled = false;
-            self.screen.marking_bind_groups = None;
-            self.screen.fxaa_overlay_bind_group = None;
+            self.screen.bindings.marking_bind_groups = None;
+            self.screen.bindings.fxaa_overlay_bind_group = None;
             self.targets.clear_marking_targets();
             return;
         }
@@ -76,8 +74,8 @@ impl RenderState {
         }
         if self.screen.selection_overlay_enabled == enabled {
             if !enabled {
-                self.screen.marking_bind_groups = None;
-                self.screen.fxaa_overlay_bind_group = None;
+                self.screen.bindings.marking_bind_groups = None;
+                self.screen.bindings.fxaa_overlay_bind_group = None;
                 self.targets.clear_marking_targets();
                 self.screen.marking_bindings_dirty = true;
                 self.screen.marking_params_dirty = true;
@@ -87,8 +85,8 @@ impl RenderState {
         }
         self.screen.selection_overlay_enabled = enabled;
         if !enabled {
-            self.screen.marking_bind_groups = None;
-            self.screen.fxaa_overlay_bind_group = None;
+            self.screen.bindings.marking_bind_groups = None;
+            self.screen.bindings.fxaa_overlay_bind_group = None;
             self.targets.clear_marking_targets();
             self.screen.marking_bindings_dirty = true;
             self.screen.marking_params_dirty = true;
@@ -116,27 +114,20 @@ impl RenderState {
                 self.memory.warned_silhouette_denied = true;
             }
             self.screen.silhouette_params = None;
-            self.screen.silhouette_bind_group = None;
+            self.screen.bindings.silhouette_bind_group = None;
             return;
+        }
+        if enabled != self.screen.silhouette_params.is_some() {
+            self.discard_capture_targets();
         }
         if enabled && self.screen.silhouette.is_none() {
             self.screen.silhouette = Some(SilhouettePass::new(&self.ctx));
         }
-        self.screen.silhouette_params = if enabled {
-            let (w, h) = self.targets.overlay_dims();
-            let pick_w = w as f32;
-
-            let pick_h = h as f32;
-
-            Some(SilhouetteParams {
-                step_and_params: [1.0 / pick_w, 1.0 / pick_h, thickness, 0.0],
-
-                color,
-            })
-        } else {
-            None
-        };
-        self.refresh_overlay_bind_groups();
+        self.screen.silhouette_params = enabled.then_some(SilhouetteParams {
+            color,
+            thickness,
+            padding: [0.0; 3],
+        });
     }
 
     /// Enable / disable FXAA. When enabled every render pass routes to
@@ -155,39 +146,44 @@ impl RenderState {
                 self.memory.warned_fxaa_denied = true;
             }
             self.screen.fxaa_enabled = false;
-            self.screen.fxaa_bind_group = None;
-            self.screen.fxaa_overlay_bind_group = None;
+            self.screen.bindings.fxaa_bind_group = None;
+            self.screen.bindings.fxaa_overlay_bind_group = None;
             return;
         }
         if enabled == self.screen.fxaa_enabled {
             return;
         }
 
+        self.discard_capture_targets();
         self.screen.fxaa_enabled = enabled;
 
         if enabled {
             self.targets.ensure_color_scratch(&self.ctx.device);
             self.refresh_fxaa_bind_group();
-            let params = FxaaParams::default_enabled(self.targets.width, self.targets.height);
-
-            self.ctx.queue.write_buffer(
-                &self.screen.fxaa_pass.params_buffer,
-                0,
-                bytemuck::bytes_of(&params),
-            );
         }
     }
 
-    /// Set the visible render-target clear colour. `opaque_background = false`
-    /// keeps alpha transparent for PNG/canvas compositing; opaque mode writes
-    /// alpha 1.0 while preserving the same RGB/fog colour.
+    /// Set the output background for compositing the premultiplied scene.
     pub fn set_clear_color(&mut self, color: [f32; 3], opaque_background: bool) {
-        self.screen.clear_color = wgpu::Color {
-            r: color[0] as f64,
-            g: color[1] as f64,
-            b: color[2] as f64,
-            a: if opaque_background { 1.0 } else { 0.0 },
-        };
+        self.screen.clear_color = Self::background_color(color, opaque_background);
+    }
+
+    pub(crate) fn clear_color(&self) -> wgpu::Color {
+        self.screen.clear_color
+    }
+
+    /// Convert the scene background to a premultiplied render-target clear value.
+    pub fn background_color(color: [f32; 3], opaque_background: bool) -> wgpu::Color {
+        if opaque_background {
+            wgpu::Color {
+                r: f64::from(color[0]),
+                g: f64::from(color[1]),
+                b: f64::from(color[2]),
+                a: 1.0,
+            }
+        } else {
+            wgpu::Color::TRANSPARENT
+        }
     }
 
     /// Enable / configure SSAO. Off by default. `radius` and `bias` are
@@ -209,26 +205,19 @@ impl RenderState {
             self.screen.ssao_enabled = false;
             return;
         }
+        if enabled != self.screen.ssao_enabled {
+            self.discard_capture_targets();
+        }
         self.screen.ssao_enabled = enabled;
 
-        self.screen.ssao_intensity = intensity;
+        self.screen.ssao_radius_bias = [radius, bias];
 
         if enabled {
-            self.targets.ensure_ssao_targets(&self.ctx.device);
-            self.refresh_ssao_bind_groups();
-            // Refresh the SSAO params uniform (samples are baked once
-
-            // per call; `frame_phase` updates per frame in `render()`).
-
-            let phase = (self.screen.ssao_frame_counter as f32) * 0.618_034;
-
-            let params = SsaoParams::new(radius, bias, phase.fract());
-
-            self.ctx.queue.write_buffer(
-                &self.screen.ssao_resources.ssao_params_buffer,
-                0,
-                bytemuck::bytes_of(&params),
-            );
+            if self.targets.ensure_ssao_targets(&self.ctx.device)
+                || self.screen.bindings.ssao.is_none()
+            {
+                self.refresh_ssao_bind_groups();
+            }
 
             self.ctx.queue.write_buffer(
                 &self.screen.ssao_compose.params_buffer,

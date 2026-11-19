@@ -4,6 +4,7 @@
 //! per-frame compute, draw passes, postprocess, and picking.
 
 mod artifact_flow;
+mod capture_flow;
 mod compute_build_flow;
 mod construction;
 mod culling_flow;

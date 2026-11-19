@@ -753,14 +753,25 @@ impl RenderState {
         let snapshot = self.memory_snapshot();
         let fixed_reserved_bytes = snapshot
             .total_capacity_bytes()
-            .saturating_sub(replaceable_rep_capacity_bytes(&self.scene));
-        plan_rep_budget(RepBudgetInput {
+            .saturating_sub(replaceable_rep_capacity_bytes(&self.scene))
+            .saturating_sub(self.capture.resident_bytes());
+        let diagnostics = plan_rep_budget(RepBudgetInput {
             policy: self.memory.policy,
             fixed_reserved_bytes,
             device_limits: &self.ctx.device.limits(),
             requests: &requests,
             active_rep_count,
-        })
+        });
+        if self.capture.resident_bytes() != 0 {
+            let reserved = diagnostics
+                .iter()
+                .filter(|rep| !rep.decision.is_skip())
+                .fold(fixed_reserved_bytes, |used, rep| {
+                    used.saturating_add(rep.estimate.reserved_bytes())
+                });
+            self.reserve_viewport_bytes(reserved);
+        }
+        diagnostics
     }
 
     fn update_rep_budget_diagnostics(&mut self, diagnostics: Vec<RepBudgetDiagnostic>) {

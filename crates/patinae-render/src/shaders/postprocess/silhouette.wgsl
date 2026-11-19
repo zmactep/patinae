@@ -4,14 +4,10 @@
 // one of its 4 cardinal neighbours is empty (i.e. background) or carries a
 // different `(rep_kind, object_id)` pair.
 //
-// The four-tap kernel operates in overlay-id texel space.
-// `step_and_params.xy` carries the reciprocal resolution; thickness scales
-// the step distance in visible overlay pixels.
-
+// Thickness is measured in pixels of the bound overlay id texture.
 struct SilhouetteParams {
-    // (1/overlay_width, 1/overlay_height, thickness, _unused)
-    step_and_params: vec4<f32>,
     color: vec4<f32>,
+    thickness: f32,
 };
 
 @group(0) @binding(0) var id_tex: texture_2d<u32>;
@@ -48,9 +44,9 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     if is_empty(centre) {
         discard;
     }
-    let thickness = params.step_and_params.z;
-    let dx = params.step_and_params.x * thickness;
-    let dy = params.step_and_params.y * thickness;
+    let step = vec2<f32>(params.thickness) / vec2<f32>(textureDimensions(id_tex, 0));
+    let dx = step.x;
+    let dy = step.y;
 
     let p_left = fetch(in.uv + vec2<f32>(-dx, 0.0));
     let p_right = fetch(in.uv + vec2<f32>(dx, 0.0));

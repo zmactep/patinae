@@ -8,8 +8,14 @@ use crate::representations::catalog;
 #[cfg(feature = "stats")]
 use crate::stats::Pass as StatsPass;
 
+use crate::FrameUniforms;
+
 impl RenderState {
-    pub(super) fn record_shadow_pass(&mut self, encoder: &mut wgpu::CommandEncoder) {
+    pub(super) fn record_shadow_pass(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        uniforms: &FrameUniforms,
+    ) {
         if self.lighting.shadow_mode == ShadowPassMode::Disabled {
             return;
         }
@@ -22,8 +28,10 @@ impl RenderState {
 
         match self.lighting.shadow_mode {
             ShadowPassMode::Disabled => {}
-            ShadowPassMode::Directional => self.record_directional_shadow_pass(encoder, bounds),
-            ShadowPassMode::AtlasAo => self.record_atlas_ao_shadow_pass(encoder, bounds),
+            ShadowPassMode::Directional => {
+                self.record_directional_shadow_pass(encoder, bounds, uniforms)
+            }
+            ShadowPassMode::AtlasAo => self.record_atlas_ao_shadow_pass(encoder, bounds, uniforms),
         }
     }
 
@@ -31,20 +39,21 @@ impl RenderState {
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
         bounds: SceneBounds,
+        uniforms: &FrameUniforms,
     ) {
         if self.lighting.shadow_intensity <= 0.0 {
             return;
         }
         let light_view = normalize3([
-            -self.uniforms.light_dirs[0][0],
-            -self.uniforms.light_dirs[0][1],
-            -self.uniforms.light_dirs[0][2],
+            -uniforms.light_dirs[0][0],
+            -uniforms.light_dirs[0][1],
+            -uniforms.light_dirs[0][2],
         ])
         .unwrap_or([0.4, 0.4, 1.0]);
         let light_world =
-            normalize3(transform_dir(&self.uniforms.view_inv, light_view)).unwrap_or(light_view);
+            normalize3(transform_dir(&uniforms.view_inv, light_view)).unwrap_or(light_view);
         let shadow_frame = build_shadow_frame_for_direction(
-            &self.uniforms,
+            uniforms,
             bounds,
             light_world,
             self.lighting.directional_shadow.size,
@@ -96,6 +105,7 @@ impl RenderState {
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
         bounds: SceneBounds,
+        uniforms: &FrameUniforms,
     ) {
         if self.lighting.skripkin_intensity <= 0.0 {
             return;
@@ -125,7 +135,7 @@ impl RenderState {
         for i in 0..count {
             let direction = fibonacci_sphere_direction(i, count);
             let shadow_frame =
-                build_shadow_frame_for_direction(&self.uniforms, bounds, direction, tile_size);
+                build_shadow_frame_for_direction(uniforms, bounds, direction, tile_size);
             matrices.push(shadow_frame.view_proj);
             self.lighting
                 .atlas_ao

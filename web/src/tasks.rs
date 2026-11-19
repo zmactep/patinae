@@ -28,25 +28,35 @@ fn file_blob(bytes: &[u8]) -> Result<web_sys::Blob, JsValue> {
     web_sys::Blob::new_with_u8_array_sequence(&parts)
 }
 
+fn download_anchor(
+    filename: &str,
+    blob: &web_sys::Blob,
+) -> Result<web_sys::HtmlAnchorElement, JsValue> {
+    let document = web_sys::window()
+        .and_then(|w| w.document())
+        .ok_or_else(|| JsValue::from_str("browser document unavailable"))?;
+    let anchor: web_sys::HtmlAnchorElement = document.create_element("a")?.dyn_into()?;
+    anchor.set_download(filename.rsplit(['/', '\\']).next().unwrap_or(filename));
+    anchor.set_href(&web_sys::Url::create_object_url_with_blob(blob)?);
+    Ok(anchor)
+}
+
+fn click_download(anchor: web_sys::HtmlAnchorElement) {
+    let url = anchor.href();
+    anchor.click();
+    spawn_local(async move {
+        let _ = browser_tick().await;
+        let _ = web_sys::Url::revoke_object_url(&url);
+    });
+}
+
 pub(super) fn download_file(filename: &str, bytes: &[u8]) -> patinae_cmd::CmdResult {
-    let start = || -> Result<(), JsValue> {
-        let document = web_sys::window()
-            .and_then(|w| w.document())
-            .ok_or_else(|| JsValue::from_str("browser document unavailable"))?;
-        let anchor: web_sys::HtmlAnchorElement = document.create_element("a")?.dyn_into()?;
-        anchor.set_download(filename.rsplit(['/', '\\']).next().unwrap_or(filename));
-        let url = web_sys::Url::create_object_url_with_blob(&file_blob(bytes)?)?;
-        anchor.set_href(&url);
-        // Dispatch after releasing the command's scene borrow. Click listeners
-        // on the embedding page may synchronously call back into this viewer.
-        spawn_local(async move {
-            anchor.click();
-            let _ = browser_tick().await;
-            let _ = web_sys::Url::revoke_object_url(&url);
-        });
-        Ok(())
-    };
-    start().map_err(|error| patinae_cmd::CmdError::execution(describe_js_error(&error)))
+    let anchor = file_blob(bytes)
+        .and_then(|blob| download_anchor(filename, &blob))
+        .map_err(|error| patinae_cmd::CmdError::execution(describe_js_error(&error)))?;
+    // Click listeners can reenter the viewer. Release the command's borrow first.
+    spawn_local(async move { click_download(anchor) });
+    Ok(())
 }
 
 pub(super) fn browser_task_runner() -> TaskRunner {
@@ -323,6 +333,7 @@ fn execute_command(
         let mut sink = |request: AsyncCommandRequest| {
             let kind = match &request {
                 AsyncCommandRequest::Fetch(_) => "fetch",
+                AsyncCommandRequest::ExportPng { .. } => "png",
                 AsyncCommandRequest::LoadUrl { .. } => "load",
                 AsyncCommandRequest::LoadFile { path, .. } if files.contains_key(path) => "load",
                 AsyncCommandRequest::RunScript { path }
@@ -348,15 +359,21 @@ fn execute_command(
             };
             let mut spec = TaskSpec::new(kind, OWNER);
             spec.parent_id = parent;
-            spec.scene_epoch = (kind != "script").then_some(epoch);
+            // Loads apply to a live scene. PNG readback owns its submitted frame.
+            spec.scene_epoch = matches!(kind, "load" | "fetch").then_some(epoch);
             spec.origin = "command".into();
+            spec.silent = matches!(request, AsyncCommandRequest::ExportPng { quiet: true, .. });
             match tasks.admit(spec) {
                 Ok(id) => {
                     work.push(Work {
                         id,
                         request,
                         abort,
-                        files: files.clone(),
+                        files: if matches!(kind, "load" | "script") {
+                            files.clone()
+                        } else {
+                            Files::new()
+                        },
                         script,
                     });
                     AsyncCommandAcceptance::Accepted(id)
@@ -397,9 +414,20 @@ fn execute_command(
             .aborts
             .insert(work.id, work.abort.clone());
         let weak = Rc::downgrade(state);
-        spawn_local(async move {
-            execute_work(weak, work).await;
-        });
+        if let AsyncCommandRequest::ExportPng {
+            filename,
+            width,
+            height,
+            quiet,
+        } = work.request
+        {
+            // Submit this exact command's frame before another command or animation can run.
+            let _ = state.borrow().tasks.started(work.id, OWNER);
+            let png = super::png::start(state, width, height, None, Some(work.abort.signal()));
+            spawn_local(finish_png(weak, work.id, filename, quiet, png));
+        } else {
+            spawn_local(execute_work(weak, work));
+        }
     }
     publish_changes(state);
     reply
@@ -464,9 +492,9 @@ async fn execute_work(state: Weak<RefCell<WebState>>, mut work: Work) {
             run_script(&state, &work, path, script).await;
             return;
         }
-        AsyncCommandRequest::Plugin(_) => Err(js_error(
+        AsyncCommandRequest::Plugin(_) | AsyncCommandRequest::ExportPng { .. } => Err(js_error(
             "executor_unavailable",
-            "plugins are not available in this viewer",
+            "unsupported load or script request",
         )),
     };
     let Some(host) = state.upgrade() else {
@@ -511,6 +539,56 @@ async fn execute_work(state: Weak<RefCell<WebState>>, mut work: Work) {
             };
             host.tasks.finish(work.id, outcome);
         }
+    }
+    publish_changes(&host);
+}
+
+async fn finish_png(
+    state: Weak<RefCell<WebState>>,
+    id: TaskId,
+    filename: String,
+    quiet: bool,
+    png: Result<js_sys::Promise, JsValue>,
+) {
+    let result = match png {
+        Ok(promise) => JsFuture::from(promise)
+            .await
+            .and_then(JsCast::dyn_into::<web_sys::Blob>),
+        Err(error) => Err(error),
+    };
+    let Some(host) = state.upgrade() else { return };
+    let can_download = {
+        let mut host = host.borrow_mut();
+        host.aborts.remove(&id);
+        host.tasks.begin_apply(id, host.session.task_epoch())
+    };
+    if can_download {
+        // Page click listeners may call back into this viewer, even destroy it.
+        let download = result.and_then(|blob| download_anchor(&filename, &blob));
+        let outcome = match download {
+            Ok(anchor) => {
+                click_download(anchor);
+                if !quiet {
+                    host.borrow_mut().pending_output.push(super::OutputMsg {
+                        level: "info",
+                        text: format!("Exported PNG: {filename}"),
+                    });
+                }
+                TaskOutcome::success(None, TaskEffects::None)
+            }
+            Err(error) => {
+                let message = describe_js_error(&error);
+                host.borrow_mut().pending_output.push(super::OutputMsg {
+                    level: "error",
+                    text: format!("PNG export failed: {message}"),
+                });
+                TaskOutcome::failure("png_export_failed", message)
+            }
+        };
+        let mut host = host.borrow_mut();
+        // The live loop delivers queued console messages after a redraw.
+        host.needs_redraw |= !host.pending_output.is_empty();
+        host.tasks.finish(id, outcome);
     }
     publish_changes(&host);
 }
@@ -720,7 +798,9 @@ async fn run_script(
 
 impl Drop for WebViewer {
     fn drop(&mut self) {
-        let host = self.state.borrow();
+        let mut host = self.state.borrow_mut();
+        host.closed = true;
+        host.task_listener = None;
         for abort in host.aborts.values() {
             abort.abort();
         }

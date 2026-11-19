@@ -8,8 +8,6 @@
 
 mod capture;
 mod frame;
-use frame::*;
-use patinae_color::resolve_literal_color;
 mod picking;
 mod preparation;
 mod recovery;
@@ -29,10 +27,10 @@ use patinae_render::{
     RenderMemoryRecoveryStage, RenderState, RenderSyncTimings, SceneLod, TraceGeometryChunk,
 };
 use patinae_scene::{Camera, CaptureRenderer, ObjectRegistry, PickHit, Session, ViewerError};
-use patinae_settings::{ResolvedSettings, Settings, ShadingMode};
+use patinae_settings::{ResolvedSettings, Settings};
 
 use patinae_scene::bridge::{
-    frame_uniforms_from_camera, frame_uniforms_from_session, resolve_pick,
+    configure_frame_effects, frame_uniforms_from_camera, frame_uniforms_from_session, resolve_pick,
     visit_render_scene_deferred, CachedRenderScene, ProjectedAnnotationLabel, ProjectedSceneLabels,
     ResolvedSceneMarkers, ResolvedSceneStrokes,
 };
@@ -167,12 +165,11 @@ impl ViewportRenderer {
     /// Projects all annotation labels resolved for the latest rendered frame.
     pub(crate) fn annotation_labels(
         &mut self,
-        camera: &Camera,
         viewport: (f32, f32, f32, f32),
         scale: f32,
     ) -> &[ProjectedAnnotationLabel] {
-        self.projected_labels.rebuild_with_scale(
-            camera,
+        self.projected_labels.rebuild_for_frame(
+            &self.state.uniforms.view_proj,
             viewport,
             self.render_scene.annotation_bundles(),
             scale,

@@ -31,12 +31,6 @@ pub struct FrameResources {
 
 impl FrameResources {
     fn new(device: &wgpu::Device) -> Self {
-        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("patinae.frame_uniforms"),
-            contents: bytemuck::bytes_of(&FrameUniforms::default()),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("patinae.frame_uniforms.layout"),
             entries: &[wgpu::BindGroupLayoutEntry {
@@ -53,9 +47,19 @@ impl FrameResources {
             }],
         });
 
+        Self::with_layout(device, &bind_group_layout)
+    }
+
+    pub(crate) fn with_layout(device: &wgpu::Device, layout: &wgpu::BindGroupLayout) -> Self {
+        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("patinae.frame_uniforms"),
+            contents: bytemuck::bytes_of(&FrameUniforms::default()),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("patinae.frame_uniforms.bind_group"),
-            layout: &bind_group_layout,
+            layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
                 resource: buffer.as_entire_binding(),
@@ -63,7 +67,7 @@ impl FrameResources {
         });
 
         Self {
-            bind_group_layout,
+            bind_group_layout: layout.clone(),
             bind_group,
             buffer,
         }

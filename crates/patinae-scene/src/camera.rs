@@ -570,40 +570,43 @@ impl Camera {
         world_pos: Vec3,
         viewport: (f32, f32, f32, f32),
     ) -> Option<(f32, f32)> {
-        let view = self.view_matrix();
-        let proj = self.projection_matrix();
-        let mvp = proj * view;
-
-        // Multiply mvp * [x, y, z, 1] (column-major Mat4)
-        let x = world_pos.x;
-        let y = world_pos.y;
-        let z = world_pos.z;
-        let clip_x = mvp.data[0] * x + mvp.data[4] * y + mvp.data[8] * z + mvp.data[12];
-        let clip_y = mvp.data[1] * x + mvp.data[5] * y + mvp.data[9] * z + mvp.data[13];
-        let clip_z = mvp.data[2] * x + mvp.data[6] * y + mvp.data[10] * z + mvp.data[14];
-        let clip_w = mvp.data[3] * x + mvp.data[7] * y + mvp.data[11] * z + mvp.data[15];
-
-        if !clip_w.is_finite() || clip_w <= 0.0 {
-            return None;
-        }
-
-        let ndc_x = clip_x / clip_w;
-        let ndc_y = clip_y / clip_w;
-        let ndc_z = clip_z / clip_w;
-        if !ndc_x.is_finite()
-            || !ndc_y.is_finite()
-            || !ndc_z.is_finite()
-            || !(0.0..=1.0).contains(&ndc_z)
-        {
-            return None;
-        }
-
-        let (vp_x, vp_y, vp_w, vp_h) = viewport;
-        let screen_x = vp_x + (ndc_x + 1.0) * 0.5 * vp_w;
-        let screen_y = vp_y + (1.0 - ndc_y) * 0.5 * vp_h; // flip Y for screen coords
-
-        Some((screen_x, screen_y))
+        project_to_viewport(&self.view_projection_columns(), world_pos, viewport)
     }
+
+    pub(crate) fn view_projection_columns(&self) -> [[f32; 4]; 4] {
+        let view = self.current_view();
+        (view.projection_matrix(self.aspect, self.projection) * view.view_matrix()).into()
+    }
+}
+
+/// Projects a world position using the column-major transform submitted for a frame.
+pub(crate) fn project_to_viewport(
+    view_proj: &[[f32; 4]; 4],
+    world_pos: Vec3,
+    viewport: (f32, f32, f32, f32),
+) -> Option<(f32, f32)> {
+    let clip = |row: usize| {
+        view_proj[0][row] * world_pos.x
+            + view_proj[1][row] * world_pos.y
+            + view_proj[2][row] * world_pos.z
+            + view_proj[3][row]
+    };
+    let clip_w = clip(3);
+    if !clip_w.is_finite() || clip_w <= 0.0 {
+        return None;
+    }
+
+    let ndc_x = clip(0) / clip_w;
+    let ndc_y = clip(1) / clip_w;
+    let ndc_z = clip(2) / clip_w;
+    if !ndc_x.is_finite() || !ndc_y.is_finite() || !(0.0..=1.0).contains(&ndc_z) {
+        return None;
+    }
+
+    let (vp_x, vp_y, vp_w, vp_h) = viewport;
+    let screen_x = vp_x + (ndc_x + 1.0) * 0.5 * vp_w;
+    let screen_y = vp_y + (1.0 - ndc_y) * 0.5 * vp_h;
+    Some((screen_x, screen_y))
 }
 
 // ============================================================================

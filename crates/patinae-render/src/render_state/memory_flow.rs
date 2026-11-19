@@ -30,27 +30,25 @@ impl RenderState {
 
     /// Drop optional render targets that are not required by active settings.
     pub fn drop_unused_optional_targets(&mut self) {
+        self.discard_capture_targets();
         if !self.screen.ssao_enabled {
             self.targets.clear_ssao_targets();
-            self.screen.ssao_bind_group = None;
-            self.screen.ssao_blur_h_bind_group = None;
-            self.screen.ssao_blur_v_bind_group = None;
-            self.screen.ssao_compose_bind_group = None;
+            self.screen.bindings.ssao = None;
         }
 
         if !self.screen.fxaa_enabled {
             self.targets.clear_color_scratch();
-            self.screen.fxaa_bind_group = None;
-            self.screen.fxaa_overlay_bind_group = None;
+            self.screen.bindings.fxaa_bind_group = None;
+            self.screen.bindings.fxaa_overlay_bind_group = None;
         }
 
         if !self.screen.selection_overlay_enabled {
-            self.screen.marking_bind_groups = None;
+            self.screen.bindings.marking_bind_groups = None;
             self.targets.clear_marking_targets();
         }
 
         if self.screen.silhouette_params.is_none() && !self.screen.selection_overlay_enabled {
-            self.screen.silhouette_bind_group = None;
+            self.screen.bindings.silhouette_bind_group = None;
             self.targets.clear_overlay_targets();
             self.invalidate_overlay_id_cache();
         }
@@ -66,6 +64,7 @@ impl RenderState {
         let mut ledger = GpuMemoryLedger::new();
 
         self.targets.record_memory(&mut ledger);
+        self.capture.record_memory(&mut ledger);
         ledger.add_usage(
             GpuMemoryCategory::FrameTargets,
             buffer_usage(&self.ctx.frame.buffer),
@@ -143,10 +142,6 @@ impl RenderState {
         ledger.add_usage(
             GpuMemoryCategory::Postprocess,
             buffer_usage(&self.screen.ssao_compose.params_buffer),
-        );
-        ledger.add_usage(
-            GpuMemoryCategory::Postprocess,
-            buffer_usage(&self.screen.fxaa_pass.params_buffer),
         );
 
         ledger.add_usage(GpuMemoryCategory::Shadow, self.ctx.lighting.memory_usage());

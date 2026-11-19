@@ -22,9 +22,10 @@ use crate::shader_source::{self, SILHOUETTE_WGSL};
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
 pub struct SilhouetteParams {
-    /// (1/picking_width, 1/picking_height, thickness, _unused)
-    pub step_and_params: [f32; 4],
     pub color: [f32; 4],
+    /// Outline thickness in overlay texture pixels.
+    pub thickness: f32,
+    pub(crate) padding: [f32; 3],
 }
 
 pub struct SilhouettePass {

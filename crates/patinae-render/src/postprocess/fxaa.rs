@@ -1,95 +1,33 @@
 //! FXAA postprocess pass.
 //!
 //! Reads `FrameTargets::color_scratch_view` (populated by every prior
-//! render pass when FXAA is enabled), runs a simplified Lottes-style
-//! luma-edge blend, writes the user-supplied target. A
-//! `passthrough_*` variant is identical except the shader's edge
-//! threshold is bypassed and the source is sampled with bilinear
-//! filtering — used when FXAA is disabled so the host still gets the
-//! scratch content presented to the swap-chain target.
-
-use std::num::NonZeroU64;
-
-use bytemuck::{Pod, Zeroable};
+//! render pass when FXAA is enabled), filters the premultiplied scene,
+//! and composites it onto the requested output background.
 
 use crate::context::RenderContext;
 use crate::shader_source;
 
-#[repr(C, align(16))]
-#[derive(Debug, Clone, Copy, Pod, Zeroable)]
-pub struct FxaaParams {
-    pub inv_texel_size: [f32; 2],
-    pub edge_min: f32,
-    pub edge_max: f32,
-}
-
-impl FxaaParams {
-    pub const SIZE: u64 = std::mem::size_of::<Self>() as u64;
-
-    /// Lottes-default thresholds. Setting `edge_min` to a large value
-    /// effectively disables the edge filter (every pixel exits the
-    /// early-return branch), turning the shader into a passthrough.
-    pub fn default_enabled(width: u32, height: u32) -> Self {
-        Self {
-            inv_texel_size: [1.0 / width.max(1) as f32, 1.0 / height.max(1) as f32],
-            edge_min: 0.0312,
-            edge_max: 0.125,
-        }
-    }
-}
-
 pub struct FxaaPass {
     pipeline: wgpu::RenderPipeline,
     layout: wgpu::BindGroupLayout,
-    pub params_buffer: wgpu::Buffer,
-    sampler: wgpu::Sampler,
 }
 
 impl FxaaPass {
     pub fn new(ctx: &RenderContext) -> Self {
         let device = &ctx.device;
 
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("patinae.fxaa.sampler"),
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
-            ..Default::default()
-        });
-
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("patinae.fxaa.bgl"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: NonZeroU64::new(FxaaParams::SIZE),
-                    },
-                    count: None,
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
                 },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
+                count: None,
+            }],
         });
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -115,7 +53,7 @@ impl FxaaPass {
                 entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: ctx.color_format,
-                    blend: None,
+                    blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
@@ -130,19 +68,7 @@ impl FxaaPass {
             cache: None,
         });
 
-        let params_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("patinae.fxaa.params"),
-            size: FxaaParams::SIZE,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        Self {
-            pipeline,
-            layout,
-            params_buffer,
-            sampler,
-        }
+        Self { pipeline, layout }
     }
 
     pub fn make_bind_group(
@@ -153,20 +79,10 @@ impl FxaaPass {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("patinae.fxaa.bg"),
             layout: &self.layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: self.params_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(src_color_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&self.sampler),
-                },
-            ],
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(src_color_view),
+            }],
         })
     }
 
@@ -175,6 +91,7 @@ impl FxaaPass {
         target: &wgpu::TextureView,
         encoder: &'a mut wgpu::CommandEncoder,
         bg: &'a wgpu::BindGroup,
+        background: wgpu::Color,
         timestamp_writes: Option<wgpu::RenderPassTimestampWrites<'a>>,
     ) {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -184,7 +101,7 @@ impl FxaaPass {
                 depth_slice: None,
                 resolve_target: None,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    load: wgpu::LoadOp::Clear(background),
                     store: wgpu::StoreOp::Store,
                 },
             })],

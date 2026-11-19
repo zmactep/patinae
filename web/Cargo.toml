@@ -26,9 +26,14 @@ lin_alg = { version = "1.1", features = ["computer_graphics"] }
 # WASM + WebGPU
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
+futures-channel = "0.3"
 web-sys = { version = "0.3", features = [
     "HtmlCanvasElement",
     "HtmlAnchorElement",
+    "ImageData",
+    "OffscreenCanvas",
+    "OffscreenCanvasRenderingContext2d",
+    "TextMetrics",
     "Blob",
     "Window",
     "Document",

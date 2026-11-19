@@ -146,6 +146,29 @@ const ligand = await viewer.exportFile("ligand.pdb", { selection: "sele", state:
 const compressed = await viewer.exportFile("chainA.cif.gz", { selection: "chain A" });
 ```
 
+### Exporting a PNG
+
+The `png` command renders the current scene and its labels at the requested
+pixel dimensions and downloads the image. It works in the console and in PML
+scripts. With `viewer.execute()`, wait for the returned task to complete.
+
+```pml
+set opaque_background, 0
+png molecule.png, 3200, 2400
+```
+
+Use `exportPng()` to receive an `image/png` Blob directly.
+
+```js
+const image = await viewer.exportPng({ width: 3200, height: 2400, transparent: true });
+```
+
+With one dimension the viewer preserves the current aspect ratio. With neither,
+it uses the current render buffer size in physical pixels. Both entry points
+follow `opaque_background` by default. A JS `transparent` override applies to
+one image. GPU and memory limits apply to the requested size. Wait for an export
+to finish before starting another on the same viewer.
+
 ## Interaction and panels
 
 Pass options to the `PatinaeViewer` constructor:
