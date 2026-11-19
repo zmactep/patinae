@@ -196,6 +196,17 @@ export class PatinaeViewer {
     return result;
   }
 
+  /** Serialize a session, structure, or command log using the filename extension. */
+  async exportFile(filename: string, options: { selection?: string; state?: number } = {}): Promise<Blob> {
+    const state = options.state ?? -1;
+    if (!Number.isInteger(state) || state < -2147483648 || state > 2147483647) {
+      throw new RangeError("state must be a 32-bit integer");
+    }
+    return this.core.requestWasm("export_file", wasm =>
+      wasm.export_file(filename, options.selection ?? "all", state),
+    );
+  }
+
   /** URL loading uses the common parser and returns accepted task identities. */
   async loadUrl(url: string, options?: { name?: string; format?: string }): Promise<CommandOutput> {
     let command = `load ${JSON.stringify(new URL(url, location.href).href)}`;

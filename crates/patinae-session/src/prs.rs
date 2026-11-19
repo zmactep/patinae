@@ -96,22 +96,27 @@ pub enum PrsError {
 
 /// Save a session to a `.prs` file (MessagePack + gzip).
 pub fn save_prs(session: &Session, path: &Path) -> Result<(), PrsError> {
+    write_prs(session, BufWriter::new(File::create(path)?))
+}
+
+/// Write a compressed PRS session to a stream.
+///
+/// # Errors
+/// Returns serialization, compression, or output errors.
+pub fn write_prs(session: &Session, output: impl Write) -> Result<(), PrsError> {
     let document = PrsDocumentRef {
         prs_format_version: PRS_FORMAT_VERSION,
         producer: PRS_PRODUCER,
         producer_version: PRS_PRODUCER_VERSION,
         session,
     };
-    let file = File::create(path)?;
-    // Buffer the small MessagePack writes before compression, and compressed
-    // output before disk I/O. Neither buffer scales with the session size.
-    let encoder = GzEncoder::new(BufWriter::new(file), Compression::default());
+    // Buffer the small MessagePack writes before compression.
+    let encoder = GzEncoder::new(output, Compression::default());
     let mut writer = BufWriter::new(encoder);
     document.serialize(&mut rmp_serde::Serializer::new(&mut writer).with_struct_map())?;
     writer.flush()?;
     let encoder = writer.into_inner().map_err(|error| error.into_error())?;
-    let mut file = encoder.finish()?;
-    file.flush()?;
+    encoder.finish()?.flush()?;
     Ok(())
 }
 

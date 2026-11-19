@@ -177,14 +177,13 @@ pub fn write_file(path: &Path, mol: &ObjectMolecule) -> IoResult<()> {
     write_file_format(path, mol, format)
 }
 
-fn write_path_format(
-    path: &Path,
+fn write_stream(
+    writer: impl Write,
     format: FileFormat,
+    gzip: bool,
     write: impl FnOnce(&mut dyn MoleculeWriter) -> IoResult<()>,
 ) -> IoResult<()> {
-    let file = File::create(path)?;
-    let writer = BufWriter::new(file);
-    let mut output = if compress::is_gzip_path(path) {
+    let mut output = if gzip {
         compress::MaybeGzWriter::Gzip(compress::gzip_writer(writer))
     } else {
         compress::MaybeGzWriter::Plain(writer)
@@ -203,7 +202,12 @@ fn write_path_format(
 
 /// Write a molecule to a file with a specific format
 pub fn write_file_format(path: &Path, mol: &ObjectMolecule, format: FileFormat) -> IoResult<()> {
-    write_path_format(path, format, |writer| writer.write(mol))
+    write_stream(
+        BufWriter::new(File::create(path)?),
+        format,
+        compress::is_gzip_path(path),
+        |writer| writer.write(mol),
+    )
 }
 
 /// Write multiple molecules to a file (for multi-molecule formats like SDF)
@@ -218,7 +222,25 @@ pub fn write_all_format(
     molecules: &[ObjectMolecule],
     format: FileFormat,
 ) -> IoResult<()> {
-    write_path_format(path, format, |writer| writer.write_all(molecules))
+    write_all_to(
+        BufWriter::new(File::create(path)?),
+        molecules,
+        format,
+        compress::is_gzip_path(path),
+    )
+}
+
+/// Write molecules to a stream, optionally compressing the output with gzip.
+///
+/// # Errors
+/// Returns format, compression, or output errors.
+pub fn write_all_to(
+    writer: impl Write,
+    molecules: &[ObjectMolecule],
+    format: FileFormat,
+    gzip: bool,
+) -> IoResult<()> {
+    write_stream(writer, format, gzip, |writer| writer.write_all(molecules))
 }
 
 #[cfg(feature = "traj")]

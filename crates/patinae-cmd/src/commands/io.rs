@@ -156,7 +156,7 @@ pub fn register(registry: &mut CommandRegistry) {
     registry.register(LoadCommand);
     #[cfg(feature = "traj")]
     registry.register(LoadTrajCommand);
-    registry.register(SaveCommand);
+    registry.register(SaveCommand::default());
     registry.register(PngCommand);
     registry.register(CdCommand);
     registry.register(PwdCommand);
@@ -1280,6 +1280,33 @@ _atom_site.Cartn_z
     }
 
     #[test]
+    fn download_handler_runs_only_after_successful_serialization() {
+        let mut session = Session::new();
+        let mut executor = CommandExecutor::new();
+        register_download_handler(executor.registry_mut(), |filename, bytes| {
+            assert_eq!(filename, "scene.prs");
+            assert!(bytes.starts_with(&[0x1f, 0x8b]));
+            Err(CmdError::execution("download unavailable"))
+        });
+        let mut changed = false;
+        let mut viewer = SessionAdapter {
+            session: &mut session,
+            render_context: None,
+            default_size: (64, 64),
+            needs_redraw: &mut changed,
+        };
+        for (command, expected) in [
+            ("save empty.pdb", "No atoms match"),
+            ("save unknown.bin", "Unknown file format"),
+            ("save scene.prs", "download unavailable"),
+        ] {
+            let reply = executor.execute_captured(&mut viewer, command, false, None);
+            assert!(reply.result.unwrap_err().to_string().contains(expected));
+            assert!(reply.output.messages.is_empty());
+        }
+    }
+
+    #[test]
     fn save_write_error_does_not_report_success() {
         let dir = temp_dir("save_write_error");
         let path = dir.join("missing").join("molecule.pdb.gz");
@@ -1300,7 +1327,7 @@ _atom_site.Cartn_z
         let command = format!("save {}", path.display());
         let args = crate::parse_command(&command).expect("save command should parse");
 
-        let error = SaveCommand
+        let error = SaveCommand::default()
             .execute(&mut ctx, &args)
             .expect_err("uncreatable output path should fail");
 
@@ -1492,7 +1519,59 @@ impl Command for LoadTrajCommand {
 // ============================================================================
 
 /// Save a molecular structure to file
-struct SaveCommand;
+#[derive(Default)]
+struct SaveCommand {
+    download: Option<fn(&str, &[u8]) -> CmdResult>,
+}
+
+/// Route built-in saves to the host's file download handler.
+pub fn register_download_handler(
+    registry: &mut CommandRegistry,
+    download: fn(&str, &[u8]) -> CmdResult,
+) {
+    registry.register(SaveCommand {
+        download: Some(download),
+    });
+}
+
+enum SaveTarget<'a> {
+    File,
+    Buffer(&'a mut Vec<u8>),
+}
+
+impl<'a> SaveTarget<'a> {
+    fn open(self, path: &Path) -> CmdResult<Box<dyn std::io::Write + 'a>> {
+        match self {
+            Self::File => {
+                let file = std::fs::File::create(path)
+                    .map_err(|e| CmdError::file_format(e.to_string()))?;
+                Ok(Box::new(std::io::BufWriter::new(file)))
+            }
+            Self::Buffer(buffer) => Ok(Box::new(buffer)),
+        }
+    }
+}
+
+/// Export a built-in save format to memory without executing a command.
+///
+/// # Errors
+/// Returns format, selection, or serialization errors.
+pub fn export_file(
+    ctx: &CommandContext<'_, '_, dyn ViewerLike + '_>,
+    filename: &str,
+    selection: &str,
+    state: i64,
+) -> CmdResult<Vec<u8>> {
+    let mut bytes = Vec::new();
+    save_to(
+        ctx,
+        filename,
+        selection,
+        state,
+        SaveTarget::Buffer(&mut bytes),
+    )?;
+    Ok(bytes)
+}
 
 impl Command for SaveCommand {
     fn name(&self) -> &str {
@@ -1509,8 +1588,7 @@ impl Command for SaveCommand {
         ]
         OPTIONAL [
             { "selection", "string", "atoms to save", "all" },
-            { "state", "integer", "state to save", "-1 = current" },
-            { "format", "string", "file format (auto-detected from extension)", "auto" },
+            { "state", "integer", "state to save", "all available states, as supported by the format" },
         ]
         EXAMPLES [
             "save output.pdb",
@@ -1537,136 +1615,164 @@ impl Command for SaveCommand {
 
         let state_arg = args.int_arg_or(2, "state", -1);
 
-        let path = expand_path(filename);
-        let ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("")
-            .to_lowercase();
-
-        // Session formats — handled before anything else
-        match ext.as_str() {
-            "prs" => {
-                use patinae_session::save_prs;
-                let session = ctx.viewer.session();
-                save_prs(session, &path).map_err(|e| CmdError::file_format(e.to_string()))?;
-                ctx.print(&format!(" Saved session to \"{}\"", filename));
-                return Ok(());
-            }
-            "pse" => {
-                return Err(CmdError::execution(
-                    "PSE format is read-only. Use .prs for saving sessions.",
-                ));
-            }
-            "bcif" => {
-                return Err(CmdError::execution(
-                    "BinaryCIF writing is not supported. Save as .cif instead.",
-                ));
-            }
-            "pml" => {
-                let mut file = std::fs::File::create(&path)
-                    .map_err(|e| CmdError::file_format(e.to_string()))?;
-                use std::io::Write;
-                writeln!(file, "# Command log")
-                    .map_err(|e| CmdError::file_format(e.to_string()))?;
-                let count = if let Some(history) = ctx.history() {
-                    let mut n = 0;
-                    for cmd in history.iter() {
-                        writeln!(file, "{}", cmd)
-                            .map_err(|e| CmdError::file_format(e.to_string()))?;
-                        n += 1;
-                    }
-                    n
-                } else {
-                    0
-                };
-                ctx.print(&format!(" Saved {} commands to \"{}\"", count, filename));
-                return Ok(());
-            }
-            _ => {}
-        }
-
-        let suffix = normalized_path_suffix(&path);
-        let format = if SAVE_CAPABILITY.supports_suffix(&suffix) {
-            FileFormat::from_path(&path)
+        let message = if let Some(download) = self.download {
+            let mut bytes = Vec::new();
+            let message = save_to(
+                ctx,
+                filename,
+                selection,
+                state_arg,
+                SaveTarget::Buffer(&mut bytes),
+            )?;
+            download(filename, &bytes)?;
+            message
         } else {
-            FileFormat::Unknown
+            save_to(ctx, filename, selection, state_arg, SaveTarget::File)?
         };
-        if format == FileFormat::Unknown && ctx.format_handler(&ext).is_none() {
-            return Err(CmdError::execution(format!(
-                "Unknown file format: .{} (supported: pdb, cif, mol2, sdf, xyz, gro, prs + plugins)",
-                ext
-            )));
-        }
-
-        // Evaluate selection across all objects
-        let results = evaluate_selection(ctx.viewer, selection)?;
-        crate::commands::selecting::require_explicit_selection(ctx.viewer, &results)?;
-        let matches: Vec<(String, _)> = results
-            .into_iter()
-            .filter(|(_, sel)| sel.count() > 0)
-            .collect();
-
-        if matches.is_empty() {
-            return Err(CmdError::selection(format!(
-                "No atoms match '{}'",
-                selection
-            )));
-        }
-
-        // Resolve state index: -1/0 = current, positive values are 1-based.
-        let state_idx: Option<usize> = match state_arg {
-            n if n <= 0 => None,
-            n => Some((n - 1) as usize),
-        };
-
-        // Build filtered molecules
-        let filtered: Vec<ObjectMolecule> = matches
-            .iter()
-            .filter_map(|(name, sel)| {
-                let mol_obj = ctx.viewer.objects().get_molecule(name)?;
-                Some(extract_molecule(mol_obj.molecule(), sel, name, state_idx))
-            })
-            .filter(|m| m.atom_count() > 0)
-            .collect();
-
-        if filtered.is_empty() {
-            return Err(CmdError::execution(
-                "No atoms to save after applying selection",
-            ));
-        }
-
-        let total_atoms: usize = filtered.iter().map(|m| m.atom_count()).sum();
-
-        // Write
-        let format_name = if format != FileFormat::Unknown {
-            // Built-in format
-            patinae_io::write_all(&path, &filtered)
-                .map_err(|e| CmdError::file_format(e.to_string()))?;
-            format.name().to_string()
-        } else {
-            // Plugin-provided format
-            let handler = ctx.format_handler(&ext).unwrap();
-            let writer_fn = handler.writer.as_ref().ok_or_else(|| {
-                CmdError::execution(format!(
-                    "Format '{}' does not support writing",
-                    handler.name
-                ))
-            })?;
-            let file =
-                std::fs::File::create(&path).map_err(|e| CmdError::file_format(e.to_string()))?;
-            let buf_writer: Box<dyn std::io::Write> = Box::new(std::io::BufWriter::new(file));
-            (writer_fn)(buf_writer, &filtered).map_err(CmdError::file_format)?;
-            handler.name.clone()
-        };
-
-        ctx.print(&format!(
-            " Saved {} atoms to \"{}\" ({} format)",
-            total_atoms, filename, format_name
-        ));
-
+        ctx.print(&message);
         Ok(())
     }
+}
+
+fn save_to(
+    ctx: &CommandContext<'_, '_, dyn ViewerLike + '_>,
+    filename: &str,
+    selection: &str,
+    state_arg: i64,
+    target: SaveTarget<'_>,
+) -> CmdResult<String> {
+    let path = expand_path(filename);
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+
+    // Session formats — handled before anything else
+    match ext.as_str() {
+        "prs" => {
+            use patinae_session::prs::write_prs;
+            let session = ctx.viewer.session();
+            write_prs(session, target.open(&path)?)
+                .map_err(|e| CmdError::file_format(e.to_string()))?;
+            return Ok(format!(" Saved session to \"{}\"", filename));
+        }
+        "pse" => {
+            return Err(CmdError::execution(
+                "PSE format is read-only. Use .prs for saving sessions.",
+            ));
+        }
+        "bcif" => {
+            return Err(CmdError::execution(
+                "BinaryCIF writing is not supported. Save as .cif instead.",
+            ));
+        }
+        "pml" => {
+            let mut file = target.open(&path)?;
+            use std::io::Write;
+            writeln!(file, "# Command log").map_err(|e| CmdError::file_format(e.to_string()))?;
+            let count = if let Some(history) = ctx.history() {
+                let mut n = 0;
+                for cmd in history.iter() {
+                    writeln!(file, "{}", cmd).map_err(|e| CmdError::file_format(e.to_string()))?;
+                    n += 1;
+                }
+                n
+            } else {
+                0
+            };
+            file.flush()
+                .map_err(|e| CmdError::file_format(e.to_string()))?;
+            return Ok(format!(" Saved {} commands to \"{}\"", count, filename));
+        }
+        _ => {}
+    }
+
+    let suffix = normalized_path_suffix(&path);
+    let format = if SAVE_CAPABILITY.supports_suffix(&suffix) {
+        FileFormat::from_path(&path)
+    } else {
+        FileFormat::Unknown
+    };
+    if format == FileFormat::Unknown
+        && (matches!(target, SaveTarget::Buffer(_)) || ctx.format_handler(&ext).is_none())
+    {
+        return Err(CmdError::execution(format!(
+            "Unknown file format: .{} (supported: pdb, cif, mol2, sdf, xyz, gro, prs + plugins)",
+            ext
+        )));
+    }
+
+    // Evaluate selection across all objects
+    let results = evaluate_selection(ctx.viewer, selection)?;
+    crate::commands::selecting::require_explicit_selection(ctx.viewer, &results)?;
+    let matches: Vec<(String, _)> = results
+        .into_iter()
+        .filter(|(_, sel)| sel.count() > 0)
+        .collect();
+
+    if matches.is_empty() {
+        return Err(CmdError::selection(format!(
+            "No atoms match '{}'",
+            selection
+        )));
+    }
+
+    // Nonpositive values retain all coordinate sets; positive values are 1-based.
+    let state_idx: Option<usize> = match state_arg {
+        n if n <= 0 => None,
+        n => Some((n - 1) as usize),
+    };
+
+    // Build filtered molecules
+    let filtered: Vec<ObjectMolecule> = matches
+        .iter()
+        .filter_map(|(name, sel)| {
+            let mol_obj = ctx.viewer.objects().get_molecule(name)?;
+            Some(extract_molecule(mol_obj.molecule(), sel, name, state_idx))
+        })
+        .filter(|m| m.atom_count() > 0)
+        .collect();
+
+    if filtered.is_empty() {
+        return Err(CmdError::execution(
+            "No atoms to save after applying selection",
+        ));
+    }
+
+    let total_atoms: usize = filtered.iter().map(|m| m.atom_count()).sum();
+
+    // Write
+    let format_name = if format != FileFormat::Unknown {
+        // Built-in format
+        patinae_io::write_all_to(
+            target.open(&path)?,
+            &filtered,
+            format,
+            patinae_io::compress::is_gzip_path(&path),
+        )
+        .map_err(|e| CmdError::file_format(e.to_string()))?;
+        format.name().to_string()
+    } else {
+        // Plugin-provided format
+        let handler = ctx.format_handler(&ext).unwrap();
+        let writer_fn = handler.writer.as_ref().ok_or_else(|| {
+            CmdError::execution(format!(
+                "Format '{}' does not support writing",
+                handler.name
+            ))
+        })?;
+        let file =
+            std::fs::File::create(&path).map_err(|e| CmdError::file_format(e.to_string()))?;
+        let buf_writer: Box<dyn std::io::Write> = Box::new(std::io::BufWriter::new(file));
+        (writer_fn)(buf_writer, &filtered).map_err(CmdError::file_format)?;
+        handler.name.clone()
+    };
+
+    Ok(format!(
+        " Saved {} atoms to \"{}\" ({} format)",
+        total_atoms, filename, format_name
+    ))
 }
 
 // ============================================================================

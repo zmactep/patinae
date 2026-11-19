@@ -23,6 +23,32 @@ const WAIT_INTERVAL_MS: i32 = 10;
 type Files = HashMap<String, Vec<u8>>;
 type SharedState = Rc<RefCell<WebState>>;
 
+fn file_blob(bytes: &[u8]) -> Result<web_sys::Blob, JsValue> {
+    let parts = js_sys::Array::of1(&js_sys::Uint8Array::from(bytes));
+    web_sys::Blob::new_with_u8_array_sequence(&parts)
+}
+
+pub(super) fn download_file(filename: &str, bytes: &[u8]) -> patinae_cmd::CmdResult {
+    let start = || -> Result<(), JsValue> {
+        let document = web_sys::window()
+            .and_then(|w| w.document())
+            .ok_or_else(|| JsValue::from_str("browser document unavailable"))?;
+        let anchor: web_sys::HtmlAnchorElement = document.create_element("a")?.dyn_into()?;
+        anchor.set_download(filename.rsplit(['/', '\\']).next().unwrap_or(filename));
+        let url = web_sys::Url::create_object_url_with_blob(&file_blob(bytes)?)?;
+        anchor.set_href(&url);
+        // Dispatch after releasing the command's scene borrow. Click listeners
+        // on the embedding page may synchronously call back into this viewer.
+        spawn_local(async move {
+            anchor.click();
+            let _ = browser_tick().await;
+            let _ = web_sys::Url::revoke_object_url(&url);
+        });
+        Ok(())
+    };
+    start().map_err(|error| patinae_cmd::CmdError::execution(describe_js_error(&error)))
+}
+
 pub(super) fn browser_task_runner() -> TaskRunner {
     let instance = ((js_sys::Date::now() as u128) << 64)
         | ((js_sys::Math::random() * u64::MAX as f64) as u128);
@@ -68,6 +94,35 @@ fn publish_changes(state: &SharedState) {
 
 #[wasm_bindgen]
 impl WebViewer {
+    /// Serialize a built-in file format without changing command history.
+    pub fn export_file(
+        &self,
+        filename: &str,
+        selection: &str,
+        state: i32,
+    ) -> Result<web_sys::Blob, JsValue> {
+        let mut host = self.state.borrow_mut();
+        let WebState {
+            session,
+            executor,
+            width,
+            height,
+            needs_redraw,
+            ..
+        } = &mut *host;
+        let mut viewer = patinae_scene::SessionAdapter {
+            session,
+            render_context: None,
+            default_size: (*width, *height),
+            needs_redraw,
+        };
+        let ctx = patinae_cmd::CommandContext::new(&mut viewer as &mut dyn patinae_cmd::ViewerLike)
+            .with_history(executor.history());
+        let bytes = patinae_cmd::commands::io::export_file(&ctx, filename, selection, state.into())
+            .map_err(|error| js_sys::Error::new(&error.to_string()))?;
+        file_blob(&bytes)
+    }
+
     /// Execute a command and return its admission or synchronous result.
     pub fn execute(&self, command: &str) -> Result<JsValue, JsValue> {
         json(&execute_command(
@@ -613,12 +668,13 @@ async fn run_script(
                 continue;
             }
             ScriptAction::Execute { line, command } => {
-                let result = script
-                    .resolve_command(
-                        &command,
-                        host.borrow().executor.registry(),
-                        resolve_script_path,
-                    )
+                // Release the registry borrow before execution mutates the viewer.
+                let resolved = script.resolve_command(
+                    &command,
+                    host.borrow().executor.registry(),
+                    resolve_script_path,
+                );
+                let result = resolved
                     .and_then(|command| {
                         {
                             let host = host.borrow();

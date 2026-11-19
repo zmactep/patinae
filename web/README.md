@@ -127,6 +127,25 @@ scene changes. Results live in bounded, in-memory history and may expire.
 `tasks.changed` events signal that a fresh snapshot is available; the Rust
 runner remains the source of task state.
 
+## Saving files
+
+Use `save` in the console, a PML script, or `viewer.execute()` to download a
+file. The browser uses the last component of the filename.
+
+```pml
+save scene.prs
+save ligand.pdb, sele
+save chainA.cif.gz, chain A
+```
+
+Use `exportFile()` to get a `Blob` for your own application:
+
+```js
+const scene = await viewer.exportFile("scene.prs");
+const ligand = await viewer.exportFile("ligand.pdb", { selection: "sele", state: 2 });
+const compressed = await viewer.exportFile("chainA.cif.gz", { selection: "chain A" });
+```
+
 ## Interaction and panels
 
 Pass options to the `PatinaeViewer` constructor:

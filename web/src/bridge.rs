@@ -282,11 +282,16 @@ async fn create_web_viewer(
     let recovery = RenderMemoryRecoveryStage::normal(gpu.config.memory.profile);
     let auto_memory_policy = gpu.config.memory;
     let last_registry_generation = session.registry.generation();
+    let mut executor = CommandExecutor::new();
+    patinae_cmd::commands::io::register_download_handler(
+        executor.registry_mut(),
+        tasks::download_file,
+    );
 
     Ok(WebViewer {
         state: std::rc::Rc::new(RefCell::new(WebState {
             session,
-            executor: CommandExecutor::new(),
+            executor,
             gpu: Some(gpu),
             auto_memory_policy,
             recovery,
