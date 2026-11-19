@@ -1,0 +1,74 @@
+name: Re-notarize latest macOS release
+
+on: workflow_dispatch
+
+permissions:
+  contents: write
+
+concurrency:
+  group: renotarize-latest-macos
+  cancel-in-progress: false
+
+jobs:
+  renotarize:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Download the latest stable release DMG
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/releases/latest" > "$RUNNER_TEMP/release.json"
+          cd "$RUNNER_TEMP"
+          if jq -e '.immutable' release.json >/dev/null; then
+            echo "::error::GitHub has locked the assets of this release."
+            exit 1
+          fi
+          tag=$(jq -er '.tag_name' release.json)
+          asset=$(jq -er '.assets[] | select(.name == "Patinae.dmg" and .state == "uploaded") | .id' release.json)
+          echo "Downloading Patinae.dmg from $tag (asset $asset)"
+          gh api -H 'Accept: application/octet-stream' "repos/$GITHUB_REPOSITORY/releases/assets/$asset" > source.dmg
+          echo "asset=$asset" >> "$GITHUB_OUTPUT"
+          echo "Release: $tag (original asset $asset)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Notarize the signed app and verify the packaged ticket
+        env:
+          PATINAE_APPLE_TEAMID: ${{ secrets.PATINAE_APPLE_TEAMID }}
+          PATINAE_APPLE_EMAIL: ${{ secrets.PATINAE_APPLE_EMAIL }}
+          PATINAE_APPLE_APP_PASS: ${{ secrets.PATINAE_APPLE_APP_PASS }}
+          PATINAE_NOTARY_REPORT_DIR: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          mkdir mount
+          hdiutil convert source.dmg -format UDRW -o writable.dmg
+          hdiutil attach writable.dmg -nobrowse -mountpoint "$PWD/mount"
+          trap 'hdiutil detach "$PWD/mount" || true' EXIT
+          bash "$GITHUB_WORKSPACE/macos/notarize.sh" "$PWD/mount/Patinae.app"
+          hdiutil detach "$PWD/mount"
+          trap - EXIT
+          hdiutil convert writable.dmg -format UDZO -o Patinae.dmg
+          hdiutil attach Patinae.dmg -readonly -nobrowse -mountpoint "$PWD/mount"
+          trap 'hdiutil detach "$PWD/mount"' EXIT
+          codesign --verify --deep --strict mount/Patinae.app
+          xcrun stapler validate mount/Patinae.app
+          spctl --assess --type execute --verbose=2 mount/Patinae.app
+
+      - name: Save Apple notarization reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: notarization-reports
+          path: ${{ runner.temp }}/notarization.*/*.json
+          if-no-files-found: ignore
+
+      - name: Replace the verified release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ORIGINAL_ASSET: ${{ steps.source.outputs.asset }}
+        run: bash scripts/replace-release-dmg.sh

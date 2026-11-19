@@ -25,3 +25,20 @@ layout. Do not use its `--skip-jenkins` or `--sandbox-safe` options, which skip
 the styling step. Open the final image in Finder to check the background,
 icon positions, absence of scrollbars, and the Applications link after changes.
 Eject the previous Patinae volume before checking a newly generated image.
+
+## Retry notarization for a published release
+
+In GitHub Actions, select **Re-notarize latest macOS release**, choose the
+default branch and click **Run workflow**. The run resolves the published
+GitHub release marked **Latest** at startup. Wait for the intended version to
+appear as Latest before starting the workflow.
+
+The workflow uses the signed `Patinae.app` in the published `Patinae.dmg`
+and the release's existing Apple credentials. After Apple accepts the app,
+the workflow staples the ticket and checks the app with Gatekeeper inside
+the final compressed image. It then replaces the DMG at its existing download
+URL. Apple submission reports are available in the run artifacts.
+
+If publication is interrupted during the two asset renames, the original
+image is available as `Patinae-original-<asset ID>.dmg`. If the release is
+missing `Patinae.dmg`, rename that original back before retrying.

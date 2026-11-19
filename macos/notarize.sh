@@ -19,7 +19,7 @@ else
 fi
 
 codesign --verify --deep --strict "$artifact"
-report=$(mktemp -d "$(dirname "$artifact")/notarization.XXXXXX")
+report=$(mktemp -d "${PATINAE_NOTARY_REPORT_DIR:-$(dirname "$artifact")}/notarization.XXXXXX")
 upload=$artifact
 if [[ "$artifact" == *.app ]]; then
     upload="$report/submission.zip"
